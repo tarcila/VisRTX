@@ -12,7 +12,7 @@ namespace tsd::rendering {
 // Thrust kernels /////////////////////////////////////////////////////////////
 
 void computeDepthImage(
-    RenderPass::Buffers &b, float maxDepth, tsd::math::uint2 size)
+    RenderBuffers &b, float maxDepth, tsd::math::uint2 size)
 {
   detail::parallel_for(
       0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
@@ -33,7 +33,7 @@ void VisualizeDepthPass::setMaxDepth(float d)
   m_maxDepth = d;
 }
 
-void VisualizeDepthPass::render(Buffers &b, int stageId)
+void VisualizeDepthPass::render(RenderBuffers &b, int stageId)
 {
   if (stageId == 0)
     return;

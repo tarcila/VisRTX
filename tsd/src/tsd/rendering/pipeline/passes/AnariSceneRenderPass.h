@@ -27,12 +27,12 @@ struct AnariSceneRenderPass : public RenderPass
 
  private:
   void updateSize() override;
-  void render(Buffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
   void copyFrameData();
-  void composite(Buffers &b, int stageId);
+  void composite(RenderBuffers &b, int stageId);
   void cleanup();
 
-  Buffers m_buffers;
+  RenderBuffers m_buffers;
 
   bool m_firstFrame{true};
   bool m_deviceSupportsCUDAFrames{false};

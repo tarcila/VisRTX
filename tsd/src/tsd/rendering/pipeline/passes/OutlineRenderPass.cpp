@@ -20,7 +20,7 @@ DEVICE_FCN_INLINE uint32_t shadePixel(uint32_t c_in)
 };
 
 void computeOutline(
-    RenderPass::Buffers &b, uint32_t outlineId, tsd::math::uint2 size)
+    RenderBuffers &b, uint32_t outlineId, tsd::math::uint2 size)
 {
   detail::parallel_for(
       0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
@@ -56,7 +56,7 @@ void OutlineRenderPass::setOutlineId(uint32_t id)
   m_outlineId = id;
 }
 
-void OutlineRenderPass::render(Buffers &b, int stageId)
+void OutlineRenderPass::render(RenderBuffers &b, int stageId)
 {
   if (!b.objectId || stageId == 0 || m_outlineId == ~0u)
     return;

@@ -246,6 +246,11 @@ const LayerMap &Context::layers() const
   return m_layers;
 }
 
+size_t Context::numberOfLayers() const
+{
+  return m_layers.size();
+}
+
 Layer *Context::layer(size_t i) const
 {
   return m_layers.at_index(i).second.get();

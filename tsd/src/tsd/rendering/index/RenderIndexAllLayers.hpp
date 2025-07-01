@@ -9,8 +9,6 @@
 
 namespace tsd::rendering {
 
-using InstanceCache = FlatMap<const Layer *, std::vector<anari::Instance>>;
-
 struct RenderIndexAllLayers : public RenderIndex
 {
   RenderIndexAllLayers(Context &ctx, anari::Device d);
@@ -18,6 +16,11 @@ struct RenderIndexAllLayers : public RenderIndex
 
   bool isFlat() const override;
 
+  // Set the layers to include in the rendering index.
+  //   - If empty, all layers will be included.
+  //   - If set, only the specified layers will be included.
+  // This will trigger a full update of the index.
+  void setIncludedLayers(const std::vector<const Layer *> &layers = {});
   void setFilterFunction(RenderIndexFilterFcn f) override;
 
   void signalArrayUnmapped(const Array *a) override;
@@ -33,7 +36,10 @@ struct RenderIndexAllLayers : public RenderIndex
   void releaseAllInstances();
 
   RenderIndexFilterFcn m_filter;
+  std::vector<const Layer *> m_includedLayers;
   bool m_filterForceUpdate{false};
+
+  using InstanceCache = FlatMap<const Layer *, std::vector<anari::Instance>>;
   InstanceCache m_instanceCache;
 };
 

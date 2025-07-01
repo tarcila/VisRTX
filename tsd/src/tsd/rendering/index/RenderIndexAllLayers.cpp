@@ -34,6 +34,14 @@ bool RenderIndexAllLayers::isFlat() const
   return false;
 }
 
+void RenderIndexAllLayers::setIncludedLayers(
+    const std::vector<const Layer *> &layers)
+{
+  m_includedLayers = layers;
+  signalRemoveAllObjects();
+  updateWorld();
+}
+
 void RenderIndexAllLayers::setFilterFunction(RenderIndexFilterFcn f)
 {
   m_filter = f;
@@ -50,21 +58,27 @@ void RenderIndexAllLayers::signalArrayUnmapped(const Array *a)
 
 void RenderIndexAllLayers::signalLayerAdded(const Layer *l)
 {
-  syncLayerInstances(l);
-  updateWorld();
+  if (m_includedLayers.empty()) {
+    syncLayerInstances(l);
+    updateWorld();
+  }
 }
 
 void RenderIndexAllLayers::signalLayerUpdated(const Layer *l)
 {
-  syncLayerInstances(l);
-  updateWorld();
+  if (m_includedLayers.empty() || m_instanceCache.contains(l)) {
+    syncLayerInstances(l);
+    updateWorld();
+  }
 }
 
 void RenderIndexAllLayers::signalLayerRemoved(const Layer *l)
 {
-  releaseInstances(device(), m_instanceCache[l]);
-  m_instanceCache.erase(l);
-  updateWorld();
+  if (m_includedLayers.empty() || m_instanceCache.contains(l)) {
+    releaseInstances(device(), m_instanceCache[l]);
+    m_instanceCache.erase(l);
+    updateWorld();
+  }
 }
 
 void RenderIndexAllLayers::signalObjectFilteringChanged()
@@ -88,8 +102,13 @@ void RenderIndexAllLayers::updateWorld()
   auto w = world();
 
   if (m_instanceCache.empty()) {
-    for (auto &l : m_ctx->layers())
-      syncLayerInstances(l.second.get());
+    if (!m_includedLayers.empty()) { // only sync specified layers
+      for (auto &l : m_includedLayers)
+        syncLayerInstances(l);
+    } else { // sync everything
+      for (auto &l : m_ctx->layers())
+        syncLayerInstances(l.second.get());
+    }
   }
 
   std::vector<anari::Instance> instances;

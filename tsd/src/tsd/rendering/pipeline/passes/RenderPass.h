@@ -7,15 +7,15 @@
 
 namespace tsd::rendering {
 
+struct RenderBuffers
+{
+  uint32_t *color{nullptr};
+  float *depth{nullptr};
+  uint32_t *objectId{nullptr};
+};
+
 struct RenderPass
 {
-  struct Buffers
-  {
-    uint32_t *color{nullptr};
-    float *depth{nullptr};
-    uint32_t *objectId{nullptr};
-  };
-
   RenderPass();
   virtual ~RenderPass();
 
@@ -25,7 +25,7 @@ struct RenderPass
   tsd::math::uint2 getDimensions() const;
 
  protected:
-  virtual void render(Buffers &b, int stageId) = 0;
+  virtual void render(RenderBuffers &b, int stageId) = 0;
   virtual void updateSize();
 
  private:
@@ -44,6 +44,7 @@ namespace detail {
 void *allocate_(size_t numBytes);
 void free_(void *ptr);
 void memcpy_(void *dst, const void *src, size_t numBytes);
+void convertFloatColorBuffer_(const float *v, uint8_t *out, size_t totalSize);
 
 template <typename T>
 inline void copy(T *dst, const T *src, size_t numElements)

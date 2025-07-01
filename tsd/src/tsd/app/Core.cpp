@@ -16,7 +16,7 @@
 
 namespace tsd::app {
 
-static void statusFunc(const void *_core,
+void anariStatusFunc(const void *_core,
     ANARIDevice device,
     ANARIObject source,
     ANARIDataType sourceType,
@@ -216,7 +216,8 @@ anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName)
     return dev;
   }
 
-  auto library = anari::loadLibrary(libraryName.c_str(), statusFunc, m_core);
+  auto library =
+      anari::loadLibrary(libraryName.c_str(), anariStatusFunc, m_core);
   if (!library)
     return nullptr;
 

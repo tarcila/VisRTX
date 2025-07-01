@@ -3,8 +3,6 @@
 
 #include "Viewport.h"
 #include "Log.h"
-// tsd_app
-#include "tsd/app/Core.h"
 // tsd_ui_imgui
 #include "tsd/ui/imgui/Application.h"
 #include "tsd/ui/imgui/tsd_ui_imgui.h"
@@ -205,16 +203,6 @@ void Viewport::setLibrary(const std::string &libName, bool doAsync)
           appCore()->addCurrentViewToCameraPoses("default");
         }
         firstFrame = false;
-      } else {
-        // NOTE(jda) - this *should* cause a commit buffer flush
-        tsd::math::float3 bounds[2];
-        anariGetProperty(m_device,
-            m_rIdx->world(),
-            "bounds",
-            ANARI_FLOAT32_BOX3,
-            &bounds[0],
-            sizeof(bounds),
-            ANARI_WAIT);
       }
 
       tsd::core::logStatus("[viewport] ...device load complete");
@@ -366,7 +354,7 @@ void Viewport::setupRenderPipeline()
       m_pipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
   m_pickPass = m_pipeline.emplace_back<tsd::rendering::PickPass>();
   m_pickPass->setEnabled(false);
-  m_pickPass->setPickOperation([&](tsd::rendering::RenderPass::Buffers &b) {
+  m_pickPass->setPickOperation([&](tsd::rendering::RenderBuffers &b) {
     // Get depth //
 
     auto [width, height] = m_pickPass->getDimensions();

@@ -72,7 +72,11 @@ struct MultiUpdateDelegate : public BaseUpdateDelegate
   void clear();
   void erase(const BaseUpdateDelegate *d);
 
+  const BaseUpdateDelegate *get(size_t i) const;
+  BaseUpdateDelegate *get(size_t i);
+
   const BaseUpdateDelegate *operator[](size_t i) const;
+  BaseUpdateDelegate *operator[](size_t i);
 
   void signalObjectAdded(const Object *o) override;
   void signalParameterUpdated(const Object *o, const Parameter *p) override;

@@ -2,6 +2,7 @@
 ## SPDX-License-Identifier: Apache-2.0
 
 add_subdirectory(demos)
+add_subdirectory(multiDeviceViewer)
 add_subdirectory(viewer)
 option(BUILD_PTC_VIEWER "Build MPI viewer" OFF)
 if (BUILD_PTC_VIEWER)

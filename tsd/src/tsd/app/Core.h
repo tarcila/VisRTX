@@ -218,4 +218,12 @@ struct Core
   //////////////////////////////
 };
 
+void anariStatusFunc(const void *_core,
+    ANARIDevice device,
+    ANARIObject source,
+    ANARIDataType sourceType,
+    ANARIStatusSeverity severity,
+    ANARIStatusCode code,
+    const char *message);
+
 } // namespace tsd::app

@@ -25,9 +25,24 @@ void MultiUpdateDelegate::erase(const BaseUpdateDelegate *d)
       m_delegates.end());
 }
 
-const BaseUpdateDelegate *MultiUpdateDelegate::operator[](size_t i) const
+const BaseUpdateDelegate *MultiUpdateDelegate::get(size_t i) const
 {
   return m_delegates[i].get();
+}
+
+BaseUpdateDelegate *MultiUpdateDelegate::get(size_t i)
+{
+  return m_delegates[i].get();
+}
+
+const BaseUpdateDelegate *MultiUpdateDelegate::operator[](size_t i) const
+{
+  return get(i);
+}
+
+BaseUpdateDelegate *MultiUpdateDelegate::operator[](size_t i)
+{
+  return get(i);
 }
 
 void MultiUpdateDelegate::signalObjectAdded(const Object *o)

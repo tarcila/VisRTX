@@ -12,6 +12,7 @@ PRIVATE
   index/RenderIndexAllLayers.cpp
   pipeline/passes/AnariAxesRenderPass.cpp
   pipeline/passes/AnariSceneRenderPass.cpp
+  pipeline/passes/ClearBuffersPass.cpp
   pipeline/passes/CopyToSDLTexturePass.cpp
   pipeline/passes/OutlineRenderPass.cpp
   pipeline/passes/PickPass.cpp

@@ -7,16 +7,14 @@
 #include "tsd/core/AnariObjectCache.hpp"
 #include "tsd/core/scene/Context.hpp"
 #include "tsd/core/scene/UpdateDelegate.hpp"
-// std
-#include <functional>
+// tsd_rendering
+#include "tsd/rendering/index/RenderIndexFilterFcn.hpp"
 
 namespace tsd::rendering {
 
 using namespace tsd::core;
 
 struct RenderToAnariObjectsVisitor;
-
-using RenderIndexFilterFcn = std::function<bool(const Object *)>;
 
 struct RenderIndex : public BaseUpdateDelegate
 {
@@ -59,6 +57,8 @@ struct RenderIndex : public BaseUpdateDelegate
  private:
   friend struct RenderToAnariObjectsVisitor;
 };
+
+using MultiRenderIndex = tsd::core::MultiUpdateDelegate;
 
 // Inlined definitions ////////////////////////////////////////////////////////
 

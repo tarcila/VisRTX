@@ -3,11 +3,14 @@
 
 #include "RenderPass.h"
 // std
+#include <algorithm>
 #include <cstring>
 
 #if USE_CUDA
 #include "cuda_runtime.h"
 #endif
+
+#include "detail/parallel_transform.h"
 
 namespace tsd::rendering {
 
@@ -77,6 +80,13 @@ void memcpy_(void *dst, const void *src, size_t numBytes)
 #else
   std::memcpy(dst, src, numBytes);
 #endif
+}
+
+void convertFloatColorBuffer_(const float *v, uint8_t *out, size_t totalSize)
+{
+  detail::parallel_transform(v, v + totalSize, out, [] DEVICE_FCN(float v) {
+    return uint8_t(std::clamp(v, 0.f, 1.f) * 255);
+  });
 }
 
 } // namespace detail

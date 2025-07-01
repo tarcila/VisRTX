@@ -21,7 +21,7 @@ struct AnariAxesRenderPass : public RenderPass
   bool isValid() const;
   void setupWorld();
   void updateSize() override;
-  void render(Buffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
 
   bool m_deviceUsable{true};
   bool m_firstFrame{true};

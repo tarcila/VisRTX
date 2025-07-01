@@ -15,7 +15,7 @@ struct VisualizeDepthPass : public RenderPass
   void setMaxDepth(float d);
 
  private:
-  void render(Buffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
 
   float m_maxDepth{1.f};
 };

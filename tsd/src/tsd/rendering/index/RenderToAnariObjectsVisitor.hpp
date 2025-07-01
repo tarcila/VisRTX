@@ -3,7 +3,10 @@
 
 #pragma once
 
+// tsd_core
 #include "tsd/core/scene/Layer.hpp"
+// tsd_rendering
+#include "tsd/rendering/index/RenderIndexFilterFcn.hpp"
 // std
 #include <algorithm>
 #include <iterator>
@@ -11,20 +14,20 @@
 
 namespace tsd::rendering {
 
-struct RenderToAnariObjectsVisitor : public LayerVisitor
+struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
 {
   RenderToAnariObjectsVisitor(anari::Device d,
-      AnariObjectCache &oc,
+      tsd::core::AnariObjectCache &oc,
       std::vector<anari::Instance> *instances,
-      Context *ctx,
+      tsd::core::Context *ctx,
       RenderIndexFilterFcn *f = nullptr);
   ~RenderToAnariObjectsVisitor();
 
-  bool preChildren(LayerNode &n, int level) override;
-  void postChildren(LayerNode &n, int level) override;
+  bool preChildren(tsd::core::LayerNode &n, int level) override;
+  void postChildren(tsd::core::LayerNode &n, int level) override;
 
  private:
-  bool isIncludedAfterFiltering(const LayerNode &n) const;
+  bool isIncludedAfterFiltering(const tsd::core::LayerNode &n) const;
   void createInstanceFromTop();
 
   struct GroupedObjects
@@ -35,21 +38,21 @@ struct RenderToAnariObjectsVisitor : public LayerVisitor
   };
 
   anari::Device m_device{nullptr};
-  AnariObjectCache *m_cache{nullptr};
+  tsd::core::AnariObjectCache *m_cache{nullptr};
   std::vector<anari::Instance> *m_instances{nullptr};
   std::stack<tsd::math::mat4> m_xfms;
   std::stack<GroupedObjects> m_objects;
-  const Array *m_xfmArray{nullptr};
-  Context *m_ctx{nullptr};
+  const tsd::core::Array *m_xfmArray{nullptr};
+  tsd::core::Context *m_ctx{nullptr};
   RenderIndexFilterFcn *m_filter{nullptr};
 };
 
 // Inlined definitions ////////////////////////////////////////////////////////
 
 inline RenderToAnariObjectsVisitor::RenderToAnariObjectsVisitor(anari::Device d,
-    AnariObjectCache &oc,
+    tsd::core::AnariObjectCache &oc,
     std::vector<anari::Instance> *instances,
-    Context *ctx,
+    tsd::core::Context *ctx,
     RenderIndexFilterFcn *f)
     : m_device(d), m_cache(&oc), m_instances(instances), m_ctx(ctx), m_filter(f)
 {
@@ -63,7 +66,8 @@ inline RenderToAnariObjectsVisitor::~RenderToAnariObjectsVisitor()
   anari::release(m_device, m_device);
 }
 
-inline bool RenderToAnariObjectsVisitor::preChildren(LayerNode &n, int level)
+inline bool RenderToAnariObjectsVisitor::preChildren(
+    tsd::core::LayerNode &n, int level)
 {
   if (!n->enabled)
     return false;
@@ -94,7 +98,7 @@ inline bool RenderToAnariObjectsVisitor::preChildren(LayerNode &n, int level)
     m_objects.emplace();
     break;
   case ANARI_ARRAY1D: {
-    auto *a = (const Array *)m_ctx->getObject(n->value);
+    auto *a = (const tsd::core::Array *)m_ctx->getObject(n->value);
     if (a && a->elementType() == ANARI_FLOAT32_MAT4) {
       m_objects.emplace();
       m_xfmArray = a;
@@ -107,7 +111,8 @@ inline bool RenderToAnariObjectsVisitor::preChildren(LayerNode &n, int level)
   return true;
 }
 
-inline void RenderToAnariObjectsVisitor::postChildren(LayerNode &n, int level)
+inline void RenderToAnariObjectsVisitor::postChildren(
+    tsd::core::LayerNode &n, int level)
 {
   if (!n->enabled)
     return;
@@ -115,7 +120,7 @@ inline void RenderToAnariObjectsVisitor::postChildren(LayerNode &n, int level)
   bool consumeXfmArray = false;
   switch (n->value.type()) {
   case ANARI_ARRAY1D: {
-    auto *a = (Array *)m_ctx->getObject(n->value);
+    auto *a = (tsd::core::Array *)m_ctx->getObject(n->value);
     if (!a || a->elementType() != ANARI_FLOAT32_MAT4)
       break;
     consumeXfmArray = true;
@@ -154,8 +159,8 @@ inline void RenderToAnariObjectsVisitor::postChildren(LayerNode &n, int level)
   }
 }
 
-bool RenderToAnariObjectsVisitor::isIncludedAfterFiltering(
-    const LayerNode &n) const
+inline bool RenderToAnariObjectsVisitor::isIncludedAfterFiltering(
+    const tsd::core::LayerNode &n) const
 {
   if (!m_filter)
     return true;

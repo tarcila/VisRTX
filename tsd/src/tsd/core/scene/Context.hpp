@@ -111,6 +111,7 @@ struct Context
   // Layers //
 
   const LayerMap &layers() const;
+  size_t numberOfLayers() const;
   Layer *layer(size_t i) const;
   Layer *addLayer(Token name);
   void removeLayer(Token name);

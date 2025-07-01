@@ -79,7 +79,7 @@ bool CopyToSDLTexturePass::checkGLInterop() const
   return false;
 }
 
-void CopyToSDLTexturePass::render(Buffers &b, int /*stageId*/)
+void CopyToSDLTexturePass::render(RenderBuffers &b, int /*stageId*/)
 {
   const auto size = getDimensions();
 

@@ -9,18 +9,10 @@
 #include <limits>
 
 #include "detail/parallel_for.h"
-#include "detail/parallel_transform.h"
 
 namespace tsd::rendering {
 
 // Thrust kernels /////////////////////////////////////////////////////////////
-
-void convertFloatColorBuffer(const float *v, uint8_t *out, size_t totalSize)
-{
-  detail::parallel_transform(v, v + totalSize, out, [] DEVICE_FCN(float v) {
-    return uint8_t(std::clamp(v, 0.f, 1.f) * 255);
-  });
-}
 
 DEVICE_FCN_INLINE uint32_t shadePixel(uint32_t c_in)
 {
@@ -30,8 +22,8 @@ DEVICE_FCN_INLINE uint32_t shadePixel(uint32_t c_in)
   return helium::cvt_color_to_uint32(c_out);
 };
 
-void compositeFrame(RenderPass::Buffers &b_out,
-    const RenderPass::Buffers &b_in,
+void compositeFrame(RenderBuffers &b_out,
+    const RenderBuffers &b_in,
     tsd::math::uint2 size,
     bool firstPass)
 {
@@ -204,7 +196,7 @@ void AnariSceneRenderPass::updateSize()
 #endif
 }
 
-void AnariSceneRenderPass::render(Buffers &b, int stageId)
+void AnariSceneRenderPass::render(RenderBuffers &b, int stageId)
 {
   if (m_firstFrame)
     anari::render(m_device, m_frame);
@@ -238,7 +230,7 @@ void AnariSceneRenderPass::copyFrameData()
   const size_t totalSize = size.x * size.y;
   if (totalSize > 0 && size.x == color.width && size.y == color.height) {
     if (color.pixelType == ANARI_FLOAT32_VEC4) {
-      convertFloatColorBuffer(
+      detail::convertFloatColorBuffer_(
           (const float *)color.data, (uint8_t *)m_buffers.color, totalSize * 4);
     } else
       detail::copy(m_buffers.color, (uint32_t *)color.data, totalSize);
@@ -257,7 +249,7 @@ void AnariSceneRenderPass::copyFrameData()
     anari::unmap(m_device, m_frame, idChannel);
 }
 
-void AnariSceneRenderPass::composite(Buffers &b, int stageId)
+void AnariSceneRenderPass::composite(RenderBuffers &b, int stageId)
 {
   const bool firstPass = stageId == 0;
   const tsd::math::uint2 size(getDimensions());

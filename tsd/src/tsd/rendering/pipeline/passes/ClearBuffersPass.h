@@ -7,17 +7,13 @@
 
 namespace tsd::rendering {
 
-struct OutlineRenderPass : public RenderPass
+struct ClearBuffersPass : public RenderPass
 {
-  OutlineRenderPass();
-  ~OutlineRenderPass() override;
-
-  void setOutlineId(uint32_t id);
+  ClearBuffersPass();
+  ~ClearBuffersPass() override;
 
  private:
   void render(RenderBuffers &b, int stageId) override;
-
-  uint32_t m_outlineId{~0u};
 };
 
 } // namespace tsd::rendering

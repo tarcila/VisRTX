@@ -23,7 +23,7 @@ struct CopyToSDLTexturePass : public RenderPass
 
  private:
   bool checkGLInterop() const;
-  void render(Buffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
   void updateSize() override;
 
   struct CopyToSDLTexturePassImpl;

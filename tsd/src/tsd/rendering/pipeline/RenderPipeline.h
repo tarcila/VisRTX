@@ -5,6 +5,7 @@
 
 #include "passes/AnariAxesRenderPass.h"
 #include "passes/AnariSceneRenderPass.h"
+#include "passes/ClearBuffersPass.h"
 #if ENABLE_SDL
 #include "passes/CopyToSDLTexturePass.h"
 #endif
@@ -38,7 +39,7 @@ struct RenderPipeline final
   void cleanup();
 
   std::vector<std::unique_ptr<RenderPass>> m_passes;
-  RenderPass::Buffers m_buffers;
+  RenderBuffers m_buffers;
   tsd::math::uint2 m_size{0, 0};
 };
 

@@ -11,7 +11,7 @@ namespace tsd::rendering {
 
 struct PickPass : public RenderPass
 {
-  using PickOpFunc = std::function<void(RenderPass::Buffers &b)>;
+  using PickOpFunc = std::function<void(RenderBuffers &b)>;
 
   PickPass();
   ~PickPass() override;
@@ -19,7 +19,7 @@ struct PickPass : public RenderPass
   void setPickOperation(PickOpFunc &&f);
 
  private:
-  void render(Buffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
 
   PickOpFunc m_op;
 };
