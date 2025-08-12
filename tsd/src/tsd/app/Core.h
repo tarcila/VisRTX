@@ -26,6 +26,8 @@ struct ImportFileDialog;
 
 namespace tsd::app {
 
+struct Core;
+
 using CameraPose = tsd::rendering::CameraPose;
 
 enum class ImporterType
@@ -71,6 +73,8 @@ struct TSDState
 
 struct ANARIDeviceManager
 {
+  ANARIDeviceManager(Core *core);
+
   anari::Device loadDevice(const std::string &libName);
   const anari::Extensions *loadDeviceExtensions(const std::string &libName);
   tsd::rendering::RenderIndex *acquireRenderIndex(
@@ -80,6 +84,7 @@ struct ANARIDeviceManager
   tsd::core::MultiUpdateDelegate &getUpdateDelegate();
 
  private:
+  Core *m_core{nullptr};
   struct LiveAnariIndex
   {
     int refCount{0};

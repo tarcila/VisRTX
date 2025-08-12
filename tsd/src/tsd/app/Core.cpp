@@ -85,7 +85,7 @@ static std::vector<std::string> parseLibraryList()
 
 // Core definitions ////////////////////////////////////////////////////////
 
-Core::Core()
+Core::Core() : anari(this)
 {
   tsd.ctx.setUpdateDelegate(&anari.getUpdateDelegate());
 }
@@ -208,6 +208,8 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
   }
 }
 
+ANARIDeviceManager::ANARIDeviceManager(Core *core) : m_core(core) {}
+
 anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName)
 {
   if (libraryName.empty() || libraryName == "{none}")
@@ -219,7 +221,7 @@ anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName)
     return dev;
   }
 
-  auto library = anari::loadLibrary(libraryName.c_str(), statusFunc, this);
+  auto library = anari::loadLibrary(libraryName.c_str(), statusFunc, m_core);
   if (!library)
     return nullptr;
 
