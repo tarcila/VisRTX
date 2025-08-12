@@ -31,6 +31,7 @@ struct RenderIndex : public BaseUpdateDelegate
   void populate(bool setAsUpdateDelegate = true);
 
   virtual void setFilterFunction(RenderIndexFilterFcn f);
+  virtual bool isFlat() const = 0;
 
   // Handle UpdateDelegate signals //
 

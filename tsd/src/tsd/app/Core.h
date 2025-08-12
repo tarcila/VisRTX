@@ -83,6 +83,13 @@ struct ANARIDeviceManager
   void releaseAllDevices();
   tsd::core::MultiUpdateDelegate &getUpdateDelegate();
 
+  void setUseFlatRenderIndex(
+      bool f); // next acquireRenderIndex(...) will use flat render index
+  bool useFlatRenderIndex() const;
+
+  void saveSettings(tsd::core::DataNode &root);
+  void loadSettings(tsd::core::DataNode &root);
+
  private:
   Core *m_core{nullptr};
   struct LiveAnariIndex
@@ -94,6 +101,16 @@ struct ANARIDeviceManager
   tsd::core::MultiUpdateDelegate m_delegate;
   std::map<std::string, anari::Device> m_loadedDevices;
   std::map<std::string, anari::Extensions> m_loadedDeviceExtensions;
+
+  // Settings //
+
+  struct Settings
+  {
+    // Use flat render index by default, unless set otherwise
+    // This is to avoid issues with instancing in the scene graph
+    // and to allow for faster rendering in some cases.
+    bool forceFlat{false};
+  } m_settings;
 };
 
 struct LogState

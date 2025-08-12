@@ -11,6 +11,11 @@ RenderIndexFlatRegistry::RenderIndexFlatRegistry(Context &ctx, anari::Device d)
 
 RenderIndexFlatRegistry::~RenderIndexFlatRegistry() = default;
 
+bool RenderIndexFlatRegistry::isFlat() const
+{
+  return true;
+}
+
 void RenderIndexFlatRegistry::signalObjectAdded(const Object *obj)
 {
   if (!obj)

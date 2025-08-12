@@ -29,6 +29,11 @@ RenderIndexAllLayers::~RenderIndexAllLayers()
   releaseAllInstances();
 }
 
+bool RenderIndexAllLayers::isFlat() const
+{
+  return false;
+}
+
 void RenderIndexAllLayers::setFilterFunction(RenderIndexFilterFcn f)
 {
   m_filter = f;

@@ -13,11 +13,6 @@
 // tsd_rendering
 #include "tsd/rendering/index/RenderIndexAllLayers.hpp"
 #include "tsd/rendering/index/RenderIndexFlatRegistry.hpp"
-#if 0
-#include "windows/Log.h"
-// SDL
-#include <SDL3/SDL_dialog.h>
-#endif
 
 namespace tsd::app {
 
@@ -256,13 +251,13 @@ tsd::rendering::RenderIndex *ANARIDeviceManager::acquireRenderIndex(
 {
   auto &liveIdx = m_rIdxs[d];
   if (liveIdx.refCount == 0) {
-#if 1
-    liveIdx.idx =
-        m_delegate.emplace<tsd::rendering::RenderIndexAllLayers>(c, d);
-#else
-    liveIdx.idx =
-        m_delegate.emplace<tsd::rendering::RenderIndexFlatRegistry>(c, d);
-#endif
+    if (useFlatRenderIndex()) {
+      liveIdx.idx =
+          m_delegate.emplace<tsd::rendering::RenderIndexFlatRegistry>(c, d);
+    } else {
+      liveIdx.idx =
+          m_delegate.emplace<tsd::rendering::RenderIndexAllLayers>(c, d);
+    }
     liveIdx.idx->populate(false);
   }
   liveIdx.refCount++;
@@ -291,6 +286,27 @@ void ANARIDeviceManager::releaseAllDevices()
 tsd::core::MultiUpdateDelegate &ANARIDeviceManager::getUpdateDelegate()
 {
   return m_delegate;
+}
+
+void ANARIDeviceManager::setUseFlatRenderIndex(bool f)
+{
+  m_settings.forceFlat = f;
+}
+
+bool ANARIDeviceManager::useFlatRenderIndex() const
+{
+  return m_settings.forceFlat;
+}
+
+void ANARIDeviceManager::saveSettings(tsd::core::DataNode &root)
+{
+  root.reset(); // clear all previous values, if they exist
+  root["useFlatRenderIndex"] = m_settings.forceFlat;
+}
+
+void ANARIDeviceManager::loadSettings(tsd::core::DataNode &root)
+{
+  root["useFlatRenderIndex"].getValue(ANARI_BOOL, &m_settings.forceFlat);
 }
 
 void Core::setOfflineRenderingLibrary(const std::string &libName)

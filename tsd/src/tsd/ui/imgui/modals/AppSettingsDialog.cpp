@@ -17,7 +17,6 @@ AppSettingsDialog::AppSettingsDialog(tsd::app::Core *core)
 void AppSettingsDialog::buildUI()
 {
   buildUI_applicationSettings();
-  ImGui::NewLine();
   ImGui::Separator();
   buildUI_offlineRenderSettings();
   ImGui::Separator();
@@ -53,6 +52,13 @@ void AppSettingsDialog::buildUI_applicationSettings()
 
   doUpdate |= ImGui::DragFloat(
       "rounding", &m_core->windows.uiRounding, 0.01f, 0.f, 12.f);
+
+  bool useFlat = m_core->anari.useFlatRenderIndex();
+  if (ImGui::Checkbox("use flat render index", &useFlat))
+    m_core->anari.setUseFlatRenderIndex(useFlat);
+
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Check this option to bypass instancing of objects.");
 
   if (doUpdate)
     applySettings();

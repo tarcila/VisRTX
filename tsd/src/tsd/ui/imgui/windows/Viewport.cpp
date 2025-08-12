@@ -80,6 +80,13 @@ void Viewport::buildUI()
 
   if (m_anariPass && !didPick)
     m_anariPass->setEnableIDs(appCore()->objectIsSelected());
+
+  if (m_rIdx && (m_rIdx->isFlat() != appCore()->anari.useFlatRenderIndex())) {
+    tsd::core::logWarning("instancing setting changed: resetting viewport");
+    auto lib = m_libName;
+    setLibrary("", false); // clear old library
+    setLibrary(lib, false);
+  }
 }
 
 void Viewport::setManipulator(tsd::rendering::Manipulator *m)

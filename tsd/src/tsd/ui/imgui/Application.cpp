@@ -293,6 +293,9 @@ void Application::saveApplicationState(const char *_filename)
     tsd::core::logStatus("serializing UI state...");
     root["layout"] = ImGui::SaveIniSettingsToMemory();
 
+    // ANARIDeviceManager settings
+    core.anari.saveSettings(root["ANARIDeviceManager"]);
+
     // Offline rendering settings
     auto &offlineSettings = root["offlineRendering"];
     core.offline.saveSettings(offlineSettings);
@@ -343,6 +346,10 @@ void Application::loadApplicationState(const char *filename)
   // ImGui window layout
   if (auto *c = root.child("layout"); c != nullptr)
     ImGui::LoadIniSettingsFromMemory(c->getValueAs<std::string>().c_str());
+
+  // ANARIDeviceManager settings
+  if (auto *c = root.child("ANARIDeviceManager"); c != nullptr)
+    core.anari.loadSettings(*c);
 
   // Offline rendering settings
   auto &offlineSettings = root["offlineRendering"];

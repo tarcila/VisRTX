@@ -16,6 +16,8 @@ struct RenderIndexAllLayers : public RenderIndex
   RenderIndexAllLayers(Context &ctx, anari::Device d);
   ~RenderIndexAllLayers() override;
 
+  bool isFlat() const override;
+
   void setFilterFunction(RenderIndexFilterFcn f) override;
 
   void signalArrayUnmapped(const Array *a) override;
