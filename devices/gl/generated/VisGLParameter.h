@@ -212,7 +212,7 @@ class Parameter : public ParameterBase {
 public:
    Parameter() : ptr(new(data) ParameterStorageBase), version(0) {
    }
-   Parameter(const Parameter &that) : ptr(that.clone(data)), version(that.version) {
+   Parameter(const Parameter &that) : ptr(that.ptr->clone(data)), version(that.version) {
    }
    Parameter& operator=(const Parameter &that) {
       ptr->~ParameterStorageBase();
