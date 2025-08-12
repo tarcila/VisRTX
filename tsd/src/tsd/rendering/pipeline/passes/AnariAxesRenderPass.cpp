@@ -14,6 +14,10 @@ AnariAxesRenderPass::AnariAxesRenderPass(
     : m_device(d)
 {
   anari::retain(d, d);
+
+  if (m_deviceUsable = checkNeededExtensions(e); !m_deviceUsable)
+    return;
+
   m_frame = anari::newObject<anari::Frame>(d);
   anari::setParameter(d, m_frame, "channel.color", ANARI_UFIXED8_RGBA_SRGB);
   anari::setParameter(d, m_frame, "channel.depth", ANARI_FLOAT32);
@@ -46,21 +50,57 @@ AnariAxesRenderPass::AnariAxesRenderPass(
 
 AnariAxesRenderPass::~AnariAxesRenderPass()
 {
-  anari::discard(m_device, m_frame);
-  anari::wait(m_device, m_frame);
+  if (isValid()) {
+    anari::discard(m_device, m_frame);
+    anari::wait(m_device, m_frame);
+    anari::release(m_device, m_camera);
+    anari::release(m_device, m_frame);
+  }
 
-  anari::release(m_device, m_camera);
-  anari::release(m_device, m_frame);
   anari::release(m_device, m_device);
 }
 
 void AnariAxesRenderPass::setView(
     const tsd::math::float3 &dir, const tsd::math::float3 &up)
 {
+  if (!isValid())
+    return;
+
   anari::setParameter(m_device, m_camera, "direction", dir);
   anari::setParameter(m_device, m_camera, "position", -dir * 30.f);
   anari::setParameter(m_device, m_camera, "up", up);
   anari::commitParameters(m_device, m_camera);
+}
+
+bool AnariAxesRenderPass::checkNeededExtensions(const anari::Extensions &e)
+{
+  if (!e.ANARI_KHR_CAMERA_ORTHOGRAPHIC || !e.ANARI_KHR_CAMERA_PERSPECTIVE) {
+    tsd::core::logWarning(
+        "[AnariAxesRenderPass] "
+        "unable to activate pass -- no camera subtypes available");
+    return false;
+  }
+
+  if (!e.ANARI_KHR_GEOMETRY_CYLINDER) {
+    tsd::core::logWarning(
+        "[AnariAxesRenderPass] "
+        "unable to activate pass -- 'cylinder' geometry not implemented");
+    return false;
+  }
+
+  if (!e.ANARI_KHR_MATERIAL_MATTE) {
+    tsd::core::logWarning(
+        "[AnariAxesRenderPass] "
+        "unable to activate pass -- 'matte' material not implemented");
+    return false;
+  }
+
+  return true;
+}
+
+bool AnariAxesRenderPass::isValid() const
+{
+  return m_deviceUsable;
 }
 
 void AnariAxesRenderPass::setupWorld()
@@ -114,6 +154,9 @@ void AnariAxesRenderPass::setupWorld()
 
 void AnariAxesRenderPass::updateSize()
 {
+  if (!isValid())
+    return;
+
   auto size = tsd::math::uint2(getDimensions() * 0.1f);
   anari::setParameter(
       m_device, m_frame, "size", tsd::math::uint2(size.x, size.x));
@@ -122,6 +165,9 @@ void AnariAxesRenderPass::updateSize()
 
 void AnariAxesRenderPass::render(Buffers &b, int /*stageId*/)
 {
+  if (!isValid())
+    return;
+
   if (m_firstFrame) {
     anari::render(m_device, m_frame);
     anari::wait(m_device, m_frame);

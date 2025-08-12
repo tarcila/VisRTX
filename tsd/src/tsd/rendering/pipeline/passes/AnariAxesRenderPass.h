@@ -17,10 +17,13 @@ struct AnariAxesRenderPass : public RenderPass
   void setView(const tsd::math::float3 &dir, const tsd::math::float3 &up);
 
  private:
+  bool checkNeededExtensions(const anari::Extensions &e);
+  bool isValid() const;
   void setupWorld();
   void updateSize() override;
   void render(Buffers &b, int stageId) override;
 
+  bool m_deviceUsable{true};
   bool m_firstFrame{true};
 
   anari::Device m_device{nullptr};
