@@ -37,6 +37,9 @@ void import_E57XYZ(Context &ctx, const char *filepath, LayerNodeRef location)
   r = std::fread(colors.data(), sizeof(float3), numParticles, fp);
   std::fclose(fp);
 
+  for (auto &c : colors)
+    c = tsd::core::math::normalizeColor(c);
+
   // create TSD objects //
 
   auto xyz_root = ctx.insertChildNode(

@@ -38,14 +38,6 @@ static constexpr float radians(float degrees)
   return degrees * M_PI / 180.f;
 };
 
-static constexpr tsd::core::math::float3 azelToDir(tsd::core::math::float2 azel)
-{
-  const float az = radians(azel.x);
-  const float el = radians(azel.y);
-  return tsd::core::math::float3(
-      std::sin(az) * std::cos(el), std::sin(el), std::cos(az) * std::cos(el));
-}
-
 static constexpr tsd::core::math::float3 radians(tsd::core::math::float3 v)
 {
   return tsd::core::math::float3(radians(v.x), radians(v.y), radians(v.z));
@@ -60,6 +52,21 @@ static constexpr tsd::core::math::float3 degrees(tsd::core::math::float3 v)
 {
   return tsd::core::math::float3(degrees(v.x), degrees(v.y), degrees(v.z));
 };
+
+static constexpr tsd::core::math::float3 azelToDir(tsd::core::math::float2 azel)
+{
+  const float az = radians(azel.x);
+  const float el = radians(azel.y);
+  return tsd::core::math::float3(
+      std::sin(az) * std::cos(el), std::sin(el), std::cos(az) * std::cos(el));
+}
+
+inline tsd::core::math::float3 normalizeColor(
+    const tsd::core::math::float3 &color)
+{
+  const float maxValue = tsd::core::math::maxelem(color);
+  return maxValue > 1.f ? color / maxValue : color;
+}
 
 inline tsd::core::math::mat4 makeValueRangeTransform(float lower, float upper)
 {
