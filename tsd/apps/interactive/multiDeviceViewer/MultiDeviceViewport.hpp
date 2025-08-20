@@ -29,12 +29,15 @@ struct MultiDeviceViewport : public tsd::ui::imgui::Window
   void centerView();
 
  private:
+  void loadSettings(tsd::core::DataNode &thisWindowRoot) override;
+
   void getSceneBounds(tsd::math::float3 bounds[2]) const;
   tsd::rendering::RenderIndexAllLayers *getRenderIndex(size_t i = 0) const;
   void setLibrary(const std::string &libName);
   void setupRenderPipeline(const std::vector<anari::Device> &devices);
   void reshape(tsd::math::int2 newWindowSize);
   void updateCamera(bool force = false);
+
   void ui_menubar();
   void ui_handleInput();
 

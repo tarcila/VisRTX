@@ -78,6 +78,38 @@ void MultiDeviceViewport::centerView()
   m_cameraToken = 0;
 }
 
+void MultiDeviceViewport::loadSettings(tsd::core::DataNode &root)
+{
+  Window::loadSettings(root);
+
+  // Viewport settings //
+
+  root["fov"].getValue(ANARI_FLOAT32, &m_fov);
+  root["resolutionScale"].getValue(ANARI_FLOAT32, &m_resolutionScale);
+  root["showAxes"].getValue(ANARI_BOOL, &m_showAxes);
+
+  // Camera //
+
+  if (auto *c = root.child("camera"); c != nullptr) {
+    tsd::math::float3 at(0.f);
+    float distance = 0.f;
+    tsd::math::float2 azel(0.f);
+    int axis = 0;
+
+    auto &camera = *c;
+    camera["at"].getValue(ANARI_FLOAT32_VEC3, &at);
+    camera["distance"].getValue(ANARI_FLOAT32, &distance);
+    camera["azel"].getValue(ANARI_FLOAT32_VEC2, &azel);
+    camera["up"].getValue(ANARI_INT32, &axis);
+
+    camera["apertureRadius"].getValue(ANARI_FLOAT32, &m_apertureRadius);
+    camera["focusDistance"].getValue(ANARI_FLOAT32, &m_focusDistance);
+
+    m_arcball->setAxis(tsd::rendering::UpAxis(axis));
+    m_arcball->setConfig(at, distance, azel);
+  }
+}
+
 tsd::rendering::RenderIndexAllLayers *MultiDeviceViewport::getRenderIndex(
     size_t i) const
 {
