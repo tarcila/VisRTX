@@ -16,17 +16,13 @@ struct RenderIndexAllLayers : public RenderIndex
 
   bool isFlat() const override;
 
-  // Set the layers to include in the rendering index.
-  //   - If empty, all layers will be included.
-  //   - If set, only the specified layers will be included.
-  // This will trigger a full update of the index.
-  void setIncludedLayers(const std::vector<const Layer *> &layers = {});
   void setFilterFunction(RenderIndexFilterFcn f) override;
 
   void signalArrayUnmapped(const Array *a) override;
   void signalLayerAdded(const Layer *l) override;
   void signalLayerUpdated(const Layer *l) override;
   void signalLayerRemoved(const Layer *l) override;
+  void signalActiveLayersChanged() override;
   void signalObjectFilteringChanged() override;
   void signalRemoveAllObjects() override;
 

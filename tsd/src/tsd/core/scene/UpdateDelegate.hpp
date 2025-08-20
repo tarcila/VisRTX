@@ -30,6 +30,7 @@ struct BaseUpdateDelegate
   virtual void signalLayerAdded(const Layer *l) = 0;
   virtual void signalLayerUpdated(const Layer *l) = 0;
   virtual void signalLayerRemoved(const Layer *l) = 0;
+  virtual void signalActiveLayersChanged() = 0;
   virtual void signalObjectFilteringChanged() = 0;
   virtual void signalInvalidateCachedObjects() = 0;
 
@@ -56,7 +57,8 @@ struct EmptyUpdateDelegate : public BaseUpdateDelegate
   void signalLayerAdded(const Layer *) override {}
   void signalLayerUpdated(const Layer *) override {}
   void signalLayerRemoved(const Layer *) override {}
-  void signalObjectFilteringChanged() override {};
+  void signalActiveLayersChanged() override {}
+  void signalObjectFilteringChanged() override {}
   void signalInvalidateCachedObjects() override {}
 };
 
@@ -88,6 +90,7 @@ struct MultiUpdateDelegate : public BaseUpdateDelegate
   void signalLayerAdded(const Layer *) override;
   void signalLayerUpdated(const Layer *) override;
   void signalLayerRemoved(const Layer *) override;
+  void signalActiveLayersChanged() override;
   void signalObjectFilteringChanged() override;
   void signalInvalidateCachedObjects() override;
 
@@ -104,4 +107,4 @@ inline T *MultiUpdateDelegate::emplace(Args &&...args)
   return (T *)m_delegates.back().get();
 }
 
-} // namespace tsd
+} // namespace tsd::core

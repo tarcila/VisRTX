@@ -5,9 +5,9 @@
 #define TSD_USE_CUDA 1
 #endif
 
-#include "tsd/io/serialization.hpp"
 #include "tsd/core/DataTree.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/io/serialization.hpp"
 // std
 #include <stack>
 #include <stdexcept>
@@ -73,8 +73,7 @@ void objectToNode(const Object &obj, core::DataNode &node)
   }
 }
 
-void cameraPoseToNode(
-    const rendering::CameraPose &p, core::DataNode &node)
+void cameraPoseToNode(const rendering::CameraPose &p, core::DataNode &node)
 {
   node["name"] = p.name;
   node["lookat"] = p.lookat;
@@ -202,8 +201,7 @@ void nodeToObject(core::DataNode &node, Object &obj)
     nodeToObjectMetadata(*c, obj);
 }
 
-void nodeToCameraPose(
-    core::DataNode &node, rendering::CameraPose &pose)
+void nodeToCameraPose(core::DataNode &node, rendering::CameraPose &pose)
 {
   node["name"].getValue(ANARI_STRING, &pose.name);
   node["lookat"].getValue(ANARI_FLOAT32_VEC3, &pose.lookat);
@@ -349,8 +347,11 @@ void save_Context(Context &ctx, core::DataNode &root)
 {
   auto &layersRoot = root["layers"];
   for (auto l : ctx.layers()) {
-    if (l.second)
-      layerToNode(*l.second, layersRoot[l.first.c_str()]);
+    if (l.second.ptr) {
+      auto &layerRoot = layersRoot[l.first.c_str()];
+      layerToNode(*l.second.ptr, layerRoot);
+      layerRoot["isActive"] = l.second.active;
+    }
   }
 
   auto &objectDB = root["objectDB"];
@@ -414,12 +415,11 @@ void load_Context(Context &ctx, core::DataNode &root)
   tsd::core::logStatus("  ...converting objects");
 
   auto &objectDB = root["objectDB"];
-  auto nodeToObjectArray = [](core::DataNode &node,
-                               Context &ctx,
-                               const char *childNodeName) {
-    auto &objectsNode = node[childNodeName];
-    objectsNode.foreach_child([&](auto &n) { nodeToNewObject(ctx, n); });
-  };
+  auto nodeToObjectArray =
+      [](core::DataNode &node, Context &ctx, const char *childNodeName) {
+        auto &objectsNode = node[childNodeName];
+        objectsNode.foreach_child([&](auto &n) { nodeToNewObject(ctx, n); });
+      };
 
   nodeToObjectArray(objectDB, ctx, "array");
   nodeToObjectArray(objectDB, ctx, "sampler");
@@ -434,12 +434,24 @@ void load_Context(Context &ctx, core::DataNode &root)
 
   auto &layerRoot = root["layers"];
   layerRoot.foreach_child([&](auto &nLayer) {
-    auto &tLayer = *ctx.addLayer(nLayer.name().c_str());
+    tsd::core::Token layerName = nLayer.name().c_str();
+    auto &tLayer = *ctx.addLayer(layerName);
     nodeToLayer(nLayer, tLayer);
+    bool active = true;
+    nLayer["isActive"].getValue(ANARI_BOOL, &active);
+    ctx.setLayerActive(layerName, active);
     ctx.signalLayerChange(&tLayer);
   });
+
+  ctx.m_numActiveLayers = 0;
+  for (auto &ls : ctx.layers()) {
+    if (ls.second.active)
+      ctx.m_numActiveLayers++;
+  }
+
+  ctx.signalActiveLayersChanged();
 
   tsd::core::logStatus("  ...done!");
 }
 
-} // namespace tsd
+} // namespace tsd::io

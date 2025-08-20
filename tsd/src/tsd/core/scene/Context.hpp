@@ -56,8 +56,11 @@ std::string objectDBInfo(const ObjectDatabase &db);
 // Main TSD Context ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+// clang-format off
 using LayerPtr = std::shared_ptr<Layer>;
-using LayerMap = FlatMap<Token, LayerPtr>;
+struct LayerState { LayerPtr ptr; bool active{true}; };
+using LayerMap = FlatMap<Token, LayerState>;
+// clang-format on
 
 struct Context
 {
@@ -112,8 +115,19 @@ struct Context
 
   const LayerMap &layers() const;
   size_t numberOfLayers() const;
+  Layer *layer(Token name) const;
   Layer *layer(size_t i) const;
+
   Layer *addLayer(Token name);
+
+  bool layerIsActive(Token name) const;
+  void setLayerActive(const Layer *layer, bool active);
+  void setLayerActive(Token name, bool active);
+  void setOnlyLayerActive(Token name);
+  void setAllLayersActive();
+  size_t numberOfActiveLayers() const;
+  std::vector<const Layer *> getActiveLayers() const;
+
   void removeLayer(Token name);
   void removeLayer(const Layer *layer);
 
@@ -146,6 +160,7 @@ struct Context
   // Indicate changes occurred //
 
   void signalLayerChange(const Layer *l);
+  void signalActiveLayersChanged();
 
   ////////////////////////
   // Cleanup operations //
@@ -175,6 +190,7 @@ struct Context
   ObjectDatabase m_db;
   BaseUpdateDelegate *m_updateDelegate{nullptr};
   LayerMap m_layers;
+  size_t m_numActiveLayers{0};
 };
 
 ///////////////////////////////////////////////////////////////////////////////

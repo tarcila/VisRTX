@@ -36,8 +36,9 @@ void LayerTree::buildUI()
   ImGui::Separator();
   buildUI_tree();
   buildUI_activateObjectContextMenu();
-  buildUI_buildObjectContextMenu();
-  buildUI_buildNewLayerContextMenu();
+  buildUI_objectContextMenu();
+  buildUI_newLayerContextMenu();
+  buildUI_setActiveLayersContextMenus();
 }
 
 void LayerTree::buildUI_layerHeader()
@@ -51,6 +52,14 @@ void LayerTree::buildUI_layerHeader()
       UI_layerName_callback,
       (void *)&layers,
       layers.size());
+
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("right-click to set layer visibility");
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+      ImGui::OpenPopup("LayerTree_contextMenu_setActiveLayers");
+      m_activeLayerMenuTriggered = true;
+    }
+  }
 
   if (ImGui::Button("clear")) {
     appCore()->clearSelected();
@@ -68,7 +77,8 @@ void LayerTree::buildUI_layerHeader()
 
   ImGui::BeginDisabled(m_layerIdx == 0);
   if (ImGui::Button("delete")) {
-    ctx.removeLayer(layers.at_index(m_layerIdx).first);
+    auto to_delete = layers.at_index(m_layerIdx);
+    ctx.removeLayer(to_delete.first);
     m_layerIdx--;
   }
   ImGui::EndDisabled();
@@ -216,7 +226,7 @@ void LayerTree::buildUI_tree()
 
 void LayerTree::buildUI_activateObjectContextMenu()
 {
-  if (ImGui::IsWindowHovered()) {
+  if (!m_activeLayerMenuTriggered && ImGui::IsWindowHovered()) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
       m_menuVisible = true;
       m_menuNode = m_hoveredNode;
@@ -228,7 +238,7 @@ void LayerTree::buildUI_activateObjectContextMenu()
   }
 }
 
-void LayerTree::buildUI_buildObjectContextMenu()
+void LayerTree::buildUI_objectContextMenu()
 {
   auto &ctx = appCore()->tsd.ctx;
   auto &layer = *ctx.layer(m_layerIdx);
@@ -380,7 +390,7 @@ void LayerTree::buildUI_buildObjectContextMenu()
     m_menuVisible = false;
 }
 
-void LayerTree::buildUI_buildNewLayerContextMenu()
+void LayerTree::buildUI_newLayerContextMenu()
 {
   if (ImGui::BeginPopup("LayerTree_contextMenu_newLayer")) {
     ImGui::InputText("layer name", &s_newLayerName);
@@ -392,7 +402,7 @@ void LayerTree::buildUI_buildNewLayerContextMenu()
         && !s_newLayerName.empty()) {
       auto &ctx = appCore()->tsd.ctx;
       tsd::core::Token layerName = s_newLayerName.c_str();
-      ctx.addLayer(layerName);
+      auto *newLayer = ctx.addLayer(layerName);
 
       auto &layers = ctx.layers();
       for (int i = 0; i < int(layers.size()); i++) {
@@ -411,6 +421,39 @@ void LayerTree::buildUI_buildNewLayerContextMenu()
       ImGui::CloseCurrentPopup();
 
     ImGui::EndPopup();
+  }
+}
+
+void LayerTree::buildUI_setActiveLayersContextMenus()
+{
+  if (ImGui::BeginPopup("LayerTree_contextMenu_setActiveLayers")) {
+    auto &ctx = appCore()->tsd.ctx;
+
+    if (ImGui::Button("show all"))
+      ctx.setAllLayersActive();
+
+    for (auto &ls : ctx.layers()) {
+      ImGui::PushID(ls.second.ptr.get());
+      // Make sure at least one layer is always active
+      ImGui::BeginDisabled(ctx.numberOfActiveLayers() < 2 && ls.second.active);
+
+      bool active = ls.second.active;
+      if (ImGui::Checkbox(ls.first.c_str(), &active))
+        ctx.setLayerActive(ls.first, active);
+
+      ImGui::SameLine();
+      ImGui::Text("|");
+      ImGui::SameLine();
+
+      if (ImGui::Button("o"))
+        ctx.setOnlyLayerActive(ls.first);
+
+      ImGui::EndDisabled();
+      ImGui::PopID();
+    }
+    ImGui::EndPopup();
+  } else {
+    m_activeLayerMenuTriggered = false;
   }
 }
 

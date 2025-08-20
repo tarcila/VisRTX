@@ -132,6 +132,11 @@ void RenderIndex::signalLayerRemoved(const Layer *)
   // no-op
 }
 
+void RenderIndex::signalActiveLayersChanged()
+{
+  // no-op
+}
+
 void RenderIndex::signalObjectFilteringChanged()
 {
   // no-op

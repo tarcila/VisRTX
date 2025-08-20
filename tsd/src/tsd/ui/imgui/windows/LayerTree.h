@@ -5,7 +5,7 @@
 
 #include "Window.h"
 // tsd
-#include "tsd/core/IndexedVector.hpp"
+#include "tsd/core/FlatMap.hpp"
 
 namespace tsd::ui::imgui {
 
@@ -20,13 +20,15 @@ struct LayerTree : public Window
   void buildUI_layerHeader();
   void buildUI_tree();
   void buildUI_activateObjectContextMenu();
-  void buildUI_buildObjectContextMenu();
-  void buildUI_buildNewLayerContextMenu();
+  void buildUI_objectContextMenu();
+  void buildUI_newLayerContextMenu();
+  void buildUI_setActiveLayersContextMenus();
 
   // Data //
 
   size_t m_hoveredNode{TSD_INVALID_INDEX};
   size_t m_menuNode{TSD_INVALID_INDEX};
+  bool m_activeLayerMenuTriggered{false};
   bool m_editingNodeName{false};
   bool m_menuVisible{false};
   std::vector<int> m_needToTreePop;

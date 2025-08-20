@@ -251,19 +251,79 @@ size_t Context::numberOfLayers() const
   return m_layers.size();
 }
 
+Layer *Context::layer(Token name) const
+{
+  auto *ls = m_layers.at(name);
+  return ls ? ls->ptr.get() : nullptr;
+}
+
 Layer *Context::layer(size_t i) const
 {
-  return m_layers.at_index(i).second.get();
+  return m_layers.at_index(i).second.ptr.get();
 }
 
 Layer *Context::addLayer(Token name)
 {
-  auto &l = m_layers[name];
-  if (!l)
-    l.reset(new Layer({tsd::math::mat4(tsd::math::identity), "root"}));
+  auto &ls = m_layers[name];
+  if (!ls.ptr)
+    ls.ptr.reset(new Layer({tsd::math::mat4(tsd::math::identity), "root"}));
   if (m_updateDelegate)
-    m_updateDelegate->signalLayerAdded(l.get());
-  return l.get();
+    m_updateDelegate->signalLayerAdded(ls.ptr.get());
+  m_numActiveLayers++;
+  return ls.ptr.get();
+}
+
+bool Context::layerIsActive(Token name) const
+{
+  auto *ls = m_layers.at(name);
+  return ls ? ls->active : false;
+}
+
+void Context::setLayerActive(Token name, bool active)
+{
+  if (auto *ls = m_layers.at(name); ls && ls->active != active) {
+    m_numActiveLayers += active ? 1 : -1;
+    ls->active = active;
+    signalActiveLayersChanged();
+  }
+}
+
+void Context::setOnlyLayerActive(Token name)
+{
+  if (auto *ls = m_layers.at(name); ls) {
+    for (auto &ls : m_layers)
+      ls.second.active = false;
+
+    m_numActiveLayers = 1;
+    ls->active = true;
+    signalActiveLayersChanged();
+  }
+}
+
+void Context::setAllLayersActive()
+{
+  for (auto &ls : m_layers)
+    ls.second.active = true;
+  m_numActiveLayers = m_layers.size();
+  signalActiveLayersChanged();
+}
+
+std::vector<const Layer *> Context::getActiveLayers() const
+{
+  std::vector<const Layer *> activeLayers;
+  if (numberOfActiveLayers() != numberOfLayers()) {
+    activeLayers.reserve(m_layers.size());
+    for (const auto &ls : m_layers) {
+      if (ls.second.active)
+        activeLayers.push_back(ls.second.ptr.get());
+    }
+  }
+  return activeLayers;
+}
+
+size_t Context::numberOfActiveLayers() const
+{
+  return m_numActiveLayers;
 }
 
 void Context::removeLayer(Token name)
@@ -271,16 +331,20 @@ void Context::removeLayer(Token name)
   if (!m_layers.contains(name))
     return;
   if (m_updateDelegate)
-    m_updateDelegate->signalLayerRemoved(m_layers[name].get());
+    m_updateDelegate->signalLayerRemoved(m_layers[name].ptr.get());
+  if (m_layers[name].active)
+    m_numActiveLayers--;
   m_layers.erase(name);
 }
 
 void Context::removeLayer(const Layer *layer)
 {
   for (size_t i = 0; i < m_layers.size(); i++) {
-    if (m_layers.at_index(i).second.get() == layer) {
-      if (m_updateDelegate)
-        m_updateDelegate->signalLayerRemoved(m_layers.at_index(i).second.get());
+    if (m_layers.at_index(i).second.ptr.get() == layer) {
+      if (m_updateDelegate) {
+        m_updateDelegate->signalLayerRemoved(
+            m_layers.at_index(i).second.ptr.get());
+      }
       m_layers.erase(i);
       return;
     }
@@ -343,6 +407,12 @@ void Context::signalLayerChange(const Layer *l)
 {
   if (m_updateDelegate)
     m_updateDelegate->signalLayerUpdated(l);
+}
+
+void Context::signalActiveLayersChanged()
+{
+  if (m_updateDelegate)
+    m_updateDelegate->signalActiveLayersChanged();
 }
 
 void Context::defragmentObjectStorage()
@@ -433,7 +503,7 @@ void Context::defragmentObjectStorage()
   // Invoke above function on all layers//
 
   for (auto itr = m_layers.begin(); itr != m_layers.end(); itr++)
-    updateLayerObjReferenceIndices(*itr->second);
+    updateLayerObjReferenceIndices(*itr->second.ptr);
 
   for (auto *ln : toErase)
     ln->erase_self();
@@ -587,7 +657,7 @@ void Context::removeUnusedObjects()
   // Invoke above functions on all object arrays, top-down //
 
   for (auto itr = m_layers.begin(); itr != m_layers.end(); itr++)
-    countLayerObjReferenceIndices(*itr->second);
+    countLayerObjReferenceIndices(*itr->second.ptr);
 
   countParameterReferences(m_db.surface);
   countParameterReferences(m_db.volume);
@@ -612,7 +682,7 @@ void Context::removeAllSecondaryLayers()
 {
   for (auto itr = m_layers.begin() + 1; itr != m_layers.end(); itr++) {
     if (m_updateDelegate)
-      m_updateDelegate->signalLayerRemoved(itr->second.get());
+      m_updateDelegate->signalLayerRemoved(itr->second.ptr.get());
   }
 
   m_layers.shrink(1);

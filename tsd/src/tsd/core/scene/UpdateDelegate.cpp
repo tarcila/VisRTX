@@ -107,6 +107,12 @@ void MultiUpdateDelegate::signalLayerRemoved(const Layer *l)
     d->signalLayerRemoved(l);
 }
 
+void MultiUpdateDelegate::signalActiveLayersChanged()
+{
+  for (auto &d : m_delegates)
+    d->signalActiveLayersChanged();
+}
+
 void MultiUpdateDelegate::signalObjectFilteringChanged()
 {
   for (auto &d : m_delegates)

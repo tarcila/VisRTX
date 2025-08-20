@@ -160,7 +160,7 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
     return;
   }
 
-  if (commandLine.filenames.empty()) {
+  if (!commandLine.loadedFromStateFile && commandLine.filenames.empty()) {
     tsd::core::logStatus("...generating material_orb from embedded data");
     tsd::io::generate_material_orb(tsd.ctx);
   } else {

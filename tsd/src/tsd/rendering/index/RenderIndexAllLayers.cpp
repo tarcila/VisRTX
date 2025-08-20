@@ -4,6 +4,8 @@
 #include "tsd/rendering/index/RenderIndexAllLayers.hpp"
 
 #include "RenderToAnariObjectsVisitor.hpp"
+// tsd_core
+#include "tsd/core/Logging.hpp"
 // std
 #include <algorithm>
 
@@ -22,7 +24,9 @@ static void releaseInstances(
 
 RenderIndexAllLayers::RenderIndexAllLayers(Context &ctx, anari::Device d)
     : RenderIndex(ctx, d)
-{}
+{
+  m_includedLayers = ctx.getActiveLayers();
+}
 
 RenderIndexAllLayers::~RenderIndexAllLayers()
 {
@@ -32,14 +36,6 @@ RenderIndexAllLayers::~RenderIndexAllLayers()
 bool RenderIndexAllLayers::isFlat() const
 {
   return false;
-}
-
-void RenderIndexAllLayers::setIncludedLayers(
-    const std::vector<const Layer *> &layers)
-{
-  m_includedLayers = layers;
-  signalRemoveAllObjects();
-  updateWorld();
 }
 
 void RenderIndexAllLayers::setFilterFunction(RenderIndexFilterFcn f)
@@ -58,15 +54,13 @@ void RenderIndexAllLayers::signalArrayUnmapped(const Array *a)
 
 void RenderIndexAllLayers::signalLayerAdded(const Layer *l)
 {
-  if (m_includedLayers.empty()) {
-    syncLayerInstances(l);
-    updateWorld();
-  }
+  syncLayerInstances(l);
+  updateWorld();
 }
 
 void RenderIndexAllLayers::signalLayerUpdated(const Layer *l)
 {
-  if (m_includedLayers.empty() || m_instanceCache.contains(l)) {
+  if (m_instanceCache.contains(l)) {
     syncLayerInstances(l);
     updateWorld();
   }
@@ -74,11 +68,20 @@ void RenderIndexAllLayers::signalLayerUpdated(const Layer *l)
 
 void RenderIndexAllLayers::signalLayerRemoved(const Layer *l)
 {
-  if (m_includedLayers.empty() || m_instanceCache.contains(l)) {
+  if (m_instanceCache.contains(l)) {
     releaseInstances(device(), m_instanceCache[l]);
     m_instanceCache.erase(l);
     updateWorld();
   }
+}
+
+void RenderIndexAllLayers::signalActiveLayersChanged()
+{
+  if (m_includedLayers.empty()
+      && m_ctx->numberOfActiveLayers() == m_ctx->numberOfLayers())
+    return;
+  m_includedLayers = m_ctx->getActiveLayers();
+  signalInvalidateCachedObjects();
 }
 
 void RenderIndexAllLayers::signalObjectFilteringChanged()
@@ -103,11 +106,17 @@ void RenderIndexAllLayers::updateWorld()
 
   if (m_instanceCache.empty()) {
     if (!m_includedLayers.empty()) { // only sync specified layers
+      tsd::core::logDebug(
+          "[RenderIndexAllLayers] cache empty, "
+          "repopulating using specific layers");
       for (auto &l : m_includedLayers)
         syncLayerInstances(l);
     } else { // sync everything
+      tsd::core::logDebug(
+          "[RenderIndexAllLayers] cache empty, "
+          "repopulating using all layers");
       for (auto &l : m_ctx->layers())
-        syncLayerInstances(l.second.get());
+        syncLayerInstances(l.second.ptr.get());
     }
   }
 
