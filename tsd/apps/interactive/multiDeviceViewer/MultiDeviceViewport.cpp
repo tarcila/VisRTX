@@ -15,9 +15,7 @@ MultiDeviceViewport::MultiDeviceViewport(tsd::ui::imgui::Application *app,
     tsd::rendering::Manipulator *m,
     const char *name)
     : tsd::ui::imgui::Window(app, name), m_arcball(m)
-{
-  setLibrary("barney");
-}
+{}
 
 MultiDeviceViewport::~MultiDeviceViewport()
 {
@@ -76,6 +74,94 @@ void MultiDeviceViewport::centerView()
   getSceneBounds(bounds);
   m_arcball->setCenter(0.5f * (bounds[0] + bounds[1]));
   m_cameraToken = 0;
+}
+
+void MultiDeviceViewport::setLibrary(const std::string &libName)
+{
+  auto &adm = appCore()->anari;
+  auto &ctx = appCore()->tsd.ctx;
+
+  auto library =
+      anari::loadLibrary(libName.c_str(), tsd::app::anariStatusFunc, appCore());
+  if (!library) {
+    tsd::core::logError(
+        "[multi-viewport] failed to load ANARI library '%s'", libName.c_str());
+    return;
+  }
+
+  tsd::core::logStatus(
+      "[multi-viewport] loaded ANARI library '%s'", libName.c_str());
+
+  std::vector<anari::Device> devices;
+
+  tsd::core::logStatus(
+      "[multi-viewport] creating %zu devices...", ctx.numberOfLayers());
+
+  for (size_t i = 0; i < ctx.numberOfLayers(); i++) {
+    if (!m_ri) {
+      m_ri = std::make_unique<tsd::rendering::MultiRenderIndex>();
+      ctx.setUpdateDelegate(m_ri.get());
+    }
+    auto d = anari::newDevice(library, "default");
+    devices.push_back(d);
+  }
+
+  tsd::core::logWarning("[multi-viewport] tethering devices...");
+
+  if (devices.size() > 1) {
+    auto td = devices[0];
+    anari::setParameter(td, td, "tetherCount", int(devices.size()));
+    anari::commitParameters(td, td);
+
+    for (size_t i = 1; i < devices.size(); i++) {
+      auto d = devices[i];
+      anari::setParameter(d, d, "tetherCount", int(devices.size()));
+      anari::setParameter(d, d, "tetherIndex", int(i));
+      anari::setParameter(d, d, "tetherDevice", td);
+      anari::commitParameters(d, d);
+    }
+  }
+
+  tsd::core::logStatus("[multi-viewport] setting up render pipeline...");
+
+  setupRenderPipeline(devices);
+
+  tsd::core::logStatus("[multi-viewport] creating cameras and renderers...");
+
+  for (size_t i = 0; m_ri && i < ctx.numberOfLayers(); i++) {
+    auto *l = ctx.layer(i);
+    auto d = devices[i];
+    auto c = anari::newObject<anari::Camera>(d, "perspective");
+    auto r = anari::newObject<anari::Renderer>(d, "default");
+
+    auto *ri = m_ri->emplace<tsd::rendering::RenderIndexAllLayers>(ctx, d);
+    ri->setIncludedLayers({l});
+    ri->populate(false);
+
+    m_cameras.push_back(c);
+    m_renderers.push_back(r);
+
+    m_anariPass->setCamera(i, c);
+    m_anariPass->setRenderer(i, r);
+    m_anariPass->setWorld(i, ri->world());
+  }
+
+  static bool firstFrame = true;
+  if (firstFrame && appCore()->commandLine.loadedFromStateFile)
+    firstFrame = false;
+
+  if (firstFrame || m_arcball->distance() == tsd::math::inf) {
+    resetView(true);
+    if (appCore()->view.poses.empty()) {
+      tsd::core::logStatus("[multi-viewport] adding 'default' camera pose");
+      appCore()->addCurrentViewToCameraPoses("default");
+    }
+    firstFrame = false;
+  }
+
+  tsd::core::logStatus("[multi-viewport] ...viewport setup complete");
+
+  anari::unloadLibrary(library);
 }
 
 void MultiDeviceViewport::loadSettings(tsd::core::DataNode &root)
@@ -137,84 +223,6 @@ void MultiDeviceViewport::getSceneBounds(tsd::math::float3 boundsOut[2]) const
 #endif
 
   std::memcpy(boundsOut, bounds, sizeof(tsd::math::float3) * 2);
-}
-
-void MultiDeviceViewport::setLibrary(const std::string &libName)
-{
-  auto &adm = appCore()->anari;
-  auto &ctx = appCore()->tsd.ctx;
-
-  auto library =
-      anari::loadLibrary(libName.c_str(), tsd::app::anariStatusFunc, appCore());
-  if (!library) {
-    tsd::core::logError(
-        "[multi-viewport] failed to load ANARI library '%s'", libName.c_str());
-    return;
-  }
-
-  tsd::core::logStatus(
-      "[multi-viewport] loaded ANARI library '%s'", libName.c_str());
-
-  std::vector<anari::Device> devices;
-
-  tsd::core::logStatus(
-      "[multi-viewport] creating %zu devices...", ctx.numberOfLayers());
-
-  for (size_t i = 0; i < ctx.numberOfLayers(); i++) {
-    if (!m_ri) {
-      m_ri = std::make_unique<tsd::rendering::MultiRenderIndex>();
-      ctx.setUpdateDelegate(m_ri.get());
-    }
-    auto d = anari::newDevice(library, "default");
-    devices.push_back(d);
-  }
-
-  tsd::core::logWarning("[multi-viewport] (TODO) tethering devices...");
-
-  ////////////////////////////////////
-  // TODO: do device tethering here //
-  ////////////////////////////////////
-
-  tsd::core::logStatus("[multi-viewport] setting up render pipeline...");
-
-  setupRenderPipeline(devices);
-
-  tsd::core::logStatus("[multi-viewport] creating cameras and renderers...");
-
-  for (size_t i = 0; m_ri && i < ctx.numberOfLayers(); i++) {
-    auto *l = ctx.layer(i);
-    auto d = devices[i];
-    auto c = anari::newObject<anari::Camera>(d, "perspective");
-    auto r = anari::newObject<anari::Renderer>(d, "default");
-
-    auto *ri = m_ri->emplace<tsd::rendering::RenderIndexAllLayers>(ctx, d);
-    //ri->setIncludedLayers({l});
-    ri->populate(false);
-
-    m_cameras.push_back(c);
-    m_renderers.push_back(r);
-
-    m_anariPass->setCamera(i, c);
-    m_anariPass->setRenderer(i, r);
-    m_anariPass->setWorld(i, ri->world());
-  }
-
-  static bool firstFrame = true;
-  if (firstFrame && appCore()->commandLine.loadedFromStateFile)
-    firstFrame = false;
-
-  if (firstFrame || m_arcball->distance() == tsd::math::inf) {
-    resetView(true);
-    if (appCore()->view.poses.empty()) {
-      tsd::core::logStatus("[multi-viewport] adding 'default' camera pose");
-      appCore()->addCurrentViewToCameraPoses("default");
-    }
-    firstFrame = false;
-  }
-
-  tsd::core::logStatus("[multi-viewport] ...viewport setup complete");
-
-  anari::unloadLibrary(library);
 }
 
 void MultiDeviceViewport::setupRenderPipeline(

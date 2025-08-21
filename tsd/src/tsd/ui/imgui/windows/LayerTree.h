@@ -16,6 +16,8 @@ struct LayerTree : public Window
   LayerTree(Application *app, const char *name = "Layers");
   void buildUI() override;
 
+  void setEnableAddRemoveLayers(bool enable);
+
  private:
   void buildUI_layerHeader();
   void buildUI_tree();
@@ -26,6 +28,7 @@ struct LayerTree : public Window
 
   // Data //
 
+  bool m_enableAddRemove{true};
   size_t m_hoveredNode{TSD_INVALID_INDEX};
   size_t m_menuNode{TSD_INVALID_INDEX};
   bool m_activeLayerMenuTriggered{false};

@@ -63,6 +63,7 @@ class Application : public TSDApplication
     auto *dbeditor = new tsd_ui::DatabaseEditor(this);
     auto *oeditor = new tsd_ui::ObjectEditor(this);
     auto *otree = new tsd_ui::LayerTree(this);
+    otree->setEnableAddRemoveLayers(false);
 
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
@@ -72,6 +73,9 @@ class Application : public TSDApplication
     windows.emplace_back(log);
 
     setWindowArray(windows);
+
+    loadStateForNextFrame(); // important to do this *before* setting up barney
+    viewport->setLibrary("barney");
 
     return windows;
   }

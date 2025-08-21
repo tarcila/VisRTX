@@ -45,6 +45,14 @@ void RenderIndexAllLayers::setFilterFunction(RenderIndexFilterFcn f)
   signalObjectFilteringChanged();
 }
 
+void RenderIndexAllLayers::setIncludedLayers(
+    const std::vector<const Layer *> &layers)
+{
+  m_includedLayers = layers;
+  m_customIncludedLayers = !layers.empty();
+  signalActiveLayersChanged();
+}
+
 void RenderIndexAllLayers::signalArrayUnmapped(const Array *a)
 {
   RenderIndex::signalArrayUnmapped(a);
@@ -77,10 +85,12 @@ void RenderIndexAllLayers::signalLayerRemoved(const Layer *l)
 
 void RenderIndexAllLayers::signalActiveLayersChanged()
 {
-  if (m_includedLayers.empty()
-      && m_ctx->numberOfActiveLayers() == m_ctx->numberOfLayers())
-    return;
-  m_includedLayers = m_ctx->getActiveLayers();
+  if (!m_customIncludedLayers) {
+    if (m_includedLayers.empty()
+        && m_ctx->numberOfActiveLayers() == m_ctx->numberOfLayers())
+      return;
+    m_includedLayers = m_ctx->getActiveLayers();
+  }
   signalInvalidateCachedObjects();
 }
 

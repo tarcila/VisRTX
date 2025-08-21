@@ -18,6 +18,8 @@ struct RenderIndexAllLayers : public RenderIndex
 
   void setFilterFunction(RenderIndexFilterFcn f) override;
 
+  void setIncludedLayers(const std::vector<const Layer *> &layers);
+
   void signalArrayUnmapped(const Array *a) override;
   void signalLayerAdded(const Layer *l) override;
   void signalLayerUpdated(const Layer *l) override;
@@ -33,6 +35,7 @@ struct RenderIndexAllLayers : public RenderIndex
 
   RenderIndexFilterFcn m_filter;
   std::vector<const Layer *> m_includedLayers;
+  bool m_customIncludedLayers{false};
   bool m_filterForceUpdate{false};
 
   using InstanceCache = FlatMap<const Layer *, std::vector<anari::Instance>>;

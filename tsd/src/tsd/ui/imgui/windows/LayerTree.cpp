@@ -41,6 +41,11 @@ void LayerTree::buildUI()
   buildUI_setActiveLayersContextMenus();
 }
 
+void LayerTree::setEnableAddRemoveLayers(bool enable)
+{
+  m_enableAddRemove = enable;
+}
+
 void LayerTree::buildUI_layerHeader()
 {
   auto &ctx = appCore()->tsd.ctx;
@@ -68,14 +73,16 @@ void LayerTree::buildUI_layerHeader()
 
   ImGui::SameLine();
 
+  ImGui::BeginDisabled(!m_enableAddRemove);
   if (ImGui::Button("new")) {
     s_newLayerName.clear();
     ImGui::OpenPopup("LayerTree_contextMenu_newLayer");
   }
+  ImGui::EndDisabled();
 
   ImGui::SameLine();
 
-  ImGui::BeginDisabled(m_layerIdx == 0);
+  ImGui::BeginDisabled(!m_enableAddRemove || m_layerIdx == 0);
   if (ImGui::Button("delete")) {
     auto to_delete = layers.at_index(m_layerIdx);
     ctx.removeLayer(to_delete.first);

@@ -42,6 +42,8 @@ class Application : public anari_viewer::Application
   void saveApplicationState(const char *filename = "state.tsd");
   void loadApplicationState(const char *filename = "state.tsd");
 
+  void loadStateForNextFrame();
+
   void setupUsdDevice();
   bool usdDeviceSetup() const;
   void syncUsdScene();

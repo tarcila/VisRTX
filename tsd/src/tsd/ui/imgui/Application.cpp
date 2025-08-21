@@ -112,15 +112,9 @@ void Application::uiFrameStart()
 {
   if (!m_filenameToSaveNextFrame.empty()) {
     saveApplicationState(m_filenameToSaveNextFrame.c_str());
-    m_currentSessionFilename = m_filenameToSaveNextFrame;
     m_filenameToSaveNextFrame.clear();
-    updateWindowTitle();
   } else if (!m_filenameToLoadNextFrame.empty()) {
-    m_core.clearSelected();
-    loadApplicationState(m_filenameToLoadNextFrame.c_str());
-    m_currentSessionFilename = m_filenameToLoadNextFrame;
-    m_filenameToLoadNextFrame.clear();
-    updateWindowTitle();
+    loadStateForNextFrame();
   }
 
   // Helper functions to save state //
@@ -277,6 +271,7 @@ void Application::teardown()
 void Application::saveApplicationState(const char *_filename)
 {
   std::string f_str = _filename;
+
   auto doSave = [&, filename = f_str]() {
     tsd::core::logStatus("clearing old settings tree...");
 
@@ -325,6 +320,9 @@ void Application::saveApplicationState(const char *_filename)
     root["context"].reset();
 
     tsd::core::logStatus("...state saved to '%s'", filename.c_str());
+
+    m_currentSessionFilename = filename;
+    updateWindowTitle();
   };
 
   m_taskModal->activate(doSave, "Please Wait: Saving Session...");
@@ -385,6 +383,18 @@ void Application::loadApplicationState(const char *filename)
   m_appSettingsDialog->applySettings();
 
   tsd::core::logStatus("...loaded state from '%s'", filename);
+
+  m_currentSessionFilename = filename;
+  updateWindowTitle();
+}
+
+void Application::loadStateForNextFrame()
+{
+  if (m_filenameToLoadNextFrame.empty())
+    return;
+  m_core.clearSelected();
+  loadApplicationState(m_filenameToLoadNextFrame.c_str());
+  m_filenameToLoadNextFrame.clear();
 }
 
 void Application::setupUsdDevice()
