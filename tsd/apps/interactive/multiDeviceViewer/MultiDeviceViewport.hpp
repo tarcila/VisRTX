@@ -39,6 +39,9 @@ struct MultiDeviceViewport : public tsd::ui::imgui::Window
   void reshape(tsd::math::int2 newWindowSize);
   void updateCamera(bool force = false);
 
+  void loadANARIRendererParameters();
+  void updateAllRendererParameters();
+
   void ui_menubar();
   void ui_handleInput();
 
@@ -55,7 +58,15 @@ struct MultiDeviceViewport : public tsd::ui::imgui::Window
   anari::DataType m_format{ANARI_UFIXED8_RGBA_SRGB};
   std::unique_ptr<tsd::rendering::MultiRenderIndex> m_ri;
   std::vector<anari::Camera> m_cameras;
-  std::vector<anari::Renderer> m_renderers;
+  tsd::core::Object m_rendererObject;
+
+  struct RendererUpdateDelegate : public tsd::core::EmptyUpdateDelegate
+  {
+    void signalParameterUpdated(
+        const tsd::core::Object *o, const tsd::core::Parameter *p) override;
+    std::vector<anari::Device> devices;
+    std::vector<anari::Renderer> renderers;
+  } m_rud;
 
   // camera manipulator //
 

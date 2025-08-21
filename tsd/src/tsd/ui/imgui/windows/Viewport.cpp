@@ -305,13 +305,11 @@ void Viewport::loadSettings(tsd::core::DataNode &root)
   // Renderer settings //
 
   root["renderers"].foreach_child([&](auto &node) {
-    int i = 0;
     for (auto &ro : m_rendererObjects) {
       if (ro.subtype() == node.name()) {
         tsd::io::nodeToObject(node, ro);
         return;
       }
-      i++;
     }
   });
 

@@ -6,6 +6,7 @@
 #include <tsd/core/Logging.hpp>
 // tsd_ui_imgui
 #include <tsd/ui/imgui/Application.h>
+#include <tsd/ui/imgui/tsd_ui_imgui.h>
 // tsd_rendering
 #include <tsd/rendering/view/ManipulatorToAnari.hpp>
 
@@ -23,12 +24,14 @@ MultiDeviceViewport::~MultiDeviceViewport()
     auto *ri = getRenderIndex(i);
     auto d = ri->device();
     auto c = m_cameras[i];
-    auto r = m_renderers[i];
+    auto r = m_rud.renderers[i];
 
     anari::release(d, c);
     anari::release(d, r);
   }
 
+  m_rud.renderers.clear();
+  m_rud.devices.clear();
   m_ri.reset();
 }
 
@@ -137,12 +140,16 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
     ri->populate(false);
 
     m_cameras.push_back(c);
-    m_renderers.push_back(r);
+    m_rud.devices.push_back(d);
+    m_rud.renderers.push_back(r);
 
     m_anariPass->setCamera(i, c);
     m_anariPass->setRenderer(i, r);
     m_anariPass->setWorld(i, ri->world());
   }
+
+  loadANARIRendererParameters();
+  updateAllRendererParameters();
 
   static bool firstFrame = true;
   if (firstFrame && appCore()->commandLine.loadedFromStateFile)
@@ -285,9 +292,57 @@ void MultiDeviceViewport::updateCamera(bool force)
   m_axesPass->setView(m_arcball->dir(), m_arcball->up());
 }
 
+void MultiDeviceViewport::loadANARIRendererParameters()
+{
+  auto d = m_rud.devices[0];
+  for (auto &name : tsd::core::getANARIObjectSubtypes(d, ANARI_RENDERER)) {
+    auto &o = m_rendererObject;
+    o = tsd::core::parseANARIObjectInfo(d, ANARI_RENDERER, name.c_str());
+    o.setName(name.c_str());
+    o.setUpdateDelegate(&m_rud);
+    break;
+  }
+}
+
+void MultiDeviceViewport::updateAllRendererParameters()
+{
+  for (size_t i = 0; i < m_rud.devices.size(); i++) {
+    auto &ro = m_rendererObject;
+    auto d = m_rud.devices[i];
+    auto r = m_rud.renderers[i];
+    ro.updateAllANARIParameters(d, r);
+    anari::commitParameters(d, r);
+  }
+}
+
 void MultiDeviceViewport::ui_menubar()
 {
   if (ImGui::BeginMenuBar()) {
+    // Renderer //
+
+    if (ImGui::BeginMenu("Renderer")) {
+      ImGui::Text("Parameters:");
+      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+
+      tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.ctx, false);
+
+      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Separator();
+      ImGui::Separator();
+      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+
+      if (ImGui::BeginMenu("reset to defaults?")) {
+        if (ImGui::MenuItem("yes")) {
+          loadANARIRendererParameters();
+          updateAllRendererParameters();
+        }
+        ImGui::EndMenu();
+      }
+
+      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::EndMenu();
+    }
+
     // Camera //
 
     if (ImGui::BeginMenu("Camera")) {
@@ -448,6 +503,17 @@ void MultiDeviceViewport::ui_handleInput()
 int MultiDeviceViewport::windowFlags() const
 {
   return ImGuiWindowFlags_MenuBar;
+}
+
+void MultiDeviceViewport::RendererUpdateDelegate::signalParameterUpdated(
+    const tsd::core::Object *o, const tsd::core::Parameter *p)
+{
+  for (size_t i = 0; i < devices.size(); i++) {
+    auto d = devices[i];
+    auto r = renderers[i];
+    o->updateANARIParameter(d, r, *p, p->name().c_str());
+    anari::commitParameters(d, r);
+  }
 }
 
 } // namespace tsd::dpt
