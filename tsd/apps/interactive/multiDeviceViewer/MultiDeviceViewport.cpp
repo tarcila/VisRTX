@@ -109,18 +109,13 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
   tsd::core::logStatus("[multi-viewport] tethering devices...");
 
   if (devices.size() > 1) {
-    auto td = devices[0];
-    anari::setParameter(td, td, "dataGroupID", int(0));
-    anari::setParameter(td, td, "tetherCount", int(devices.size()));
-    anari::setParameter(td, td, "tetherIndex", int(0));
-    anari::commitParameters(td, td);
-
-    for (size_t i = 1; i < devices.size(); i++) {
+    for (size_t i = 0; i < devices.size(); i++) {
       auto d = devices[i];
       anari::setParameter(d, d, "dataGroupID", int(i));
       anari::setParameter(d, d, "tetherCount", int(devices.size()));
       anari::setParameter(d, d, "tetherIndex", int(i));
-      anari::setParameter(d, d, "tetherDevice", td);
+      if (i > 0)
+        anari::setParameter(d, d, "tetherDevice", devices[0]);
       anari::commitParameters(d, d);
     }
   }
