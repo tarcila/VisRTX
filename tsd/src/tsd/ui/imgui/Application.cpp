@@ -91,9 +91,9 @@ anari_viewer::WindowArray Application::setupWindows()
   if (appCore()->commandLine.useDefaultLayout)
     ImGui::LoadIniSettingsFromMemory(getDefaultLayout());
 
-  m_appSettingsDialog = std::make_unique<AppSettingsDialog>(appCore());
-  m_taskModal = std::make_unique<BlockingTaskModal>(appCore());
-  m_fileDialog = std::make_unique<ImportFileDialog>(appCore());
+  m_appSettingsDialog = std::make_unique<AppSettingsDialog>(this);
+  m_taskModal = std::make_unique<BlockingTaskModal>(this);
+  m_fileDialog = std::make_unique<ImportFileDialog>(this);
 
   m_core.windows.taskModal = m_taskModal.get();
   m_core.windows.importDialog = m_fileDialog.get();

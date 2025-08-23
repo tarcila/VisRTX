@@ -9,13 +9,13 @@ namespace tsd::ui::imgui {
 
 struct AppSettingsDialog : public Modal
 {
-  AppSettingsDialog(tsd::app::Core *core);
+  AppSettingsDialog(Application *app);
   ~AppSettingsDialog() override = default;
 
   void buildUI() override;
   void applySettings();
 
-  private:
+ private:
   void buildUI_applicationSettings();
   void buildUI_offlineRenderSettings();
 };

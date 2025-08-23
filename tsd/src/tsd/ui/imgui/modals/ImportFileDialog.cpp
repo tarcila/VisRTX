@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ImportFileDialog.h"
-#include "BlockingTaskModal.h"
+#include "tsd/ui/imgui/Application.h"
+#include "tsd/ui/imgui/modals/BlockingTaskModal.h"
 // SDL
 #include <SDL3/SDL_dialog.h>
 // tsd_io
@@ -10,8 +11,8 @@
 
 namespace tsd::ui::imgui {
 
-ImportFileDialog::ImportFileDialog(tsd::app::Core *core)
-    : Modal(core, "ImportFileDialog"), m_core(core)
+ImportFileDialog::ImportFileDialog(Application *app)
+    : Modal(app, "ImportFileDialog")
 {}
 
 ImportFileDialog::~ImportFileDialog() = default;
@@ -44,9 +45,7 @@ void ImportFileDialog::buildUI()
   static std::string outPath;
   if (ImGui::Button("...")) {
     outPath.clear();
-#if 0
-    m_core->getFilenameFromDialog(outPath);
-#endif
+    m_app->getFilenameFromDialog(outPath);
   }
 
   if (!outPath.empty()) {
@@ -84,9 +83,10 @@ void ImportFileDialog::buildUI()
     this->hide();
 
     auto doLoad = [&]() {
-      auto &ctx = m_core->tsd.ctx;
-      auto *layer = m_core->tsd.ctx.defaultLayer();
-      auto importRoot = m_core->tsd.selectedNode;
+      auto *core = appCore();
+      auto &ctx = core->tsd.ctx;
+      auto *layer = core->tsd.ctx.defaultLayer();
+      auto importRoot = core->tsd.selectedNode;
       if (!importRoot)
         importRoot = layer->root();
 
@@ -125,10 +125,10 @@ void ImportFileDialog::buildUI()
       ctx.signalLayerChange(layer);
     };
 
-    if (!m_core->windows.taskModal)
+    if (!appCore()->windows.taskModal)
       doLoad();
     else {
-      m_core->windows.taskModal->activate(
+      appCore()->windows.taskModal->activate(
           doLoad, "Please Wait: Importing Data...");
     }
   }

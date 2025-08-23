@@ -3,8 +3,6 @@
 
 #include "Window.h"
 #include "tsd/ui/imgui/Application.h"
-// tsd_app
-#include "tsd/app/Core.h"
 
 namespace tsd::ui::imgui {
 

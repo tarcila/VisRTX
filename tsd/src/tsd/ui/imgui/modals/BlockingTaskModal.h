@@ -4,8 +4,6 @@
 #pragma once
 
 #include "Modal.h"
-// tsd_app
-#include "tsd/app/Core.h"
 // tsd_core
 #include "tsd/core/Timer.hpp"
 
@@ -13,7 +11,7 @@ namespace tsd::ui::imgui {
 
 struct BlockingTaskModal : public Modal
 {
-  BlockingTaskModal(tsd::app::Core *ctx);
+  BlockingTaskModal(Application *app);
   ~BlockingTaskModal() override;
 
   void buildUI() override;
@@ -22,7 +20,6 @@ struct BlockingTaskModal : public Modal
   void activate(F &&f, const char *text = "Please Wait");
 
  private:
-  tsd::app::Core *m_core{nullptr};
   tsd::app::Future m_future;
   std::string m_text;
   tsd::core::Timer m_timer;
@@ -34,7 +31,7 @@ template <class F>
 inline void BlockingTaskModal::activate(F &&f, const char *text)
 {
   m_timer.start();
-  m_future = m_core->jobs.queue.enqueue(std::move(f));
+  m_future = appCore()->jobs.queue.enqueue(std::move(f));
   m_text = text;
   this->show();
 }

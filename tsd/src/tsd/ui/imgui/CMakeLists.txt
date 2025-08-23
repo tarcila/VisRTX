@@ -11,6 +11,7 @@ project_sources(PRIVATE
   modals/AppSettingsDialog.cpp
   modals/BlockingTaskModal.cpp
   modals/ImportFileDialog.cpp
+  modals/Modal.cpp
   windows/CameraPoses.cpp
   windows/DatabaseEditor.cpp
   windows/IsosurfaceEditor.cpp
