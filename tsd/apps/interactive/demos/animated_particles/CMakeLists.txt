@@ -5,7 +5,7 @@ if (NOT TSD_USE_CUDA)
   return()
 endif()
 
-list(APPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/../external/glm)
+list(PREPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/../external/glm)
 find_package(glm REQUIRED)
 
 project(tsdDemoAnimatedParticles)

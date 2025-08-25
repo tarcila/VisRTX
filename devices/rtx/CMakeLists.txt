@@ -345,6 +345,8 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
 
   if(VISRTX_ENABLE_NEURAL)
     set(CUDA_ARCHS 89-virtual)
+  elseif(${CUDAToolkit_VERSION_MAJOR} GREATER 12)
+    set(CUDA_ARCHS 75-virtual)
   else()
     set(CUDA_ARCHS 52-virtual)
   endif()
