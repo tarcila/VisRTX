@@ -8,6 +8,7 @@
 #include "tsd/core/Logging.hpp"
 // std
 #include <algorithm>
+#include <iterator>
 
 namespace tsd::rendering {
 
@@ -22,8 +23,9 @@ static void releaseInstances(
 
 // RenderIndexAllLayers definitions ///////////////////////////////////////////
 
-RenderIndexAllLayers::RenderIndexAllLayers(Context &ctx, anari::Device d)
-    : RenderIndex(ctx, d)
+RenderIndexAllLayers::RenderIndexAllLayers(
+    Context &ctx, anari::Device d, bool alwaysGatherAllLights)
+    : RenderIndex(ctx, d), m_forceAllLights(alwaysGatherAllLights)
 {
   m_includedLayers = ctx.getActiveLayers();
 }
@@ -62,14 +64,14 @@ void RenderIndexAllLayers::signalArrayUnmapped(const Array *a)
 
 void RenderIndexAllLayers::signalLayerAdded(const Layer *l)
 {
-  syncLayerInstances(l);
+  syncLayerInstances(l, false, objectMask_all());
   updateWorld();
 }
 
 void RenderIndexAllLayers::signalLayerUpdated(const Layer *l)
 {
   if (m_instanceCache.contains(l)) {
-    syncLayerInstances(l);
+    syncLayerInstances(l, false, objectMask_all());
     updateWorld();
   }
 }
@@ -119,14 +121,23 @@ void RenderIndexAllLayers::updateWorld()
       tsd::core::logDebug(
           "[RenderIndexAllLayers] cache empty, "
           "repopulating using specific layers");
-      for (auto &l : m_includedLayers)
-        syncLayerInstances(l);
+      if (m_forceAllLights) {
+        // first just the surfaces/volumes from included layers
+        for (auto &l : m_includedLayers)
+          syncLayerInstances(l, false, objectMask_surfacesAndVolumes());
+        // then all lights from all layers
+        for (auto &l : m_ctx->layers())
+          syncLayerInstances(l.second.ptr.get(), true, objectMask_lights());
+      } else {
+        for (auto &l : m_includedLayers)
+          syncLayerInstances(l, false, objectMask_all());
+      }
     } else { // sync everything
       tsd::core::logDebug(
           "[RenderIndexAllLayers] cache empty, "
           "repopulating using all layers");
       for (auto &l : m_ctx->layers())
-        syncLayerInstances(l.second.ptr.get());
+        syncLayerInstances(l.second.ptr.get(), false, objectMask_all());
     }
   }
 
@@ -146,7 +157,8 @@ void RenderIndexAllLayers::updateWorld()
   anari::commitParameters(d, w);
 }
 
-void RenderIndexAllLayers::syncLayerInstances(const Layer *_layer)
+void RenderIndexAllLayers::syncLayerInstances(
+    const Layer *_layer, bool appendExisting, uint8_t mask)
 {
   auto d = device();
 
@@ -156,12 +168,16 @@ void RenderIndexAllLayers::syncLayerInstances(const Layer *_layer)
   auto *layer = const_cast<Layer *>(_layer);
 
   RenderToAnariObjectsVisitor visitor(
-      d, m_cache, &instances, m_ctx, m_filter ? &m_filter : nullptr);
+      d, m_cache, &instances, m_ctx, mask, m_filter ? &m_filter : nullptr);
   layer->traverse(layer->root(), visitor);
 
   auto &cached = m_instanceCache[layer];
-  releaseInstances(d, cached);
-  cached = instances;
+  if (appendExisting)
+    std::copy(instances.begin(), instances.end(), std::back_inserter(cached));
+  else {
+    releaseInstances(d, cached);
+    cached = instances;
+  }
 }
 
 void RenderIndexAllLayers::releaseAllInstances()

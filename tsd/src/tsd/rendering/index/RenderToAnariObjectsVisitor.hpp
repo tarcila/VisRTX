@@ -9,10 +9,41 @@
 #include "tsd/rendering/index/RenderIndexFilterFcn.hpp"
 // std
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <stack>
 
 namespace tsd::rendering {
+
+enum RenderInclusionMask
+{
+  SURFACES = 1 << 0,
+  VOLUMES = 1 << 1,
+  LIGHTS = 1 << 2,
+  ALL = ((1 << 3) - 1)
+};
+
+constexpr uint8_t objectMask_none()
+{
+  return 0;
+}
+
+constexpr uint8_t objectMask_all()
+{
+  return RenderInclusionMask::ALL;
+}
+
+constexpr uint8_t objectMask_surfacesAndVolumes()
+{
+  return RenderInclusionMask::SURFACES | RenderInclusionMask::VOLUMES;
+}
+
+constexpr uint8_t objectMask_lights()
+{
+  return RenderInclusionMask::LIGHTS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
 {
@@ -20,6 +51,7 @@ struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
       tsd::core::AnariObjectCache &oc,
       std::vector<anari::Instance> *instances,
       tsd::core::Context *ctx,
+      uint8_t inclusionMask = objectMask_all(),
       RenderIndexFilterFcn *f = nullptr);
   ~RenderToAnariObjectsVisitor();
 
@@ -44,6 +76,7 @@ struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
   std::stack<GroupedObjects> m_objects;
   const tsd::core::Array *m_xfmArray{nullptr};
   tsd::core::Context *m_ctx{nullptr};
+  uint8_t m_mask{objectMask_none()};
   RenderIndexFilterFcn *m_filter{nullptr};
 };
 
@@ -53,8 +86,14 @@ inline RenderToAnariObjectsVisitor::RenderToAnariObjectsVisitor(anari::Device d,
     tsd::core::AnariObjectCache &oc,
     std::vector<anari::Instance> *instances,
     tsd::core::Context *ctx,
+    uint8_t mask,
     RenderIndexFilterFcn *f)
-    : m_device(d), m_cache(&oc), m_instances(instances), m_ctx(ctx), m_filter(f)
+    : m_device(d),
+      m_cache(&oc),
+      m_instances(instances),
+      m_ctx(ctx),
+      m_mask(mask),
+      m_filter(f)
 {
   anari::retain(d, d);
   m_xfms.emplace(tsd::math::identity);
@@ -78,21 +117,27 @@ inline bool RenderToAnariObjectsVisitor::preChildren(
 
   auto type = n->value.type();
   switch (type) {
-  case ANARI_SURFACE: {
-    size_t i = n->value.getAsObjectIndex();
-    if (auto h = m_cache->getHandle(type, i, true); h != nullptr && included)
-      current.surfaces.push_back((anari::Surface)h);
-  } break;
-  case ANARI_VOLUME: {
-    size_t i = n->value.getAsObjectIndex();
-    if (auto h = m_cache->getHandle(type, i, true); h != nullptr && included)
-      current.volumes.push_back((anari::Volume)h);
-  } break;
-  case ANARI_LIGHT: {
-    size_t i = n->value.getAsObjectIndex();
-    if (auto h = m_cache->getHandle(type, i, true); h != nullptr)
-      current.lights.push_back((anari::Light)h);
-  } break;
+  case ANARI_SURFACE:
+    if (m_mask & RenderInclusionMask::SURFACES) {
+      size_t i = n->value.getAsObjectIndex();
+      if (auto h = m_cache->getHandle(type, i, true); h != nullptr && included)
+        current.surfaces.push_back((anari::Surface)h);
+    }
+    break;
+  case ANARI_VOLUME:
+    if (m_mask & RenderInclusionMask::VOLUMES) {
+      size_t i = n->value.getAsObjectIndex();
+      if (auto h = m_cache->getHandle(type, i, true); h != nullptr && included)
+        current.volumes.push_back((anari::Volume)h);
+    }
+    break;
+  case ANARI_LIGHT:
+    if (m_mask & RenderInclusionMask::LIGHTS) {
+      size_t i = n->value.getAsObjectIndex();
+      if (auto h = m_cache->getHandle(type, i, true); h != nullptr)
+        current.lights.push_back((anari::Light)h);
+    }
+    break;
   case ANARI_FLOAT32_MAT4:
     m_xfms.push(tsd::math::mul(m_xfms.top(), n->value.get<tsd::math::mat4>()));
     m_objects.emplace();

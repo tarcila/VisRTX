@@ -11,7 +11,8 @@ namespace tsd::rendering {
 
 struct RenderIndexAllLayers : public RenderIndex
 {
-  RenderIndexAllLayers(Context &ctx, anari::Device d);
+  RenderIndexAllLayers(
+      Context &ctx, anari::Device d, bool alwaysGatherAllLights = false);
   ~RenderIndexAllLayers() override;
 
   bool isFlat() const override;
@@ -30,11 +31,13 @@ struct RenderIndexAllLayers : public RenderIndex
 
  private:
   void updateWorld() override;
-  void syncLayerInstances(const Layer *layer);
+  void syncLayerInstances(
+      const Layer *layer, bool appendExisting, uint8_t mask);
   void releaseAllInstances();
 
   RenderIndexFilterFcn m_filter;
   std::vector<const Layer *> m_includedLayers;
+  bool m_forceAllLights{false};
   bool m_customIncludedLayers{false};
   bool m_filterForceUpdate{false};
 
