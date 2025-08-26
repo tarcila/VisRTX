@@ -9,7 +9,7 @@
 #include <cstring>
 #include <limits>
 
-namespace tsd::dpt {
+namespace tsd::rendering {
 
 MultiDeviceSceneRenderPass::MultiDeviceSceneRenderPass(
     const std::vector<anari::Device> &devices)
@@ -94,21 +94,21 @@ void MultiDeviceSceneRenderPass::updateSize()
   });
 
   const size_t totalSize = size_t(size.x) * size_t(size.y);
-  m_buffers.color = tsd::rendering::detail::allocate<uint32_t>(totalSize);
-  m_buffers.depth = tsd::rendering::detail::allocate<float>(totalSize);
+  m_buffers.color = detail::allocate<uint32_t>(totalSize);
+  m_buffers.depth = detail::allocate<float>(totalSize);
   std::fill(m_buffers.color, m_buffers.color + totalSize, 0u);
   std::fill(m_buffers.depth,
       m_buffers.depth + totalSize,
       std::numeric_limits<float>::infinity());
 }
 
-void MultiDeviceSceneRenderPass::render(
-    tsd::rendering::RenderBuffers &b, int stageId)
+void MultiDeviceSceneRenderPass::render(RenderBuffers &b, int stageId)
 {
   auto d = m_devices[0];
   auto f = m_frames[0];
   anari::render(d, f);
-  anari::wait(d, f);;
+  anari::wait(d, f);
+  ;
   copyFrameData();
   composite(b, stageId);
 }
@@ -124,22 +124,20 @@ void MultiDeviceSceneRenderPass::copyFrameData()
   const size_t totalSize = size.x * size.y;
   if (totalSize > 0 && size.x == color.width && size.y == color.height) {
     if (color.pixelType == ANARI_FLOAT32_VEC4) {
-      tsd::rendering::detail::convertFloatColorBuffer_(
+      detail::convertFloatColorBuffer_(
           (const float *)color.data, (uint8_t *)m_buffers.color, totalSize * 4);
     } else {
-      tsd::rendering::detail::copy(
-          m_buffers.color, (uint32_t *)color.data, totalSize);
+      detail::copy(m_buffers.color, (uint32_t *)color.data, totalSize);
     }
 
-    tsd::rendering::detail::copy(m_buffers.depth, depth.data, totalSize);
+    detail::copy(m_buffers.depth, depth.data, totalSize);
   }
 
   anari::unmap(d, f, "channel.color");
   anari::unmap(d, f, "channel.depth");
 }
 
-void MultiDeviceSceneRenderPass::composite(
-    tsd::rendering::RenderBuffers &b, int stageId)
+void MultiDeviceSceneRenderPass::composite(RenderBuffers &b, int stageId)
 {
   if (stageId != 0) {
     tsd::core::logWarning(
@@ -151,14 +149,14 @@ void MultiDeviceSceneRenderPass::composite(
   const tsd::math::uint2 size(getDimensions());
   const size_t totalSize = size.x * size.y;
 
-  tsd::rendering::detail::copy(b.color, m_buffers.color, totalSize);
-  tsd::rendering::detail::copy(b.depth, m_buffers.depth, totalSize);
+  detail::copy(b.color, m_buffers.color, totalSize);
+  detail::copy(b.depth, m_buffers.depth, totalSize);
 }
 
 void MultiDeviceSceneRenderPass::cleanup()
 {
-  tsd::rendering::detail::free(m_buffers.color);
-  tsd::rendering::detail::free(m_buffers.depth);
+  detail::free(m_buffers.color);
+  detail::free(m_buffers.depth);
 }
 
-} // namespace tsd::dpt
+} // namespace tsd::rendering

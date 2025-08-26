@@ -5,14 +5,10 @@
 #include <tsd/ui/imgui/Application.h>
 #include <tsd/ui/imgui/windows/CameraPoses.h>
 #include <tsd/ui/imgui/windows/DatabaseEditor.h>
-#include <tsd/ui/imgui/windows/IsosurfaceEditor.h>
 #include <tsd/ui/imgui/windows/LayerTree.h>
 #include <tsd/ui/imgui/windows/Log.h>
+#include <tsd/ui/imgui/windows/MultiDeviceViewport.h>
 #include <tsd/ui/imgui/windows/ObjectEditor.h>
-#include <tsd/ui/imgui/windows/TransferFunctionEditor.h>
-#include <tsd/ui/imgui/windows/Viewport.h>
-
-#include "MultiDeviceViewport.hpp"
 
 namespace tsd_viewer {
 
@@ -58,7 +54,7 @@ class Application : public TSDApplication
 
     auto *cameras = new tsd_ui::CameraPoses(this);
     auto *log = new tsd_ui::Log(this);
-    auto *viewport = new tsd::dpt::MultiDeviceViewport(
+    auto *viewport = new tsd_ui::MultiDeviceViewport(
         this, &core->view.manipulator, "Viewport");
     auto *dbeditor = new tsd_ui::DatabaseEditor(this);
     auto *oeditor = new tsd_ui::ObjectEditor(this);

@@ -9,6 +9,7 @@
 #if ENABLE_SDL
 #include "passes/CopyToSDLTexturePass.h"
 #endif
+#include "passes/MultiDeviceSceneRenderPass.h"
 #include "passes/OutlineRenderPass.h"
 #include "passes/PickPass.h"
 #include "passes/VisualizeDepthPass.h"

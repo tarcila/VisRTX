@@ -17,6 +17,7 @@ project_sources(PRIVATE
   windows/IsosurfaceEditor.cpp
   windows/LayerTree.cpp
   windows/Log.cpp
+  windows/MultiDeviceViewport.cpp
   windows/ObjectEditor.cpp
   windows/TransferFunctionEditor.cpp
   windows/Viewport.cpp

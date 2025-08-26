@@ -14,6 +14,7 @@ PRIVATE
   pipeline/passes/AnariSceneRenderPass.cpp
   pipeline/passes/ClearBuffersPass.cpp
   pipeline/passes/CopyToSDLTexturePass.cpp
+  pipeline/passes/MultiDeviceSceneRenderPass.cpp
   pipeline/passes/OutlineRenderPass.cpp
   pipeline/passes/PickPass.cpp
   pipeline/passes/RenderPass.cpp

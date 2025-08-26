@@ -10,9 +10,9 @@
 // std
 #include <functional>
 
-namespace tsd::dpt {
+namespace tsd::rendering {
 
-struct MultiDeviceSceneRenderPass : public tsd::rendering::RenderPass
+struct MultiDeviceSceneRenderPass : public RenderPass
 {
   MultiDeviceSceneRenderPass(const std::vector<anari::Device> &devices);
   ~MultiDeviceSceneRenderPass() override;
@@ -32,12 +32,12 @@ struct MultiDeviceSceneRenderPass : public tsd::rendering::RenderPass
       const std::function<void(anari::Device, anari::Frame)> &func) const;
 
   void updateSize() override;
-  void render(tsd::rendering::RenderBuffers &b, int stageId) override;
+  void render(RenderBuffers &b, int stageId) override;
   void copyFrameData();
-  void composite(tsd::rendering::RenderBuffers &b, int stageId);
+  void composite(RenderBuffers &b, int stageId);
   void cleanup();
 
-  tsd::rendering::RenderBuffers m_buffers;
+  RenderBuffers m_buffers;
 
   bool m_firstFrame{true};
   bool m_runAsync{true};
@@ -46,4 +46,4 @@ struct MultiDeviceSceneRenderPass : public tsd::rendering::RenderPass
   std::vector<anari::Frame> m_frames;
 };
 
-} // namespace tsd::dpt
+} // namespace tsd::rendering

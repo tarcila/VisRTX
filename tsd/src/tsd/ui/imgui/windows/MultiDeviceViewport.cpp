@@ -1,7 +1,7 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "MultiDeviceViewport.hpp"
+#include "MultiDeviceViewport.h"
 // tsd_core
 #include <tsd/core/Logging.hpp>
 // tsd_ui_imgui
@@ -10,12 +10,11 @@
 // tsd_rendering
 #include <tsd/rendering/view/ManipulatorToAnari.hpp>
 
-namespace tsd::dpt {
+namespace tsd::ui::imgui {
 
-MultiDeviceViewport::MultiDeviceViewport(tsd::ui::imgui::Application *app,
-    tsd::rendering::Manipulator *m,
-    const char *name)
-    : tsd::ui::imgui::Window(app, name), m_arcball(m)
+MultiDeviceViewport::MultiDeviceViewport(
+    Application *app, tsd::rendering::Manipulator *m, const char *name)
+    : Window(app, name), m_arcball(m)
 {}
 
 MultiDeviceViewport::~MultiDeviceViewport()
@@ -235,7 +234,9 @@ void MultiDeviceViewport::setupRenderPipeline(
 {
   m_pipeline.clear();
 
-  m_anariPass = m_pipeline.emplace_back<MultiDeviceSceneRenderPass>(devices);
+  m_anariPass =
+      m_pipeline.emplace_back<tsd::rendering::MultiDeviceSceneRenderPass>(
+          devices);
 
   {
     auto &adm = appCore()->anari;
@@ -322,14 +323,14 @@ void MultiDeviceViewport::ui_menubar()
 
     if (ImGui::BeginMenu("Renderer")) {
       ImGui::Text("Parameters:");
-      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Indent(INDENT_AMOUNT);
 
       tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.ctx, false);
 
-      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Unindent(INDENT_AMOUNT);
       ImGui::Separator();
       ImGui::Separator();
-      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Indent(INDENT_AMOUNT);
 
       if (ImGui::BeginMenu("reset to defaults?")) {
         if (ImGui::MenuItem("yes")) {
@@ -339,7 +340,7 @@ void MultiDeviceViewport::ui_menubar()
         ImGui::EndMenu();
       }
 
-      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Unindent(INDENT_AMOUNT);
       ImGui::EndMenu();
     }
 
@@ -355,13 +356,13 @@ void MultiDeviceViewport::ui_menubar()
 
       ImGui::Text("Perspective Parameters:");
 
-      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Indent(INDENT_AMOUNT);
       if (ImGui::SliderFloat("fov", &m_fov, 0.1f, 180.f))
         updateCamera(true);
 
       {
         ImGui::Text("Depth of Field:");
-        ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Indent(INDENT_AMOUNT);
         if (ImGui::DragFloat("aperture", &m_apertureRadius, 0.01f, 0.f, 1.f))
           updateCamera(true);
 
@@ -369,21 +370,21 @@ void MultiDeviceViewport::ui_menubar()
                 "focus distance", &m_focusDistance, 0.1f, 0.f, 1e20f))
           updateCamera(true);
 
-        ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Unindent(INDENT_AMOUNT);
       }
-      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Unindent(INDENT_AMOUNT);
 
       ImGui::Separator();
 
       ImGui::Text("Reset View:");
-      ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Indent(INDENT_AMOUNT);
       if (ImGui::MenuItem("center"))
         centerView();
       if (ImGui::MenuItem("dist"))
         resetView(false);
       if (ImGui::MenuItem("angle + dist + center"))
         resetView(true);
-      ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+      ImGui::Unindent(INDENT_AMOUNT);
 
       ImGui::EndMenu();
     }
@@ -393,7 +394,7 @@ void MultiDeviceViewport::ui_menubar()
     if (ImGui::BeginMenu("Viewport")) {
       {
         ImGui::Text("Format:");
-        ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Indent(INDENT_AMOUNT);
         const anari::DataType format = m_format;
         if (ImGui::RadioButton(
                 "UFIXED8_RGBA_SRGB", m_format == ANARI_UFIXED8_RGBA_SRGB))
@@ -405,14 +406,14 @@ void MultiDeviceViewport::ui_menubar()
 
         if (format != m_format)
           m_anariPass->setColorFormat(m_format);
-        ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Unindent(INDENT_AMOUNT);
       }
 
       ImGui::Separator();
 
       {
         ImGui::Text("Render Resolution:");
-        ImGui::Indent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Indent(INDENT_AMOUNT);
 
         const float current = m_resolutionScale;
         if (ImGui::RadioButton("100%", current == 1.f))
@@ -429,7 +430,7 @@ void MultiDeviceViewport::ui_menubar()
         if (current != m_resolutionScale)
           reshape(m_viewportSize);
 
-        ImGui::Unindent(tsd::ui::imgui::INDENT_AMOUNT);
+        ImGui::Unindent(INDENT_AMOUNT);
       }
 
       ImGui::EndMenu();
@@ -516,4 +517,4 @@ void MultiDeviceViewport::RendererUpdateDelegate::signalParameterUpdated(
   }
 }
 
-} // namespace tsd::dpt
+} // namespace tsd::ui::imgui

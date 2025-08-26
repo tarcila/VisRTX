@@ -12,13 +12,11 @@
 // std
 #include <memory>
 
-#include "MultiDeviceSceneRenderPass.h"
+namespace tsd::ui::imgui {
 
-namespace tsd::dpt {
-
-struct MultiDeviceViewport : public tsd::ui::imgui::Window
+struct MultiDeviceViewport : public Window
 {
-  MultiDeviceViewport(tsd::ui::imgui::Application *app,
+  MultiDeviceViewport(Application *app,
       tsd::rendering::Manipulator *m,
       const char *name = "DP Viewport");
   ~MultiDeviceViewport();
@@ -83,7 +81,7 @@ struct MultiDeviceViewport : public tsd::ui::imgui::Window
   bool m_showAxes{true};
 
   tsd::rendering::RenderPipeline m_pipeline;
-  tsd::dpt::MultiDeviceSceneRenderPass *m_anariPass{nullptr};
+  tsd::rendering::MultiDeviceSceneRenderPass *m_anariPass{nullptr};
   tsd::rendering::AnariAxesRenderPass *m_axesPass{nullptr};
   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
 
@@ -92,4 +90,4 @@ struct MultiDeviceViewport : public tsd::ui::imgui::Window
   float m_resolutionScale{1.f};
 };
 
-} // namespace tsd::dpt
+} // namespace tsd::ui::imgui
