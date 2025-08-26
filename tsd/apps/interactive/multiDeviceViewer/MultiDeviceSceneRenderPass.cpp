@@ -105,8 +105,10 @@ void MultiDeviceSceneRenderPass::updateSize()
 void MultiDeviceSceneRenderPass::render(
     tsd::rendering::RenderBuffers &b, int stageId)
 {
-  foreach_frame([](anari::Device d, anari::Frame f) { anari::render(d, f); });
-  foreach_frame([](anari::Device d, anari::Frame f) { anari::wait(d, f); });
+  auto d = m_devices[0];
+  auto f = m_frames[0];
+  anari::render(d, f);
+  anari::wait(d, f);;
   copyFrameData();
   composite(b, stageId);
 }
