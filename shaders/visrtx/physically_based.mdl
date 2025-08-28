@@ -476,7 +476,7 @@ export material physically_based_material(
         base: metallicBsdf,
         layer: ::df::thin_film(
             thickness: resolvedIridescenceThickness,
-            ior: color(iridescenceIor),
+            ior: color(resolvedIridescenceIor),
             base: metallicBsdf,
         ),
     );
