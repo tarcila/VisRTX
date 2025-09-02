@@ -71,6 +71,20 @@
           "description": "enable the OptiX denoiser"
         },
         {
+          "name": "denoiseAlbedo",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "enable albedo use by the OptiX denoiser"
+        },
+        {
+          "name": "denoiseNormal",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "enable normal use by the OptiX denoiser"
+        },
+        {
           "name": "cullTriangleBackfaces",
           "types": ["ANARI_BOOL"],
           "tags": [],

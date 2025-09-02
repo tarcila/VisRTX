@@ -89,6 +89,7 @@ void Frame::commitParameters()
   m_primIDType = getParam<ANARIDataType>("channel.primitiveId", ANARI_UNKNOWN);
   m_objIDType = getParam<ANARIDataType>("channel.objectId", ANARI_UNKNOWN);
   m_instIDType = getParam<ANARIDataType>("channel.instanceId", ANARI_UNKNOWN);
+
   m_albedoType = getParam<ANARIDataType>("channel.albedo", ANARI_UNKNOWN);
   m_normalType = getParam<ANARIDataType>("channel.normal", ANARI_UNKNOWN);
 }
@@ -113,8 +114,8 @@ void Frame::finalize()
   const bool channelPrimID = m_primIDType == ANARI_UINT32;
   const bool channelObjID = m_objIDType == ANARI_UINT32;
   const bool channelInstID = m_instIDType == ANARI_UINT32;
-  const bool channelAlbedo = m_albedoType == ANARI_FLOAT32;
-  const bool channelNormal = m_normalType == ANARI_FLOAT32;
+  const bool channelAlbedo = m_denoiseUsingAlbedo || (m_albedoType == ANARI_FLOAT32);
+  const bool channelNormal = m_denoiseUsingNormal || (m_normalType == ANARI_FLOAT32);
 
   const bool channelDepth = m_depthType == ANARI_FLOAT32 || channelPrimID
       || channelObjID || channelInstID;
@@ -153,7 +154,8 @@ void Frame::finalize()
   hd.fb.buffers.normal = channelNormal ? m_accumNormal.ptrAs<vec3>() : nullptr;
 
   if (m_denoise)
-    m_denoiser.setup(hd.fb.size, m_pixelBuffer, m_colorType);
+    m_denoiser.setup(hd.fb.size, m_pixelBuffer, m_colorType,
+      m_accumAlbedo, m_accumNormal);
   else
     m_denoiser.cleanup();
 
@@ -234,8 +236,13 @@ void Frame::renderFrame()
   }
 
   bool wasDenoising = m_denoise;
+  bool wasDenoisingUsingAlbedo = m_denoiseUsingAlbedo;
+  bool wasDenoisingUsingNormal = m_denoiseUsingNormal;
   m_denoise = m_renderer->denoise();
-  if (m_denoise != wasDenoising)
+  m_denoiseUsingAlbedo = m_renderer->denoiseUsingAlbedo();
+  m_denoiseUsingNormal = m_renderer->denoiseUsingNormal();
+  if (m_denoise != wasDenoising || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
+      || m_denoiseUsingNormal != wasDenoisingUsingNormal)
     this->finalize();
 
   m_frameMappedOnce = false;

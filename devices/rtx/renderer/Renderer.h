@@ -72,6 +72,9 @@ struct Renderer : public Object
   int spp() const;
   bool checkerboarding() const;
   bool denoise() const;
+  bool denoiseUsingAlbedo() const;
+  bool denoiseUsingNormal() const;
+
   int sampleLimit() const;
 
   static Renderer *createInstance(
@@ -86,6 +89,8 @@ struct Renderer : public Object
   float m_occlusionDistance{1e20f};
   bool m_checkerboard{false};
   bool m_denoise{false};
+  bool m_denoiseAlbedo{false};
+  bool m_denoiseNormal{false};
   int m_sampleLimit{0};
   bool m_cullTriangleBF{false};
   float m_volumeSamplingRate{1.f};
