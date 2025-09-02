@@ -110,27 +110,26 @@ void MDL::syncSource()
   // Handle source changes separately as it probably implies a full material
   // change.
   if (source != m_source || sourceType != m_sourceType) {
-    // Equivalent using the material registry instead of the material manager
     if (sourceType == "module") {
       auto &&[moduleName, materialName] =
           libmdl::parseMaterialSourceName(source, &deviceState()->mdl->core);
-      std::tie(uuid, argumentBlockDescriptor) =
-          materialRegistry.acquireMaterial(moduleName, materialName);
-      if (uuid == libmdl::Uuid{}) {
-        reportMessage(ANARI_SEVERITY_ERROR,
-            "Failed to acquire material %s, falling back to %s",
-            source.c_str(),
-            "diffuseWhite");
-        std::tie(uuid, argumentBlockDescriptor) =
+      if (!moduleName.empty() && !materialName.empty()) {
+        std::tie(uuid, argumentBlockDescriptor) = materialRegistry.acquireMaterial(moduleName, materialName);
+      
+        if (uuid == libmdl::Uuid{}) {
+          reportMessage(ANARI_SEVERITY_ERROR,
+              "Failed to acquire material %s, falling back to %s",
+              source.c_str(),
+              "diffuseWhite");
+          std::tie(uuid, argumentBlockDescriptor) =
             materialRegistry.acquireMaterial(
                 "::visrtx::default", "diffuseWhite");
+        }
       }
     } else if (sourceType == "code") {
-      uuid = {};
       reportMessage(ANARI_SEVERITY_ERROR,
           "MDL::commitParameters(): sourceType 'code' not supported yet");
     } else {
-      uuid = {};
       reportMessage(ANARI_SEVERITY_ERROR,
           "MDL::commitParameters(): sourceType must be either 'module' or 'code'");
     }
