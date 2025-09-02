@@ -481,6 +481,7 @@ struct DirectionalLightGPUData
 struct PointLightGPUData
 {
   vec3 position;
+  float radius;
   float intensity;
 };
 

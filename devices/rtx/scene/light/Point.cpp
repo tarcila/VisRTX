@@ -43,6 +43,7 @@ void Point::commitParameters()
       std::clamp(getParam<float>("intensity", getParam<float>("power", 1.f)),
           0.f,
           std::numeric_limits<float>::max());
+  m_radius = std::max(getParam<float>("radius", 1.f), 0.f);
 }
 
 LightGPUData Point::gpuData() const
@@ -50,6 +51,7 @@ LightGPUData Point::gpuData() const
   auto retval = Light::gpuData();
   retval.type = LightType::POINT;
   retval.point.position = m_position;
+  retval.point.radius = m_radius;
   retval.point.intensity = m_intensity;
   return retval;
 }

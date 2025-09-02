@@ -70,14 +70,31 @@ VISRTX_DEVICE LightSample sampleDirectionalLight(
 }
 
 VISRTX_DEVICE LightSample samplePointLight(
-    const LightGPUData &ld, const mat4 &xfm, const Hit &hit)
+    const LightGPUData &ld, const mat4 &xfm, const Hit &hit, RandState &rs )
 {
   LightSample ls;
-  ls.dir = xfmPoint(xfm, ld.point.position) - hit.hitpoint;
-  ls.dist = length(ls.dir);
-  ls.dir = glm::normalize(ls.dir);
-  ls.radiance = ld.color * ld.point.intensity * (1.f / pow2(ls.dist));
-  ls.pdf = 1.f;
+  if (ld.point.radius <= 0.0f) {
+    ls.dir = xfmPoint(xfm, ld.point.position) - hit.hitpoint;
+    ls.dist = length(ls.dir);
+    ls.dir /= ls.dist;
+    ls.radiance = ld.color * ld.point.intensity * (1.f / pow2(ls.dist));
+    ls.pdf = 1.f;
+  } else {
+    // Sample point on sphere
+    auto u1 = curand_uniform(&rs);
+    auto u2 = curand_uniform(&rs);
+    auto z = 1.f - 2.f * u1;
+    auto r = sqrtf(std::max(0.f, 1.f - z * z));
+    auto phi = 2.f * float(M_PI) * u2;
+    auto x = r * cosf(phi);
+    auto y = r * sinf(phi);
+    auto p = vec3(x, y, z) * ld.point.radius;
+    ls.dir = xfmPoint(xfm, ld.point.position + p) - hit.hitpoint;
+    ls.dist = length(ls.dir);
+    ls.dir /= ls.dist;
+    ls.radiance = ld.color * ld.point.intensity;
+    ls.pdf = 1.f / (4.f * float(M_PI) * ld.point.radius * ld.point.radius);
+  }
   return ls;
 }
 
@@ -181,7 +198,7 @@ VISRTX_DEVICE LightSample sampleLight(
   case LightType::DIRECTIONAL:
     return detail::sampleDirectionalLight(ld, xfm);
   case LightType::POINT:
-    return detail::samplePointLight(ld, xfm, hit);
+    return detail::samplePointLight(ld, xfm, hit, ss.rs);
   case LightType::SPOT:
     return detail::sampleSpotLight(ld, xfm, hit);
   case LightType::HDRI:
