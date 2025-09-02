@@ -103,6 +103,42 @@ VISRTX_DEVICE LightSample sampleSphereLight(
   return ls;
 }
 
+VISRTX_DEVICE LightSample sampleRectLight(
+    const LightGPUData &ld, const mat4 &xfm, const Hit &hit, RandState &rs)
+{
+  LightSample ls;
+  auto uv = vec2(curand_uniform(&rs), curand_uniform(&rs));
+
+  // Sample a point on the rectangle
+  auto rectangleSample = ld.rect.edge1 * (uv.x - 0.5f) + ld.rect.edge2 * (uv.y - 0.5f);
+  auto worldPos = xfmPoint(xfm, ld.rect.position + rectangleSample);
+  ls.dir = worldPos - hit.hitpoint;
+  ls.dist = length(ls.dir);
+  ls.dir /= ls.dist;
+
+  auto normal = cross(ld.rect.edge1, ld.rect.edge2);
+  auto area = length(normal);
+  normal = xfmVec(xfm, normal);
+
+  auto cosTheta = dot(normal, -ls.dir);
+  if (ld.rect.side.back) {
+    if (ld.rect.side.front)
+      cosTheta = fabsf(cosTheta);
+    else
+      cosTheta = -cosTheta;
+  }
+
+  if (cosTheta > 0.0f) {
+    ls.radiance = ld.color * ld.rect.intensity * cosTheta;
+    ls.pdf = 1.0f / area;
+  } else {
+    ls.radiance = vec3(0.0f);
+    ls.pdf = 0.0f;
+  }
+
+  return ls;
+}
+
 VISRTX_DEVICE LightSample sampleSpotLight(
     const LightGPUData &ld, const mat4 &xfm, const Hit &hit)
 {
