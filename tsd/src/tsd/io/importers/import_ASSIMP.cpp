@@ -363,12 +363,12 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_SHEEN, 0));
           sampler->setParameter("inTransform"_t, tx);
-          m->setParameterObject("sheenColor.texture"_t, *sampler);
+          m->setParameterObject("sheenColor"_t, *sampler);
         }
       } else if (aiColor3D sheenColor;
           assimpMat->Get(AI_MATKEY_SHEEN_COLOR_FACTOR, sheenColor)
           == AI_SUCCESS) {
-        m->setParameter("sheenColor.value"_t, ANARI_FLOAT32_VEC3, &sheenColor);
+        m->setParameter("sheenColor"_t, ANARI_FLOAT32_VEC3, &sheenColor);
       }
 
       if (aiString sheenRoughnessTexture;
@@ -379,13 +379,13 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_SHEEN, 1));
           sampler->setParameter("inTransform"_t, tx);
-          m->setParameterObject("sheenRoughness.texture"_t, *sampler);
+          m->setParameterObject("sheenRoughness"_t, *sampler);
         }
       } else if (ai_real sheenRoughnessFactor;
           assimpMat->Get(AI_MATKEY_SHEEN_ROUGHNESS_FACTOR, sheenRoughnessFactor)
           == AI_SUCCESS) {
         m->setParameter(
-            "sheenRoughness.value"_t, ANARI_FLOAT32, &sheenRoughnessFactor);
+            "sheenRoughness"_t, ANARI_FLOAT32, &sheenRoughnessFactor);
       }
 
       // Clearcoat handling
@@ -396,12 +396,12 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_CLEARCOAT, 0));
           sampler->setParameter("inTransform"_t, tx);
-          m->setParameterObject("clearcoat.texture"_t, *sampler);
+          m->setParameterObject("clearcoat"_t, *sampler);
         }
       } else if (ai_real clearcoatFactor;
           assimpMat->Get(AI_MATKEY_CLEARCOAT_FACTOR, clearcoatFactor)
           == AI_SUCCESS) {
-        m->setParameter("clearcoat.value"_t, ANARI_FLOAT32, &clearcoatFactor);
+        m->setParameter("clearcoat"_t, ANARI_FLOAT32, &clearcoatFactor);
       }
 
       if (aiString clearcoatRoughnessTexture;
@@ -413,13 +413,13 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_CLEARCOAT, 1));
           sampler->setParameter("inTransform"_t, tx);
-          m->setParameterObject("clearcoatRoughness.texture"_t, *sampler);
+          m->setParameterObject("clearcoatRoughness"_t, *sampler);
         }
       } else if (ai_real clearcoatRoughnessFactor;
           assimpMat->Get(
               AI_MATKEY_CLEARCOAT_ROUGHNESS_FACTOR, clearcoatRoughnessFactor)
           == AI_SUCCESS) {
-        m->setParameter("clearcoatRoughness.value"_t,
+        m->setParameter("clearcoatRoughness"_t,
             ANARI_FLOAT32,
             &clearcoatRoughnessFactor);
       }
