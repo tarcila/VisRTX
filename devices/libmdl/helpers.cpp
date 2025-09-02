@@ -20,6 +20,12 @@ namespace visrtx::libmdl {
 std::tuple<std::string, std::string> parseMaterialSourceName(
     std::string_view name, Core *core)
 {
+  if (name.empty()) {
+    core->logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
+        "The provided material name is empty.");
+    return {};
+  }
+
   std::string outModuleName;
   std::string outMaterialName;
 
