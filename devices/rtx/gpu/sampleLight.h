@@ -38,6 +38,8 @@
 #include <glm/ext/matrix_float3x3.hpp>
 #include <glm/ext/vector_float3.hpp>
 #include <limits>
+#include "gpu/gpu_debug.h"
+#include "gpu/gpu_math.h"
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
 
@@ -136,6 +138,68 @@ VISRTX_DEVICE LightSample sampleRectLight(
     ls.pdf = 0.0f;
   }
 
+  return ls;
+}
+
+VISRTX_DEVICE LightSample sampleRingLight(
+    const LightGPUData &ld, const mat4 &xfm, const Hit &hit, RandState &rs)
+{
+  LightSample ls;
+  // Generate random point on ring surface
+  auto u1 = curand_uniform(&rs);
+  auto u2 = curand_uniform(&rs);
+  
+  // Sample angle around the ring
+  auto phi = 2.0f * M_PI * u1;
+  
+  // Sample radial position between inner and outer radius
+  auto outerRadius = ld.ring.radius;
+  auto innerRadius = ld.ring.innerRadius;
+  auto r = sqrtf(u2 * (outerRadius * outerRadius - innerRadius * innerRadius) + innerRadius * innerRadius);
+
+  // Create coordinate frame for the ring (perpendicular to direction)
+  auto direction = normalize(ld.ring.direction);
+  auto basis = computeOrthonormalBasis(direction);
+    
+  // Generate ring position in the ring's coordinate frame
+  auto localX = r * cosf(phi);
+  auto localY = r * sinf(phi);
+  auto samplePos = basis[0] * localX + basis[1] * localY;
+  
+  // Calculate direction and distance to light
+  ls.dir = xfmPoint(xfm, ld.ring.position + samplePos) - hit.hitpoint;
+  ls.dist = length(ls.dir);
+  ls.dir /= ls.dist;
+  
+  // Transform normal to world space
+  auto worldDirection = xfmVec(xfm, direction);
+  
+  // Check if direction falls within the cone
+  float spot;
+  auto cosTheta = dot(worldDirection, -ls.dir);
+  if (cosTheta < ld.ring.cosOuterAngle) {
+    spot = 0.0f;
+  } else if (cosTheta > ld.ring.cosInnerAngle) {
+    spot = 1.0f;
+  } else {
+    // Smooth falloff using smoothstep
+    spot = (cosTheta - ld.ring.cosOuterAngle) / (ld.ring.cosInnerAngle - ld.ring.cosOuterAngle);
+    spot = spot * spot * (3.0f - 2.0f * spot);
+  }
+  
+  if (spot > 0.0f) {
+    if (cosTheta > 0.0f) {
+      ls.radiance = ld.color * ld.ring.intensity * spot * cosTheta;
+      ls.pdf = ld.ring.oneOverArea;
+    } else {
+      ls.radiance = vec3(0.0f);
+      ls.pdf = 0.0f;
+    }
+  } else {
+    ls.radiance = vec3(0.0f);
+    ls.pdf = 0.0f;
+  }
+  
   return ls;
 }
 
@@ -247,6 +311,8 @@ VISRTX_DEVICE LightSample sampleLight(
     return detail::sampleRectLight(ld, xfm, hit, ss.rs);
   case LightType::SPOT:
     return detail::sampleSpotLight(ld, xfm, hit);
+  case LightType::RING:
+    return detail::sampleRingLight(ld, xfm, hit, ss.rs);
   case LightType::HDRI:
     return detail::sampleHDRILight(ld, xfm, hit, ss.rs);
   default:

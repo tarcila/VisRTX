@@ -470,6 +470,7 @@ enum class LightType
   SPHERE,
   RECT,
   SPOT,
+  RING,
   HDRI,
   UNKNOWN
 };
@@ -515,6 +516,18 @@ struct SpotLightGPUData
   float intensity;
 };
 
+struct RingLightGPUData
+{
+  vec3 position;
+  vec3 direction;
+  float cosOuterAngle;
+  float cosInnerAngle;
+  float radius;
+  float innerRadius;
+  float intensity;
+  float oneOverArea;
+};
+
 struct HDRILightGPUData
 {
   mat3 xfm;
@@ -541,6 +554,7 @@ struct LightGPUData
     SphereLightGPUData sphere;
     RectLightGPUData rect;
     SpotLightGPUData spot;
+    RingLightGPUData ring;
     HDRILightGPUData hdri;
   };
 };
