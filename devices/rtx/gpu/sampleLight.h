@@ -76,7 +76,7 @@ VISRTX_DEVICE LightSample samplePointLight(
   ls.dir = xfmPoint(xfm, ld.point.position) - hit.hitpoint;
   ls.dist = length(ls.dir);
   ls.dir = glm::normalize(ls.dir);
-  ls.radiance = ld.color * ld.point.intensity;
+  ls.radiance = ld.color * ld.point.intensity * (1.f / pow2(ls.dist));
   ls.pdf = 1.f;
   return ls;
 }
