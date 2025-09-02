@@ -75,9 +75,31 @@ VISRTX_DEVICE LightSample samplePointLight(
   LightSample ls;
   ls.dir = xfmPoint(xfm, ld.point.position) - hit.hitpoint;
   ls.dist = length(ls.dir);
-  ls.dir = glm::normalize(ls.dir);
-  ls.radiance = ld.color * ld.point.intensity * (1.f / pow2(ls.dist));
+  ls.dir /= ls.dist;
+  ls.radiance = ld.color * ld.point.intensity / pow2(ls.dist);
   ls.pdf = 1.f;
+
+  return ls;
+}
+
+VISRTX_DEVICE LightSample sampleSphereLight(
+    const LightGPUData &ld, const mat4 &xfm, const Hit &hit, RandState &rs)
+{
+  LightSample ls;
+  auto u1 = curand_uniform(&rs);
+  auto u2 = curand_uniform(&rs);
+  auto z = 1.f - 2.f * u1;
+  auto r = sqrtf(std::max(0.f, 1.f - z * z));
+  auto phi = 2.f * float(M_PI) * u2;
+  auto x = r * cosf(phi);
+  auto y = r * sinf(phi);
+  auto p = vec3(x, y, z) * ld.sphere.radius;
+  ls.dir = xfmPoint(xfm, ld.sphere.position + p) - hit.hitpoint;
+  ls.dist = length(ls.dir);
+  ls.dir /= ls.dist;
+  ls.radiance = ld.color * ld.sphere.intensity;
+  ls.pdf = 1.f / (4.f * float(M_PI) * ld.sphere.radius * ld.sphere.radius);
+
   return ls;
 }
 
@@ -162,7 +184,7 @@ VISRTX_DEVICE LightSample sampleHDRILight(
   // ld.hdri.xfm is computed in HDRI.cpp and is made so it is an orthogonal
   // matrix. So transposing is actually the same as inverting. Use RHS
   // multiplication so we don't have to transpose the matrix.
-  ls.dir = sphericalCoordsToDirection(thetaPhi) * ld.hdri.xfm;
+  ls.dir = xfmVec(xfm, sphericalCoordsToDirection(thetaPhi) * ld.hdri.xfm);
   ls.dist = 1e20f;
   ls.radiance = radiance * ld.hdri.scale;
   ls.pdf = pdf;
@@ -182,6 +204,10 @@ VISRTX_DEVICE LightSample sampleLight(
     return detail::sampleDirectionalLight(ld, xfm);
   case LightType::POINT:
     return detail::samplePointLight(ld, xfm, hit);
+  case LightType::SPHERE:
+    return detail::sampleSphereLight(ld, xfm, hit, ss.rs);
+  case LightType::RECT:
+    return detail::sampleRectLight(ld, xfm, hit, ss.rs);
   case LightType::SPOT:
     return detail::sampleSpotLight(ld, xfm, hit);
   case LightType::HDRI:
