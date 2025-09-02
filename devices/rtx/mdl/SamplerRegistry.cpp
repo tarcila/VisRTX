@@ -344,7 +344,6 @@ Sampler *SamplerRegistry::loadFromImage(
     const std::string_view &filePath, libmdl::ColorSpace colorSpace)
 {
   auto filePathS = std::string(filePath);
-  stbi_set_flip_vertically_on_load(1);
   auto isHdr = stbi_is_hdr(filePathS.c_str());
 
   int width, height, n;
