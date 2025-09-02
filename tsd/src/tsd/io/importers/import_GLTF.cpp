@@ -743,7 +743,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
       // Iridescence IOR
       float iridescenceIor =
-          GetValueOrDefault(iridescenceExt, 0.0f, "iridescenceIor");
+          GetValueOrDefault(iridescenceExt, 1.3f, "iridescenceIor");
       material->setParameter("iridescenceIor"_t, iridescenceIor);
 
       // Iridescence thickness minimum
