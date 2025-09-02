@@ -25,6 +25,7 @@ namespace tokens::material {
 
 extern const Token matte;
 extern const Token physicallyBased;
+extern const Token mdl;
 
 } // namespace tokens::material
 
