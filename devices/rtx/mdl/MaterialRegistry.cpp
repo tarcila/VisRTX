@@ -205,7 +205,6 @@ MaterialRegistry::acquireMaterial(
       textureDesc.bsdf.dims[1] = y;
       textureDesc.bsdf.dims[2] = z;
       textureDesc.bsdf.pixelFormat = pixelFormat;
-      textureDesc.colorSpace = libmdl::ColorSpace::Linear;
       textureDesc.url =
           fmt::format("bsdf_data_{}", fmt::ptr(textureDesc.bsdf.data));
     } else {
@@ -220,23 +219,23 @@ MaterialRegistry::acquireMaterial(
         textureDesc.url = {};
       } else
         textureDesc.url = url;
+    }
 
-      switch (targetCode->get_texture_gamma(i)) {
-      case mi::neuraylib::ITarget_code::GM_GAMMA_DEFAULT:
-      case mi::neuraylib::ITarget_code::GM_GAMMA_LINEAR:
-      case mi::neuraylib::ITarget_code::GM_GAMMA_UNKNOWN: {
-        textureDesc.colorSpace = libmdl::ColorSpace::Linear;
-        break;
-      }
-      case mi::neuraylib::ITarget_code::GM_GAMMA_SRGB: {
-        textureDesc.colorSpace = libmdl::ColorSpace::sRGB;
-        break;
-      }
-      case mi::neuraylib::ITarget_code::GM_FORCE_32_BIT: {
-        assert(false);
-        break;
-      }
-      }
+    switch (targetCode->get_texture_gamma(i)) {
+    case mi::neuraylib::ITarget_code::GM_GAMMA_DEFAULT:
+    case mi::neuraylib::ITarget_code::GM_GAMMA_LINEAR:
+    case mi::neuraylib::ITarget_code::GM_GAMMA_UNKNOWN: {
+      textureDesc.colorSpace = libmdl::ColorSpace::Linear;
+      break;
+    }
+    case mi::neuraylib::ITarget_code::GM_GAMMA_SRGB: {
+      textureDesc.colorSpace = libmdl::ColorSpace::sRGB;
+      break;
+    }
+    case mi::neuraylib::ITarget_code::GM_FORCE_32_BIT: {
+      assert(false);
+      break;
+    }
     }
 
     textureDescs.push_back(textureDesc);
