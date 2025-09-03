@@ -210,7 +210,7 @@ MaterialRegistry::acquireMaterial(
     } else {
       auto moduleOwner = targetCode->get_texture_owner_module(i);
       auto url = std::string(targetCode->get_texture_url(i));
-      // url = m_core->resolveResource(url.c_str(), moduleOwner);
+      url = m_core->resolveResource(url.c_str(), moduleOwner);
       if (url.empty()) {
         m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
             "Failed to resolve texture resource {} for material {}",

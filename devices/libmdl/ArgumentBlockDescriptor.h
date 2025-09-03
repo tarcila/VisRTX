@@ -44,6 +44,12 @@ struct ArgumentBlockDescriptor
     ArgumentType type;
   };
 
+  struct ArgumentLayout
+  {
+    std::size_t offset;
+    std::size_t size;
+  };
+
   ArgumentBlockDescriptor() = default;
 
   ArgumentBlockDescriptor(libmdl::Core *core,
@@ -59,7 +65,7 @@ struct ArgumentBlockDescriptor
 
   std::vector<Argument> m_arguments;
   std::vector<TextureDescriptor> m_defaultAndBodyTextureDescriptors;
-  std::unordered_map<std::string, std::size_t> m_nameToArgbBlockOffset;
+  std::unordered_map<std::string, ArgumentLayout> m_nameToArgbBlockLayout;
 };
 
 } // namespace visrtx::libmdl

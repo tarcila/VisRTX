@@ -151,7 +151,7 @@ ArgumentBlockDescriptor::ArgumentBlockDescriptor(libmdl::Core *core,
     mi::Size param_size;
     mi::Size offset = m_argumentBlockLayout->get_layout(
         kind2, param_size, m_argumentBlockLayout->get_nested_state(i));
-    m_nameToArgbBlockOffset[name] = offset;
+    m_nameToArgbBlockLayout[name] = { offset, param_size };
   }
 }
 
