@@ -13,28 +13,33 @@ def extract_points(e57_path, output_path):
     all_points = []
     all_colors = []
 
-    scan = e57.read_scan(0, colors=True, ignore_missing_fields=True)
+    print(f"scan_count: {e57.scan_count}")
 
-    assert isinstance(scan["cartesianX"], np.ndarray)
-    assert isinstance(scan["cartesianY"], np.ndarray)
-    assert isinstance(scan["cartesianZ"], np.ndarray)
-    assert isinstance(scan["colorRed"], np.ndarray)
-    assert isinstance(scan["colorGreen"], np.ndarray)
-    assert isinstance(scan["colorBlue"], np.ndarray)
+    for i in range(e57.scan_count):
+        header = e57.get_header(i)
+        print(f"Scan: {i}/{e57.scan_count}, point in this scan: {header.point_count}")
+        scan = e57.read_scan(i, colors=True, ignore_missing_fields=True)
 
-    xs, ys, zs = scan['cartesianX'], scan['cartesianY'], scan['cartesianZ']
-    rs, gs, bs = scan['colorRed'], scan['colorGreen'], scan['colorBlue']
-    for x, y, z in zip(xs, ys, zs):
-        if x is not None and y is not None and z is not None:
-            all_points.append((x, y, z))
-    for r, g, b in zip(rs, gs, bs):
-        if r is None:
-            r = 1.0
-        if g is None:
-            g = 0.0
-        if b is None:
-            b = 0.0
-        all_colors.append((r, g, b))
+        assert isinstance(scan["cartesianX"], np.ndarray)
+        assert isinstance(scan["cartesianY"], np.ndarray)
+        assert isinstance(scan["cartesianZ"], np.ndarray)
+        assert isinstance(scan["colorRed"], np.ndarray)
+        assert isinstance(scan["colorGreen"], np.ndarray)
+        assert isinstance(scan["colorBlue"], np.ndarray)
+
+        xs, ys, zs = scan['cartesianX'], scan['cartesianY'], scan['cartesianZ']
+        rs, gs, bs = scan['colorRed'], scan['colorGreen'], scan['colorBlue']
+        for x, y, z in zip(xs, ys, zs):
+            if x is not None and y is not None and z is not None:
+                all_points.append((x, y, z))
+        for r, g, b in zip(rs, gs, bs):
+            if r is None:
+                r = 1.0
+            if g is None:
+                g = 0.0
+            if b is None:
+                b = 0.0
+            all_colors.append((r, g, b))
 
     print(f"Total points: {len(all_points)}")
 
@@ -54,4 +59,3 @@ if __name__ == '__main__':
         sys.exit(1)
 
     extract_points(sys.argv[1], sys.argv[2])
-
