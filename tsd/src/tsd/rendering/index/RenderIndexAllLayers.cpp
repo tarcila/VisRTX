@@ -147,6 +147,10 @@ void RenderIndexAllLayers::updateWorld()
   for (auto &i : m_instanceCache)
     std::copy(i.second.begin(), i.second.end(), std::back_inserter(instances));
 
+  std::copy(m_externalInstances.begin(),
+      m_externalInstances.end(),
+      std::back_inserter(instances));
+
   if (instances.empty())
     anari::unsetParameter(d, w, "instance");
   else {

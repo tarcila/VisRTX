@@ -15,10 +15,13 @@
 #include "tsd/rendering/view/Manipulator.hpp"
 // std
 #include <array>
+#include <functional>
 #include <future>
 #include <limits>
 
 namespace tsd::ui::imgui {
+
+using ViewportDeviceChangeCb = std::function<void(const std::string &)>;
 
 struct Viewport : public Window
 {
@@ -32,6 +35,9 @@ struct Viewport : public Window
   void resetView(bool resetAzEl = true);
   void centerView();
   void setLibrary(const std::string &libName, bool doAsync = true);
+  void setDeviceChangeCb(ViewportDeviceChangeCb cb);
+  void setExternalInstances(
+      const anari::Instance *instances = nullptr, size_t count = 0);
 
  private:
   void saveSettings(tsd::core::DataNode &thisWindowRoot) override;
@@ -60,6 +66,7 @@ struct Viewport : public Window
 
   // Data /////////////////////////////////////////////////////////////////////
 
+  ViewportDeviceChangeCb m_deviceChangeCb;
   float m_timeToLoadDevice{0.f};
   std::future<void> m_initFuture;
   bool m_deviceReadyToUse{false};

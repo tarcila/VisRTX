@@ -12,10 +12,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#if 0
-// anari_viewer
-#include "anari_viewer/Application.h"
-#endif
 
 #include "tsd/app/TaskQueue.h"
 

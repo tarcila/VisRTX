@@ -3,6 +3,8 @@
 
 #include "RenderIndex.hpp"
 #include "tsd/core/Logging.hpp"
+// std
+#include <algorithm>
 
 namespace tsd::rendering {
 
@@ -74,6 +76,14 @@ void RenderIndex::populate(bool setAsUpdateDelegate)
 void RenderIndex::setFilterFunction(RenderIndexFilterFcn f)
 {
   // no-op
+}
+
+void RenderIndex::setExternalInstances(
+    const anari::Instance *instances, size_t count)
+{
+  m_externalInstances.resize(count);
+  std::copy(instances, instances + count, m_externalInstances.data());
+  updateWorld();
 }
 
 void RenderIndex::signalObjectAdded(const Object *obj)

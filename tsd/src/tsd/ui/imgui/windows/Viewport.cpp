@@ -210,12 +210,27 @@ void Viewport::setLibrary(const std::string &libName, bool doAsync)
 
     auto end = std::chrono::steady_clock::now();
     m_timeToLoadDevice = std::chrono::duration<float>(end - start).count();
+
+    if (m_deviceChangeCb)
+      m_deviceChangeCb(m_libName);
   };
 
   if (doAsync)
     m_initFuture = std::async(updateLibrary);
   else
     updateLibrary();
+}
+
+void Viewport::setDeviceChangeCb(ViewportDeviceChangeCb cb)
+{
+  m_deviceChangeCb = std::move(cb);
+}
+
+void Viewport::setExternalInstances(
+    const anari::Instance *instances, size_t count)
+{
+  if (m_rIdx)
+    m_rIdx->setExternalInstances(instances, count);
 }
 
 void Viewport::saveSettings(tsd::core::DataNode &root)
@@ -639,8 +654,12 @@ void Viewport::updateImage()
       stbi_flip_vertically_on_write(1);
 
       // Save the screenshot with full alpha channel preservation
-      stbi_write_png(
-          filename.string().c_str(), fb.width, fb.height, 4, fb.data, 4 * fb.width);
+      stbi_write_png(filename.string().c_str(),
+          fb.width,
+          fb.height,
+          4,
+          fb.data,
+          4 * fb.width);
 
       // Reset the flip setting to avoid affecting other code
       stbi_flip_vertically_on_write(0);

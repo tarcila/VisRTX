@@ -31,6 +31,9 @@ struct RenderIndex : public BaseUpdateDelegate
   virtual void setFilterFunction(RenderIndexFilterFcn f);
   virtual bool isFlat() const = 0;
 
+  void setExternalInstances(
+      const anari::Instance *instances = nullptr, size_t count = 0);
+
   // Handle UpdateDelegate signals //
 
   void signalObjectAdded(const Object *o) override;
@@ -54,6 +57,7 @@ struct RenderIndex : public BaseUpdateDelegate
   AnariObjectCache m_cache;
 
   anari::World m_world{nullptr};
+  std::vector<anari::Instance> m_externalInstances;
 
  private:
   friend struct RenderToAnariObjectsVisitor;
