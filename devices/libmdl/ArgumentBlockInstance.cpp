@@ -48,10 +48,10 @@ template<typename T>
 auto ArgumentBlockInstance::_setValue(std::string_view name, T value) -> void
 {
   assert(m_argumentBlock.is_valid_interface() && m_argumentBlock->get_data());
-  auto it = m_argumentBlockDescriptor.m_nameToArgbBlockOffset.find(std::string(name));
-  if (it == cend(m_argumentBlockDescriptor.m_nameToArgbBlockOffset)) return;
+  auto it = m_argumentBlockDescriptor.m_nameToArgbBlockLayout.find(std::string(name));
+  if (it == cend(m_argumentBlockDescriptor.m_nameToArgbBlockLayout)) return;
 
-  auto data = reinterpret_cast<T*>(m_argumentBlock->get_data() + it->second);
+  auto data = reinterpret_cast<T*>(m_argumentBlock->get_data() + it->second.offset);
   *data = value;
 }
 
@@ -59,10 +59,10 @@ template<typename T, std::size_t S>
 auto ArgumentBlockInstance::_setValue(std::string_view name, const T (&value)[S]) -> void
 {
   assert(m_argumentBlock.is_valid_interface() && m_argumentBlock->get_data());
-  auto it = m_argumentBlockDescriptor.m_nameToArgbBlockOffset.find(std::string(name));
-  if (it == cend(m_argumentBlockDescriptor.m_nameToArgbBlockOffset)) return;
+  auto it = m_argumentBlockDescriptor.m_nameToArgbBlockLayout.find(std::string(name));
+  if (it == cend(m_argumentBlockDescriptor.m_nameToArgbBlockLayout)) return;
 
-  auto data = reinterpret_cast<T*>(m_argumentBlock->get_data() + it->second);
+  auto data = reinterpret_cast<T*>(m_argumentBlock->get_data() + it->second.offset);
   for (auto i = 0; i < S; ++i)
     data[i] = value[i];
 }
@@ -101,6 +101,15 @@ auto ArgumentBlockInstance::setValue(std::string_view name, const float (&value)
 
 auto ArgumentBlockInstance::setValue(std::string_view name, const float (&value)[4]) -> void {
   _setValue(name, value);
+}
+
+auto ArgumentBlockInstance::reset(std::string_view name) -> void {
+  auto argumentLayoutIt = m_argumentBlockDescriptor.m_nameToArgbBlockLayout.find(std::string(name));
+  if (argumentLayoutIt == cend(m_argumentBlockDescriptor.m_nameToArgbBlockLayout)) return;
+
+  std::memcpy(m_argumentBlock->get_data() + argumentLayoutIt->second.offset,
+      m_argumentBlockDescriptor.m_argumentBlock->get_data() + argumentLayoutIt->second.offset,
+      argumentLayoutIt->second.size);
 }
 
 nonstd::span<const std::byte> ArgumentBlockInstance::getArgumentBlockData()
