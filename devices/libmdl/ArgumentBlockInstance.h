@@ -43,7 +43,7 @@ class ArgumentBlockInstance
 
   bool hasArgument(std::string_view name) const
   {
-    return m_argumentBlockDescriptor.m_nameToArgbBlockOffset.count(
+    return m_argumentBlockDescriptor.m_nameToArgbBlockLayout.count(
                std::string(name))
         > 0;
   }
@@ -57,6 +57,8 @@ class ArgumentBlockInstance
   void setValue(std::string_view name, const float (&value)[2]);
   void setValue(std::string_view name, const float (&value)[3]);
   void setValue(std::string_view name, const float (&value)[4]);
+
+  void reset(std::string_view name);
 
   enum class ColorSpace
   {

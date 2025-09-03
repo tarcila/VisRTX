@@ -184,6 +184,28 @@ void MDL::syncParameters()
     for (auto &&[name, type] : argumentBlockInstance.enumerateArguments()) {
       auto sourceParamAny = getParamDirect(name);
 
+      if (sourceParamAny.valid() == 0) {
+        // Parameter not set, reset to default value.
+        argumentBlockInstance.reset(name);
+
+        // Handle the texture case where we might have resources to cleanup
+        if (type == libmdl::ArgumentBlockDescriptor::ArgumentType::Texture) {
+          if (auto it = find_if(begin(m_samplers), end(m_samplers), [name = name](auto &p) { return p.name == name; });
+              it != end(m_samplers)) {
+            if (it->isFromRegistry) {
+              auto &samplerRegistry = deviceState()->mdl->samplerRegistry;
+              samplerRegistry.releaseSampler(it->sampler);
+            } else {
+              it->sampler->refDec(helium::INTERNAL);
+            }
+            *it = {};
+          }
+        }
+
+        continue;
+      }
+
+
       switch (type) {
       case libmdl::ArgumentBlockDescriptor::ArgumentType::Bool: {
         if (sourceParamAny.type() == ANARI_BOOL) {
@@ -258,26 +280,6 @@ void MDL::syncParameters()
       case libmdl::ArgumentBlockDescriptor::ArgumentType::Texture: {
         Sampler *sampler = nullptr;
         auto &samplerRegistry = deviceState()->mdl->samplerRegistry;
-
-        if (!sourceParamAny.valid()) {
-          if (auto it = find_if(begin(m_samplers),
-                  end(m_samplers),
-                  [name = name](auto &p) { return p.name == name; });
-              it != end(m_samplers)) {
-            // We have a sampler for this parameter, but it is not set.
-            // Set it to 0, which means no sampler.
-            if (it->isFromRegistry) {
-              samplerRegistry.releaseSampler(it->sampler);
-            } else {
-              it->sampler->refDec(helium::INTERNAL);
-            }
-            *it = {};
-          }
-
-          // Return the sampler to an undefined state in the argument block.
-          argumentBlockInstance.setValue(name, 0);
-          continue;
-        }
 
         bool samplerIsFromRegistry = false;
 
