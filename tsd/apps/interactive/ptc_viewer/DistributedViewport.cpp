@@ -345,7 +345,7 @@ void DistributedViewport::ui_contextMenu()
     ImGui::Text("Renderer:");
     ImGui::Indent(INDENT_AMOUNT);
     if (ImGui::BeginMenu("parameters")) {
-      tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.ctx, false);
+      tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.scene, false);
       ImGui::EndMenu();
     }
 

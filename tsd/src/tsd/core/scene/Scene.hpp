@@ -18,12 +18,12 @@
 #include <utility>
 
 namespace tsd::core {
-struct Context;
+struct Scene;
 } // namespace tsd::core
 
 namespace tsd::io {
-void save_Context(core::Context &ctx, core::DataNode &root);
-void load_Context(core::Context &ctx, core::DataNode &root);
+void save_Scene(core::Scene &scene, core::DataNode &root);
+void load_Scene(core::Scene &scene, core::DataNode &root);
 } // namespace tsd::io
 
 namespace tsd::core {
@@ -53,7 +53,7 @@ struct ObjectDatabase
 std::string objectDBInfo(const ObjectDatabase &db);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Main TSD Context ///////////////////////////////////////////////////////////
+// Main TSD Scene /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 // clang-format off
@@ -62,14 +62,14 @@ struct LayerState { LayerPtr ptr; bool active{true}; };
 using LayerMap = FlatMap<Token, LayerState>;
 // clang-format on
 
-struct Context
+struct Scene
 {
-  Context();
+  Scene();
 
-  Context(const Context &) = delete;
-  Context &operator=(const Context &) = delete;
-  Context(Context &&) = delete;
-  Context &operator=(Context &&) = delete;
+  Scene(const Scene &) = delete;
+  Scene &operator=(const Scene &) = delete;
+  Scene(Scene &&) = delete;
+  Scene &operator=(Scene &&) = delete;
 
   MaterialRef defaultMaterial() const;
   Layer *defaultLayer() const;
@@ -172,8 +172,8 @@ struct Context
  private:
   void removeAllSecondaryLayers();
 
-  friend void ::tsd::io::save_Context(Context &ctx, core::DataNode &root);
-  friend void ::tsd::io::load_Context(Context &ctx, core::DataNode &root);
+  friend void ::tsd::io::save_Scene(Scene &scene, core::DataNode &root);
+  friend void ::tsd::io::load_Scene(Scene &scene, core::DataNode &root);
 
   template <typename OBJ_T>
   IndexedVectorRef<OBJ_T> createObjectImpl(
@@ -197,122 +197,122 @@ struct Context
 // Inlined definitions ////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Context //
+// Scene //
 
 template <typename T>
-inline IndexedVectorRef<T> Context::createObject()
+inline IndexedVectorRef<T> Scene::createObject()
 {
   static_assert(std::is_base_of<Object, T>::value,
-      "Context::createObject<> can only create tsd::Object subclasses");
+      "Scene::createObject<> can only create tsd::Object subclasses");
   static_assert(!std::is_same<T, Array>::value,
-      "Use Context::createArray() to create tsd::Array objects");
+      "Use Scene::createArray() to create tsd::Array objects");
   return {};
 }
 
 template <>
-inline SurfaceRef Context::createObject()
+inline SurfaceRef Scene::createObject()
 {
   return createObjectImpl(m_db.surface);
 }
 
 template <typename T>
-inline IndexedVectorRef<T> Context::createObject(Token subtype)
+inline IndexedVectorRef<T> Scene::createObject(Token subtype)
 {
   static_assert(std::is_base_of<Object, T>::value,
-      "Context::createObject<> can only create tsd::Object subclasses");
+      "Scene::createObject<> can only create tsd::Object subclasses");
   static_assert(!std::is_same<T, Array>::value,
-      "Use Context::createArray() to create tsd::Array objects");
+      "Use Scene::createArray() to create tsd::Array objects");
   return {};
 }
 
 template <>
-inline GeometryRef Context::createObject(Token subtype)
+inline GeometryRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.geometry, subtype);
 }
 
 template <>
-inline MaterialRef Context::createObject(Token subtype)
+inline MaterialRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.material, subtype);
 }
 
 template <>
-inline SamplerRef Context::createObject(Token subtype)
+inline SamplerRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.sampler, subtype);
 }
 
 template <>
-inline VolumeRef Context::createObject(Token subtype)
+inline VolumeRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.volume, subtype);
 }
 
 template <>
-inline SpatialFieldRef Context::createObject(Token subtype)
+inline SpatialFieldRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.field, subtype);
 }
 
 template <>
-inline LightRef Context::createObject(Token subtype)
+inline LightRef Scene::createObject(Token subtype)
 {
   return createObjectImpl(m_db.light, subtype);
 }
 
 template <typename T>
-inline IndexedVectorRef<T> Context::getObject(size_t i) const
+inline IndexedVectorRef<T> Scene::getObject(size_t i) const
 {
   static_assert(std::is_base_of<Object, T>::value,
-      "Context::getObject<> can only get tsd::Object subclasses");
+      "Scene::getObject<> can only get tsd::Object subclasses");
   return {};
 }
 
 template <>
-inline ArrayRef Context::getObject(size_t i) const
+inline ArrayRef Scene::getObject(size_t i) const
 {
   return m_db.array.at(i);
 }
 
 template <>
-inline GeometryRef Context::getObject(size_t i) const
+inline GeometryRef Scene::getObject(size_t i) const
 {
   return m_db.geometry.at(i);
 }
 
 template <>
-inline MaterialRef Context::getObject(size_t i) const
+inline MaterialRef Scene::getObject(size_t i) const
 {
   return m_db.material.at(i);
 }
 
 template <>
-inline SamplerRef Context::getObject(size_t i) const
+inline SamplerRef Scene::getObject(size_t i) const
 {
   return m_db.sampler.at(i);
 }
 
 template <>
-inline VolumeRef Context::getObject(size_t i) const
+inline VolumeRef Scene::getObject(size_t i) const
 {
   return m_db.volume.at(i);
 }
 
 template <>
-inline SpatialFieldRef Context::getObject(size_t i) const
+inline SpatialFieldRef Scene::getObject(size_t i) const
 {
   return m_db.field.at(i);
 }
 
 template <>
-inline LightRef Context::getObject(size_t i) const
+inline LightRef Scene::getObject(size_t i) const
 {
   return m_db.light.at(i);
 }
 
 template <typename OBJ_T>
-inline IndexedVectorRef<OBJ_T> Context::createObjectImpl(
+inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
     IndexedVector<OBJ_T> &iv, Token subtype)
 {
   auto retval = iv.emplace(subtype);
@@ -326,7 +326,7 @@ inline IndexedVectorRef<OBJ_T> Context::createObjectImpl(
 }
 
 template <typename OBJ_T>
-inline IndexedVectorRef<OBJ_T> Context::createObjectImpl(
+inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
     IndexedVector<OBJ_T> &iv)
 {
   auto retval = iv.emplace();
@@ -340,14 +340,14 @@ inline IndexedVectorRef<OBJ_T> Context::createObjectImpl(
 }
 
 template <typename T>
-inline LayerNodeRef Context::insertChildObjectNode(
+inline LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, IndexedVectorRef<T> obj, const char *name)
 {
   return insertChildObjectNode(parent, obj->type(), obj->index(), name);
 }
 
 template <typename T>
-inline Context::AddedObject<T> Context::insertNewChildObjectNode(
+inline Scene::AddedObject<T> Scene::insertNewChildObjectNode(
     LayerNodeRef parent, Token subtype, const char *name)
 {
   auto obj = createObject<T>(subtype);
@@ -364,10 +364,10 @@ inline T *Object::parameterValueAsObject(Token name)
       "Object::parameterValueAsObject() can only retrieve object values");
 
   auto *p = parameter(name);
-  auto *ctx = context();
-  if (!p || !ctx || !p->value().holdsObject())
+  auto *scene = context();
+  if (!p || !scene || !p->value().holdsObject())
     return nullptr;
-  return (T *)ctx->getObject(p->value());
+  return (T *)scene->getObject(p->value());
 }
 
 } // namespace tsd::core

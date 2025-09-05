@@ -78,7 +78,7 @@ static T GetValueOrDefault(const tinygltf::Value &value,
   return defaultValue;
 }
 
-static SamplerRef importGLTFTexture(Context &ctx,
+static SamplerRef importGLTFTexture(Scene &scene,
     const tinygltf::Model &model,
     int textureIndex,
     TextureCache &cache,
@@ -123,17 +123,17 @@ static SamplerRef importGLTFTexture(Context &ctx,
     case TINYGLTF_COMPONENT_TYPE_BYTE: {
       if (!isLinear)
         logWarning("[import_GLTF] signed byte textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_FIXED8 + (image.component - 1), image.width, image.height);
       break;
     }
     case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
       if (isLinear)
-        dataArray = ctx.createArray(
+        dataArray = scene.createArray(
             ANARI_UFIXED8 + (image.component - 1), image.width, image.height);
       else
         dataArray =
-            ctx.createArray(ANARI_UFIXED8_R_SRGB + (image.component - 1),
+            scene.createArray(ANARI_UFIXED8_R_SRGB + (image.component - 1),
                 image.width,
                 image.height);
       break;
@@ -141,7 +141,7 @@ static SamplerRef importGLTFTexture(Context &ctx,
     case TINYGLTF_COMPONENT_TYPE_SHORT: {
       if (!isLinear)
         logWarning("[import_GLTF] signed short textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_FIXED16 + (image.component - 1), image.width, image.height);
       break;
     }
@@ -149,35 +149,35 @@ static SamplerRef importGLTFTexture(Context &ctx,
       if (!isLinear)
         logWarning(
             "[import_GLTF] unsigned short textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_UFIXED16 + (image.component - 1), image.width, image.height);
       break;
     }
     case TINYGLTF_COMPONENT_TYPE_INT: {
       if (!isLinear)
         logWarning("[import_GLTF] signed int textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_FIXED32 + (image.component - 1), image.width, image.height);
       break;
     }
     case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
       if (!isLinear)
         logWarning("[import_GLTF] unsigned int textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_UFIXED32 + (image.component - 1), image.width, image.height);
       break;
     }
     case TINYGLTF_COMPONENT_TYPE_FLOAT: {
       if (!isLinear)
         logWarning("[import_GLTF] float textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_FLOAT32 + (image.component - 1), image.width, image.height);
       break;
     }
     case TINYGLTF_COMPONENT_TYPE_DOUBLE: {
       if (!isLinear)
         logWarning("[import_GLTF] double textures not supported in sRGB");
-      dataArray = ctx.createArray(
+      dataArray = scene.createArray(
           ANARI_FLOAT64 + (image.component - 1), image.width, image.height);
       break;
     }
@@ -195,7 +195,7 @@ static SamplerRef importGLTFTexture(Context &ctx,
     cache[cacheKey] = dataArray;
   }
 
-  auto sampler = ctx.createObject<Sampler>(tokens::sampler::image2D);
+  auto sampler = scene.createObject<Sampler>(tokens::sampler::image2D);
   sampler->setParameterObject("image"_t, *dataArray);
   sampler->setParameter("inAttribute"_t, "attribute0");
 
@@ -258,7 +258,7 @@ static SamplerRef importGLTFTexture(Context &ctx,
 }
 
 static std::vector<MaterialRef> importGLTFMaterials(
-    Context &ctx, const tinygltf::Model &model)
+    Scene &scene, const tinygltf::Model &model)
 {
   // This function supports the following glTF material extensions:
   // - KHR_materials_transmission: transmission factor and texture
@@ -276,7 +276,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
     MaterialRef material;
 
     // Create PBR material by default
-    material = ctx.createObject<Material>(tokens::material::physicallyBased);
+    material = scene.createObject<Material>(tokens::material::physicallyBased);
 
     // Base color
     const auto &pbr = gltfMaterial.pbrMetallicRoughness;
@@ -285,7 +285,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
         pbr.baseColorFactor[2],
         pbr.baseColorFactor[3]);
 
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             pbr.baseColorTexture.index,
             cache,
@@ -305,7 +305,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
           float3(baseColorFactor[0], baseColorFactor[1], baseColorFactor[2]));
     }
 
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             pbr.baseColorTexture.index,
             cache,
@@ -324,7 +324,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
     // Metallic factor
     float metallicFactor = pbr.metallicFactor;
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             pbr.metallicRoughnessTexture.index,
             cache,
@@ -344,7 +344,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
     // Roughness factor
     float roughnessFactor = pbr.roughnessFactor;
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             pbr.metallicRoughnessTexture.index,
             cache,
@@ -363,7 +363,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
     }
 
     // Normal map
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             gltfMaterial.normalTexture.index,
             cache,
@@ -380,7 +380,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
     }
 
     // Occlusion map
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             gltfMaterial.occlusionTexture.index,
             cache,
@@ -404,7 +404,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(emissiveStrengthExt, 1.0f, "emissiveStrength");
     }
 
-    if (auto sampler = importGLTFTexture(ctx,
+    if (auto sampler = importGLTFTexture(scene,
             model,
             gltfMaterial.emissiveTexture.index,
             cache,
@@ -448,7 +448,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Transmission texture
       auto transmissionTextureIndex = GetValueOrDefault(
           transmissionExt, -1, "transmissionTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               transmissionTextureIndex,
               cache,
@@ -492,7 +492,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Thickness texture
       auto thicknessTextureIndex =
           GetValueOrDefault(volumeExt, -1, "thicknessTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               thicknessTextureIndex,
               cache,
@@ -539,7 +539,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Clearcoat texture
       auto clearcoatTextureIndex =
           GetValueOrDefault(clearcoatExt, -1, "clearcoatTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               clearcoatTextureIndex,
               cache,
@@ -563,7 +563,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Clearcoat roughness texture
       auto clearcoatRoughnessTextureIndex = GetValueOrDefault(
           clearcoatExt, -1, "clearcoatRoughnessTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               clearcoatRoughnessTextureIndex,
               cache,
@@ -584,7 +584,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Clearcoat normal texture
       auto clearcoatNormalTextureIndex = GetValueOrDefault(
           clearcoatExt, -1, "clearcoatNormalTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               clearcoatNormalTextureIndex,
               cache,
@@ -612,7 +612,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       auto specularTextureIndex =
           GetValueOrDefault(specularExt, -1, "specularTexture", "index");
       if (auto sampler = importGLTFTexture(
-              ctx, model, specularTextureIndex, cache, true)) {
+              scene, model, specularTextureIndex, cache, true)) {
         sampler->setParameter("outTransform"_t,
             mat4({0, 0, 0, 0},
                 {0, 0, 0, 0},
@@ -630,7 +630,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
       auto specularColorTextureIndex =
           GetValueOrDefault(specularExt, -1, "specularColorTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               specularColorTextureIndex,
               cache,
@@ -665,7 +665,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Sheen color texture
       auto sheenColorTextureIndex =
           GetValueOrDefault(sheenExt, -1, "sheenColorTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               sheenColorTextureIndex,
               cache,
@@ -689,7 +689,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Sheen roughness texture
       auto sheenRoughnessTextureIndex =
           GetValueOrDefault(sheenExt, -1, "sheenRoughnessTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               sheenRoughnessTextureIndex,
               cache,
@@ -724,7 +724,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Iridescence texture
       auto iridescenceTextureIndex =
           GetValueOrDefault(iridescenceExt, -1, "iridescenceTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               iridescenceTextureIndex,
               cache,
@@ -757,7 +757,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
       // Iridescence thickness texture
       auto iridescenceThicknessTextureIndex = GetValueOrDefault(
           iridescenceExt, -1, "iridescenceThicknessTexture", "index");
-      if (auto sampler = importGLTFTexture(ctx,
+      if (auto sampler = importGLTFTexture(scene,
               model,
               iridescenceThicknessTextureIndex,
               cache,
@@ -843,7 +843,7 @@ static void copyStridedData(
   }
 }
 
-static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
+static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
     const tinygltf::Model &model,
     const std::vector<MaterialRef> &materials)
 {
@@ -856,7 +856,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         continue;
       }
 
-      auto geometry = ctx.createObject<Geometry>(tokens::geometry::triangle);
+      auto geometry = scene.createObject<Geometry>(tokens::geometry::triangle);
 
       // Position data
       auto posIt = primitive.attributes.find("POSITION");
@@ -873,7 +873,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
       }
 
       auto vertexPositionArray =
-          ctx.createArray(ANARI_FLOAT32_VEC3, posAccessor.count);
+          scene.createArray(ANARI_FLOAT32_VEC3, posAccessor.count);
       auto *posDataOut = vertexPositionArray->mapAs<float3>();
       copyStridedData(model, posIt->second, posDataOut);
       vertexPositionArray->unmap();
@@ -886,7 +886,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         if (normalAccessor.type == TINYGLTF_TYPE_VEC3
             && normalAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
           auto vertexNormalArray =
-              ctx.createArray(ANARI_FLOAT32_VEC3, normalAccessor.count);
+              scene.createArray(ANARI_FLOAT32_VEC3, normalAccessor.count);
           auto *normalDataOut = vertexNormalArray->mapAs<float3>();
           copyStridedData(model, normalIt->second, normalDataOut);
           vertexNormalArray->unmap();
@@ -902,7 +902,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
             && texCoordAccessor.componentType
                 == TINYGLTF_COMPONENT_TYPE_FLOAT) {
           auto vertexTexCoordArray =
-              ctx.createArray(ANARI_FLOAT32_VEC2, texCoordAccessor.count);
+              scene.createArray(ANARI_FLOAT32_VEC2, texCoordAccessor.count);
           auto *texCoordDataOut = vertexTexCoordArray->mapAs<float2>();
           copyStridedData(model, texCoordIt->second, texCoordDataOut);
           vertexTexCoordArray->unmap();
@@ -918,7 +918,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         if (tangentAccessor.type == TINYGLTF_TYPE_VEC4
             && tangentAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
           auto vertexTangentArray =
-              ctx.createArray(ANARI_FLOAT32_VEC4, tangentAccessor.count);
+              scene.createArray(ANARI_FLOAT32_VEC4, tangentAccessor.count);
           auto *tangentDataOut = vertexTangentArray->mapAs<float4>();
           copyStridedData(model, tangentIt->second, tangentDataOut);
           vertexTangentArray->unmap();
@@ -933,7 +933,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         if (colorAccessor.type == TINYGLTF_TYPE_VEC3
             || colorAccessor.type == TINYGLTF_TYPE_VEC4) {
           if (colorAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
-            auto vertexColorArray = ctx.createArray(
+            auto vertexColorArray = scene.createArray(
                 colorAccessor.type == TINYGLTF_TYPE_VEC4 ? ANARI_FLOAT32_VEC4
                                                          : ANARI_FLOAT32_VEC3,
                 colorAccessor.count);
@@ -957,7 +957,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         if (indexAccessor.componentType
             == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
           auto indexArray =
-              ctx.createArray(ANARI_UINT32_VEC3, indexAccessor.count / 3);
+              scene.createArray(ANARI_UINT32_VEC3, indexAccessor.count / 3);
           auto *outIndices = indexArray->mapAs<uint3>();
 
           // Check if we need to handle strided data
@@ -989,7 +989,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
         } else if (indexAccessor.componentType
             == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
           auto indexArray =
-              ctx.createArray(ANARI_UINT32_VEC3, indexAccessor.count / 3);
+              scene.createArray(ANARI_UINT32_VEC3, indexAccessor.count / 3);
 
           // Check if we need to handle strided data
           const auto &indexBufferView =
@@ -1099,7 +1099,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
             if (!indices.empty()) {
               // Create tangent array and compute tangents
               auto vertexTangentArray =
-                  ctx.createArray(ANARI_FLOAT32_VEC4, posAccessor.count);
+                  scene.createArray(ANARI_FLOAT32_VEC4, posAccessor.count);
               auto *tangents = vertexTangentArray->mapAs<float4>();
 
               bool success = calcTangentsForTriangleMesh(indices.data(),
@@ -1146,11 +1146,11 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
       if (primitive.material >= 0 && primitive.material < materials.size()) {
         material = materials[primitive.material];
       } else {
-        material = ctx.defaultMaterial();
+        material = scene.defaultMaterial();
       }
 
       auto surface =
-          ctx.createSurface(geometryName.c_str(), geometry, material);
+          scene.createSurface(geometryName.c_str(), geometry, material);
       surfaces.push_back(surface);
     }
   }
@@ -1159,7 +1159,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Context &ctx,
 }
 
 static std::vector<LightRef> importGLTFLights(
-    Context &ctx, const tinygltf::Model &model)
+    Scene &scene, const tinygltf::Model &model)
 {
   std::vector<LightRef> lights;
 
@@ -1184,12 +1184,12 @@ static std::vector<LightRef> importGLTFLights(
     LightRef light;
 
     if (type == "directional") {
-      light = ctx.createObject<Light>(tokens::light::directional);
+      light = scene.createObject<Light>(tokens::light::directional);
       light->setParameter("direction"_t, float3(0, 0, -1)); // Default direction
     } else if (type == "point") {
-      light = ctx.createObject<Light>(tokens::light::point);
+      light = scene.createObject<Light>(tokens::light::point);
     } else if (type == "spot") {
-      light = ctx.createObject<Light>(tokens::light::spot);
+      light = scene.createObject<Light>(tokens::light::spot);
       light->setParameter("direction"_t, float3(0, 0, -1)); // Default direction
 
       if (lightValue.Has("spot")) {
@@ -1242,7 +1242,7 @@ static std::vector<LightRef> importGLTFLights(
   return lights;
 }
 
-static void populateGLTFLayer(Context &ctx,
+static void populateGLTFLayer(Scene &scene,
     LayerNodeRef parentNode,
     const tinygltf::Model &model,
     const std::vector<SurfaceRef> &surfaces,
@@ -1325,11 +1325,11 @@ static void populateGLTFLayer(Context &ctx,
 
   // Process children
   for (int childIndex : node.children) {
-    populateGLTFLayer(ctx, nodeRef, model, surfaces, lights, childIndex);
+    populateGLTFLayer(scene, nodeRef, model, surfaces, lights, childIndex);
   }
 }
 
-void import_GLTF(Context &ctx, const char *filename, LayerNodeRef location)
+void import_GLTF(Scene &scene, const char *filename, LayerNodeRef location)
 {
   tinygltf::Model model;
   tinygltf::TinyGLTF loader;
@@ -1358,17 +1358,17 @@ void import_GLTF(Context &ctx, const char *filename, LayerNodeRef location)
   }
 
   // Import materials
-  auto materials = importGLTFMaterials(ctx, model);
+  auto materials = importGLTFMaterials(scene, model);
 
   // Import meshes
-  auto surfaces = importGLTFMeshes(ctx, model, materials);
+  auto surfaces = importGLTFMeshes(scene, model, materials);
 
   // Import lights
-  auto lights = importGLTFLights(ctx, model);
+  auto lights = importGLTFLights(scene, model);
 
   // Build scene hierarchy
   LayerNodeRef targetLocation =
-      location ? location : ctx.defaultLayer()->root();
+      location ? location : scene.defaultLayer()->root();
 
   // Create a root node for the entire glTF file
   std::string fileName = fileOf(filename);
@@ -1383,15 +1383,15 @@ void import_GLTF(Context &ctx, const char *filename, LayerNodeRef location)
       targetLocation->insert_last_child({IDENTITY_MAT4, fileName.c_str()});
 
   if (model.defaultScene >= 0 && model.defaultScene < model.scenes.size()) {
-    const auto &scene = model.scenes[model.defaultScene];
-    for (int nodeIndex : scene.nodes) {
-      populateGLTFLayer(ctx, rootNode, model, surfaces, lights, nodeIndex);
+    const auto &gltfScene = model.scenes[model.defaultScene];
+    for (int nodeIndex : gltfScene.nodes) {
+      populateGLTFLayer(scene, rootNode, model, surfaces, lights, nodeIndex);
     }
   } else if (!model.scenes.empty()) {
     // Use first scene if no default is specified
-    const auto &scene = model.scenes[0];
-    for (int nodeIndex : scene.nodes) {
-      populateGLTFLayer(ctx, rootNode, model, surfaces, lights, nodeIndex);
+    const auto &gltfScene = model.scenes[0];
+    for (int nodeIndex : gltfScene.nodes) {
+      populateGLTFLayer(scene, rootNode, model, surfaces, lights, nodeIndex);
     }
   } else {
     logWarning("[import_GLTF] no scenes found in glTF file");

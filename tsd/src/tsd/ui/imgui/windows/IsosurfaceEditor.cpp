@@ -17,7 +17,7 @@ IsosurfaceEditor::IsosurfaceEditor(Application *app, const char *name)
 
 void IsosurfaceEditor::buildUI()
 {
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
 
   tsd::core::Object *selectedIsosurface = nullptr;
   tsd::core::Object *selectedVolume = nullptr;
@@ -62,14 +62,14 @@ void IsosurfaceEditor::buildUI()
 
     ImGui::BeginDisabled(arr->size() == 1);
     if (ImGui::Button("x")) {
-      auto newArr = ctx.createArray(ANARI_FLOAT32, arr->size() - 1);
+      auto newArr = scene.createArray(ANARI_FLOAT32, arr->size() - 1);
       newArr->setData(isovalues, arr->size());
       auto *v = newArr->mapAs<float>();
       std::copy(isovalues, isovalues + i, v);
       std::copy(isovalues + i + 1, isovalues + arr->size(), v + i);
       newArr->unmap();
       selectedIsosurface->setParameterObject("isovalue", *newArr);
-      ctx.removeObject(*arr);
+      scene.removeObject(*arr);
     }
     ImGui::EndDisabled();
 
@@ -85,22 +85,22 @@ void IsosurfaceEditor::buildUI()
   }
 
   if (ImGui::Button("+")) {
-    auto newArr = ctx.createArray(ANARI_FLOAT32, arr->size() + 1);
+    auto newArr = scene.createArray(ANARI_FLOAT32, arr->size() + 1);
     newArr->setData(isovalues, arr->size(), 0);
     selectedIsosurface->setParameterObject("isovalue", *newArr);
-    ctx.removeObject(*arr);
+    scene.removeObject(*arr);
   }
 }
 
 void IsosurfaceEditor::addIsosurfaceGeometryFromSelected()
 {
   tsd::core::Object *selectedObject = appCore()->tsd.selectedObject;
-  auto &ctx = appCore()->tsd.ctx;
-  auto *layer = ctx.defaultLayer();
+  auto &scene = appCore()->tsd.scene;
+  auto *layer = scene.defaultLayer();
 
-  auto isovalue = ctx.createArray(ANARI_FLOAT32, 1);
+  auto isovalue = scene.createArray(ANARI_FLOAT32, 1);
 
-  auto g = ctx.createObject<tsd::core::Geometry>(
+  auto g = scene.createObject<tsd::core::Geometry>(
       tsd::core::tokens::geometry::isosurface);
   g->setName("isosurface_geometry");
 
@@ -109,13 +109,13 @@ void IsosurfaceEditor::addIsosurfaceGeometryFromSelected()
 
   g->setParameterObject("isovalue", *isovalue);
 
-  auto s = ctx.createSurface("isosurface", g, ctx.defaultMaterial());
+  auto s = scene.createSurface("isosurface", g, scene.defaultMaterial());
 
   auto n = layer->insert_last_child(
       layer->root(), tsd::core::Any(ANARI_SURFACE, s.index()));
 
   appCore()->setSelectedNode(*n);
-  ctx.signalLayerChange(layer);
+  scene.signalLayerChange(layer);
 }
 
 } // namespace tsd::ui::imgui

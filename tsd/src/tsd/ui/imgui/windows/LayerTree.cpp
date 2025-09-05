@@ -35,10 +35,10 @@ void LayerTree::buildUI()
   buildUI_layerHeader();
   ImGui::Separator();
   buildUI_tree();
-  buildUI_activateObjectContextMenu();
-  buildUI_objectContextMenu();
-  buildUI_newLayerContextMenu();
-  buildUI_setActiveLayersContextMenus();
+  buildUI_activateObjectSceneMenu();
+  buildUI_objectSceneMenu();
+  buildUI_newLayerSceneMenu();
+  buildUI_setActiveLayersSceneMenus();
 }
 
 void LayerTree::setEnableAddRemoveLayers(bool enable)
@@ -48,8 +48,8 @@ void LayerTree::setEnableAddRemoveLayers(bool enable)
 
 void LayerTree::buildUI_layerHeader()
 {
-  auto &ctx = appCore()->tsd.ctx;
-  const auto &layers = ctx.layers();
+  auto &scene = appCore()->tsd.scene;
+  const auto &layers = scene.layers();
 
   ImGui::SetNextItemWidth(-1.0f);
   ImGui::Combo("##layer",
@@ -68,7 +68,7 @@ void LayerTree::buildUI_layerHeader()
 
   if (ImGui::Button("clear")) {
     appCore()->clearSelected();
-    appCore()->tsd.ctx.removeAllObjects();
+    appCore()->tsd.scene.removeAllObjects();
   }
 
   ImGui::SameLine();
@@ -85,7 +85,7 @@ void LayerTree::buildUI_layerHeader()
   ImGui::BeginDisabled(!m_enableAddRemove || m_layerIdx == 0);
   if (ImGui::Button("delete")) {
     auto to_delete = layers.at_index(m_layerIdx);
-    ctx.removeLayer(to_delete.first);
+    scene.removeLayer(to_delete.first);
     m_layerIdx--;
   }
   ImGui::EndDisabled();
@@ -93,8 +93,8 @@ void LayerTree::buildUI_layerHeader()
 
 void LayerTree::buildUI_tree()
 {
-  auto &ctx = appCore()->tsd.ctx;
-  auto &layer = *ctx.layer(m_layerIdx);
+  auto &scene = appCore()->tsd.scene;
+  auto &layer = *scene.layer(m_layerIdx);
 
   if (!m_menuVisible)
     m_menuNode = TSD_INVALID_INDEX;
@@ -123,7 +123,7 @@ void LayerTree::buildUI_tree()
           | ImGuiTreeNodeFlags_OpenOnDoubleClick
           | ImGuiTreeNodeFlags_SpanAvailWidth;
 
-      tsd::core::Object *obj = ctx.getObject(node->value);
+      tsd::core::Object *obj = scene.getObject(node->value);
 
       const bool firstDisabled = firstDisabledNode == nullptr && !node->enabled;
       if (firstDisabled) {
@@ -231,7 +231,7 @@ void LayerTree::buildUI_tree()
   }
 }
 
-void LayerTree::buildUI_activateObjectContextMenu()
+void LayerTree::buildUI_activateObjectSceneMenu()
 {
   if (!m_activeLayerMenuTriggered && ImGui::IsWindowHovered()) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -245,10 +245,10 @@ void LayerTree::buildUI_activateObjectContextMenu()
   }
 }
 
-void LayerTree::buildUI_objectContextMenu()
+void LayerTree::buildUI_objectSceneMenu()
 {
-  auto &ctx = appCore()->tsd.ctx;
-  auto &layer = *ctx.layer(m_layerIdx);
+  auto &scene = appCore()->tsd.scene;
+  auto &layer = *scene.layer(m_layerIdx);
   const bool nodeSelected = m_menuNode != TSD_INVALID_INDEX;
   auto menuNode = nodeSelected ? layer.at(m_menuNode) : layer.root();
 
@@ -256,7 +256,7 @@ void LayerTree::buildUI_objectContextMenu()
 
   if (ImGui::BeginPopup("LayerTree_contextMenu_object")) {
     if (nodeSelected && ImGui::Checkbox("visible", &(*menuNode)->enabled))
-      ctx.signalLayerChange(&layer);
+      scene.signalLayerChange(&layer);
 
     if (nodeSelected && ImGui::BeginMenu("rename")) {
       ImGui::InputText("##edit_node_name", &(*menuNode)->name);
@@ -265,7 +265,7 @@ void LayerTree::buildUI_objectContextMenu()
 
     if (ImGui::BeginMenu("add")) {
       if (ImGui::MenuItem("transform")) {
-        ctx.insertChildTransformNode(menuNode);
+        scene.insertChildTransformNode(menuNode);
         clearSelectedNode = true;
       }
 
@@ -278,10 +278,10 @@ void LayerTree::buildUI_objectContextMenu()
 
       if (ImGui::BeginMenu("existing object")) {
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
-  if (ctx.numberOfObjects(type) > 0 && ImGui::BeginMenu(text)) {               \
-    if (auto i = tsd::ui::buildUI_objects_menulist(ctx, type);                 \
+  if (scene.numberOfObjects(type) > 0 && ImGui::BeginMenu(text)) {               \
+    if (auto i = tsd::ui::buildUI_objects_menulist(scene, type);                 \
         i != TSD_INVALID_INDEX)                                                \
-      ctx.insertChildObjectNode(menuNode, type, i);                            \
+      scene.insertChildObjectNode(menuNode, type, i);                            \
     ImGui::EndMenu();                                                          \
   }
         OBJECT_UI_MENU_ITEM("surface", ANARI_SURFACE);
@@ -294,32 +294,32 @@ void LayerTree::buildUI_objectContextMenu()
 
       if (ImGui::BeginMenu("procedural")) {
         if (ImGui::MenuItem("cylinders")) {
-          tsd::io::generate_cylinders(ctx, menuNode);
+          tsd::io::generate_cylinders(scene, menuNode);
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("material orb")) {
-          tsd::io::generate_material_orb(ctx, menuNode);
+          tsd::io::generate_material_orb(scene, menuNode);
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("monkey")) {
-          tsd::io::generate_monkey(ctx, menuNode);
+          tsd::io::generate_monkey(scene, menuNode);
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("randomSpheres")) {
-          tsd::io::generate_randomSpheres(ctx, menuNode);
+          tsd::io::generate_randomSpheres(scene, menuNode);
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("rtow")) {
-          tsd::io::generate_rtow(ctx, menuNode);
+          tsd::io::generate_rtow(scene, menuNode);
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("noise volume")) {
-          tsd::io::generate_noiseVolume(ctx, menuNode);
+          tsd::io::generate_noiseVolume(scene, menuNode);
           clearSelectedNode = true;
         }
 
@@ -330,38 +330,38 @@ void LayerTree::buildUI_objectContextMenu()
 
       if (ImGui::BeginMenu("light")) {
         if (ImGui::MenuItem("directional")) {
-          ctx.insertNewChildObjectNode<tsd::core::Light>(menuNode,
+          scene.insertNewChildObjectNode<tsd::core::Light>(menuNode,
               tsd::core::tokens::light::directional,
               "directional light");
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("point")) {
-          ctx.insertNewChildObjectNode<tsd::core::Light>(
+          scene.insertNewChildObjectNode<tsd::core::Light>(
               menuNode, tsd::core::tokens::light::point, "point light");
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("quad")) {
-          ctx.insertNewChildObjectNode<tsd::core::Light>(
+          scene.insertNewChildObjectNode<tsd::core::Light>(
               menuNode, tsd::core::tokens::light::quad, "quad light");
           clearSelectedNode = true;
         }
 
         if (ImGui::MenuItem("spot")) {
-          ctx.insertNewChildObjectNode<tsd::core::Light>(
+          scene.insertNewChildObjectNode<tsd::core::Light>(
               menuNode, tsd::core::tokens::light::spot, "spot light");
           clearSelectedNode = true;
         }
 
         if (ImGui::BeginMenu("hdri")) {
           if (ImGui::MenuItem("simple dome")) {
-            tsd::io::generate_hdri_dome(ctx, menuNode);
+            tsd::io::generate_hdri_dome(scene, menuNode);
             clearSelectedNode = true;
           }
 
           if (ImGui::MenuItem("test image")) {
-            tsd::io::generate_hdri_test_image(ctx, menuNode);
+            tsd::io::generate_hdri_test_image(scene, menuNode);
             clearSelectedNode = true;
           }
           ImGui::EndMenu();
@@ -378,7 +378,7 @@ void LayerTree::buildUI_objectContextMenu()
 
       if (ImGui::MenuItem("delete selected")) {
         if (m_menuNode != TSD_INVALID_INDEX) {
-          ctx.removeInstancedObject(layer.at(m_menuNode));
+          scene.removeInstancedObject(layer.at(m_menuNode));
           m_menuNode = TSD_INVALID_INDEX;
           appCore()->clearSelected();
         }
@@ -397,7 +397,7 @@ void LayerTree::buildUI_objectContextMenu()
     m_menuVisible = false;
 }
 
-void LayerTree::buildUI_newLayerContextMenu()
+void LayerTree::buildUI_newLayerSceneMenu()
 {
   if (ImGui::BeginPopup("LayerTree_contextMenu_newLayer")) {
     ImGui::InputText("layer name", &s_newLayerName);
@@ -407,11 +407,11 @@ void LayerTree::buildUI_newLayerContextMenu()
     ImGuiIO &io = ImGui::GetIO();
     if ((ImGui::Button("ok") || ImGui::IsKeyDown(ImGuiKey_Enter))
         && !s_newLayerName.empty()) {
-      auto &ctx = appCore()->tsd.ctx;
+      auto &scene = appCore()->tsd.scene;
       tsd::core::Token layerName = s_newLayerName.c_str();
-      auto *newLayer = ctx.addLayer(layerName);
+      auto *newLayer = scene.addLayer(layerName);
 
-      auto &layers = ctx.layers();
+      auto &layers = scene.layers();
       for (int i = 0; i < int(layers.size()); i++) {
         if (layers.at_index(i).first == layerName) {
           m_layerIdx = i;
@@ -431,29 +431,29 @@ void LayerTree::buildUI_newLayerContextMenu()
   }
 }
 
-void LayerTree::buildUI_setActiveLayersContextMenus()
+void LayerTree::buildUI_setActiveLayersSceneMenus()
 {
   if (ImGui::BeginPopup("LayerTree_contextMenu_setActiveLayers")) {
-    auto &ctx = appCore()->tsd.ctx;
+    auto &scene = appCore()->tsd.scene;
 
     if (ImGui::Button("show all"))
-      ctx.setAllLayersActive();
+      scene.setAllLayersActive();
 
-    for (auto &ls : ctx.layers()) {
+    for (auto &ls : scene.layers()) {
       ImGui::PushID(ls.second.ptr.get());
       // Make sure at least one layer is always active
-      ImGui::BeginDisabled(ctx.numberOfActiveLayers() < 2 && ls.second.active);
+      ImGui::BeginDisabled(scene.numberOfActiveLayers() < 2 && ls.second.active);
 
       bool active = ls.second.active;
       if (ImGui::Checkbox(ls.first.c_str(), &active))
-        ctx.setLayerActive(ls.first, active);
+        scene.setLayerActive(ls.first, active);
 
       ImGui::SameLine();
       ImGui::Text("|");
       ImGui::SameLine();
 
       if (ImGui::Button("o"))
-        ctx.setOnlyLayerActive(ls.first);
+        scene.setOnlyLayerActive(ls.first);
 
       ImGui::EndDisabled();
       ImGui::PopID();

@@ -40,7 +40,7 @@ namespace tsd_ui = tsd::ui::imgui;
 
 namespace tsd::ptc {
 
-static void statusFunc(const void *_ctx,
+static void statusFunc(const void *_core,
     ANARIDevice device,
     ANARIObject source,
     ANARIDataType sourceType,
@@ -48,14 +48,14 @@ static void statusFunc(const void *_ctx,
     ANARIStatusCode code,
     const char *message)
 {
-  const auto *ctx = (const tsd::app::Core *)_ctx;
+  const auto *core = (const tsd::app::Core *)_core;
   if (g_rank != 0) {
     printf("[WORKER][%i][A] %s\n", g_rank, message);
     fflush(stdout);
     return;
   }
 
-  const bool verbose = ctx->logging.verbose;
+  const bool verbose = core->logging.verbose;
 
   if (severity == ANARI_SEVERITY_FATAL_ERROR) {
     fprintf(stderr, "[ANARI][FATAL][%p] %s", source, message);
@@ -93,41 +93,41 @@ static void setupScene()
   rng.seed(g_rank);
   std::normal_distribution<float> dist(0.2f, 0.8f);
 
-  auto mat = g_core->tsd.ctx.defaultMaterial();
+  auto mat = g_core->tsd.scene.defaultMaterial();
   mat->setParameter("color", float3(dist(rng), dist(rng), dist(rng)));
 
   // Load actual scene //
 
   if (g_importerType == ImporterType::NONE)
-    tsd::io::generate_randomSpheres(g_core->tsd.ctx);
+    tsd::io::generate_randomSpheres(g_core->tsd.scene);
   else {
     for (size_t i = 0; i < g_filenames.size(); i++) {
       if (g_numRanks > 0 && (i % g_numRanks != g_rank))
         continue;
-      auto root = g_core->tsd.ctx.defaultLayer()->root();
+      auto root = g_core->tsd.scene.defaultLayer()->root();
       const auto &f = g_filenames[i];
       if (g_importerType == ImporterType::PLY)
-        tsd::io::import_PLY(g_core->tsd.ctx, f.c_str());
+        tsd::io::import_PLY(g_core->tsd.scene, f.c_str());
       else if (g_importerType == ImporterType::OBJ)
-        tsd::io::import_OBJ(g_core->tsd.ctx, f.c_str(), root, true);
+        tsd::io::import_OBJ(g_core->tsd.scene, f.c_str(), root, true);
       else if (g_importerType == ImporterType::USD)
-        tsd::io::import_USD(g_core->tsd.ctx, f.c_str(), root, true);
+        tsd::io::import_USD(g_core->tsd.scene, f.c_str(), root, true);
       else if (g_importerType == ImporterType::ASSIMP)
-        tsd::io::import_ASSIMP(g_core->tsd.ctx, f.c_str(), root);
+        tsd::io::import_ASSIMP(g_core->tsd.scene, f.c_str(), root);
       else if (g_importerType == ImporterType::DLAF)
-        tsd::io::import_DLAF(g_core->tsd.ctx, f.c_str(), root, true);
+        tsd::io::import_DLAF(g_core->tsd.scene, f.c_str(), root, true);
       else if (g_importerType == ImporterType::NBODY)
-        tsd::io::import_NBODY(g_core->tsd.ctx, f.c_str());
+        tsd::io::import_NBODY(g_core->tsd.scene, f.c_str());
     }
   }
 
   printf("[%i] %s\n",
       g_rank,
-      tsd::core::objectDBInfo(g_core->tsd.ctx.objectDB()).c_str());
+      tsd::core::objectDBInfo(g_core->tsd.scene.objectDB()).c_str());
 
   // Create render index to map to a concrete ANARI objects //
 
-  g_rIdx = g_core->anari.acquireRenderIndex(g_core->tsd.ctx, g_device);
+  g_rIdx = g_core->anari.acquireRenderIndex(g_core->tsd.scene, g_device);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

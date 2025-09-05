@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 #include "tsd/rendering/view/Manipulator.hpp"
 
 namespace tsd::io {
@@ -18,10 +18,10 @@ void nodeToObject(core::DataNode &node, Object &obj);
 void cameraPoseToNode(const rendering::CameraPose &pose, core::DataNode &node);
 void nodeToCameraPose(core::DataNode &node, rendering::CameraPose &pose);
 
-void save_Context(Context &ctx, const char *filename);
-void save_Context(Context &ctx, core::DataNode &root);
-void load_Context(Context &ctx, const char *filename);
-void load_Context(Context &ctx, core::DataNode &root);
+void save_Scene(Scene &scene, const char *filename);
+void save_Scene(Scene &scene, core::DataNode &root);
+void load_Scene(Scene &scene, const char *filename);
+void load_Scene(Scene &scene, core::DataNode &root);
 
 // clang-format on
 

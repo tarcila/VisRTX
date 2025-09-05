@@ -50,7 +50,7 @@ struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
   RenderToAnariObjectsVisitor(anari::Device d,
       tsd::core::AnariObjectCache &oc,
       std::vector<anari::Instance> *instances,
-      tsd::core::Context *ctx,
+      tsd::core::Scene *scene,
       uint8_t inclusionMask = objectMask_all(),
       RenderIndexFilterFcn *f = nullptr);
   ~RenderToAnariObjectsVisitor();
@@ -75,7 +75,7 @@ struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
   std::stack<tsd::math::mat4> m_xfms;
   std::stack<GroupedObjects> m_objects;
   const tsd::core::Array *m_xfmArray{nullptr};
-  tsd::core::Context *m_ctx{nullptr};
+  tsd::core::Scene *m_ctx{nullptr};
   uint8_t m_mask{objectMask_none()};
   RenderIndexFilterFcn *m_filter{nullptr};
 };
@@ -85,13 +85,13 @@ struct RenderToAnariObjectsVisitor : public tsd::core::LayerVisitor
 inline RenderToAnariObjectsVisitor::RenderToAnariObjectsVisitor(anari::Device d,
     tsd::core::AnariObjectCache &oc,
     std::vector<anari::Instance> *instances,
-    tsd::core::Context *ctx,
+    tsd::core::Scene *scene,
     uint8_t mask,
     RenderIndexFilterFcn *f)
     : m_device(d),
       m_cache(&oc),
       m_instances(instances),
-      m_ctx(ctx),
+      m_ctx(scene),
       m_mask(mask),
       m_filter(f)
 {

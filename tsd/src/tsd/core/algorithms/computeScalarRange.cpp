@@ -3,7 +3,7 @@
 
 #include "tsd/core/algorithms/computeScalarRange.hpp"
 #include "tsd/core/Logging.hpp"
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 #include "tsd/core/algorithms/detail/computeScalarRangeImpl.hpp"
 
@@ -19,12 +19,12 @@ tsd::math::float2 computeScalarRange(const Array &a)
   const bool elementsAreScalars =
       !anari::isObject(type) && anari::componentsOf(type) == 1;
 
-  if (auto *ctx = a.context(); elementsAreArrays && ctx) {
+  if (auto *scene = a.context(); elementsAreArrays && scene) {
     const auto *begin = (uint64_t *)a.data();
     const auto *end = begin + a.size();
     std::for_each(begin, end, [&](uint64_t idx) {
       tsd::math::float2 subRange{maxFloat, -maxFloat};
-      if (auto subArray = ctx->getObject<Array>(idx); subArray)
+      if (auto subArray = scene->getObject<Array>(idx); subArray)
         subRange = computeScalarRange(*subArray);
       retval.x = std::min(retval.x, subRange.x);
       retval.y = std::max(retval.y, subRange.y);

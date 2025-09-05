@@ -31,7 +31,7 @@ class Application : public TSDApplication
     auto windows = TSDApplication::setupWindows();
 
     auto *core = appCore();
-    auto &ctx = core->tsd.ctx;
+    auto &scene = core->tsd.scene;
     auto *manipulator = &core->view.manipulator;
 
     auto *log = new tsd_ui::Log(this);
@@ -57,26 +57,26 @@ class Application : public TSDApplication
 
     // Geometry
 
-    auto particles = ctx.createObject<tsd::core::Geometry>(
+    auto particles = scene.createObject<tsd::core::Geometry>(
         tsd::core::tokens::geometry::sphere);
     particles->setName("particle_geometry");
     particles->setParameter("radius", 0.01f);
 
-    auto blackHoles = ctx.createObject<tsd::core::Geometry>(
+    auto blackHoles = scene.createObject<tsd::core::Geometry>(
         tsd::core::tokens::geometry::sphere);
     blackHoles->setName("blackHole_geometry");
     blackHoles->setParameter("radius", 0.1f);
 
     // Colormap sampler
 
-    auto samplerImageArray = ctx.createArray(ANARI_FLOAT32_VEC4, 3);
+    auto samplerImageArray = scene.createArray(ANARI_FLOAT32_VEC4, 3);
     auto *colorMapPtr = samplerImageArray->mapAs<tsd::math::float4>();
     colorMapPtr[0] = tsd::math::float4(0.f, 0.f, 1.f, 1.f);
     colorMapPtr[1] = tsd::math::float4(0.f, 1.f, 0.f, 1.f);
     colorMapPtr[2] = tsd::math::float4(1.f, 0.f, 0.f, 1.f);
     samplerImageArray->unmap();
 
-    auto sampler = ctx.createObject<tsd::core::Sampler>(
+    auto sampler = scene.createObject<tsd::core::Sampler>(
         tsd::core::tokens::sampler::image1D);
     sampler->setParameter("inAttribute", "attribute0");
     sampler->setParameter("filter", "linear");
@@ -87,33 +87,33 @@ class Application : public TSDApplication
 
     // Materials
 
-    auto particleMat = ctx.createObject<tsd::core::Material>(
+    auto particleMat = scene.createObject<tsd::core::Material>(
         tsd::core::tokens::material::matte);
     particleMat->setParameterObject("color", *sampler);
 
-    auto bhMat = ctx.createObject<tsd::core::Material>(
+    auto bhMat = scene.createObject<tsd::core::Material>(
         tsd::core::tokens::material::matte);
     bhMat->setParameter("color", tsd::math::float3(0.f));
 
     // Surfaces
 
-    auto surface = ctx.createObject<tsd::core::Surface>();
+    auto surface = scene.createObject<tsd::core::Surface>();
     surface->setName("particle_surface");
     surface->setParameterObject("geometry", *particles);
     surface->setParameterObject("material", *particleMat);
-    ctx.defaultLayer()->root()->insert_first_child(
+    scene.defaultLayer()->root()->insert_first_child(
         tsd::core::Any(ANARI_SURFACE, surface.index()));
 
-    surface = ctx.createObject<tsd::core::Surface>();
+    surface = scene.createObject<tsd::core::Surface>();
     surface->setName("bh_surface");
     surface->setParameterObject("geometry", *blackHoles);
     surface->setParameterObject("material", *bhMat);
-    ctx.defaultLayer()->root()->insert_first_child(
+    scene.defaultLayer()->root()->insert_first_child(
         tsd::core::Any(ANARI_SURFACE, surface.index()));
 
     // Setup app //
 
-    tsd::core::logStatus("%s", tsd::core::objectDBInfo(ctx.objectDB()).c_str());
+    tsd::core::logStatus("%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
     core->tsd.sceneLoadComplete = true;
 
     viewport->setLibrary(core->commandLine.libraryList[0], false);

@@ -12,7 +12,7 @@ namespace tsd::rendering {
 struct RenderIndexAllLayers : public RenderIndex
 {
   RenderIndexAllLayers(
-      Context &ctx, anari::Device d, bool alwaysGatherAllLights = false);
+      Scene &scene, anari::Device d, bool alwaysGatherAllLights = false);
   ~RenderIndexAllLayers() override;
 
   bool isFlat() const override;

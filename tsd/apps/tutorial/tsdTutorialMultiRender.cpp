@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // tsd_core
-#include <tsd/core/scene/Context.hpp>
+#include <tsd/core/scene/Scene.hpp>
 // tsd_io
 #include <tsd/io/procedural.hpp>
 // tsd_rendering
@@ -58,11 +58,11 @@ int main()
 {
   // Create context //
 
-  tsd::core::Context ctx;
+  tsd::core::Scene scene;
 
   // Populate spheres //
 
-  tsd::io::generate_randomSpheres(ctx, ctx.defaultLayer()->root(), true);
+  tsd::io::generate_randomSpheres(scene, scene.defaultLayer()->root(), true);
 
   // Setup ANARI device //
 
@@ -74,14 +74,14 @@ int main()
   tsd::rendering::MultiUpdateDelegate ud;
 
   auto *rIdx1 =
-      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(ctx, device);
+      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(scene, device);
   auto *rIdx2 =
-      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(ctx, device);
+      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(scene, device);
 
   rIdx1->populate(false);
   rIdx2->populate(false);
 
-  ctx.setUpdateDelegate(&ud);
+  scene.setUpdateDelegate(&ud);
 
   // Create camera //
 
@@ -130,7 +130,7 @@ int main()
   renderSingleFrame(device, frame, "test2_1.png");
 
   // Mutate material
-  ctx.getObject<tsd::core::Material>(0)->setParameter(
+  scene.getObject<tsd::core::Material>(0)->setParameter(
       "color", float3(0.f, 1.f, 0.f));
 
   // Render updated frames //

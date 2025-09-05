@@ -186,16 +186,16 @@ void Application::uiFrameStart()
 
       ImGui::Separator();
 
-      if (ImGui::BeginMenu("Context")) {
+      if (ImGui::BeginMenu("Scene")) {
         if (ImGui::MenuItem("Cleanup Only"))
-          m_core.tsd.ctx.removeUnusedObjects();
+          m_core.tsd.scene.removeUnusedObjects();
 
         if (ImGui::MenuItem("Defragment Only"))
-          m_core.tsd.ctx.defragmentObjectStorage();
+          m_core.tsd.scene.defragmentObjectStorage();
 
         if (ImGui::MenuItem("Cleanup + Defragment")) {
-          m_core.tsd.ctx.removeUnusedObjects();
-          m_core.tsd.ctx.defragmentObjectStorage();
+          m_core.tsd.scene.removeUnusedObjects();
+          m_core.tsd.scene.defragmentObjectStorage();
         }
 
         ImGui::EndMenu();
@@ -310,7 +310,7 @@ void Application::saveApplicationState(const char *_filename)
     // Serialize TSD context
     tsd::core::logStatus("serializing TSD context...");
     root["context"].reset();
-    tsd::io::save_Context(core.tsd.ctx, root["context"]);
+    tsd::io::save_Scene(core.tsd.scene, root["context"]);
 
     // Save to file
     tsd::core::logStatus("writing state file '%s'...", filename.c_str());
@@ -373,9 +373,9 @@ void Application::loadApplicationState(const char *filename)
 
   // TSD context from app state file, or context-only file
   if (auto *c = root.child("context"); c != nullptr)
-    tsd::io::load_Context(core.tsd.ctx, *c);
+    tsd::io::load_Scene(core.tsd.scene, *c);
   else
-    tsd::io::load_Context(core.tsd.ctx, root);
+    tsd::io::load_Scene(core.tsd.scene, root);
 
   // Clear out context tree
   root["context"].reset();
@@ -414,7 +414,7 @@ void Application::setupUsdDevice()
     m_usd.device = d;
   }
 
-  m_usd.renderIndex = m_core.anari.acquireRenderIndex(m_core.tsd.ctx, d);
+  m_usd.renderIndex = m_core.anari.acquireRenderIndex(m_core.tsd.scene, d);
   m_usd.frame = anari::newObject<anari::Frame>(d);
   anari::setParameter(d, m_usd.frame, "world", m_usd.renderIndex->world());
 }

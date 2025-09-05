@@ -81,17 +81,17 @@ MHDHeader readMHDHeader(const string &filename)
   return header;
 }
 
-SpatialFieldRef import_MHD(Context &ctx, const char *filepath)
+SpatialFieldRef import_MHD(Scene &scene, const char *filepath)
 {
   const auto header = readMHDHeader(filepath);
 
   const auto dataFilepath =
       fs::path(filepath).parent_path().string() + "/" + header.dataFile;
   auto field =
-      ctx.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
+      scene.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
   field->setName(dataFilepath.c_str());
 
-  auto voxelArray = ctx.createArray(
+  auto voxelArray = scene.createArray(
       header.elementType, header.dims.x, header.dims.y, header.dims.z);
   auto *voxelData = voxelArray->map();
 
@@ -102,8 +102,8 @@ SpatialFieldRef import_MHD(Context &ctx, const char *filepath)
     logError(
         "[import_RAW] unable to open RAW file: '%s'", dataFilepath.c_str());
     voxelArray->unmap();
-    ctx.removeObject(*voxelArray);
-    ctx.removeObject(*field);
+    scene.removeObject(*voxelArray);
+    scene.removeObject(*field);
     fclose(fileHandle);
     return {};
   }

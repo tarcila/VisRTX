@@ -8,8 +8,8 @@
 
 namespace tsd::rendering {
 
-RenderIndex::RenderIndex(Context &ctx, anari::Device d)
-    : m_cache(ctx, d), m_ctx(&ctx)
+RenderIndex::RenderIndex(Scene &scene, anari::Device d)
+    : m_cache(scene, d), m_ctx(&scene)
 {
   anari::retain(d, d);
   m_world = anari::newObject<anari::World>(d);

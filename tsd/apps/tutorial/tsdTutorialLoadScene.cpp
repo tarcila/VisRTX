@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // tsd_core
-#include <tsd/core/scene/Context.hpp>
+#include <tsd/core/scene/Scene.hpp>
 // tsd_io
 #include <tsd/io/serialization.hpp>
 // std
@@ -11,19 +11,19 @@
 int main(int argc, const char *argv[])
 {
   if (argc < 2) {
-    printf("usage: tsdLoadContext [file.tsd]\n");
+    printf("usage: tsdLoadScene [file.tsd]\n");
     return 0;
   }
 
-  tsd::core::Context ctx;
-  tsd::io::load_Context(ctx, argv[1]);
-  printf("-------------------TSD Context Info---------------------\n\n");
-  printf("%s\n", tsd::core::objectDBInfo(ctx.objectDB()).c_str());
+  tsd::core::Scene scene;
+  tsd::io::load_Scene(scene, argv[1]);
+  printf("-------------------TSD Scene Info---------------------\n\n");
+  printf("%s\n", tsd::core::objectDBInfo(scene.objectDB()).c_str());
 
   printf("----------------------TSD Tree--------------------------\n\n");
 
   auto onNodeEntry = [&](auto &node, int level) {
-    tsd::core::Object *obj = ctx.getObject(node->value);
+    tsd::core::Object *obj = scene.getObject(node->value);
 
     const char *typeText = "[-]";
     switch (node->value.type()) {
@@ -76,7 +76,7 @@ int main(int argc, const char *argv[])
     return true;
   };
 
-  ctx.defaultLayer()->traverse(ctx.defaultLayer()->root(), onNodeEntry);
+  scene.defaultLayer()->traverse(scene.defaultLayer()->root(), onNodeEntry);
 
   return 0;
 }

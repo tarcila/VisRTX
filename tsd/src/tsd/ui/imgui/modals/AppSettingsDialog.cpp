@@ -149,7 +149,7 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
     auto &activeRenderer = core->offline.renderer.activeRenderer;
     tsd::ui::buildUI_object(
         core->offline.renderer.rendererObjects[activeRenderer],
-        core->tsd.ctx,
+        core->tsd.scene,
         false);
     ImGui::Unindent(tsd::ui::INDENT_AMOUNT);
   }

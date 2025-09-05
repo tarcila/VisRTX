@@ -3,7 +3,7 @@
 
 #include "tsd/core/AnariObjectCache.hpp"
 #include "tsd/core/Logging.hpp"
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
@@ -27,8 +27,8 @@ static bool supportsCUDAArrays(anari::Device d)
 
 // AnariObjectCache definitions ///////////////////////////////////////////////
 
-AnariObjectCache::AnariObjectCache(Context &ctx, anari::Device d)
-    : device(d), m_ctx(&ctx)
+AnariObjectCache::AnariObjectCache(Scene &scene, anari::Device d)
+    : device(d), m_ctx(&scene)
 {
   anari::retain(device, device);
   m_supportsCUDA = supportsCUDAArrays(d);

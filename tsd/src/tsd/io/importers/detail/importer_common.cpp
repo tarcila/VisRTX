@@ -64,7 +64,7 @@ std::vector<std::string> splitString(const std::string &s, char delim)
 }
 
 SamplerRef importDdsTexture(
-    Context &ctx, std::string filepath, TextureCache &cache)
+    Scene &scene, std::string filepath, TextureCache &cache)
 {
   auto dataArray = cache[filepath];
   if (!dataArray.valid()) {
@@ -201,7 +201,7 @@ SamplerRef importDdsTexture(
       std::vector<std::byte> imageContent(linearSize);
       dds::vflipImage(dds, data(imageContent));
 
-      dataArray = ctx.createArray(ANARI_INT8, linearSize);
+      dataArray = scene.createArray(ANARI_INT8, linearSize);
       dataArray->setData(data(imageContent));
       dataArray->setMetadataValue("compressedFormat", compressedFormat.value());
       dataArray->setMetadataValue(
@@ -215,7 +215,7 @@ SamplerRef importDdsTexture(
   auto compressedFormat =
       dataArray->getMetadataValue("compressedFormat").get<std::string>();
 
-  auto tex = ctx.createObject<Sampler>(tokens::sampler::compressedImage2D);
+  auto tex = scene.createObject<Sampler>(tokens::sampler::compressedImage2D);
   tex->setParameterObject("image"_t, *dataArray);
   tex->setParameter("format"_t, compressedFormat.c_str());
   tex->setParameter(
@@ -230,7 +230,7 @@ SamplerRef importDdsTexture(
 }
 
 SamplerRef importStbTexture(
-    Context &ctx, std::string filepath, TextureCache &cache, bool isLinear)
+    Scene &scene, std::string filepath, TextureCache &cache, bool isLinear)
 {
   auto dataArray = cache[filepath];
   if (!dataArray.valid()) {
@@ -264,13 +264,13 @@ SamplerRef importStbTexture(
     else if (n == 1)
       texelType = ANARI_FLOAT32;
 
-    dataArray = ctx.createArray(texelType, width, height);
+    dataArray = scene.createArray(texelType, width, height);
     dataArray->setData(data);
 
     stbi_image_free(data);
   }
 
-  auto tex = ctx.createObject<Sampler>(tokens::sampler::image2D);
+  auto tex = scene.createObject<Sampler>(tokens::sampler::image2D);
 
   tex->setParameterObject("image"_t, *dataArray);
   tex->setParameter("inAttribute"_t, "attribute0");
@@ -283,7 +283,7 @@ SamplerRef importStbTexture(
 }
 
 SamplerRef importTexture(
-    Context &ctx, std::string filepath, TextureCache &cache, bool isLinear)
+    Scene &scene, std::string filepath, TextureCache &cache, bool isLinear)
 {
   std::transform(
       filepath.begin(), filepath.end(), filepath.begin(), [](char c) {
@@ -292,24 +292,24 @@ SamplerRef importTexture(
 
   SamplerRef tex;
   if (filepath.size() > 4 && filepath.substr(filepath.size() - 4) == ".dds") {
-    tex = importDdsTexture(ctx, filepath, cache);
+    tex = importDdsTexture(scene, filepath, cache);
   } else {
-    tex = importStbTexture(ctx, filepath, cache, isLinear);
+    tex = importStbTexture(scene, filepath, cache, isLinear);
   }
 
   return tex;
 }
 
-SamplerRef makeDefaultColorMapSampler(Context &ctx, const float2 &range)
+SamplerRef makeDefaultColorMapSampler(Scene &scene, const float2 &range)
 {
-  auto samplerImageArray = ctx.createArray(ANARI_FLOAT32_VEC4, 3);
+  auto samplerImageArray = scene.createArray(ANARI_FLOAT32_VEC4, 3);
   auto *colorMapPtr = samplerImageArray->mapAs<math::float4>();
   colorMapPtr[0] = math::float4(0.f, 0.f, 1.f, 1.f);
   colorMapPtr[1] = math::float4(0.f, 1.f, 0.f, 1.f);
   colorMapPtr[2] = math::float4(1.f, 0.f, 0.f, 1.f);
   samplerImageArray->unmap();
 
-  auto sampler = ctx.createObject<Sampler>(tokens::sampler::image1D);
+  auto sampler = scene.createObject<Sampler>(tokens::sampler::image1D);
   sampler->setParameter("inAttribute", "attribute0");
   sampler->setParameter("inTransform", tsd::math::float2(range.x, range.y))
       ->setUsage(ParameterUsageHint::VALUE_RANGE_TRANSFORM);

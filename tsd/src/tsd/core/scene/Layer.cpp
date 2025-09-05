@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/Layer.hpp"
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
@@ -32,9 +32,9 @@ bool LayerNodeData::isEmpty() const
   return value;
 }
 
-Object *LayerNodeData::getObject(Context *ctx) const
+Object *LayerNodeData::getObject(Scene *scene) const
 {
-  return ctx->getObject(value);
+  return scene->getObject(value);
 }
 
 math::mat4 LayerNodeData::getTransform() const

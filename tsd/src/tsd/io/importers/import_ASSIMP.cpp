@@ -23,7 +23,7 @@ using namespace tsd::core;
 #if TSD_USE_ASSIMP
 
 static SamplerRef importEmbeddedTexture(
-    Context &ctx, const aiTexture *embeddedTexture, TextureCache &cache)
+    Scene &scene, const aiTexture *embeddedTexture, TextureCache &cache)
 {
   std::string filepath = embeddedTexture->mFilename.C_Str();
   const bool validTexture =
@@ -39,13 +39,13 @@ static SamplerRef importEmbeddedTexture(
     return {};
 
   if (!dataArray.valid()) {
-    dataArray = ctx.createArray(
+    dataArray = scene.createArray(
         ANARI_UFIXED8_VEC4, embeddedTexture->mWidth, embeddedTexture->mHeight);
     dataArray->setData(embeddedTexture->pcData);
     cache[filepath] = dataArray;
   }
 
-  auto tex = ctx.createObject<Sampler>(tokens::sampler::image2D);
+  auto tex = scene.createObject<Sampler>(tokens::sampler::image2D);
   tex->setParameterObject("image"_t, *dataArray);
   tex->setParameter("inAttribute"_t, "attribute0");
   tex->setParameter("wrapMode1"_t, "repeat");
@@ -56,7 +56,7 @@ static SamplerRef importEmbeddedTexture(
   return tex;
 }
 
-static std::vector<SurfaceRef> importASSIMPSurfaces(Context &ctx,
+static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
     const std::vector<MaterialRef> &materials,
     const aiScene *scene)
 {
@@ -65,30 +65,30 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Context &ctx,
   for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
     aiMesh *mesh = scene->mMeshes[i];
 
-    auto tsdMesh = ctx.createObject<Geometry>(tokens::geometry::triangle);
+    auto tsdMesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
     unsigned numVertices = mesh->mNumVertices;
-    auto vertexPositionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numVertices);
+    auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numVertices);
     auto *outVertices = vertexPositionArray->mapAs<float3>();
 
-    auto vertexNormalArray = ctx.createArray(
+    auto vertexNormalArray = scene.createArray(
         ANARI_FLOAT32_VEC3, mesh->HasNormals() ? numVertices : 0);
     float3 *outNormals =
         vertexNormalArray ? vertexNormalArray->mapAs<float3>() : nullptr;
 
-    auto vertexTexCoordArray = ctx.createArray(ANARI_FLOAT32_VEC2,
+    auto vertexTexCoordArray = scene.createArray(ANARI_FLOAT32_VEC2,
         mesh->HasTextureCoords(0 /*texcord set*/) ? numVertices : 0);
     float2 *outTexCoords =
         vertexTexCoordArray ? vertexTexCoordArray->mapAs<float2>() : nullptr;
 
-    auto vertexTangentArray = ctx.createArray(
+    auto vertexTangentArray = scene.createArray(
         ANARI_FLOAT32_VEC4, mesh->HasTangentsAndBitangents() ? numVertices : 0);
     float4 *outTangents =
         vertexTangentArray ? vertexTangentArray->mapAs<float4>() : nullptr;
 
     // TODO: test for AI_MAX_NUMBER_OF_COLOR_SETS, import all..
     auto vertexColorArray =
-        ctx.createArray(ANARI_FLOAT32_VEC4, mesh->mColors[0] ? numVertices : 0);
+        scene.createArray(ANARI_FLOAT32_VEC4, mesh->mColors[0] ? numVertices : 0);
     float4 *outColors =
         vertexColorArray ? vertexColorArray->mapAs<float4>() : nullptr;
 
@@ -131,7 +131,7 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Context &ctx,
     }
 
     unsigned numIndices = mesh->mNumFaces;
-    auto indexArray = ctx.createArray(ANARI_UINT32_VEC3, numIndices);
+    auto indexArray = scene.createArray(ANARI_UINT32_VEC3, numIndices);
     auto *outIndices = indexArray->mapAs<uint3>();
 
     for (unsigned j = 0; j < mesh->mNumFaces; ++j) {
@@ -169,7 +169,7 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Context &ctx,
     // Calculate tangents if not supplied by mesh
     if (!outTangents) {
       auto vertexTangentArray =
-          ctx.createArray(ANARI_FLOAT32_VEC4, numVertices);
+          scene.createArray(ANARI_FLOAT32_VEC4, numVertices);
       auto outTangents = vertexTangentArray->mapAs<float4>();
 
       calcTangentsForTriangleMesh(outIndices,
@@ -187,16 +187,16 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Context &ctx,
     tsdMesh->setName((std::string(mesh->mName.C_Str()) + "_geometry").c_str());
 
     unsigned matID = mesh->mMaterialIndex;
-    auto tsdMat = matID < 0 ? ctx.defaultMaterial() : materials[size_t(matID)];
+    auto tsdMat = matID < 0 ? scene.defaultMaterial() : materials[size_t(matID)];
     tsdMeshes.push_back(
-        ctx.createSurface(mesh->mName.C_Str(), tsdMesh, tsdMat));
+        scene.createSurface(mesh->mName.C_Str(), tsdMesh, tsdMat));
   }
 
   return tsdMeshes;
 }
 
 static std::vector<MaterialRef> importASSIMPMaterials(
-    Context &ctx, const aiScene *scene, const std::string &filename)
+    Scene &scene, const aiScene *scene, const std::string &filename)
 {
   std::vector<MaterialRef> materials;
 
@@ -217,9 +217,9 @@ static std::vector<MaterialRef> importASSIMPMaterials(
       if (texName.length != 0) {
         auto *embeddedTexture = scene->GetEmbeddedTexture(texName.C_Str());
         if (embeddedTexture)
-          tex = importEmbeddedTexture(ctx, embeddedTexture, cache);
+          tex = importEmbeddedTexture(scene, embeddedTexture, cache);
         else
-          tex = importTexture(ctx, basePath + texName.C_Str(), cache, isLinear);
+          tex = importTexture(scene, basePath + texName.C_Str(), cache, isLinear);
       }
 
       return tex;
@@ -244,7 +244,7 @@ static std::vector<MaterialRef> importASSIMPMaterials(
     };
 
     if (matType == aiShadingMode_PBR_BRDF) {
-      m = ctx.createObject<Material>(tokens::material::physicallyBased);
+      m = scene.createObject<Material>(tokens::material::physicallyBased);
 
       // Diffuse color handling
       if (aiString baseColorTexture;
@@ -506,7 +506,7 @@ static std::vector<MaterialRef> importASSIMPMaterials(
       ai_real opacity;
       assimpMat->Get(AI_MATKEY_OPACITY, opacity);
 
-      m = ctx.createObject<Material>(tokens::material::matte);
+      m = scene.createObject<Material>(tokens::material::matte);
       m->setParameter("color"_t, ANARI_FLOAT32_VEC3, &col);
       m->setParameter("opacity"_t, opacity);
     }
@@ -522,7 +522,7 @@ static std::vector<MaterialRef> importASSIMPMaterials(
 }
 
 static std::vector<LightRef> importASSIMPLights(
-    Context &ctx, const aiScene *scene)
+    Scene &scene, const aiScene *scene)
 {
   std::vector<LightRef> lights;
 
@@ -546,7 +546,7 @@ static std::vector<LightRef> importASSIMPLights(
 
     switch (assimpLight->mType) {
     case aiLightSource_DIRECTIONAL:
-      lightRef = ctx.createObject<Light>(tokens::light::directional);
+      lightRef = scene.createObject<Light>(tokens::light::directional);
       lightRef->setParameter("direction",
           tsd::math::float3(assimpLight->mDirection.x,
               assimpLight->mDirection.y,
@@ -554,7 +554,7 @@ static std::vector<LightRef> importASSIMPLights(
       lightRef->setParameter("intensity", intensity);
       break;
     case aiLightSource_POINT:
-      lightRef = ctx.createObject<Light>(tokens::light::point);
+      lightRef = scene.createObject<Light>(tokens::light::point);
       lightRef->setParameter("position",
           tsd::math::float3(assimpLight->mPosition.x,
               assimpLight->mPosition.y,
@@ -562,7 +562,7 @@ static std::vector<LightRef> importASSIMPLights(
       lightRef->setParameter("intensity", intensity);
       break;
     case aiLightSource_SPOT:
-      lightRef = ctx.createObject<Light>(tokens::light::spot);
+      lightRef = scene.createObject<Light>(tokens::light::spot);
       lightRef->setParameter("position",
           tsd::math::float3(assimpLight->mPosition.x,
               assimpLight->mPosition.y,
@@ -591,7 +591,7 @@ static std::vector<LightRef> importASSIMPLights(
   return lights;
 }
 
-static void populateASSIMPLayer(Context &ctx,
+static void populateASSIMPLayer(Scene &scene,
     LayerNodeRef tsdLayerRef,
     const std::vector<SurfaceRef> &surfaces,
     const std::vector<LightRef> &lights,
@@ -623,7 +623,7 @@ static void populateASSIMPLayer(Context &ctx,
   }
 
   for (unsigned int i = 0; i < node->mNumChildren; i++)
-    populateASSIMPLayer(ctx, tr, surfaces, lights, node->mChildren[i]);
+    populateASSIMPLayer(scene, tr, surfaces, lights, node->mChildren[i]);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -631,7 +631,7 @@ static void populateASSIMPLayer(Context &ctx,
 ///////////////////////////////////////////////////////////////////////////////
 
 void import_ASSIMP(
-    Context &ctx, const char *filename, LayerNodeRef location, bool flatten)
+    Scene &scene, const char *filename, LayerNodeRef location, bool flatten)
 {
   Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
 
@@ -648,19 +648,19 @@ void import_ASSIMP(
     return;
   }
 
-  auto lights = importASSIMPLights(ctx, scene);
-  auto materials = importASSIMPMaterials(ctx, scene, filename);
-  auto meshes = importASSIMPSurfaces(ctx, materials, scene);
+  auto lights = importASSIMPLights(scene, scene);
+  auto materials = importASSIMPMaterials(scene, scene, filename);
+  auto meshes = importASSIMPSurfaces(scene, materials, scene);
 
-  populateASSIMPLayer(ctx,
-      location ? location : ctx.defaultLayer()->root(),
+  populateASSIMPLayer(scene,
+      location ? location : scene.defaultLayer()->root(),
       meshes,
       lights,
       scene->mRootNode);
 }
 #else
 void import_ASSIMP(
-    Context &ctx, const char *filename, LayerNodeRef location, bool flatten)
+    Scene &scene, const char *filename, LayerNodeRef location, bool flatten)
 {
   logError("[import_ASSIMP] ASSIMP not enabled in TSD build.");
 }

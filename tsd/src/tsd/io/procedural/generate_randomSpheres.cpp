@@ -8,14 +8,14 @@
 namespace tsd::io {
 
 void generate_randomSpheres(
-    Context &ctx, LayerNodeRef location, bool useDefaultMaterial)
+    Scene &scene, LayerNodeRef location, bool useDefaultMaterial)
 {
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   // Generate geometry //
 
-  auto spheres = ctx.createObject<Geometry>(tokens::geometry::sphere);
+  auto spheres = scene.createObject<Geometry>(tokens::geometry::sphere);
 
   spheres->setName("random_spheres_geometry");
 
@@ -28,8 +28,8 @@ void generate_randomSpheres(
   rng.seed(0);
   std::normal_distribution<float> vert_dist(0.f, 0.25f);
 
-  auto positionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numSpheres);
-  auto distanceArray = ctx.createArray(ANARI_FLOAT32, numSpheres);
+  auto positionArray = scene.createArray(ANARI_FLOAT32_VEC3, numSpheres);
+  auto distanceArray = scene.createArray(ANARI_FLOAT32, numSpheres);
 
   auto *positions = positionArray->mapAs<float3>();
   auto *distances = distanceArray->mapAs<float>();
@@ -51,11 +51,11 @@ void generate_randomSpheres(
 
   // Populate material with sampler for colormapping //
 
-  auto material = ctx.defaultMaterial();
+  auto material = scene.defaultMaterial();
   if (!useDefaultMaterial) {
-    auto sampler = ctx.createObject<Sampler>(tokens::sampler::image1D);
+    auto sampler = scene.createObject<Sampler>(tokens::sampler::image1D);
 
-    auto colorArray = ctx.createArray(ANARI_FLOAT32_VEC3, 2);
+    auto colorArray = scene.createArray(ANARI_FLOAT32_VEC3, 2);
     auto *colors = (float3 *)colorArray->map();
     colors[0] = float3(.8f, .1f, .1f);
     colors[1] = float3(.8f, .8f, .1f);
@@ -66,13 +66,13 @@ void generate_randomSpheres(
     sampler->setParameter("inTransform"_t, scale);
     sampler->setName("random_spheres_colormap");
 
-    material = ctx.createObject<Material>(tokens::material::matte);
+    material = scene.createObject<Material>(tokens::material::matte);
     material->setParameterObject("color"_t, *sampler);
     material->setName("random_spheres_material");
   }
 
-  auto surface = ctx.createSurface("random_spheres", spheres, material);
-  ctx.insertChildObjectNode(location, surface);
+  auto surface = scene.createSurface("random_spheres", spheres, material);
+  scene.insertChildObjectNode(location, surface);
 }
 
 } // namespace tsd

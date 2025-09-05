@@ -17,7 +17,7 @@ static bool UI_stringList_callback(void *p, int index, const char **out_text)
 }
 
 static void buildUI_parameter_contextMenu(
-    tsd::core::Context &ctx, tsd::core::Object *o, tsd::core::Parameter *p)
+    tsd::core::Scene &scene, tsd::core::Object *o, tsd::core::Parameter *p)
 {
   if (ImGui::BeginPopup("buildUI_parameter_contextMenu")) {
     if (ImGui::BeginMenu("add new")) {
@@ -107,12 +107,12 @@ static void buildUI_parameter_contextMenu(
           if (ImGui::BeginMenu("material")) {
             tsd::core::MaterialRef m;
             if (ImGui::MenuItem("matte")) {
-              m = ctx.createObject<tsd::core::Material>(
+              m = scene.createObject<tsd::core::Material>(
                   tsd::core::tokens::material::matte);
             }
 
             if (ImGui::MenuItem("physicallyBased")) {
-              m = ctx.createObject<tsd::core::Material>(
+              m = scene.createObject<tsd::core::Material>(
                   tsd::core::tokens::material::physicallyBased);
             }
 
@@ -127,7 +127,7 @@ static void buildUI_parameter_contextMenu(
 
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
   if (ImGui::BeginMenu(text)) {                                                \
-    if (auto i = buildUI_objects_menulist(ctx, type);                          \
+    if (auto i = buildUI_objects_menulist(scene, type);                          \
         i != TSD_INVALID_INDEX && p)                                           \
       p->setValue({type, i});                                                  \
     ImGui::EndMenu();                                                          \
@@ -160,7 +160,7 @@ static void buildUI_parameter_contextMenu(
 ///////////////////////////////////////////////////////////////////////////////
 
 void buildUI_object(tsd::core::Object &o,
-    tsd::core::Context &ctx,
+    tsd::core::Scene &scene,
     bool useTableForParameters,
     int level)
 {
@@ -195,14 +195,14 @@ void buildUI_object(tsd::core::Object &o,
         for (size_t i = 0; i < o.numParameters(); i++) {
           auto &p = o.parameterAt(i);
           ImGui::TableNextRow();
-          buildUI_parameter(o, p, ctx, useTableForParameters);
+          buildUI_parameter(o, p, scene, useTableForParameters);
         }
 
         ImGui::EndTable();
       }
     } else {
       for (size_t i = 0; i < o.numParameters(); i++)
-        buildUI_parameter(o, o.parameterAt(i), ctx);
+        buildUI_parameter(o, o.parameterAt(i), scene);
     }
 
     // object parameters //
@@ -220,7 +220,7 @@ void buildUI_object(tsd::core::Object &o,
 
       ImGui::NewLine();
 
-      auto *obj = ctx.getObject(pVal);
+      auto *obj = scene.getObject(pVal);
 
       static std::string pName;
       pName = p.name().c_str();
@@ -241,7 +241,7 @@ void buildUI_object(tsd::core::Object &o,
 
         ImGui::SameLine();
 
-        ImGui::BeginDisabled(ctx.numberOfObjects(pVal.type()) == 0);
+        ImGui::BeginDisabled(scene.numberOfObjects(pVal.type()) == 0);
         if (ImGui::Button("select")) {
           typeForSelection = pVal.type();
           paramForSelection = &p;
@@ -250,7 +250,7 @@ void buildUI_object(tsd::core::Object &o,
         ImGui::EndDisabled();
 
         if (obj != nullptr)
-          buildUI_object(*obj, ctx, useTableForParameters, level + 1);
+          buildUI_object(*obj, scene, useTableForParameters, level + 1);
       }
 
       ImGui::PopID();
@@ -275,8 +275,8 @@ void buildUI_object(tsd::core::Object &o,
   if (ImGui::BeginPopup("buildUI_object_contextMenu")) {
     ImGui::Text("%s", anari::toString(typeForSelection));
     ImGui::Separator();
-    for (size_t i = 0; i < ctx.numberOfObjects(typeForSelection); i++) {
-      auto *obj = ctx.getObject(typeForSelection, i);
+    for (size_t i = 0; i < scene.numberOfObjects(typeForSelection); i++) {
+      auto *obj = scene.getObject(typeForSelection, i);
       if (!obj)
         continue;
 
@@ -298,7 +298,7 @@ void buildUI_object(tsd::core::Object &o,
 
 void buildUI_parameter(tsd::core::Object &o,
     tsd::core::Parameter &p,
-    tsd::core::Context &ctx,
+    tsd::core::Scene &scene,
     bool useTable)
 {
   ImGui::PushID(&p);
@@ -327,9 +327,9 @@ void buildUI_parameter(tsd::core::Object &o,
       p.setEnabled(enabled);
     name = "";
 
-    const bool showContextMenu =
+    const bool showSceneMenu =
         ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
-    if (showContextMenu) {
+    if (showSceneMenu) {
       s_newParameterName.reserve(200);
       s_newParameterName = "";
       ImGui::OpenPopup("buildUI_parameter_contextMenu");
@@ -441,7 +441,7 @@ void buildUI_parameter(tsd::core::Object &o,
     ImGui::BeginTooltip();
     if (isArray) {
       const auto idx = pVal.getAsObjectIndex();
-      const auto &a = *ctx.getObject<tsd::core::Array>(idx);
+      const auto &a = *scene.getObject<tsd::core::Array>(idx);
       ImGui::Text("  idx: [%zu]", idx);
       const auto t = a.type();
       if (t == ANARI_ARRAY3D)
@@ -461,9 +461,9 @@ void buildUI_parameter(tsd::core::Object &o,
   }
 
   {
-    const bool showContextMenu =
+    const bool showSceneMenu =
         ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
-    if (showContextMenu) {
+    if (showSceneMenu) {
       s_newParameterName.reserve(200);
       s_newParameterName = "";
       ImGui::OpenPopup("buildUI_parameter_contextMenu");
@@ -474,18 +474,18 @@ void buildUI_parameter(tsd::core::Object &o,
     p.setValue(pVal);
 
   buildUI_parameter_contextMenu(
-      ctx, &o, &p); // NOTE: 'p' can be deleted after this
+      scene, &o, &p); // NOTE: 'p' can be deleted after this
 
   ImGui::PopID();
 }
 
 size_t buildUI_objects_menulist(
-    const tsd::core::Context &ctx, anari::DataType type)
+    const tsd::core::Scene &scene, anari::DataType type)
 {
   size_t retval = TSD_INVALID_INDEX;
 
-  for (size_t i = 0; i < ctx.numberOfObjects(type); i++) {
-    auto *obj = ctx.getObject(type, i);
+  for (size_t i = 0; i < scene.numberOfObjects(type); i++) {
+    auto *obj = scene.getObject(type, i);
     if (!obj)
       continue;
 

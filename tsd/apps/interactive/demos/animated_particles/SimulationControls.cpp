@@ -92,10 +92,10 @@ void SimulationControls::setGeometry(tsd::core::GeometryRef particles,
 
 void SimulationControls::remakeDataArrays()
 {
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
   auto resetArrayRef = [&](auto &ref) {
     if (ref)
-      ctx.removeObject(*ref);
+      scene.removeObject(*ref);
     ref = {};
   };
 
@@ -110,13 +110,13 @@ void SimulationControls::remakeDataArrays()
   const int numParticles =
       m_particlesPerSide * m_particlesPerSide * m_particlesPerSide;
 
-  m_dataPointsCUDA = ctx.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
-  m_dataDistancesCUDA = ctx.createArrayCUDA(ANARI_FLOAT32, numParticles);
-  m_dataVelocitiesCUDA = ctx.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
-  m_dataPoints = ctx.createArray(ANARI_FLOAT32_VEC3, numParticles);
-  m_dataDistances = ctx.createArray(ANARI_FLOAT32, numParticles);
-  m_dataVelocities = ctx.createArray(ANARI_FLOAT32_VEC3, numParticles);
-  m_dataBhPoints = ctx.createArray(ANARI_FLOAT32_VEC3, 2);
+  m_dataPointsCUDA = scene.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
+  m_dataDistancesCUDA = scene.createArrayCUDA(ANARI_FLOAT32, numParticles);
+  m_dataVelocitiesCUDA = scene.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
+  m_dataPoints = scene.createArray(ANARI_FLOAT32_VEC3, numParticles);
+  m_dataDistances = scene.createArray(ANARI_FLOAT32, numParticles);
+  m_dataVelocities = scene.createArray(ANARI_FLOAT32_VEC3, numParticles);
+  m_dataBhPoints = scene.createArray(ANARI_FLOAT32_VEC3, 2);
 }
 
 void SimulationControls::resetSimulation()

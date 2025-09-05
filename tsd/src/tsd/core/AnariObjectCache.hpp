@@ -11,11 +11,11 @@ namespace tsd::core {
 
 struct Array;
 struct Object;
-struct Context;
+struct Scene;
 
 struct AnariObjectCache
 {
-  AnariObjectCache(Context &ctx, anari::Device d);
+  AnariObjectCache(Scene &scene, anari::Device d);
   ~AnariObjectCache();
   anari::Object getHandle(
       anari::DataType type, size_t index, bool createIfNotPresent);
@@ -42,7 +42,7 @@ struct AnariObjectCache
   void replaceHandle(anari::Object o, anari::DataType type, size_t i);
   anari::Object readHandle(anari::DataType type, size_t i) const;
 
-  Context *m_ctx{nullptr};
+  Scene *m_ctx{nullptr};
   bool m_supportsCUDA{false};
 };
 

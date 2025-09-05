@@ -3,7 +3,7 @@
 
 // tsd_core
 #include <tsd/core/Timer.hpp>
-#include <tsd/core/scene/Context.hpp>
+#include <tsd/core/scene/Scene.hpp>
 // tsd_rendering
 #include <tsd/rendering/pipeline/RenderPipeline.h>
 #include <tsd/rendering/index/RenderIndexAllLayers.hpp>
@@ -23,7 +23,7 @@
 // Application state //////////////////////////////////////////////////////////
 
 static std::unique_ptr<tsd::core::DataTree> g_stateFile;
-static std::unique_ptr<tsd::core::Context> g_ctx;
+static std::unique_ptr<tsd::core::Scene> g_ctx;
 static std::unique_ptr<tsd::rendering::RenderIndexAllLayers> g_renderIndex;
 static std::unique_ptr<tsd::rendering::RenderPipeline> g_renderPipeline;
 static tsd::core::Timer g_timer;
@@ -90,13 +90,13 @@ static void initTSDDataTree()
   printf("done (%.2f ms)\n", g_timer.milliseconds());
 }
 
-static void initTSDContext()
+static void initTSDScene()
 {
   printf("Initializing TSD context...");
   fflush(stdout);
 
   g_timer.start();
-  g_ctx = std::make_unique<tsd::core::Context>();
+  g_ctx = std::make_unique<tsd::core::Scene>();
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -141,7 +141,7 @@ static void loadSettings()
   printf("done (%.2f ms)\n", g_timer.milliseconds());
 }
 
-static void populateTSDContext()
+static void populateTSDScene()
 {
   printf("Populating TSD context...");
   fflush(stdout);
@@ -149,9 +149,9 @@ static void populateTSDContext()
   g_timer.start();
   auto &root = g_stateFile->root();
   if (auto *c = root.child("context"); c != nullptr)
-    tsd::io::load_Context(*g_ctx, *c);
+    tsd::io::load_Scene(*g_ctx, *c);
   else
-    tsd::io::load_Context(*g_ctx, root);
+    tsd::io::load_Scene(*g_ctx, root);
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -342,12 +342,12 @@ int main(int argc, const char *argv[])
   g_core = std::make_unique<tsd::app::Core>();
 
   initTSDDataTree();
-  initTSDContext();
+  initTSDScene();
   loadState(argv[1]);
   loadSettings();
   loadANARIDevice();
   initTSDRenderIndex();
-  populateTSDContext();
+  populateTSDScene();
   populateRenderIndex();
   setupCameraManipulator();
   setupRenderPipeline();

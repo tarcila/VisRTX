@@ -14,7 +14,7 @@
 
 namespace tsd::io {
 
-void import_XYZDP(Context &ctx, const char *filepath, LayerNodeRef location)
+void import_XYZDP(Scene &scene, const char *filepath, LayerNodeRef location)
 {
   std::string file = fileOf(filepath);
   if (file.empty())
@@ -39,12 +39,12 @@ void import_XYZDP(Context &ctx, const char *filepath, LayerNodeRef location)
 
   // create TSD objects //
 
-  auto xyz_root = ctx.insertChildNode(
-      location ? location : ctx.defaultLayer()->root(), file.c_str());
+  auto xyz_root = scene.insertChildNode(
+      location ? location : scene.defaultLayer()->root(), file.c_str());
 
-  auto positionsArray = ctx.createArray(ANARI_FLOAT32_VEC3, numParticles);
-  auto dArray = ctx.createArray(ANARI_FLOAT32, numParticles);
-  auto phiArray = ctx.createArray(ANARI_FLOAT32, numParticles);
+  auto positionsArray = scene.createArray(ANARI_FLOAT32_VEC3, numParticles);
+  auto dArray = scene.createArray(ANARI_FLOAT32, numParticles);
+  auto phiArray = scene.createArray(ANARI_FLOAT32, numParticles);
 
   std::copy(positions.begin(), positions.end(), positionsArray->mapAs<float>());
   std::copy(d.begin(), d.end(), dArray->mapAs<float>());
@@ -57,7 +57,7 @@ void import_XYZDP(Context &ctx, const char *filepath, LayerNodeRef location)
   // geometry
 
   std::string geomName = "XYZ_geometry";
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::sphere);
+  auto geom = scene.createObject<Geometry>(tokens::geometry::sphere);
   geom->setName(geomName.c_str());
   geom->setParameter("radius", 0.001f);
   geom->setParameterObject("vertex.position", *positionsArray);
@@ -66,9 +66,9 @@ void import_XYZDP(Context &ctx, const char *filepath, LayerNodeRef location)
 
   // sampler + material
 
-  auto mat = ctx.createObject<Material>(tokens::material::matte);
+  auto mat = scene.createObject<Material>(tokens::material::matte);
 
-  auto samplerImageArray = ctx.createArray(ANARI_FLOAT32_VEC4, 3);
+  auto samplerImageArray = scene.createArray(ANARI_FLOAT32_VEC4, 3);
   auto *colorMapPtr = samplerImageArray->mapAs<math::float4>();
   colorMapPtr[0] = math::float4(0.f, 0.f, 1.f, 1.f);
   colorMapPtr[1] = math::float4(0.f, 1.f, 0.f, 1.f);
@@ -81,12 +81,12 @@ void import_XYZDP(Context &ctx, const char *filepath, LayerNodeRef location)
   auto dRange = computeScalarRange(*dArray);
   logInfo("[import_XYZ] ...range(d)  : %f, %f", dRange.x, dRange.y);
 
-  mat->setParameterObject("color", *makeDefaultColorMapSampler(ctx, phiRange));
+  mat->setParameterObject("color", *makeDefaultColorMapSampler(scene, phiRange));
 
   // surface
 
-  auto surface = ctx.createSurface(geomName.c_str(), geom, mat);
-  ctx.insertChildObjectNode(xyz_root, surface);
+  auto surface = scene.createSurface(geomName.c_str(), geom, mat);
+  scene.insertChildObjectNode(xyz_root, surface);
 }
 
 } // namespace tsd::io

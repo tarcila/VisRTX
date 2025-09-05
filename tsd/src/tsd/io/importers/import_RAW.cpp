@@ -9,7 +9,7 @@
 
 namespace tsd::io {
 
-SpatialFieldRef import_RAW(Context &ctx, const char *filepath)
+SpatialFieldRef import_RAW(Scene &scene, const char *filepath)
 {
   std::string file = fileOf(filepath);
   if (file.empty())
@@ -61,10 +61,10 @@ SpatialFieldRef import_RAW(Context &ctx, const char *filepath)
   }
 
   auto field =
-      ctx.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
+      scene.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
   field->setName(file.c_str());
 
-  auto voxelArray = ctx.createArray(type, dimX, dimY, dimZ);
+  auto voxelArray = scene.createArray(type, dimX, dimY, dimZ);
   auto *voxelData = voxelArray->map();
 
   auto fileHandle = std::fopen(filepath, "rb");
@@ -72,8 +72,8 @@ SpatialFieldRef import_RAW(Context &ctx, const char *filepath)
   if (!std::fread((char *)voxelData, size, 1, fileHandle)) {
     logError("[import_RAW] unable to open RAW file: '%s'", file.c_str());
     voxelArray->unmap();
-    ctx.removeObject(*voxelArray);
-    ctx.removeObject(*field);
+    scene.removeObject(*voxelArray);
+    scene.removeObject(*field);
     std::fclose(fileHandle);
     return {};
   }

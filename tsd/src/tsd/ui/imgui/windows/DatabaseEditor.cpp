@@ -31,15 +31,15 @@ void DatabaseEditor::buildUI()
 
         ImGui::PushID(o);
         if (ImGui::Button("delete"))
-          appCore()->tsd.ctx.removeObject(*o);
+          appCore()->tsd.scene.removeObject(*o);
         else
-          tsd::ui::buildUI_object(*o, appCore()->tsd.ctx, true);
+          tsd::ui::buildUI_object(*o, appCore()->tsd.scene, true);
         ImGui::PopID();
       });
     }
   };
 
-  const auto &db = appCore()->tsd.ctx.objectDB();
+  const auto &db = appCore()->tsd.scene.objectDB();
 
   buildUI_objectSection(db.light, "Lights");
   buildUI_objectSection(db.sampler, "Samplers");

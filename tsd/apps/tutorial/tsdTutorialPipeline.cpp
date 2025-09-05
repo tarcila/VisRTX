@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // tsd_core
-#include <tsd/core/scene/Context.hpp>
+#include <tsd/core/scene/Scene.hpp>
 // tsd_io
 #include <tsd/io/procedural.hpp>
 // tsd_rendering
@@ -41,18 +41,18 @@ int main()
 {
   // Create context //
 
-  tsd::core::Context ctx;
+  tsd::core::Scene scene;
 
   // Populate spheres //
 
-  tsd::io::generate_randomSpheres(ctx);
+  tsd::io::generate_randomSpheres(scene);
 
-  auto light = ctx.createObject<tsd::core::Light>("directional");
+  auto light = scene.createObject<tsd::core::Light>("directional");
   light->setName("mainLight");
   light->setParameter("direction", tsd::math::float3(-1.f, 0.f, 0.f));
   light->setParameter("irradiance", 1.f);
 
-  printf("%s\n", tsd::core::objectDBInfo(ctx.objectDB()).c_str());
+  printf("%s\n", tsd::core::objectDBInfo(scene.objectDB()).c_str());
 
   // Setup ANARI device //
 
@@ -69,7 +69,7 @@ int main()
   printf("setup render index...");
   fflush(stdout);
 
-  tsd::rendering::RenderIndexFlatRegistry rIdx(ctx, device);
+  tsd::rendering::RenderIndexFlatRegistry rIdx(scene, device);
   rIdx.populate();
 
   printf("done!\n");

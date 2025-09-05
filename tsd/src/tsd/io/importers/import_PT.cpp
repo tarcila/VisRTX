@@ -135,13 +135,13 @@ ModelData loadModel(const char *filename)
   return data;
 }
 
-void import_PT(Context &ctx, const char *filename, LayerNodeRef location)
+void import_PT(Scene &scene, const char *filename, LayerNodeRef location)
 {
   try {
     ModelData data = loadModel(filename);
 
     auto material =
-        ctx.createObject<Material>(tokens::material::physicallyBased);
+        scene.createObject<Material>(tokens::material::physicallyBased);
     float3 baseColor(1.f, 1.f, 1.f);
     const float metallic = DEFAULT_METALLIC;
     const float roughness = DEFAULT_ROUGHNESS;
@@ -149,17 +149,17 @@ void import_PT(Context &ctx, const char *filename, LayerNodeRef location)
     material->setParameter("metallic"_t, ANARI_FLOAT32, &metallic);
     material->setParameter("roughness"_t, ANARI_FLOAT32, &roughness);
 
-    const auto neuralLocation = ctx.defaultLayer()->insert_first_child(
+    const auto neuralLocation = scene.defaultLayer()->insert_first_child(
         location, tsd::core::Any(ANARI_GEOMETRY, 1));
 
     const std::string basename =
         std::filesystem::path(filename).stem().string();
 
     // Create transform as parent of neural object
-    const auto xformNode = ctx.insertChildTransformNode(
+    const auto xformNode = scene.insertChildTransformNode(
         neuralLocation, tsd::math::mat4(tsd::math::identity), basename.c_str());
 
-    auto neural = ctx.createObject<Geometry>(tokens::geometry::neural);
+    auto neural = scene.createObject<Geometry>(tokens::geometry::neural);
     const std::string name = "neural_geometry_t";
     neural->setName(name.c_str());
 
@@ -180,16 +180,16 @@ void import_PT(Context &ctx, const char *filename, LayerNodeRef location)
       for (size_t i = 0; i < array.size(); i++) {
         dataAsFloat16[i] = _cvtss_sh(array[i], 0);
       }
-      auto layerArray = ctx.createArray(ANARI_UINT16, array.size());
+      auto layerArray = scene.createArray(ANARI_UINT16, array.size());
       layerArray->setData(dataAsFloat16.data());
       neural->setParameterObject(param_name.c_str(), *layerArray);
       layer_idx++;
     }
 
-    const auto surface = ctx.createSurface(name.c_str(), neural, material);
+    const auto surface = scene.createSurface(name.c_str(), neural, material);
 
     // Insert surface as child of transform
-    ctx.insertChildObjectNode(xformNode, surface);
+    scene.insertChildObjectNode(xformNode, surface);
 
   } catch (const std::exception &e) {
     logError(("Error: " + std::string(e.what())).c_str());
@@ -198,7 +198,7 @@ void import_PT(Context &ctx, const char *filename, LayerNodeRef location)
 } // namespace tsd
 #else
 namespace tsd::io {
-void import_PT(Context &ctx, const char *filename, LayerNodeRef location)
+void import_PT(Scene &scene, const char *filename, LayerNodeRef location)
 {
   logError("[import_PT] PyTorch not enabled in TSD build.");
 }

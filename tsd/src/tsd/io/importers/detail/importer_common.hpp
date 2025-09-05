@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <string>
 #include <unordered_map>
@@ -17,13 +17,13 @@ std::string extensionOf(const std::string &filepath);
 std::vector<std::string> splitString(const std::string &s, char delim);
 
 using TextureCache = std::unordered_map<std::string, tsd::core::ArrayRef>;
-tsd::core::SamplerRef importTexture(tsd::core::Context &ctx,
+tsd::core::SamplerRef importTexture(tsd::core::Scene &scene,
     std::string filepath,
     TextureCache &cache,
     bool isLinear = false);
 
 tsd::core::SamplerRef makeDefaultColorMapSampler(
-    tsd::core::Context &ctx, const tsd::math::float2 &range);
+    tsd::core::Scene &scene, const tsd::math::float2 &range);
 
 bool calcTangentsForTriangleMesh(const tsd::math::uint3 *indices,
     const tsd::math::float3 *vertexPositions,

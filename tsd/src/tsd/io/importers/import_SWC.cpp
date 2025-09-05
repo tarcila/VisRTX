@@ -38,14 +38,14 @@ struct SWCPoint
 /**
  * Reads a SWC file and generates a 3D representation.
  *
- * @param ctx Context in which to create the 3D representation.
+ * @param scene Scene in which to create the 3D representation.
  * @param filename Path to the SWC file to read.
  * @param location Node in the scene graph where the 3D representation should be
  * added.
  * @param name A default name for the 3D representation.
  */
 void readSWCFile(
-    Context &ctx, const std::string &filename, LayerNodeRef location)
+    Scene &scene, const std::string &filename, LayerNodeRef location)
 {
   // Open the SWC file and check for errors
   std::ifstream file(filename);
@@ -73,16 +73,16 @@ void readSWCFile(
 
   // Get the location node if not already provided
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   // Default material for the 3D representation
-  auto material = ctx.defaultMaterial();
+  auto material = scene.defaultMaterial();
 
   // Count the number of points in the file
   const auto numPoints = points.size();
 
   // Generate spheres for each point
-  auto spheres = ctx.createObject<Geometry>(tokens::geometry::sphere);
+  auto spheres = scene.createObject<Geometry>(tokens::geometry::sphere);
   spheres->setName("spheres_geometry_t");
 
   // Initialize the positions and radii of the spheres
@@ -97,8 +97,8 @@ void readSWCFile(
   }
 
   // Create arrays to store the positions and radii of the spheres
-  auto spherePositionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numPoints);
-  auto sphereRadiusArray = ctx.createArray(ANARI_FLOAT32, numPoints);
+  auto spherePositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numPoints);
+  auto sphereRadiusArray = scene.createArray(ANARI_FLOAT32, numPoints);
 
   spherePositionArray->setData(spherePositions);
   sphereRadiusArray->setData(sphereRadii);
@@ -108,7 +108,7 @@ void readSWCFile(
   spheres->setParameterObject("vertex.radius"_t, *sphereRadiusArray);
 
   // Generate cones to connect the points
-  auto cones = ctx.createObject<Geometry>(tokens::geometry::cone);
+  auto cones = scene.createObject<Geometry>(tokens::geometry::cone);
   cones->setName("cones_geometry_t");
 
   // Initialize the positions and radii of the cones
@@ -130,8 +130,8 @@ void readSWCFile(
   }
 
   // Create arrays to store the positions and radii of the cones
-  auto positionArray = ctx.createArray(ANARI_FLOAT32_VEC3, 2 * numcones);
-  auto radiiArray = ctx.createArray(ANARI_FLOAT32, 2 * numcones);
+  auto positionArray = scene.createArray(ANARI_FLOAT32_VEC3, 2 * numcones);
+  auto radiiArray = scene.createArray(ANARI_FLOAT32, 2 * numcones);
 
   positionArray->setData(conePositions);
   radiiArray->setData(coneRadii);
@@ -141,7 +141,7 @@ void readSWCFile(
   cones->setParameterObject("vertex.radius"_t, *radiiArray);
 
   // Material properties
-  auto m = ctx.createObject<Material>(tokens::material::physicallyBased);
+  auto m = scene.createObject<Material>(tokens::material::physicallyBased);
 
   // Randomly generate base color, metallic, and roughness values
   std::random_device rd;
@@ -165,25 +165,25 @@ void readSWCFile(
       std::filesystem::path(filename).filename().string();
 
   const std::string conesName = basename + "_cones";
-  auto conesSurface = ctx.createSurface(conesName.c_str(), cones, m);
-  ctx.insertChildObjectNode(swcLocation, conesSurface);
+  auto conesSurface = scene.createSurface(conesName.c_str(), cones, m);
+  scene.insertChildObjectNode(swcLocation, conesSurface);
 
   const std::string spheresName = basename + "_spheres";
-  auto sphereSurface = ctx.createSurface(spheresName.c_str(), spheres, m);
-  ctx.insertChildObjectNode(swcLocation, sphereSurface);
+  auto sphereSurface = scene.createSurface(spheresName.c_str(), spheres, m);
+  scene.insertChildObjectNode(swcLocation, sphereSurface);
 }
 
 /**
  * Imports a single SWC file into the current context.
  *
- * @param ctx Context in which to import the SWC file.
+ * @param scene Scene in which to import the SWC file.
  * @param filename Path to the SWC file to import.
  * @param location Node in the scene graph where the SWC file should be
  * imported.
  */
-void import_SWC(Context &ctx, const char *filename, LayerNodeRef location)
+void import_SWC(Scene &scene, const char *filename, LayerNodeRef location)
 {
-  readSWCFile(ctx, filename, location);
+  readSWCFile(scene, filename, location);
 }
 
 } // namespace tsd

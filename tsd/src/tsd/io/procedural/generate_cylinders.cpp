@@ -8,14 +8,14 @@
 namespace tsd::io {
 
 void generate_cylinders(
-    Context &ctx, LayerNodeRef location, bool useDefaultMaterial)
+    Scene &scene, LayerNodeRef location, bool useDefaultMaterial)
 {
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   // Generate geometry //
 
-  auto cylinders = ctx.createObject<Geometry>(tokens::geometry::cylinder);
+  auto cylinders = scene.createObject<Geometry>(tokens::geometry::cylinder);
 
   cylinders->setName("random_cylinders_geometry");
 
@@ -29,8 +29,8 @@ void generate_cylinders(
   std::normal_distribution<float> pos_dist(0.f, 1.f);
   std::uniform_real_distribution<float> col_dist(0.f, 1.f);
 
-  auto positionArray = ctx.createArray(ANARI_FLOAT32_VEC3, 2 * numCylinders);
-  auto colorArray = ctx.createArray(ANARI_FLOAT32_VEC4, 2 * numCylinders);
+  auto positionArray = scene.createArray(ANARI_FLOAT32_VEC3, 2 * numCylinders);
+  auto colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 2 * numCylinders);
 
   std::vector<float3> positions(2 * numCylinders);
   std::vector<float4> colors(2 * numCylinders);
@@ -56,15 +56,15 @@ void generate_cylinders(
 
   // Populate material with sampler for colormapping //
 
-  auto material = ctx.defaultMaterial();
+  auto material = scene.defaultMaterial();
   if (!useDefaultMaterial) {
-    material = ctx.createObject<Material>(tokens::material::matte);
+    material = scene.createObject<Material>(tokens::material::matte);
     material->setParameter("color"_t, "color");
     material->setName("random_cylinders_material");
   }
 
-  auto surface = ctx.createSurface("random_cylinders", cylinders, material);
-  ctx.insertChildObjectNode(location, surface);
+  auto surface = scene.createSurface("random_cylinders", cylinders, material);
+  scene.insertChildObjectNode(location, surface);
 }
 
 } // namespace tsd

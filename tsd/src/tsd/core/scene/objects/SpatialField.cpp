@@ -5,7 +5,7 @@
 
 #include "tsd/core/Logging.hpp"
 #include "tsd/core/algorithms/computeScalarRange.hpp"
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <optional>
 
@@ -68,15 +68,15 @@ anari::Object SpatialField::makeANARIObject(anari::Device d) const
 tsd::math::float2 SpatialField::computeValueRange()
 {
   tsd::math::float2 retval{0.f, 1.f};
-  auto *ctx = this->context();
-  if (!ctx)
+  auto *scene = this->context();
+  if (!scene)
     return retval;
 
   auto getDataRangeFromParameter =
       [&](Parameter *p) -> std::optional<tsd::math::float2> {
     if (!p || !anari::isArray(p->value().type()))
       return {};
-    else if (auto a = ctx->getObject<Array>(p->value().getAsObjectIndex()); a)
+    else if (auto a = scene->getObject<Array>(p->value().getAsObjectIndex()); a)
       return computeScalarRange(*a);
     else
       return {};

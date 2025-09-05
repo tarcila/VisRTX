@@ -82,7 +82,7 @@ static std::vector<std::string> parseLibraryList()
 
 Core::Core() : anari(this)
 {
-  tsd.ctx.setUpdateDelegate(&anari.getUpdateDelegate());
+  tsd.scene.setUpdateDelegate(&anari.getUpdateDelegate());
 }
 
 Core::~Core()
@@ -113,7 +113,7 @@ void Core::parseCommandLine(int argc, const char **argv)
       this->commandLine.secondaryViewportLibrary = argv[++i];
     else if (arg == "-tsd") {
       importerType = ImporterType::TSD;
-      this->commandLine.loadingContext = true;
+      this->commandLine.loadingScene = true;
     } else if (arg == "-hdri")
       importerType = ImporterType::HDRI;
     else if (arg == "-dlaf")
@@ -157,52 +157,52 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
     for (const auto &f : commandLine.filenames) {
       tsd::core::logStatus("...loading file '%s'", f.second.c_str());
       if (f.first == ImporterType::HDRI)
-        tsd::io::import_HDRI(tsd.ctx, f.second.c_str());
+        tsd::io::import_HDRI(tsd.scene, f.second.c_str());
     }
     return;
   }
 
   if (!commandLine.loadedFromStateFile && commandLine.filenames.empty()) {
     tsd::core::logStatus("...generating material_orb from embedded data");
-    tsd::io::generate_material_orb(tsd.ctx);
+    tsd::io::generate_material_orb(tsd.scene);
   } else {
     for (const auto &f : commandLine.filenames) {
       tsd::core::logStatus("...loading file '%s'", f.second.c_str());
-      auto root = tsd.ctx.defaultLayer()->root();
+      auto root = tsd.scene.defaultLayer()->root();
       if (f.first == ImporterType::TSD)
-        tsd::io::load_Context(tsd.ctx, f.second.c_str());
+        tsd::io::load_Scene(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::PLY)
-        tsd::io::import_PLY(tsd.ctx, f.second.c_str());
+        tsd::io::import_PLY(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::OBJ)
-        tsd::io::import_OBJ(tsd.ctx, f.second.c_str());
+        tsd::io::import_OBJ(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::USD)
-        tsd::io::import_USD(tsd.ctx, f.second.c_str());
+        tsd::io::import_USD(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::ASSIMP)
-        tsd::io::import_ASSIMP(tsd.ctx, f.second.c_str(), root, false);
+        tsd::io::import_ASSIMP(tsd.scene, f.second.c_str(), root, false);
       else if (f.first == ImporterType::ASSIMP_FLAT)
-        tsd::io::import_ASSIMP(tsd.ctx, f.second.c_str(), root, true);
+        tsd::io::import_ASSIMP(tsd.scene, f.second.c_str(), root, true);
       else if (f.first == ImporterType::DLAF)
-        tsd::io::import_DLAF(tsd.ctx, f.second.c_str());
+        tsd::io::import_DLAF(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::E57XYZ)
-        tsd::io::import_E57XYZ(tsd.ctx, f.second.c_str());
+        tsd::io::import_E57XYZ(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::NBODY)
-        tsd::io::import_NBODY(tsd.ctx, f.second.c_str());
+        tsd::io::import_NBODY(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::HDRI)
-        tsd::io::import_HDRI(tsd.ctx, f.second.c_str());
+        tsd::io::import_HDRI(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::SWC)
-        tsd::io::import_SWC(tsd.ctx, f.second.c_str());
+        tsd::io::import_SWC(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::PDB)
-        tsd::io::import_PDB(tsd.ctx, f.second.c_str(), root);
+        tsd::io::import_PDB(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::XYZDP)
-        tsd::io::import_XYZDP(tsd.ctx, f.second.c_str());
+        tsd::io::import_XYZDP(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::HSMESH)
-        tsd::io::import_HSMESH(tsd.ctx, f.second.c_str(), root);
+        tsd::io::import_HSMESH(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::VOLUME)
-        tsd::io::import_volume(tsd.ctx, f.second.c_str());
+        tsd::io::import_volume(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::NEURAL)
-        tsd::io::import_PT(tsd.ctx, f.second.c_str(), root);
+        tsd::io::import_PT(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::GLTF)
-        tsd::io::import_GLTF(tsd.ctx, f.second.c_str(), root);
+        tsd::io::import_GLTF(tsd.scene, f.second.c_str(), root);
       else
         tsd::core::logWarning("...skipping unknown file type for '%s'",
             f.second.c_str());
@@ -255,7 +255,7 @@ const anari::Extensions *ANARIDeviceManager::loadDeviceExtensions(
 }
 
 tsd::rendering::RenderIndex *ANARIDeviceManager::acquireRenderIndex(
-    tsd::core::Context &c, anari::Device d)
+    tsd::core::Scene &c, anari::Device d)
 {
   auto &liveIdx = m_rIdxs[d];
   if (liveIdx.refCount == 0) {
@@ -350,7 +350,7 @@ void Core::setSelectedObject(tsd::core::Object *o)
 
 void Core::setSelectedNode(tsd::core::LayerNode &n)
 {
-  setSelectedObject(tsd.ctx.getObject(n->value));
+  setSelectedObject(tsd.scene.getObject(n->value));
   auto *layer = n.container();
   tsd.selectedNode = layer->at(n.index());
 }

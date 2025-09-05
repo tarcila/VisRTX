@@ -19,7 +19,7 @@
 namespace tsd::core {
 
 using namespace literals;
-struct Context;
+struct Scene;
 struct AnariObjectCache;
 
 // Token declarations /////////////////////////////////////////////////////////
@@ -57,7 +57,7 @@ struct Object : public ParameterObserver
   virtual anari::DataType type() const;
   Token subtype() const;
   size_t index() const;
-  Context *context() const;
+  Scene *context() const;
 
   //// Metadata ////
 
@@ -127,11 +127,11 @@ struct Object : public ParameterObserver
   BaseUpdateDelegate *updateDelegate() const;
 
  private:
-  friend struct Context;
+  friend struct Scene;
 
   void initMetadata() const;
 
-  Context *m_context{nullptr};
+  Scene *m_context{nullptr};
   ParameterMap m_parameters;
   anari::DataType m_type{ANARI_UNKNOWN};
   Token m_subtype;

@@ -212,7 +212,7 @@ void TransferFunctionEditor::buildUI_drawEditor()
 void TransferFunctionEditor::buildUI_opacityScale()
 {
   tsd::ui::buildUI_parameter(
-      *m_volume, *m_volume->parameter("opacity"), appCore()->tsd.ctx);
+      *m_volume, *m_volume->parameter("opacity"), appCore()->tsd.scene);
 }
 
 void TransferFunctionEditor::buildUI_valueRange()
@@ -220,7 +220,7 @@ void TransferFunctionEditor::buildUI_valueRange()
   ImGui::BeginDisabled(!m_volume);
 
   tsd::ui::buildUI_parameter(
-      *m_volume, *m_volume->parameter("valueRange"), appCore()->tsd.ctx);
+      *m_volume, *m_volume->parameter("valueRange"), appCore()->tsd.scene);
 
   if (ImGui::Button("reset##valueRange") && m_volume) {
     auto *field =

@@ -210,7 +210,7 @@ void nodeToCameraPose(core::DataNode &node, rendering::CameraPose &pose)
   node["upAxis"].getValue(ANARI_INT32, &pose.upAxis);
 }
 
-static void nodeToNewObject(Context &ctx, core::DataNode &node)
+static void nodeToNewObject(Scene &scene, core::DataNode &node)
 {
   const Any self = node["self"].getValue();
   const auto type = self.type();
@@ -245,7 +245,7 @@ static void nodeToNewObject(Context &ctx, core::DataNode &node)
     const size_t dim_x = dim[0];
     const size_t dim_y = is2D || is3D ? dim[1] : size_t(0);
     const size_t dim_z = is3D ? dim[2] : size_t(0);
-    auto arr = ctx.createArray(arrayElementType, dim_x, dim_y, dim_z);
+    auto arr = scene.createArray(arrayElementType, dim_x, dim_y, dim_z);
     if (arr) {
       auto *memOut = arr->map();
       std::memcpy(memOut, arrayPtr, arr->size() * arr->elementSize());
@@ -254,25 +254,25 @@ static void nodeToNewObject(Context &ctx, core::DataNode &node)
     }
   } break;
   case ANARI_GEOMETRY:
-    obj = ctx.createObject<Geometry>(subtype).data();
+    obj = scene.createObject<Geometry>(subtype).data();
     break;
   case ANARI_MATERIAL:
-    obj = ctx.createObject<Material>(subtype).data();
+    obj = scene.createObject<Material>(subtype).data();
     break;
   case ANARI_SAMPLER:
-    obj = ctx.createObject<Sampler>(subtype).data();
+    obj = scene.createObject<Sampler>(subtype).data();
     break;
   case ANARI_SURFACE:
-    obj = ctx.createObject<Surface>().data();
+    obj = scene.createObject<Surface>().data();
     break;
   case ANARI_SPATIAL_FIELD:
-    obj = ctx.createObject<SpatialField>(subtype).data();
+    obj = scene.createObject<SpatialField>(subtype).data();
     break;
   case ANARI_VOLUME:
-    obj = ctx.createObject<Volume>(subtype).data();
+    obj = scene.createObject<Volume>(subtype).data();
     break;
   case ANARI_LIGHT:
-    obj = ctx.createObject<Light>(subtype).data();
+    obj = scene.createObject<Light>(subtype).data();
     break;
   default:
     break;
@@ -332,21 +332,21 @@ static void nodeToLayer(core::DataNode &rootNode, Layer &layer)
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-void save_Context(Context &ctx, const char *filename)
+void save_Scene(Scene &scene, const char *filename)
 {
   tsd::core::logStatus("Saving context to file: %s", filename);
   tsd::core::logStatus("  ...serializing context");
   core::DataTree tree;
-  save_Context(ctx, tree.root());
+  save_Scene(scene, tree.root());
   tsd::core::logStatus("  ...writing file");
   tree.save(filename);
   tsd::core::logStatus("  ...done!");
 }
 
-void save_Context(Context &ctx, core::DataNode &root)
+void save_Scene(Scene &scene, core::DataNode &root)
 {
   auto &layersRoot = root["layers"];
-  for (auto l : ctx.layers()) {
+  for (auto l : scene.layers()) {
     if (l.second.ptr) {
       auto &layerRoot = layersRoot[l.first.c_str()];
       layerToNode(*l.second.ptr, layerRoot);
@@ -377,17 +377,17 @@ void save_Context(Context &ctx, core::DataNode &root)
     });
   };
 
-  objectArrayToNode(objectDB, ctx.m_db.geometry, "geometry");
-  objectArrayToNode(objectDB, ctx.m_db.sampler, "sampler");
-  objectArrayToNode(objectDB, ctx.m_db.material, "material");
-  objectArrayToNode(objectDB, ctx.m_db.surface, "surface");
-  objectArrayToNode(objectDB, ctx.m_db.field, "spatialfield");
-  objectArrayToNode(objectDB, ctx.m_db.volume, "volume");
-  objectArrayToNode(objectDB, ctx.m_db.light, "light");
-  objectArrayToNode(objectDB, ctx.m_db.array, "array");
+  objectArrayToNode(objectDB, scene.m_db.geometry, "geometry");
+  objectArrayToNode(objectDB, scene.m_db.sampler, "sampler");
+  objectArrayToNode(objectDB, scene.m_db.material, "material");
+  objectArrayToNode(objectDB, scene.m_db.surface, "surface");
+  objectArrayToNode(objectDB, scene.m_db.field, "spatialfield");
+  objectArrayToNode(objectDB, scene.m_db.volume, "volume");
+  objectArrayToNode(objectDB, scene.m_db.light, "light");
+  objectArrayToNode(objectDB, scene.m_db.array, "array");
 }
 
-void load_Context(Context &ctx, const char *filename)
+void load_Scene(Scene &scene, const char *filename)
 {
   tsd::core::logStatus("Loading context from file: %s", filename);
   tsd::core::logStatus("  ...loading file");
@@ -395,20 +395,20 @@ void load_Context(Context &ctx, const char *filename)
   tree.load(filename);
   auto &root = tree.root();
   if (auto *c = root.child("context"); c != nullptr)
-    load_Context(ctx, *c);
+    load_Scene(scene, *c);
   else
-    load_Context(ctx, root);
+    load_Scene(scene, root);
 }
 
-void load_Context(Context &ctx, core::DataNode &root)
+void load_Scene(Scene &scene, core::DataNode &root)
 {
   // Clear out any existing context contents //
 
   tsd::core::logStatus("  ...clearing old context");
 
-  ctx.removeAllObjects();
-  ctx.removeAllSecondaryLayers();
-  ctx.defaultLayer()->root()->erase_subtree();
+  scene.removeAllObjects();
+  scene.removeAllSecondaryLayers();
+  scene.defaultLayer()->root()->erase_subtree();
 
   // Load from the conduit file (objects then layer) //
 
@@ -416,40 +416,40 @@ void load_Context(Context &ctx, core::DataNode &root)
 
   auto &objectDB = root["objectDB"];
   auto nodeToObjectArray =
-      [](core::DataNode &node, Context &ctx, const char *childNodeName) {
+      [](core::DataNode &node, Scene &scene, const char *childNodeName) {
         auto &objectsNode = node[childNodeName];
-        objectsNode.foreach_child([&](auto &n) { nodeToNewObject(ctx, n); });
+        objectsNode.foreach_child([&](auto &n) { nodeToNewObject(scene, n); });
       };
 
-  nodeToObjectArray(objectDB, ctx, "array");
-  nodeToObjectArray(objectDB, ctx, "sampler");
-  nodeToObjectArray(objectDB, ctx, "material");
-  nodeToObjectArray(objectDB, ctx, "geometry");
-  nodeToObjectArray(objectDB, ctx, "surface");
-  nodeToObjectArray(objectDB, ctx, "spatialfield");
-  nodeToObjectArray(objectDB, ctx, "volume");
-  nodeToObjectArray(objectDB, ctx, "light");
+  nodeToObjectArray(objectDB, scene, "array");
+  nodeToObjectArray(objectDB, scene, "sampler");
+  nodeToObjectArray(objectDB, scene, "material");
+  nodeToObjectArray(objectDB, scene, "geometry");
+  nodeToObjectArray(objectDB, scene, "surface");
+  nodeToObjectArray(objectDB, scene, "spatialfield");
+  nodeToObjectArray(objectDB, scene, "volume");
+  nodeToObjectArray(objectDB, scene, "light");
 
   tsd::core::logStatus("  ...converting layers");
 
   auto &layerRoot = root["layers"];
   layerRoot.foreach_child([&](auto &nLayer) {
     tsd::core::Token layerName = nLayer.name().c_str();
-    auto &tLayer = *ctx.addLayer(layerName);
+    auto &tLayer = *scene.addLayer(layerName);
     nodeToLayer(nLayer, tLayer);
     bool active = true;
     nLayer["isActive"].getValue(ANARI_BOOL, &active);
-    ctx.setLayerActive(layerName, active);
-    ctx.signalLayerChange(&tLayer);
+    scene.setLayerActive(layerName, active);
+    scene.signalLayerChange(&tLayer);
   });
 
-  ctx.m_numActiveLayers = 0;
-  for (auto &ls : ctx.layers()) {
+  scene.m_numActiveLayers = 0;
+  for (auto &ls : scene.layers()) {
     if (ls.second.active)
-      ctx.m_numActiveLayers++;
+      scene.m_numActiveLayers++;
   }
 
-  ctx.signalActiveLayersChanged();
+  scene.signalActiveLayersChanged();
 
   tsd::core::logStatus("  ...done!");
 }

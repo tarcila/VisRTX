@@ -332,12 +332,12 @@ void parseAtomLine(const std::string &line, Atoms &atoms)
 /**
  * Reads a PDB file and generates a 3D representation.
  *
- * @param ctx Context in which to create the 3D representation.
+ * @param scene Scene in which to create the 3D representation.
  * @param filename Path to the SWC file to read.
  * @param location Node in the scene graph where the 3D representation should be
  * added.
  */
-void readPDBFile(Context &ctx, const char *filename, LayerNodeRef location)
+void readPDBFile(Scene &scene, const char *filename, LayerNodeRef location)
 {
   std::ifstream file(filename);
   if (!file.is_open()) {
@@ -361,10 +361,10 @@ void readPDBFile(Context &ctx, const char *filename, LayerNodeRef location)
   }
 
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   // Generate spheres for each atom
-  auto spheres = ctx.createObject<Geometry>(tokens::geometry::sphere);
+  auto spheres = scene.createObject<Geometry>(tokens::geometry::sphere);
   const std::string basename =
       std::filesystem::path(filename).filename().string();
   spheres->setName(basename.c_str());
@@ -385,9 +385,9 @@ void readPDBFile(Context &ctx, const char *filename, LayerNodeRef location)
   }
 
   // Create arrays to store the positions and radii of the spheres
-  auto spherePositionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numAtoms);
-  auto sphereRadiusArray = ctx.createArray(ANARI_FLOAT32, numAtoms);
-  auto sphereColorsArray = ctx.createArray(ANARI_FLOAT32_VEC4, numAtoms);
+  auto spherePositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numAtoms);
+  auto sphereRadiusArray = scene.createArray(ANARI_FLOAT32, numAtoms);
+  auto sphereColorsArray = scene.createArray(ANARI_FLOAT32_VEC4, numAtoms);
 
   spherePositionArray->setData(spherePositions);
   sphereRadiusArray->setData(sphereRadii);
@@ -398,11 +398,11 @@ void readPDBFile(Context &ctx, const char *filename, LayerNodeRef location)
   spheres->setParameterObject("vertex.radius"_t, *sphereRadiusArray);
   spheres->setParameterObject("vertex.color"_t, *sphereColorsArray);
 
-  auto material = ctx.createObject<Material>(tokens::material::matte);
+  auto material = scene.createObject<Material>(tokens::material::matte);
   material->setParameter("color"_t, "color");
   material->setName("atoms_material");
 
-  auto sphereSurface = ctx.createSurface(basename.c_str(), spheres, material);
+  auto sphereSurface = scene.createSurface(basename.c_str(), spheres, material);
 
   // Insert the surface reference into the layer tree
   location->insert_last_child(
@@ -412,13 +412,13 @@ void readPDBFile(Context &ctx, const char *filename, LayerNodeRef location)
 /**
  * Reads a PDB file and generates a 3D representation.
  *
- * @param ctx Context in which to create the 3D representation.
+ * @param scene Scene in which to create the 3D representation.
  * @param filename Path to the SWC file to read.
  * @param location Node in the scene graph where the 3D representation should be
  * added.
  */
-void import_PDB(Context &ctx, const char *filename, LayerNodeRef location)
+void import_PDB(Scene &scene, const char *filename, LayerNodeRef location)
 {
-  readPDBFile(ctx, filename, location);
+  readPDBFile(scene, filename, location);
 }
 }; // namespace tsd

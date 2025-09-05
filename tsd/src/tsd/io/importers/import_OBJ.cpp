@@ -18,7 +18,7 @@ struct OBJData
   std::vector<tinyobj::material_t> materials;
 };
 
-void import_OBJ(Context &ctx,
+void import_OBJ(Scene &scene,
     const char *filepath,
     LayerNodeRef location,
     bool useDefaultMaterial)
@@ -44,8 +44,8 @@ void import_OBJ(Context &ctx,
     return;
   }
 
-  auto obj_root = ctx.insertChildNode(
-      location ? location : ctx.defaultLayer()->root(), file.c_str());
+  auto obj_root = scene.insertChildNode(
+      location ? location : scene.defaultLayer()->root(), file.c_str());
 
   /////////////////////////////////////////////////////////////////////////////
   /////////////////////////////////////////////////////////////////////////////
@@ -61,13 +61,13 @@ void import_OBJ(Context &ctx,
     if (!m) {
       auto &mat = objdata.materials[i];
 
-      m = ctx.createObject<Material>(tokens::material::matte);
+      m = scene.createObject<Material>(tokens::material::matte);
       m->setParameter("color"_t, ANARI_FLOAT32_VEC3, mat.diffuse);
       m->setParameter("opacity"_t, mat.dissolve);
       m->setName(mat.name.c_str());
 
       if (!mat.diffuse_texname.empty()) {
-        auto tex = importTexture(ctx, basePath + mat.diffuse_texname, cache);
+        auto tex = importTexture(scene, basePath + mat.diffuse_texname, cache);
         if (tex)
           m->setParameterObject("color"_t, *tex);
       }
@@ -89,22 +89,22 @@ void import_OBJ(Context &ctx,
 
     const size_t numVertices = numIndices;
 
-    auto mesh = ctx.createObject<Geometry>(tokens::geometry::triangle);
+    auto mesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
-    auto vertexPositionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numVertices);
+    auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numVertices);
     auto *outVertices = vertexPositionArray->mapAs<float3>();
 
     float2 *outTexcoords = nullptr;
     ArrayRef texcoordArray;
     if (texcoords) {
-      texcoordArray = ctx.createArray(ANARI_FLOAT32_VEC2, numVertices);
+      texcoordArray = scene.createArray(ANARI_FLOAT32_VEC2, numVertices);
       outTexcoords = texcoordArray->mapAs<float2>();
     }
 
     float3 *outNormals = nullptr;
     ArrayRef normalsArray;
     if (normals) {
-      normalsArray = ctx.createArray(ANARI_FLOAT32_VEC3, numVertices);
+      normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, numVertices);
       outNormals = normalsArray->mapAs<float3>();
     }
 
@@ -167,10 +167,10 @@ void import_OBJ(Context &ctx,
 
     const int matID = shape.mesh.material_ids[0];
     const bool useDefault = useDefaultMaterial || matID < 0;
-    auto mat = useDefault ? ctx.defaultMaterial() : getMaterial(size_t(matID));
+    auto mat = useDefault ? scene.defaultMaterial() : getMaterial(size_t(matID));
 
-    auto surface = ctx.createSurface(name.c_str(), mesh, mat);
-    ctx.insertChildObjectNode(obj_root, surface);
+    auto surface = scene.createSurface(name.c_str(), mesh, mat);
+    scene.insertChildObjectNode(obj_root, surface);
   }
 }
 

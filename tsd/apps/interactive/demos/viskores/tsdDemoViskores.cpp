@@ -42,7 +42,7 @@ class Application : public TSDApplication
         new tsd_ui::Viewport(this, &core->view.manipulator, "Viewport");
     m_viewport->setDeviceChangeCb([&](const std::string &libName) {
       auto &adm = appCore()->anari;
-      auto &ctx = appCore()->tsd.ctx;
+      auto &scene = appCore()->tsd.scene;
       // Use the same ANARI device for the graph as we are in the viewport
       m_graph.setANARIDevice(adm.loadDevice(libName));
       if (!libName.empty()) {
@@ -76,19 +76,19 @@ class Application : public TSDApplication
     // Populate scene //
 
     auto populateScene = [vp = m_viewport, core = core]() {
-      auto &ctx = core->tsd.ctx;
+      auto &scene = core->tsd.scene;
 
       const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
-          && ctx.numberOfObjects(ANARI_LIGHT) == 0;
+          && scene.numberOfObjects(ANARI_LIGHT) == 0;
       if (setupDefaultLight) {
         tsd::core::logStatus("...setting up default light");
 
-        auto light = ctx.createObject<tsd::core::Light>(
+        auto light = scene.createObject<tsd::core::Light>(
             tsd::core::tokens::light::directional);
         light->setName("mainLight");
         light->setParameter("direction", tsd::math::float2(0.f, 240.f));
 
-        ctx.defaultLayer()->root()->insert_first_child(
+        scene.defaultLayer()->root()->insert_first_child(
             tsd::core::Any(ANARI_LIGHT, light.index()));
       }
 

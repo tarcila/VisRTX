@@ -21,7 +21,7 @@ InstancingControls::InstancingControls(
 void InstancingControls::buildUI()
 {
   if (ImGui::Button("clear scene"))
-    appCore()->tsd.ctx.removeAllObjects();
+    appCore()->tsd.scene.removeAllObjects();
 
   ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
   if (ImGui::CollapsingHeader("Instancing")) {
@@ -38,23 +38,23 @@ void InstancingControls::buildUI()
 
   ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
   if (ImGui::CollapsingHeader("Lighting")) {
-    tsd::ui::buildUI_object(*m_light, appCore()->tsd.ctx, true);
+    tsd::ui::buildUI_object(*m_light, appCore()->tsd.scene, true);
   }
 }
 
 void InstancingControls::createScene()
 {
-  auto &ctx = appCore()->tsd.ctx;
-  auto *layer = ctx.defaultLayer();
+  auto &scene = appCore()->tsd.scene;
+  auto *layer = scene.defaultLayer();
 
   // Clear out previous scene //
 
-  ctx.removeAllObjects();
+  scene.removeAllObjects();
 
   // Default (global) material //
 
   auto mat =
-      ctx.createObject<tsd::core::Material>(tsd::core::tokens::material::matte);
+      scene.createObject<tsd::core::Material>(tsd::core::tokens::material::matte);
   mat->setName("default_material");
   mat->setParameter("color", "color");
 
@@ -68,7 +68,7 @@ void InstancingControls::createScene()
   // Add light //
 
   auto light =
-      ctx.createObject<tsd::core::Light>(tsd::core::tokens::light::directional);
+      scene.createObject<tsd::core::Light>(tsd::core::tokens::light::directional);
   light->setName("mainLight");
   light->setParameter("direction", tsd::math::float2(0.f, 240.f));
   m_light = light.data();
@@ -77,16 +77,16 @@ void InstancingControls::createScene()
 
   // Finally update instancing in RenderIndexes //
 
-  ctx.signalLayerChange(layer);
+  scene.signalLayerChange(layer);
 }
 
 void InstancingControls::generateSpheres()
 {
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
 
   // Generate geometry //
 
-  auto spheres = ctx.createObject<tsd::core::Geometry>(
+  auto spheres = scene.createObject<tsd::core::Geometry>(
       tsd::core::tokens::geometry::sphere);
 
   spheres->setName("random_spheres_geometry");
@@ -102,7 +102,7 @@ void InstancingControls::generateSpheres()
 #endif
 
   const uint32_t numSpheres = m_numInstances;
-  auto positionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numSpheres);
+  auto positionArray = scene.createArray(ANARI_FLOAT32_VEC3, numSpheres);
 
   auto *positions = positionArray->mapAs<tsd::math::float3>();
   for (uint32_t i = 0; i < numSpheres; i++)
@@ -116,22 +116,22 @@ void InstancingControls::generateSpheres()
   // Populate material with sampler for colormapping //
 
   auto surface =
-      ctx.createSurface("random_spheres", spheres, ctx.defaultMaterial());
+      scene.createSurface("random_spheres", spheres, scene.defaultMaterial());
 
-  ctx.defaultLayer()->root()->insert_last_child(
+  scene.defaultLayer()->root()->insert_last_child(
       tsd::core::Any(ANARI_SURFACE, surface.index()));
 }
 
 void InstancingControls::generateInstances()
 {
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
 
   // Setup transforms //
 
   size_t numXfms = size_t(m_numInstances);
-  auto xfmArray = ctx.createArray(ANARI_FLOAT32_MAT4, numXfms);
+  auto xfmArray = scene.createArray(ANARI_FLOAT32_MAT4, numXfms);
 
-  auto xfmArrayNode = ctx.defaultLayer()->root()->insert_last_child(
+  auto xfmArrayNode = scene.defaultLayer()->root()->insert_last_child(
       tsd::core::Any(ANARI_ARRAY1D, xfmArray.index()));
 
   std::mt19937 rng;
@@ -152,7 +152,7 @@ void InstancingControls::generateInstances()
 
   // Setup randomized per-instance colors //
 
-  auto attrArray = ctx.createArray(ANARI_FLOAT32_VEC3, numXfms);
+  auto attrArray = scene.createArray(ANARI_FLOAT32_VEC3, numXfms);
 
   std::uniform_real_distribution<float> col_dist(0.1f, 0.9f);
   auto *attrs = attrArray->mapAs<tsd::math::float3>();
@@ -166,7 +166,7 @@ void InstancingControls::generateInstances()
 
   // Generate mesh //
 
-  tsd::io::generate_monkey(ctx, xfmArrayNode);
+  tsd::io::generate_monkey(scene, xfmArrayNode);
 }
 
 } // namespace tsd::demo

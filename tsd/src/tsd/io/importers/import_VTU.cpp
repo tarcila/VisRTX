@@ -27,7 +27,7 @@ namespace tsd::io {
 
 #if TSD_USE_VTK
 static ArrayRef makeFloatArray1D(
-    Context &ctx, vtkDataArray *array, vtkIdType count)
+    Scene &scene, vtkDataArray *array, vtkIdType count)
 {
   int numComponents = array->GetNumberOfComponents();
   if (numComponents > 1) {
@@ -37,7 +37,7 @@ static ArrayRef makeFloatArray1D(
         array->GetName(),
         numComponents);
   }
-  auto arr = ctx.createArray(ANARI_FLOAT32, count);
+  auto arr = scene.createArray(ANARI_FLOAT32, count);
   auto *buffer = arr->mapAs<float>();
   for (vtkIdType i = 0; i < count; ++i)
     buffer[i] = static_cast<float>(array->GetComponent(i, 0));
@@ -45,7 +45,7 @@ static ArrayRef makeFloatArray1D(
   return arr;
 }
 
-SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
+SpatialFieldRef import_VTU(Scene &scene, const char *filepath)
 {
   // Read .vtu file
   vtkSmartPointer<vtkXMLUnstructuredGridReader> reader =
@@ -60,14 +60,14 @@ SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
   }
 
   auto field =
-      ctx.createObject<SpatialField>(tokens::spatial_field::unstructured);
+      scene.createObject<SpatialField>(tokens::spatial_field::unstructured);
   field->setName(fileOf(filepath).c_str());
 
   vtkIdType numPoints = grid->GetNumberOfPoints();
   vtkIdType numCells = grid->GetNumberOfCells();
 
   // --- Write vertex positions ---
-  auto vertexArray = ctx.createArray(ANARI_FLOAT32_VEC3, numPoints);
+  auto vertexArray = scene.createArray(ANARI_FLOAT32_VEC3, numPoints);
   auto *vertexData = vertexArray->mapAs<float3>();
   for (vtkIdType i = 0; i < numPoints; ++i) {
     double *pt = grid->GetPoint(i);
@@ -86,15 +86,15 @@ SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
     for (int j = 0; j < n; ++j)
       connectivity.push_back(static_cast<uint32_t>(cell->GetPointId(j)));
   }
-  auto indexArray = ctx.createArray(ANARI_UINT32, connectivity.size());
+  auto indexArray = scene.createArray(ANARI_UINT32, connectivity.size());
   indexArray->setData(connectivity.data());
   field->setParameterObject("index", *indexArray);
-  auto cellIndexArray = ctx.createArray(ANARI_UINT32, cellIndex.size());
+  auto cellIndexArray = scene.createArray(ANARI_UINT32, cellIndex.size());
   cellIndexArray->setData(cellIndex.data());
   field->setParameterObject("cell.index", *cellIndexArray);
 
   // --- Write cell types ---
-  auto cellTypesArray = ctx.createArray(ANARI_UINT8, numCells);
+  auto cellTypesArray = scene.createArray(ANARI_UINT8, numCells);
   auto *cellTypes = cellTypesArray->mapAs<uint8_t>();
   for (vtkIdType i = 0; i < numCells; ++i)
     cellTypes[i] = static_cast<uint8_t>(grid->GetCellType(i));
@@ -106,7 +106,7 @@ SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
   uint32_t numPointArrays = pointData->GetNumberOfArrays();
   for (uint32_t i = 0; i < std::min(1u, numPointArrays); ++i) {
     vtkDataArray *array = pointData->GetArray(i);
-    auto a = makeFloatArray1D(ctx, array, numPoints);
+    auto a = makeFloatArray1D(scene, array, numPoints);
     field->setParameterObject("vertex.data", *a);
   }
 
@@ -115,14 +115,14 @@ SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
   uint32_t numCellArrays = cellData->GetNumberOfArrays();
   for (uint32_t i = 0; i < std::min(1u, numCellArrays); ++i) {
     vtkDataArray *array = cellData->GetArray(i);
-    auto a = makeFloatArray1D(ctx, array, numCells);
+    auto a = makeFloatArray1D(scene, array, numCells);
     field->setParameterObject("cell.data", *a);
   }
 
   return field;
 }
 #else
-SpatialFieldRef import_VTU(Context &ctx, const char *filepath)
+SpatialFieldRef import_VTU(Scene &scene, const char *filepath)
 {
   logError("[import_VTU] VTK not enabled in TSD build.");
   return {};

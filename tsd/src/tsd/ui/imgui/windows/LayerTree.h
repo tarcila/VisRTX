@@ -21,10 +21,10 @@ struct LayerTree : public Window
  private:
   void buildUI_layerHeader();
   void buildUI_tree();
-  void buildUI_activateObjectContextMenu();
-  void buildUI_objectContextMenu();
-  void buildUI_newLayerContextMenu();
-  void buildUI_setActiveLayersContextMenus();
+  void buildUI_activateObjectSceneMenu();
+  void buildUI_objectSceneMenu();
+  void buildUI_newLayerSceneMenu();
+  void buildUI_setActiveLayersSceneMenus();
 
   // Data //
 

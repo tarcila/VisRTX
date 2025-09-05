@@ -4,7 +4,7 @@
 #pragma once
 
 // tsd_core
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // tsd_rendering
 #include "tsd/rendering/index/RenderIndex.hpp"
 #include "tsd/rendering/view/Manipulator.hpp"
@@ -51,7 +51,7 @@ enum class ImporterType
 struct CommandLineOptions
 {
   bool useDefaultLayout{true};
-  bool loadingContext{false};
+  bool loadingScene{false};
   bool preloadDevices{false};
   bool loadedFromStateFile{false};
   std::vector<std::pair<ImporterType, std::string>> filenames;
@@ -62,7 +62,7 @@ struct CommandLineOptions
 
 struct TSDState
 {
-  tsd::core::Context ctx;
+  tsd::core::Scene scene;
   bool sceneLoadComplete{false};
   tsd::core::Object *selectedObject{nullptr};
   tsd::core::LayerNodeRef selectedNode;
@@ -75,7 +75,7 @@ struct ANARIDeviceManager
   anari::Device loadDevice(const std::string &libName);
   const anari::Extensions *loadDeviceExtensions(const std::string &libName);
   tsd::rendering::RenderIndex *acquireRenderIndex(
-      tsd::core::Context &c, anari::Device device);
+      tsd::core::Scene &c, anari::Device device);
   void releaseRenderIndex(anari::Device device);
   void releaseAllDevices();
   tsd::core::MultiUpdateDelegate &getUpdateDelegate();

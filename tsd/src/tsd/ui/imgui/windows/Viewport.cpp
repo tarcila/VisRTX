@@ -148,7 +148,7 @@ void Viewport::setLibrary(const std::string &libName, bool doAsync)
 
   auto updateLibrary = [&, libName = libName]() {
     auto &adm = appCore()->anari;
-    auto &ctx = appCore()->tsd.ctx;
+    auto &scene = appCore()->tsd.scene;
 
     auto start = std::chrono::steady_clock::now();
     auto d = adm.loadDevice(libName);
@@ -181,7 +181,7 @@ void Viewport::setLibrary(const std::string &libName, bool doAsync)
 
       tsd::core::logStatus("[viewport] populating render index...");
 
-      m_rIdx = adm.acquireRenderIndex(ctx, d);
+      m_rIdx = adm.acquireRenderIndex(scene, d);
       setSelectionVisibilityFilterEnabled(m_showOnlySelected);
 
       tsd::core::logStatus("[viewport] getting scene bounds...");
@@ -444,7 +444,7 @@ void Viewport::setupRenderPipeline()
       }
 
       appCore()->setSelectedObject(
-          id == ~0u ? nullptr : appCore()->tsd.ctx.getObject(objectType, id));
+          id == ~0u ? nullptr : appCore()->tsd.scene.getObject(objectType, id));
     }
 
     m_pickPass->setEnabled(false);
@@ -726,7 +726,7 @@ void Viewport::ui_menubar()
         ImGui::Indent(INDENT_AMOUNT);
 
         tsd::ui::buildUI_object(
-            m_rendererObjects[m_currentRenderer], appCore()->tsd.ctx, false);
+            m_rendererObjects[m_currentRenderer], appCore()->tsd.scene, false);
 
         ImGui::Unindent(INDENT_AMOUNT);
         ImGui::Separator();

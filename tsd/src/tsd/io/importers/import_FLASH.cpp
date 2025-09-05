@@ -415,7 +415,7 @@ struct FlashReader
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-SpatialFieldRef import_FLASH(Context &ctx, const char *filepath)
+SpatialFieldRef import_FLASH(Scene &scene, const char *filepath)
 {
   std::string file = fileOf(filepath);
   if (file.empty())
@@ -427,7 +427,7 @@ SpatialFieldRef import_FLASH(Context &ctx, const char *filepath)
     return {};
   }
 
-  auto field = ctx.createObject<SpatialField>(tokens::spatial_field::amr);
+  auto field = scene.createObject<SpatialField>(tokens::spatial_field::amr);
   field->setName(file.c_str());
 
   AMRField amrField = reader.getField(0);
@@ -435,12 +435,12 @@ SpatialFieldRef import_FLASH(Context &ctx, const char *filepath)
   logStatus("[import_FLASH] converting to TSD objects...");
 
   // set data per block (deprecated):
-  auto blockData = ctx.createArray(ANARI_ARRAY3D, amrField.blockData.size());
+  auto blockData = scene.createArray(ANARI_ARRAY3D, amrField.blockData.size());
   {
     auto *dst = (size_t *)blockData->map();
     std::transform(
         amrField.blockData.begin(), amrField.blockData.end(), dst, [&](const auto &bd) {
-          auto block = ctx.createArray(
+          auto block = scene.createArray(
               ANARI_FLOAT32, bd.dims[0], bd.dims[1], bd.dims[2]);
           block->setData(bd.values);
           return block.index();
@@ -448,17 +448,17 @@ SpatialFieldRef import_FLASH(Context &ctx, const char *filepath)
     blockData->unmap();
   }
   // set data as contiguous array (not supported by all devices yet):
-  auto data = ctx.createArray(ANARI_FLOAT32, amrField.data.size());
+  auto data = scene.createArray(ANARI_FLOAT32, amrField.data.size());
   data->setData(amrField.data.data());
 
   auto refinementRatio
-    = ctx.createArray(ANARI_UINT32, amrField.refinementRatio.size());
+    = scene.createArray(ANARI_UINT32, amrField.refinementRatio.size());
   refinementRatio->setData(amrField.refinementRatio);
 
-  auto blockBounds = ctx.createArray(ANARI_INT32_BOX3, amrField.blockBounds.size());
+  auto blockBounds = scene.createArray(ANARI_INT32_BOX3, amrField.blockBounds.size());
   blockBounds->setData(amrField.blockBounds.data());
 
-  auto blockLevel = ctx.createArray(ANARI_INT32, amrField.blockLevel.size());
+  auto blockLevel = scene.createArray(ANARI_INT32, amrField.blockLevel.size());
   blockLevel->setData(amrField.blockLevel);
 
   field->setParameterObject("refinementRatio", *refinementRatio);
@@ -474,7 +474,7 @@ SpatialFieldRef import_FLASH(Context &ctx, const char *filepath)
   return field;
 }
 #else
-SpatialFieldRef import_FLASH(Context &, const char *)
+SpatialFieldRef import_FLASH(Scene &, const char *)
 {
   logError("[import_FLASH] HDF5 not enabled in TSD build.");
   return {};

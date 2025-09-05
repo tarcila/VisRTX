@@ -22,16 +22,16 @@ void ObjectEditor::buildUI()
 
   ImGui::BeginDisabled(!appCore()->tsd.sceneLoadComplete);
 
-  auto *ctx = &appCore()->tsd.ctx;
+  auto *scene = &appCore()->tsd.scene;
 
   if (!appCore()->tsd.selectedNode) {
     tsd::ui::buildUI_object(
-        *appCore()->tsd.selectedObject, appCore()->tsd.ctx, true);
+        *appCore()->tsd.selectedObject, appCore()->tsd.scene, true);
   } else {
     auto &selectedNode = *appCore()->tsd.selectedNode;
 
-    if (auto *selectedObject = selectedNode->getObject(ctx); selectedObject) {
-      tsd::ui::buildUI_object(*selectedObject, appCore()->tsd.ctx, true);
+    if (auto *selectedObject = selectedNode->getObject(scene); selectedObject) {
+      tsd::ui::buildUI_object(*selectedObject, appCore()->tsd.scene, true);
     } else if (selectedNode->isTransform()) {
       // Setup transform values //
 
@@ -91,7 +91,7 @@ void ObjectEditor::buildUI()
             math::mul(rot, math::scaling_matrix(sc)));
         selectedNode->valueCache["SRT"] = srt;
         auto *layer = selectedNode.container();
-        ctx->signalLayerChange(layer);
+        scene->signalLayerChange(layer);
       }
     } else if (!selectedNode->isEmpty()) {
       ImGui::Text(

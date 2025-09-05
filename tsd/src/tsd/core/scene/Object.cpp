@@ -80,7 +80,7 @@ size_t Object::index() const
   return m_index;
 }
 
-Context *Object::context() const
+Scene *Object::context() const
 {
   return m_context;
 }

@@ -9,13 +9,13 @@
 
 namespace tsd::io {
 
-VolumeRef generate_noiseVolume(Context &ctx,
+VolumeRef generate_noiseVolume(Scene &scene,
     LayerNodeRef location,
     ArrayRef colorArray,
     ArrayRef opacityArray)
 {
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   // Generate spatial field //
 
@@ -24,10 +24,10 @@ VolumeRef generate_noiseVolume(Context &ctx,
   static std::normal_distribution<float> dist(0.f, 1.0f);
 
   auto field =
-      ctx.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
+      scene.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
   field->setName("noise_field");
 
-  auto voxelArray = ctx.createArray(ANARI_UFIXED8, 64, 64, 64);
+  auto voxelArray = scene.createArray(ANARI_UFIXED8, 64, 64, 64);
 
   auto *voxelsBegin = (uint8_t *)voxelArray->map();
   auto *voxelsEnd = voxelsBegin + (64 * 64 * 64);
@@ -41,12 +41,12 @@ VolumeRef generate_noiseVolume(Context &ctx,
 
   // Setup volume //
 
-  auto [inst, volume] = ctx.insertNewChildObjectNode<Volume>(
+  auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
       location, tokens::volume::transferFunction1D);
   volume->setName("noise_volume");
 
   if (!colorArray) {
-    colorArray = ctx.createArray(ANARI_FLOAT32_VEC4, 256);
+    colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 256);
     colorArray->setData(makeDefaultColorMap(colorArray->size()).data());
   }
 

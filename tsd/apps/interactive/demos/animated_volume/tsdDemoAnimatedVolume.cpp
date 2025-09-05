@@ -31,7 +31,7 @@ class Application : public TSDApplication
     auto windows = TSDApplication::setupWindows();
 
     auto *core = appCore();
-    auto &ctx = core->tsd.ctx;
+    auto &scene = core->tsd.scene;
     auto *manipulator = &core->view.manipulator;
 
     auto *log = new tsd_ui::Log(this);
@@ -59,16 +59,16 @@ class Application : public TSDApplication
 
     // Populate scene data //
 
-    auto colorArray = core->tsd.ctx.createArray(ANARI_FLOAT32_VEC4, 256);
+    auto colorArray = core->tsd.scene.createArray(ANARI_FLOAT32_VEC4, 256);
     colorArray->setData(
         tsd::core::makeDefaultColorMap(colorArray->size()).data());
 
-    auto field = ctx.createObject<tsd::core::SpatialField>(
+    auto field = scene.createObject<tsd::core::SpatialField>(
         tsd::core::tokens::spatial_field::structuredRegular);
     field->setName("jacobi_field");
     solver->setField(field);
 
-    auto volume = ctx.createObject<tsd::core::Volume>(
+    auto volume = scene.createObject<tsd::core::Volume>(
         tsd::core::tokens::volume::transferFunction1D);
     volume->setName("jacobi_volume");
 
@@ -79,14 +79,14 @@ class Application : public TSDApplication
     volume->setParameterObject("value", *field);
     volume->setParameterObject("color", *colorArray);
 
-    ctx.defaultLayer()->root()->insert_first_child(
+    scene.defaultLayer()->root()->insert_first_child(
         tsd::core::Any(ANARI_VOLUME, volume.index()));
 
     // Setup app //
 
     core->tsd.selectedObject = volume.data();
 
-    tsd::core::logStatus("%s", tsd::core::objectDBInfo(ctx.objectDB()).c_str());
+    tsd::core::logStatus("%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
     core->tsd.sceneLoadComplete = true;
 
     viewport->setLibrary(core->commandLine.libraryList[0], false);

@@ -7,7 +7,7 @@
 
 namespace tsd::core {
 
-struct Context;
+struct Scene;
 
 struct SpatialField : public Object
 {

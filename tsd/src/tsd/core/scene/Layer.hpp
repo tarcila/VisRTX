@@ -10,7 +10,7 @@
 
 namespace tsd::core {
 
-struct Context;
+struct Scene;
 struct Object;
 
 struct LayerNodeData
@@ -25,7 +25,7 @@ struct LayerNodeData
   bool isTransform() const;
   bool isEmpty() const;
 
-  Object *getObject(Context *ctx) const;
+  Object *getObject(Scene *scene) const;
   math::mat4 getTransform() const;
 
   // Data //

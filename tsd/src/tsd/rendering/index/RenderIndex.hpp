@@ -5,7 +5,7 @@
 
 // tsd_core
 #include "tsd/core/AnariObjectCache.hpp"
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 #include "tsd/core/scene/UpdateDelegate.hpp"
 // tsd_rendering
 #include "tsd/rendering/index/RenderIndexFilterFcn.hpp"
@@ -18,7 +18,7 @@ struct RenderToAnariObjectsVisitor;
 
 struct RenderIndex : public BaseUpdateDelegate
 {
-  RenderIndex(Context &ctx, anari::Device d);
+  RenderIndex(Scene &scene, anari::Device d);
   virtual ~RenderIndex();
 
   anari::Device device() const;
@@ -53,7 +53,7 @@ struct RenderIndex : public BaseUpdateDelegate
  protected:
   virtual void updateWorld() = 0;
 
-  Context *m_ctx{nullptr};
+  Scene *m_ctx{nullptr};
   AnariObjectCache m_cache;
 
   anari::World m_world{nullptr};

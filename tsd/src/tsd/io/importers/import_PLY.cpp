@@ -14,7 +14,7 @@ namespace tsd::io {
 
 using namespace tinyply;
 
-void import_PLY(Context &ctx, const char *filename, LayerNodeRef location)
+void import_PLY(Scene &scene, const char *filename, LayerNodeRef location)
 {
   std::unique_ptr<std::istream> file_stream;
   std::vector<uint8_t> byte_buffer;
@@ -152,7 +152,7 @@ void import_PLY(Context &ctx, const char *filename, LayerNodeRef location)
 
     // Material //
 
-    auto mat = ctx.createObject<Material>(tokens::material::matte);
+    auto mat = scene.createObject<Material>(tokens::material::matte);
     mat->setParameter("color"_t, float3(0.8f));
     mat->setParameter("opacity"_t, 1.f);
     mat->setParameter("alphaMode"_t, "opaque");
@@ -162,15 +162,15 @@ void import_PLY(Context &ctx, const char *filename, LayerNodeRef location)
     // Mesh //
 
     auto ply_root =
-        ctx.insertChildNode(location ? location : ctx.defaultLayer()->root(),
+        scene.insertChildNode(location ? location : scene.defaultLayer()->root(),
             fileOf(filename).c_str());
-    auto mesh = ctx.createObject<Geometry>(tokens::geometry::triangle);
+    auto mesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
     auto makeArray1DForMesh = [&](Token parameterName,
                                   anari::DataType type,
                                   const void *ptr,
                                   size_t size) {
-      auto arr = ctx.createArray(type, size);
+      auto arr = scene.createArray(type, size);
       arr->setData(ptr);
       mesh->setParameterObject(parameterName, *arr);
     };
@@ -204,7 +204,7 @@ void import_PLY(Context &ctx, const char *filename, LayerNodeRef location)
 
     mesh->setName((objectName + "_mesh").c_str());
 
-    auto surface = ctx.createSurface(objectName.c_str(), mesh, mat);
+    auto surface = scene.createSurface(objectName.c_str(), mesh, mat);
     ply_root->insert_last_child(Any(ANARI_SURFACE, surface.index()));
 
   } catch (const std::exception &e) {

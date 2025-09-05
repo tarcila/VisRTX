@@ -24,10 +24,10 @@ static void releaseInstances(
 // RenderIndexAllLayers definitions ///////////////////////////////////////////
 
 RenderIndexAllLayers::RenderIndexAllLayers(
-    Context &ctx, anari::Device d, bool alwaysGatherAllLights)
-    : RenderIndex(ctx, d), m_forceAllLights(alwaysGatherAllLights)
+    Scene &scene, anari::Device d, bool alwaysGatherAllLights)
+    : RenderIndex(scene, d), m_forceAllLights(alwaysGatherAllLights)
 {
-  m_includedLayers = ctx.getActiveLayers();
+  m_includedLayers = scene.getActiveLayers();
 }
 
 RenderIndexAllLayers::~RenderIndexAllLayers()

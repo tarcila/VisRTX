@@ -95,13 +95,13 @@ void SolverControls::remakeDataArray()
     return;
   }
 
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
   if (m_dataHost)
-    ctx.removeObject(*m_dataHost);
+    scene.removeObject(*m_dataHost);
   if (m_dataCUDA_1)
-    ctx.removeObject(*m_dataCUDA_1);
+    scene.removeObject(*m_dataCUDA_1);
   if (m_dataCUDA_2)
-    ctx.removeObject(*m_dataCUDA_2);
+    scene.removeObject(*m_dataCUDA_2);
 
   m_dataHost = {};
   m_dataCUDA_1 = {};
@@ -109,11 +109,11 @@ void SolverControls::remakeDataArray()
 
   if (m_useGPUInterop) {
     m_dataCUDA_1 =
-        ctx.createArrayCUDA(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
+        scene.createArrayCUDA(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
     m_dataCUDA_2 =
-        ctx.createArrayCUDA(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
+        scene.createArrayCUDA(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
   } else {
-    m_dataHost = ctx.createArray(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
+    m_dataHost = scene.createArray(ANARI_FLOAT32, m_dims.x, m_dims.y, m_dims.z);
   }
   m_field->setParameter("spacing", 2.f / tsd::math::float3(m_dims.x));
 }

@@ -12,7 +12,7 @@ namespace tsd::io {
 
 using namespace tsd::core;
 
-VolumeRef import_volume(Context &ctx,
+VolumeRef import_volume(Scene &scene,
     const char *filepath,
     ArrayRef colorArray,
     ArrayRef opacityArray)
@@ -22,17 +22,17 @@ VolumeRef import_volume(Context &ctx,
   auto file = fileOf(filepath);
   auto ext = extensionOf(filepath);
   if (ext == ".raw")
-    field = import_RAW(ctx, filepath);
+    field = import_RAW(scene, filepath);
   else if (ext == ".flash" || ext == ".hdf5")
-    field = import_FLASH(ctx, filepath);
+    field = import_FLASH(scene, filepath);
   else if (ext == ".nvdb")
-    field = import_NVDB(ctx, filepath);
+    field = import_NVDB(scene, filepath);
   else if (ext == ".mhd")
-    field = import_MHD(ctx, filepath);
+    field = import_MHD(scene, filepath);
   else if (ext == ".vtu")
-    field = import_VTU(ctx, filepath);
+    field = import_VTU(scene, filepath);
   else if (ext == ".vti")
-    field = import_VTI(ctx, filepath);
+    field = import_VTI(scene, filepath);
   else {
     logError("[import_volume] no loader for file type '%s'", ext.c_str());
     return {};
@@ -45,7 +45,7 @@ VolumeRef import_volume(Context &ctx,
   }
 
   if (!colorArray) {
-    colorArray = ctx.createArray(ANARI_FLOAT32_VEC4, 256);
+    colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 256);
     colorArray->setData(makeDefaultColorMap(colorArray->size()).data());
   }
 
@@ -53,9 +53,9 @@ VolumeRef import_volume(Context &ctx,
   if (field)
     valueRange = field->computeValueRange();
 
-  auto tx = ctx.insertChildTransformNode(ctx.defaultLayer()->root());
+  auto tx = scene.insertChildTransformNode(scene.defaultLayer()->root());
 
-  auto [inst, volume] = ctx.insertNewChildObjectNode<Volume>(
+  auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
       tx, tokens::volume::transferFunction1D);
   volume->setName(fileOf(filepath).c_str());
   volume->setParameterObject("value", *field);

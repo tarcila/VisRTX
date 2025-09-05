@@ -81,7 +81,7 @@ void MultiDeviceViewport::centerView()
 void MultiDeviceViewport::setLibrary(const std::string &libName)
 {
   auto &adm = appCore()->anari;
-  auto &ctx = appCore()->tsd.ctx;
+  auto &scene = appCore()->tsd.scene;
 
   auto library =
       anari::loadLibrary(libName.c_str(), tsd::app::anariStatusFunc, appCore());
@@ -97,12 +97,12 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
   std::vector<anari::Device> devices;
 
   tsd::core::logStatus(
-      "[multi-viewport] creating %zu devices...", ctx.numberOfLayers());
+      "[multi-viewport] creating %zu devices...", scene.numberOfLayers());
 
-  for (size_t i = 0; i < ctx.numberOfLayers(); i++) {
+  for (size_t i = 0; i < scene.numberOfLayers(); i++) {
     if (!m_ri) {
       m_ri = std::make_unique<tsd::rendering::MultiRenderIndex>();
-      ctx.setUpdateDelegate(m_ri.get());
+      scene.setUpdateDelegate(m_ri.get());
     }
     auto d = anari::newDevice(library, "default");
     devices.push_back(d);
@@ -128,14 +128,14 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
 
   tsd::core::logStatus("[multi-viewport] creating cameras and renderers...");
 
-  for (size_t i = 0; m_ri && i < ctx.numberOfLayers(); i++) {
-    auto *l = ctx.layer(i);
+  for (size_t i = 0; m_ri && i < scene.numberOfLayers(); i++) {
+    auto *l = scene.layer(i);
     auto d = devices[i];
     auto c = anari::newObject<anari::Camera>(d, "perspective");
     auto r = anari::newObject<anari::Renderer>(d, "default");
 
     auto *ri =
-        m_ri->emplace<tsd::rendering::RenderIndexAllLayers>(ctx, d, true);
+        m_ri->emplace<tsd::rendering::RenderIndexAllLayers>(scene, d, true);
     ri->setIncludedLayers({l});
     ri->populate(false);
 
@@ -326,7 +326,7 @@ void MultiDeviceViewport::ui_menubar()
       ImGui::Text("Parameters:");
       ImGui::Indent(INDENT_AMOUNT);
 
-      tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.ctx, false);
+      tsd::ui::buildUI_object(m_rendererObject, appCore()->tsd.scene, false);
 
       ImGui::Unindent(INDENT_AMOUNT);
       ImGui::Separator();

@@ -5,14 +5,14 @@
 
 namespace tsd::io {
 
-void generate_hdri_test_image(Context &ctx, LayerNodeRef location)
+void generate_hdri_test_image(Scene &scene, LayerNodeRef location)
 {
   if (!location)
-    location = ctx.defaultLayer()->root();
+    location = scene.defaultLayer()->root();
 
   int2 size(1024, 1024);
 
-  auto arr = ctx.createArray(ANARI_FLOAT32_VEC3, size.x, size.y);
+  auto arr = scene.createArray(ANARI_FLOAT32_VEC3, size.x, size.y);
 
   auto *as3f = arr->mapAs<float3>();
 
@@ -64,7 +64,7 @@ void generate_hdri_test_image(Context &ctx, LayerNodeRef location)
 
   arr->unmap();
 
-  auto [inst, hdri] = ctx.insertNewChildObjectNode<Light>(
+  auto [inst, hdri] = scene.insertNewChildObjectNode<Light>(
       location, tokens::light::hdri);
   hdri->setName("hdri_dome");
   hdri->setParameterObject("radiance"_t, *arr);

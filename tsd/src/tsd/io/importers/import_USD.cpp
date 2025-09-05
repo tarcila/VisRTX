@@ -86,7 +86,7 @@ static void setShaderInputIfPresent(MaterialRef &mat,
 }
 
 // Helper: Import a UsdPreviewSurface material as a physicallyBased TSD material
-static MaterialRef import_usd_preview_surface_material(Context &ctx,
+static MaterialRef import_usd_preview_surface_material(Scene &scene,
     const pxr::UsdShadeMaterial &usdMat,
     const std::string &basePath)
 {
@@ -105,9 +105,9 @@ static MaterialRef import_usd_preview_surface_material(Context &ctx,
   }
 
   if (!surfaceShader)
-    return ctx.defaultMaterial();
+    return scene.defaultMaterial();
 
-  auto mat = ctx.createObject<Material>(tokens::material::physicallyBased);
+  auto mat = scene.createObject<Material>(tokens::material::physicallyBased);
 
   setShaderInputIfPresent(mat, surfaceShader, "diffuseColor", "baseColor");
   setShaderInputIfPresent(mat, surfaceShader, "emissiveColor", "emissive");
@@ -131,13 +131,13 @@ static MaterialRef import_usd_preview_surface_material(Context &ctx,
 
 // Helper to get the bound material for a prim (USD or default)
 static MaterialRef get_bound_material(
-    Context &ctx, const pxr::UsdPrim &prim, const std::string &basePath)
+    Scene &scene, const pxr::UsdPrim &prim, const std::string &basePath)
 {
-  MaterialRef mat = ctx.defaultMaterial();
+  MaterialRef mat = scene.defaultMaterial();
   pxr::UsdShadeMaterialBindingAPI binding(prim);
   pxr::UsdShadeMaterial usdMat = binding.ComputeBoundMaterial();
   if (usdMat)
-    mat = import_usd_preview_surface_material(ctx, usdMat, basePath);
+    mat = import_usd_preview_surface_material(scene, usdMat, basePath);
   return mat;
 }
 
@@ -350,7 +350,7 @@ inline float3 max(const float3 &a, const float3 &b)
 }
 
 // Helper: Import a UsdGeomMesh prim as a TSD mesh under the given parent node
-static void import_usd_mesh(Context &ctx,
+static void import_usd_mesh(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -412,13 +412,13 @@ static void import_usd_mesh(Context &ctx,
     index += vertsInFace;
   }
 
-  auto meshObj = ctx.createObject<Geometry>(tokens::geometry::triangle);
+  auto meshObj = scene.createObject<Geometry>(tokens::geometry::triangle);
   auto vertexPositionArray =
-      ctx.createArray(ANARI_FLOAT32_VEC3, outVertices.size());
+      scene.createArray(ANARI_FLOAT32_VEC3, outVertices.size());
   vertexPositionArray->setData(outVertices.data(), outVertices.size());
   meshObj->setParameterObject("vertex.position", *vertexPositionArray);
   if (!outNormals.empty()) {
-    auto normalsArray = ctx.createArray(ANARI_FLOAT32_VEC3, outNormals.size());
+    auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, outNormals.size());
     normalsArray->setData(outNormals.data(), outNormals.size());
     meshObj->setParameterObject("vertex.normal", *normalsArray);
   }
@@ -428,17 +428,17 @@ static void import_usd_mesh(Context &ctx,
   meshObj->setName(primName.c_str());
 
   // Material binding
-  MaterialRef mat = get_bound_material(ctx, prim, basePath);
+  MaterialRef mat = get_bound_material(scene, prim, basePath);
 
-  auto surface = ctx.createSurface(primName.c_str(), meshObj, mat);
+  auto surface = scene.createSurface(primName.c_str(), meshObj, mat);
   logStatus("[import_USD] Assigned material to mesh '%s': %s\n",
       primName.c_str(),
       mat->name().c_str());
-  ctx.insertChildObjectNode(parent, surface);
+  scene.insertChildObjectNode(parent, surface);
 }
 
 // Helper: Import a UsdGeomPoints prim as a TSD sphere geometry (point cloud)
-static void import_usd_points(Context &ctx,
+static void import_usd_points(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -464,10 +464,10 @@ static void import_usd_points(Context &ctx,
     float r = (widths.size() == points.size()) ? widths[i] * 0.5f : 0.01f;
     outRadii.push_back(r);
   }
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::sphere);
-  auto posArray = ctx.createArray(ANARI_FLOAT32_VEC3, outPositions.size());
+  auto geom = scene.createObject<Geometry>(tokens::geometry::sphere);
+  auto posArray = scene.createArray(ANARI_FLOAT32_VEC3, outPositions.size());
   posArray->setData(outPositions.data(), outPositions.size());
-  auto radArray = ctx.createArray(ANARI_FLOAT32, outRadii.size());
+  auto radArray = scene.createArray(ANARI_FLOAT32, outRadii.size());
   radArray->setData(outRadii.data(), outRadii.size());
   geom->setParameterObject("vertex.position", *posArray);
   geom->setParameterObject("vertex.radius", *radArray);
@@ -477,17 +477,17 @@ static void import_usd_points(Context &ctx,
   geom->setName(primName.c_str());
 
   // Material binding
-  MaterialRef mat = get_bound_material(ctx, prim, "");
+  MaterialRef mat = get_bound_material(scene, prim, "");
 
-  auto surface = ctx.createSurface(primName.c_str(), geom, mat);
+  auto surface = scene.createSurface(primName.c_str(), geom, mat);
   logStatus("[import_USD] Assigned material to sphere '%s': %s\n",
       primName.c_str(),
       mat->name().c_str());
-  ctx.insertChildObjectNode(parent, surface);
+  scene.insertChildObjectNode(parent, surface);
 }
 
 // Helper: Import a UsdGeomSphere prim as a TSD sphere geometry
-static void import_usd_sphere(Context &ctx,
+static void import_usd_sphere(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -504,10 +504,10 @@ static void import_usd_sphere(Context &ctx,
   float3 wp{float(wc4[0]), float(wc4[1]), float(wc4[2])};
   sceneMin = std::min(sceneMin, wp - float3(radius));
   sceneMax = std::max(sceneMax, wp + float3(radius));
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::sphere);
-  auto posArray = ctx.createArray(ANARI_FLOAT32_VEC3, 1);
+  auto geom = scene.createObject<Geometry>(tokens::geometry::sphere);
+  auto posArray = scene.createArray(ANARI_FLOAT32_VEC3, 1);
   posArray->setData(&wp, 1);
-  auto radArray = ctx.createArray(ANARI_FLOAT32, 1);
+  auto radArray = scene.createArray(ANARI_FLOAT32, 1);
   float r = float(radius);
   radArray->setData(&r, 1);
   geom->setParameterObject("vertex.position", *posArray);
@@ -518,17 +518,17 @@ static void import_usd_sphere(Context &ctx,
   geom->setName(primName.c_str());
 
   // Material binding
-  MaterialRef mat = get_bound_material(ctx, prim, "");
+  MaterialRef mat = get_bound_material(scene, prim, "");
 
-  auto surface = ctx.createSurface(primName.c_str(), geom, mat);
+  auto surface = scene.createSurface(primName.c_str(), geom, mat);
   logStatus("[import_USD] Assigned material to sphere '%s': %s\n",
       primName.c_str(),
       mat->name().c_str());
-  ctx.insertChildObjectNode(parent, surface);
+  scene.insertChildObjectNode(parent, surface);
 }
 
 // Helper: Import a UsdGeomCone prim as a TSD cone geometry
-static void import_usd_cone(Context &ctx,
+static void import_usd_cone(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -553,10 +553,10 @@ static void import_usd_cone(Context &ctx,
   // Represent as a 2-point cone (base and apex)
   std::vector<float3> positions = {wp, wp + float3(0, 0, float(height))};
   std::vector<float> radii = {float(radius), 0.f};
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::cone);
-  auto posArray = ctx.createArray(ANARI_FLOAT32_VEC3, 2);
+  auto geom = scene.createObject<Geometry>(tokens::geometry::cone);
+  auto posArray = scene.createArray(ANARI_FLOAT32_VEC3, 2);
   posArray->setData(positions.data(), 2);
-  auto radArray = ctx.createArray(ANARI_FLOAT32, 2);
+  auto radArray = scene.createArray(ANARI_FLOAT32, 2);
   radArray->setData(radii.data(), 2);
   geom->setParameterObject("vertex.position", *posArray);
   geom->setParameterObject("vertex.radius", *radArray);
@@ -566,17 +566,17 @@ static void import_usd_cone(Context &ctx,
   geom->setName(primName.c_str());
 
   // Material binding
-  MaterialRef mat = get_bound_material(ctx, prim, "");
+  MaterialRef mat = get_bound_material(scene, prim, "");
 
-  auto surface = ctx.createSurface(primName.c_str(), geom, mat);
+  auto surface = scene.createSurface(primName.c_str(), geom, mat);
   logStatus("[import_USD] Assigned material to cone '%s': %s\n",
       primName.c_str(),
       mat->name().c_str());
-  ctx.insertChildObjectNode(parent, surface);
+  scene.insertChildObjectNode(parent, surface);
 }
 
 // Helper: Import a UsdGeomCylinder prim as a TSD cylinder geometry
-static void import_usd_cylinder(Context &ctx,
+static void import_usd_cylinder(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -602,10 +602,10 @@ static void import_usd_cylinder(Context &ctx,
   std::vector<float3> positions = {wp - float3(0, 0, float(height) * 0.5f),
       wp + float3(0, 0, float(height) * 0.5f)};
   std::vector<float> radii = {float(radius), float(radius)};
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::cylinder);
-  auto posArray = ctx.createArray(ANARI_FLOAT32_VEC3, 2);
+  auto geom = scene.createObject<Geometry>(tokens::geometry::cylinder);
+  auto posArray = scene.createArray(ANARI_FLOAT32_VEC3, 2);
   posArray->setData(positions.data(), 2);
-  auto radArray = ctx.createArray(ANARI_FLOAT32, 2);
+  auto radArray = scene.createArray(ANARI_FLOAT32, 2);
   radArray->setData(radii.data(), 2);
   geom->setParameterObject("vertex.position", *posArray);
   geom->setParameterObject("vertex.radius", *radArray);
@@ -615,17 +615,17 @@ static void import_usd_cylinder(Context &ctx,
   geom->setName(primName.c_str());
 
   // Material binding
-  MaterialRef mat = get_bound_material(ctx, prim, "");
+  MaterialRef mat = get_bound_material(scene, prim, "");
 
-  auto surface = ctx.createSurface(primName.c_str(), geom, mat);
+  auto surface = scene.createSurface(primName.c_str(), geom, mat);
   tsd::core::logStatus("[import_USD] Assigned material to cylinder '%s': %s\n",
       primName.c_str(),
       mat->name().c_str());
-  ctx.insertChildObjectNode(parent, surface);
+  scene.insertChildObjectNode(parent, surface);
 }
 
 // Helper: Import a UsdVolVolume prim as a TSD volume geometry
-static void import_usd_volume(Context &ctx,
+static void import_usd_volume(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
@@ -680,13 +680,13 @@ static void import_usd_volume(Context &ctx,
   SpatialFieldRef field;
   const auto ext = extensionOf(filePath);
   if (ext == ".raw")
-    field = import_RAW(ctx, filePath.c_str());
+    field = import_RAW(scene, filePath.c_str());
   else if (ext == ".flash")
-    field = import_FLASH(ctx, filePath.c_str());
+    field = import_FLASH(scene, filePath.c_str());
   else if (ext == ".nvdb" || ext == ".vdb")
-    field = import_NVDB(ctx, filePath.c_str());
+    field = import_NVDB(scene, filePath.c_str());
   else if (ext == ".mhd")
-    field = import_MHD(ctx, filePath.c_str());
+    field = import_MHD(scene, filePath.c_str());
   else {
     throw std::runtime_error(
         "[import_USD] no loader for file type '" + ext + "'");
@@ -708,14 +708,14 @@ static void import_usd_volume(Context &ctx,
   math::float2 valueRange;
 
   // Create a volume node and assign the field, color map, and value range
-  auto [inst, volume] = ctx.insertNewChildObjectNode<Volume>(
+  auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
       parent, tokens::volume::transferFunction1D);
   volume->setName(primName.c_str());
   volume->setParameterObject("value", *field);
 
   if (tf.hasTransferFunction && !tf.colors.empty() && !tf.xPoints.empty()) {
     // Use transfer function from USD material
-    colorArray = ctx.createArray(ANARI_FLOAT32_VEC4, tf.colors.size());
+    colorArray = scene.createArray(ANARI_FLOAT32_VEC4, tf.colors.size());
     colorArray->setData(tf.colors.data(), tf.colors.size());
     valueRange = tf.domain;
 
@@ -735,7 +735,7 @@ static void import_usd_volume(Context &ctx,
         opacityControlPoints.size());
   } else {
     // Create a default color map
-    colorArray = ctx.createArray(ANARI_FLOAT32_VEC4, 256);
+    colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 256);
     colorArray->setData(makeDefaultColorMap(colorArray->size()).data());
   }
 
@@ -748,10 +748,10 @@ static void import_usd_volume(Context &ctx,
 // -----------------------------------------------------------------------------
 
 static void import_usd_distant_light(
-    Context &ctx, const pxr::UsdPrim &prim, LayerNodeRef parent)
+    Scene &scene, const pxr::UsdPrim &prim, LayerNodeRef parent)
 {
   pxr::UsdLuxDistantLight usdLight(prim);
-  auto light = ctx.createObject<Light>(tokens::light::directional);
+  auto light = scene.createObject<Light>(tokens::light::directional);
   float intensity = 1.0f;
   usdLight.GetIntensityAttr().Get(&intensity);
   pxr::GfVec3f color(1.0f);
@@ -759,14 +759,14 @@ static void import_usd_distant_light(
   light->setParameter("color", float3(color[0], color[1], color[2]));
   light->setParameter("irradiance", intensity);
   // TODO: set direction from transform
-  ctx.insertChildObjectNode(parent, light);
+  scene.insertChildObjectNode(parent, light);
 }
 
 static void import_usd_rect_light(
-    Context &ctx, const pxr::UsdPrim &prim, LayerNodeRef parent)
+    Scene &scene, const pxr::UsdPrim &prim, LayerNodeRef parent)
 {
   pxr::UsdLuxRectLight usdLight(prim);
-  auto light = ctx.createObject<Light>(tokens::light::quad);
+  auto light = scene.createObject<Light>(tokens::light::quad);
   float intensity = 1.0f;
   usdLight.GetIntensityAttr().Get(&intensity);
   pxr::GfVec3f color(1.0f);
@@ -779,14 +779,14 @@ static void import_usd_rect_light(
   light->setParameter("edge1", float3(width, 0.f, 0.f));
   light->setParameter("edge2", float3(0.f, height, 0.f));
   // TODO: set position from transform
-  ctx.insertChildObjectNode(parent, light);
+  scene.insertChildObjectNode(parent, light);
 }
 
 static void import_usd_sphere_light(
-    Context &ctx, const pxr::UsdPrim &prim, LayerNodeRef parent)
+    Scene &scene, const pxr::UsdPrim &prim, LayerNodeRef parent)
 {
   pxr::UsdLuxSphereLight usdLight(prim);
-  auto light = ctx.createObject<Light>(tokens::light::point);
+  auto light = scene.createObject<Light>(tokens::light::point);
   float intensity = 1.0f;
   usdLight.GetIntensityAttr().Get(&intensity);
   pxr::GfVec3f color(1.0f);
@@ -797,14 +797,14 @@ static void import_usd_sphere_light(
   light->setParameter("intensity", intensity);
   // TODO: set position from transform
   // Optionally, set radius as metadata or custom param
-  ctx.insertChildObjectNode(parent, light);
+  scene.insertChildObjectNode(parent, light);
 }
 
 static void import_usd_disk_light(
-    Context &ctx, const pxr::UsdPrim &prim, LayerNodeRef parent)
+    Scene &scene, const pxr::UsdPrim &prim, LayerNodeRef parent)
 {
   pxr::UsdLuxDiskLight usdLight(prim);
-  auto light = ctx.createObject<Light>(tokens::light::ring);
+  auto light = scene.createObject<Light>(tokens::light::ring);
   float intensity = 1.0f;
   usdLight.GetIntensityAttr().Get(&intensity);
   pxr::GfVec3f color(1.0f);
@@ -815,16 +815,16 @@ static void import_usd_disk_light(
   light->setParameter("intensity", intensity);
   // TODO: set position from transform
   // Optionally, set radius as metadata or custom param
-  ctx.insertChildObjectNode(parent, light);
+  scene.insertChildObjectNode(parent, light);
 }
 
-static void import_usd_dome_light(Context &ctx,
+static void import_usd_dome_light(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const std::string &basePath)
 {
   pxr::UsdLuxDomeLight usdLight(prim);
-  auto light = ctx.createObject<Light>(tokens::light::hdri);
+  auto light = scene.createObject<Light>(tokens::light::hdri);
   float intensity = 1.0f;
   usdLight.GetIntensityAttr().Get(&intensity);
   pxr::GfVec3f color(1.0f);
@@ -846,7 +846,7 @@ static void import_usd_dome_light(Context &ctx,
       }
       // Try to import the texture as a sampler
       static TextureCache domeCache;
-      auto sampler = importTexture(ctx, resolvedPath, domeCache);
+      auto sampler = importTexture(scene, resolvedPath, domeCache);
       if (sampler)
         light->setParameterObject("image", *sampler);
       else
@@ -855,7 +855,7 @@ static void import_usd_dome_light(Context &ctx,
             resolvedPath.c_str());
     }
   }
-  ctx.insertChildObjectNode(parent, light);
+  scene.insertChildObjectNode(parent, light);
 }
 
 // Helper to check if a GfMatrix4d is identity
@@ -869,7 +869,7 @@ static bool is_identity(const pxr::GfMatrix4d &m)
 // Recursive import function for prims and their children
 // -----------------------------------------------------------------------------
 
-static void import_usd_prim_recursive(Context &ctx,
+static void import_usd_prim_recursive(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     pxr::UsdGeomXformCache &xformCache,
@@ -892,9 +892,9 @@ static void import_usd_prim_recursive(Context &ctx,
       if (primName.empty())
         primName = "<unnamed_instance>";
       auto xformNode =
-          ctx.insertChildTransformNode(parent, tsdXform, primName.c_str());
+          scene.insertChildTransformNode(parent, tsdXform, primName.c_str());
       // Recursively import the prototype under this transform node
-      import_usd_prim_recursive(ctx,
+      import_usd_prim_recursive(scene,
           prototype,
           xformNode,
           xformCache,
@@ -945,38 +945,38 @@ static void import_usd_prim_recursive(Context &ctx,
 
   LayerNodeRef thisNode = parent;
   if (createNode) {
-    thisNode = ctx.insertChildTransformNode(parent, tsdXform, primName.c_str());
+    thisNode = scene.insertChildTransformNode(parent, tsdXform, primName.c_str());
   }
 
   // Import geometry for this prim (if any)
   if (prim.IsA<pxr::UsdGeomMesh>()) {
     import_usd_mesh(
-        ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax, basePath);
+        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax, basePath);
   } else if (prim.IsA<pxr::UsdGeomPoints>()) {
-    import_usd_points(ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_points(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomSphere>()) {
-    import_usd_sphere(ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_sphere(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomCone>()) {
-    import_usd_cone(ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_cone(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomCylinder>()) {
     import_usd_cylinder(
-        ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdLuxDistantLight>()) {
-    import_usd_distant_light(ctx, prim, thisNode);
+    import_usd_distant_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxRectLight>()) {
-    import_usd_rect_light(ctx, prim, thisNode);
+    import_usd_rect_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxSphereLight>()) {
-    import_usd_sphere_light(ctx, prim, thisNode);
+    import_usd_sphere_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxDiskLight>()) {
-    import_usd_disk_light(ctx, prim, thisNode);
+    import_usd_disk_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxDomeLight>()) {
-    import_usd_dome_light(ctx, prim, thisNode, basePath);
+    import_usd_dome_light(scene, prim, thisNode, basePath);
   } else if (prim.IsA<pxr::UsdVolVolume>()) {
-    import_usd_volume(ctx, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_volume(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   }
   // Recurse into children
   for (const auto &child : prim.GetChildren()) {
-    import_usd_prim_recursive(ctx,
+    import_usd_prim_recursive(scene,
         child,
         thisNode,
         xformCache,
@@ -987,7 +987,7 @@ static void import_usd_prim_recursive(Context &ctx,
   }
 }
 
-void import_USD(Context &ctx,
+void import_USD(Scene &scene,
     const char *filepath,
     LayerNodeRef location,
     bool useDefaultMaterial)
@@ -1012,8 +1012,8 @@ void import_USD(Context &ctx,
       "[import_USD] Number of prims in stage: %zu\n", primCount);
   float3 sceneMin(std::numeric_limits<float>::max());
   float3 sceneMax(std::numeric_limits<float>::lowest());
-  auto usd_root = ctx.insertChildNode(
-      location ? location : ctx.defaultLayer()->root(), filepath);
+  auto usd_root = scene.insertChildNode(
+      location ? location : scene.defaultLayer()->root(), filepath);
 
   pxr::UsdGeomXformCache xformCache(pxr::UsdTimeCode::Default());
 
@@ -1024,7 +1024,7 @@ void import_USD(Context &ctx,
     // if (prim.IsPrototype()) continue;
     if (prim.GetParent() && prim.GetParent().IsPseudoRoot()) {
       import_usd_prim_recursive(
-          ctx, prim, usd_root, xformCache, sceneMin, sceneMax, basePath);
+          scene, prim, usd_root, xformCache, sceneMin, sceneMax, basePath);
     }
   }
   tsd::core::logStatus(
@@ -1037,7 +1037,7 @@ void import_USD(Context &ctx,
       sceneMax.z);
 }
 #else
-void import_USD(Context &ctx,
+void import_USD(Scene &scene,
     const char *filepath,
     LayerNodeRef location,
     bool useDefaultMaterial)

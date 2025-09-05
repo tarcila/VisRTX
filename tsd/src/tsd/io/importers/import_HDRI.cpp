@@ -9,7 +9,7 @@ namespace tsd::io {
 
 using namespace tsd::core;
 
-void import_HDRI(Context &ctx, const char *filepath, LayerNodeRef location)
+void import_HDRI(Scene &scene, const char *filepath, LayerNodeRef location)
 {
   std::string hdriFilename = filepath;
   HDRImage img;
@@ -24,11 +24,11 @@ void import_HDRI(Context &ctx, const char *filepath, LayerNodeRef location)
       }
     }
 
-    auto arr = ctx.createArray(ANARI_FLOAT32_VEC3, img.width, img.height);
+    auto arr = scene.createArray(ANARI_FLOAT32_VEC3, img.width, img.height);
     arr->setData(rgb.data());
 
-    auto [inst, hdri] = ctx.insertNewChildObjectNode<Light>(
-        location ? location : ctx.defaultLayer()->root(), tokens::light::hdri);
+    auto [inst, hdri] = scene.insertNewChildObjectNode<Light>(
+        location ? location : scene.defaultLayer()->root(), tokens::light::hdri);
     hdri->setName(fileOf(filepath).c_str());
     hdri->setParameterObject("radiance"_t, *arr);
   }

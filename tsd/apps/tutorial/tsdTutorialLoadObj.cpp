@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // tsd_core
-#include <tsd/core/scene/Context.hpp>
+#include <tsd/core/scene/Scene.hpp>
 // tsd_io
 #include <tsd/io/importers.hpp>
 // tsd_rendering
@@ -69,11 +69,11 @@ int main(int argc, char *argv[])
 
   // Create context //
 
-  tsd::core::Context ctx;
+  tsd::core::Scene scene;
 
   // Populate spheres //
 
-  tsd::io::import_OBJ(ctx, g_filename.c_str());
+  tsd::io::import_OBJ(scene, g_filename.c_str());
 
   // Setup ANARI device //
 
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 
   // Setup render index //
 
-  tsd::rendering::RenderIndexFlatRegistry rIdx(ctx, device);
+  tsd::rendering::RenderIndexFlatRegistry rIdx(scene, device);
   rIdx.populate();
 
   // Create camera //

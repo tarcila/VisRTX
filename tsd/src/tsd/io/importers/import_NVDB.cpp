@@ -18,13 +18,13 @@ namespace tsd::io {
 
 using namespace tsd::core;
 
-SpatialFieldRef import_NVDB(Context &ctx, const char *filepath)
+SpatialFieldRef import_NVDB(Scene &scene, const char *filepath)
 {
   std::string file = fileOf(filepath);
   if (file.empty())
     return {};
 
-  auto field = ctx.createObject<SpatialField>(tokens::spatial_field::nanovdb);
+  auto field = scene.createObject<SpatialField>(tokens::spatial_field::nanovdb);
   field->setName(file.c_str());
 
   try {
@@ -101,7 +101,7 @@ SpatialFieldRef import_NVDB(Context &ctx, const char *filepath)
       logStatus("No data range found.");
     }
 
-    auto gridData = ctx.createArray(ANARI_UINT8, grid.size());
+    auto gridData = scene.createArray(ANARI_UINT8, grid.size());
     std::memcpy(gridData->map(), grid.data(), grid.size());
     gridData->unmap();
     field->setParameterObject("data", *gridData);
@@ -109,8 +109,8 @@ SpatialFieldRef import_NVDB(Context &ctx, const char *filepath)
     logStatus("[import_NVDB] ...done!");
   } catch (const std::exception &e) {
     logStatus("[import_NVDB] failed: %s", e.what());
-    ctx.removeObject(*field);
-    // ctx.removeObject<SpatialField>(field);
+    scene.removeObject(*field);
+    // scene.removeObject<SpatialField>(field);
     return {};
   }
   return field;

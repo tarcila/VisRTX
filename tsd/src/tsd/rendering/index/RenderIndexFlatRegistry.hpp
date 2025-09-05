@@ -9,7 +9,7 @@ namespace tsd::rendering {
 
 struct RenderIndexFlatRegistry : public RenderIndex
 {
-  RenderIndexFlatRegistry(Context &ctx, anari::Device d);
+  RenderIndexFlatRegistry(Scene &scene, anari::Device d);
   ~RenderIndexFlatRegistry() override;
 
   bool isFlat() const override;

@@ -23,21 +23,21 @@ class Application : public TSDApplication
     // Setup default scene //
 
     auto *core = appCore();
-    auto &ctx = core->tsd.ctx;
+    auto &scene = core->tsd.scene;
 
     core->setupSceneFromCommandLine();
 
     const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
-        && ctx.numberOfObjects(ANARI_LIGHT) == 0;
+        && scene.numberOfObjects(ANARI_LIGHT) == 0;
     if (setupDefaultLight) {
       tsd::core::logStatus("...setting up default light");
 
-      auto light = ctx.createObject<tsd::core::Light>(
+      auto light = scene.createObject<tsd::core::Light>(
           tsd::core::tokens::light::directional);
       light->setName("mainLight");
       light->setParameter("direction", tsd::math::float2(0.f, 240.f));
 
-      ctx.defaultLayer()->root()->insert_first_child(
+      scene.defaultLayer()->root()->insert_first_child(
           tsd::core::Any(ANARI_LIGHT, light.index()));
     }
 

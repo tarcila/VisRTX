@@ -1,7 +1,7 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tsd/core/scene/Context.hpp"
+#include "tsd/core/scene/Scene.hpp"
 #include "tsd/core/Logging.hpp"
 // std
 #include <sstream>
@@ -22,37 +22,37 @@ std::string objectDBInfo(const ObjectDatabase &db)
   return ss.str();
 }
 
-// Context definitions ////////////////////////////////////////////////////////
+// Scene definitions //////////////////////////////////////////////////////////
 
-Context::Context()
+Scene::Scene()
 {
   addLayer("default");
   createObject<Material>(tokens::material::matte)->setName("default_material");
 }
 
-MaterialRef Context::defaultMaterial() const
+MaterialRef Scene::defaultMaterial() const
 {
   return getObject<Material>(0);
 }
 
-Layer *Context::defaultLayer() const
+Layer *Scene::defaultLayer() const
 {
   return layer(0);
 }
 
-ArrayRef Context::createArray(
+ArrayRef Scene::createArray(
     anari::DataType type, size_t items0, size_t items1, size_t items2)
 {
   return createArrayImpl(type, items0, items1, items2, Array::MemoryKind::HOST);
 }
 
-ArrayRef Context::createArrayCUDA(
+ArrayRef Scene::createArrayCUDA(
     anari::DataType type, size_t items0, size_t items1, size_t items2)
 {
   return createArrayImpl(type, items0, items1, items2, Array::MemoryKind::CUDA);
 }
 
-SurfaceRef Context::createSurface(
+SurfaceRef Scene::createSurface(
     const char *name, GeometryRef g, MaterialRef m)
 {
   auto surface = createObject<Surface>();
@@ -62,12 +62,12 @@ SurfaceRef Context::createSurface(
   return surface;
 }
 
-Object *Context::getObject(const Any &a) const
+Object *Scene::getObject(const Any &a) const
 {
   return getObject(a.type(), a.getAsObjectIndex());
 }
 
-Object *Context::getObject(ANARIDataType type, size_t i) const
+Object *Scene::getObject(ANARIDataType type, size_t i) const
 {
   Object *obj = nullptr;
 
@@ -106,7 +106,7 @@ Object *Context::getObject(ANARIDataType type, size_t i) const
   return obj;
 }
 
-size_t Context::numberOfObjects(anari::DataType type) const
+size_t Scene::numberOfObjects(anari::DataType type) const
 {
   size_t numObjects = 0;
 
@@ -145,13 +145,13 @@ size_t Context::numberOfObjects(anari::DataType type) const
   return numObjects;
 }
 
-void Context::removeObject(const Any &o)
+void Scene::removeObject(const Any &o)
 {
   if (auto *optr = getObject(o.type(), o.getAsObjectIndex()); optr)
     removeObject(*optr);
 }
 
-void Context::removeObject(const Object &o)
+void Scene::removeObject(const Object &o)
 {
   if (m_updateDelegate)
     m_updateDelegate->signalObjectRemoved(&o);
@@ -192,7 +192,7 @@ void Context::removeObject(const Object &o)
   }
 }
 
-void Context::removeAllObjects()
+void Scene::removeAllObjects()
 {
   if (m_updateDelegate)
     m_updateDelegate->signalRemoveAllObjects();
@@ -210,12 +210,12 @@ void Context::removeAllObjects()
   m_db.light.clear();
 }
 
-BaseUpdateDelegate *Context::updateDelegate() const
+BaseUpdateDelegate *Scene::updateDelegate() const
 {
   return m_updateDelegate;
 }
 
-void Context::setUpdateDelegate(BaseUpdateDelegate *ud)
+void Scene::setUpdateDelegate(BaseUpdateDelegate *ud)
 {
   m_updateDelegate = ud;
 
@@ -236,33 +236,33 @@ void Context::setUpdateDelegate(BaseUpdateDelegate *ud)
   setDelegateOnObjects(m_db.field);
 }
 
-const ObjectDatabase &Context::objectDB() const
+const ObjectDatabase &Scene::objectDB() const
 {
   return m_db;
 }
 
-const LayerMap &Context::layers() const
+const LayerMap &Scene::layers() const
 {
   return m_layers;
 }
 
-size_t Context::numberOfLayers() const
+size_t Scene::numberOfLayers() const
 {
   return m_layers.size();
 }
 
-Layer *Context::layer(Token name) const
+Layer *Scene::layer(Token name) const
 {
   auto *ls = m_layers.at(name);
   return ls ? ls->ptr.get() : nullptr;
 }
 
-Layer *Context::layer(size_t i) const
+Layer *Scene::layer(size_t i) const
 {
   return m_layers.at_index(i).second.ptr.get();
 }
 
-Layer *Context::addLayer(Token name)
+Layer *Scene::addLayer(Token name)
 {
   auto &ls = m_layers[name];
   if (!ls.ptr)
@@ -273,13 +273,13 @@ Layer *Context::addLayer(Token name)
   return ls.ptr.get();
 }
 
-bool Context::layerIsActive(Token name) const
+bool Scene::layerIsActive(Token name) const
 {
   auto *ls = m_layers.at(name);
   return ls ? ls->active : false;
 }
 
-void Context::setLayerActive(Token name, bool active)
+void Scene::setLayerActive(Token name, bool active)
 {
   if (auto *ls = m_layers.at(name); ls && ls->active != active) {
     m_numActiveLayers += active ? 1 : -1;
@@ -288,7 +288,7 @@ void Context::setLayerActive(Token name, bool active)
   }
 }
 
-void Context::setOnlyLayerActive(Token name)
+void Scene::setOnlyLayerActive(Token name)
 {
   if (auto *ls = m_layers.at(name); ls) {
     for (auto &ls : m_layers)
@@ -300,7 +300,7 @@ void Context::setOnlyLayerActive(Token name)
   }
 }
 
-void Context::setAllLayersActive()
+void Scene::setAllLayersActive()
 {
   for (auto &ls : m_layers)
     ls.second.active = true;
@@ -308,7 +308,7 @@ void Context::setAllLayersActive()
   signalActiveLayersChanged();
 }
 
-std::vector<const Layer *> Context::getActiveLayers() const
+std::vector<const Layer *> Scene::getActiveLayers() const
 {
   std::vector<const Layer *> activeLayers;
   if (numberOfActiveLayers() != numberOfLayers()) {
@@ -321,12 +321,12 @@ std::vector<const Layer *> Context::getActiveLayers() const
   return activeLayers;
 }
 
-size_t Context::numberOfActiveLayers() const
+size_t Scene::numberOfActiveLayers() const
 {
   return m_numActiveLayers;
 }
 
-void Context::removeLayer(Token name)
+void Scene::removeLayer(Token name)
 {
   if (!m_layers.contains(name))
     return;
@@ -337,7 +337,7 @@ void Context::removeLayer(Token name)
   m_layers.erase(name);
 }
 
-void Context::removeLayer(const Layer *layer)
+void Scene::removeLayer(const Layer *layer)
 {
   for (size_t i = 0; i < m_layers.size(); i++) {
     if (m_layers.at_index(i).second.ptr.get() == layer) {
@@ -351,7 +351,7 @@ void Context::removeLayer(const Layer *layer)
   }
 }
 
-LayerNodeRef Context::insertChildNode(LayerNodeRef parent, const char *name)
+LayerNodeRef Scene::insertChildNode(LayerNodeRef parent, const char *name)
 {
   auto *layer = parent->container();
   auto inst = layer->insert_last_child(parent, tsd::core::Any{});
@@ -359,7 +359,7 @@ LayerNodeRef Context::insertChildNode(LayerNodeRef parent, const char *name)
   return inst;
 }
 
-LayerNodeRef Context::insertChildTransformNode(
+LayerNodeRef Scene::insertChildTransformNode(
     LayerNodeRef parent, mat4 xfm, const char *name)
 {
   auto *layer = parent->container();
@@ -369,7 +369,7 @@ LayerNodeRef Context::insertChildTransformNode(
   return inst;
 }
 
-LayerNodeRef Context::insertChildObjectNode(
+LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, anari::DataType type, size_t idx, const char *name)
 {
   auto inst = parent->insert_last_child(tsd::core::Any{type, idx});
@@ -378,7 +378,7 @@ LayerNodeRef Context::insertChildObjectNode(
   return inst;
 }
 
-void Context::removeInstancedObject(
+void Scene::removeInstancedObject(
     LayerNodeRef obj, bool deleteReferencedObjects)
 {
   if (obj->isRoot())
@@ -403,19 +403,19 @@ void Context::removeInstancedObject(
   signalLayerChange(layer);
 }
 
-void Context::signalLayerChange(const Layer *l)
+void Scene::signalLayerChange(const Layer *l)
 {
   if (m_updateDelegate)
     m_updateDelegate->signalLayerUpdated(l);
 }
 
-void Context::signalActiveLayersChanged()
+void Scene::signalActiveLayersChanged()
 {
   if (m_updateDelegate)
     m_updateDelegate->signalActiveLayersChanged();
 }
 
-void Context::defragmentObjectStorage()
+void Scene::defragmentObjectStorage()
 {
   FlatMap<anari::DataType, bool> defragmentations;
 
@@ -567,7 +567,7 @@ void Context::defragmentObjectStorage()
     m_updateDelegate->signalInvalidateCachedObjects();
 }
 
-void Context::removeUnusedObjects()
+void Scene::removeUnusedObjects()
 {
   tsd::core::logStatus("Removing unused context objects");
 
@@ -678,7 +678,7 @@ void Context::removeUnusedObjects()
   removeUnused(m_db.array);
 }
 
-void Context::removeAllSecondaryLayers()
+void Scene::removeAllSecondaryLayers()
 {
   for (auto itr = m_layers.begin() + 1; itr != m_layers.end(); itr++) {
     if (m_updateDelegate)
@@ -688,7 +688,7 @@ void Context::removeAllSecondaryLayers()
   m_layers.shrink(1);
 }
 
-ArrayRef Context::createArrayImpl(anari::DataType type,
+ArrayRef Scene::createArrayImpl(anari::DataType type,
     size_t items0,
     size_t items1,
     size_t items2,

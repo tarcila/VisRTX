@@ -14,7 +14,7 @@ namespace tsd::io {
 
 using namespace tsd::core;
 
-static ArrayRef readHsArray(Context &ctx,
+static ArrayRef readHsArray(Scene &scene,
     GeometryRef geom,
     const char *param,
     anari::DataType elementType,
@@ -26,7 +26,7 @@ static ArrayRef readHsArray(Context &ctx,
   auto r = std::fread(&size, sizeof(size_t), 1, fp);
 
   if (size > 0) {
-    retval = ctx.createArray(elementType, size);
+    retval = scene.createArray(elementType, size);
     auto *dst = retval->map();
     r = std::fread(dst, anari::sizeOf(elementType), size, fp);
     retval->unmap();
@@ -39,7 +39,7 @@ static ArrayRef readHsArray(Context &ctx,
 //
 // Importing Haystack meshes: https://github.com/ingowald/haystack
 //
-void import_HSMESH(Context &ctx, const char *filepath, LayerNodeRef location)
+void import_HSMESH(Scene &scene, const char *filepath, LayerNodeRef location)
 {
   auto *fp = std::fopen(filepath, "rb");
   if (!fp)
@@ -47,29 +47,29 @@ void import_HSMESH(Context &ctx, const char *filepath, LayerNodeRef location)
 
   auto filename = fileOf(filepath);
 
-  auto hs_root = ctx.insertChildTransformNode(
-      location ? location : ctx.defaultLayer()->root());
+  auto hs_root = scene.insertChildTransformNode(
+      location ? location : scene.defaultLayer()->root());
 
   MaterialRef mat;
-  auto geom = ctx.createObject<Geometry>(tokens::geometry::triangle);
+  auto geom = scene.createObject<Geometry>(tokens::geometry::triangle);
   geom->setName(filename.c_str());
 
-  readHsArray(ctx, geom, "vertex.position", ANARI_FLOAT32_VEC3, fp);
-  readHsArray(ctx, geom, "vertex.normal", ANARI_FLOAT32_VEC3, fp);
-  readHsArray(ctx, geom, "vertex.color", ANARI_FLOAT32_VEC3, fp);
-  readHsArray(ctx, geom, "primitive.index", ANARI_UINT32_VEC3, fp);
+  readHsArray(scene, geom, "vertex.position", ANARI_FLOAT32_VEC3, fp);
+  readHsArray(scene, geom, "vertex.normal", ANARI_FLOAT32_VEC3, fp);
+  readHsArray(scene, geom, "vertex.color", ANARI_FLOAT32_VEC3, fp);
+  readHsArray(scene, geom, "primitive.index", ANARI_UINT32_VEC3, fp);
 
-  auto scalars = readHsArray(ctx, geom, "vertex.attribute0", ANARI_FLOAT32, fp);
+  auto scalars = readHsArray(scene, geom, "vertex.attribute0", ANARI_FLOAT32, fp);
   if (scalars) {
-    mat = ctx.createObject<Material>(tokens::material::matte);
+    mat = scene.createObject<Material>(tokens::material::matte);
     auto range = computeScalarRange(*scalars);
-    mat->setParameterObject("color", *makeDefaultColorMapSampler(ctx, range));
+    mat->setParameterObject("color", *makeDefaultColorMapSampler(scene, range));
   } else
-    mat = ctx.defaultMaterial();
+    mat = scene.defaultMaterial();
 
-  auto surface = ctx.createSurface(filename.c_str(), geom, mat);
+  auto surface = scene.createSurface(filename.c_str(), geom, mat);
 
-  auto surfaceLayerRef = ctx.insertChildObjectNode(hs_root, surface);
+  auto surfaceLayerRef = scene.insertChildObjectNode(hs_root, surface);
   (*surfaceLayerRef)->name = filename;
 
   std::fclose(fp);

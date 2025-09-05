@@ -41,43 +41,43 @@ void importNBODYFile(const char *filename, NBODYScene &s)
   fin.close();
 }
 
-void import_NBODY(Context &ctx,
+void import_NBODY(Scene &scene,
     const char *filepath,
     LayerNodeRef location,
     bool useDefaultMaterial)
 {
-  NBODYScene scene;
-  importNBODYFile(filepath, scene);
+  NBODYScene nbody;
+  importNBODYFile(filepath, nbody);
 
-  if (scene.points.empty())
+  if (nbody.points.empty())
     return;
 
   auto nbody_root =
-      ctx.insertChildNode(location ? location : ctx.defaultLayer()->root(),
+      scene.insertChildNode(location ? location : scene.defaultLayer()->root(),
           fileOf(filepath).c_str());
 
   auto mat = useDefaultMaterial
-      ? ctx.getObject<Material>(0)
-      : ctx.createObject<Material>(tokens::material::matte);
+      ? scene.getObject<Material>(0)
+      : scene.createObject<Material>(tokens::material::matte);
 
-  int64_t numRemainingPoints = scene.points.size();
+  int64_t numRemainingPoints = nbody.points.size();
   constexpr int64_t CHUNK = 1e7;
 
   for (int i = 0; numRemainingPoints > 0; numRemainingPoints -= CHUNK, i++) {
     const size_t numPoints =
         std::min(size_t(numRemainingPoints), size_t(CHUNK));
-    auto vertexPositionArray = ctx.createArray(ANARI_FLOAT32_VEC3, numPoints);
-    vertexPositionArray->setData(scene.points.data() + (i * CHUNK));
+    auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numPoints);
+    vertexPositionArray->setData(nbody.points.data() + (i * CHUNK));
 
     std::string geomName = "NBODY_geometry_" + std::to_string(i);
 
-    auto geom = ctx.createObject<Geometry>(tokens::geometry::sphere);
+    auto geom = scene.createObject<Geometry>(tokens::geometry::sphere);
     geom->setName(geomName.c_str());
-    geom->setParameter("radius"_t, scene.radius);
+    geom->setParameter("radius"_t, nbody.radius);
     geom->setParameterObject("vertex.position"_t, *vertexPositionArray);
 
-    auto surface = ctx.createSurface(geomName.c_str(), geom, mat);
-    ctx.insertChildObjectNode(nbody_root, surface);
+    auto surface = scene.createSurface(geomName.c_str(), geom, mat);
+    scene.insertChildObjectNode(nbody_root, surface);
   }
 }
 

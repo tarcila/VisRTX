@@ -42,7 +42,7 @@ void ImportFileDialog::buildUI()
       "GLTF",
       };
 
-  ImGui::Combo("importer type", &m_selectedFileType, importers, 
+  ImGui::Combo("importer type", &m_selectedFileType, importers,
       std::size(importers));
 
   static std::string outPath;
@@ -87,8 +87,8 @@ void ImportFileDialog::buildUI()
 
     auto doLoad = [&]() {
       auto *core = appCore();
-      auto &ctx = core->tsd.ctx;
-      auto *layer = core->tsd.ctx.defaultLayer();
+      auto &scene = core->tsd.scene;
+      auto *layer = core->tsd.scene.defaultLayer();
       auto importRoot = core->tsd.selectedNode;
       if (!importRoot)
         importRoot = layer->root();
@@ -96,38 +96,38 @@ void ImportFileDialog::buildUI()
       auto selectedFileType =
           static_cast<app::ImporterType>(m_selectedFileType);
       if (selectedFileType == app::ImporterType::PLY)
-        tsd::io::import_PLY(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_PLY(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::OBJ)
-        tsd::io::import_OBJ(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_OBJ(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::USD)
-        tsd::io::import_USD(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_USD(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::ASSIMP)
-        tsd::io::import_ASSIMP(ctx, m_filename.c_str(), importRoot, false);
+        tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, false);
       else if (selectedFileType == app::ImporterType::ASSIMP_FLAT)
-        tsd::io::import_ASSIMP(ctx, m_filename.c_str(), importRoot, true);
+        tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, true);
       else if (selectedFileType == app::ImporterType::DLAF)
-        tsd::io::import_DLAF(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_DLAF(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::E57XYZ)
-        tsd::io::import_E57XYZ(ctx, m_filename.c_str());
+        tsd::io::import_E57XYZ(scene, m_filename.c_str());
       else if (selectedFileType == app::ImporterType::NBODY)
-        tsd::io::import_NBODY(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_NBODY(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::HDRI)
-        tsd::io::import_HDRI(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_HDRI(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::SWC)
-        tsd::io::import_SWC(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_SWC(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::PDB)
-        tsd::io::import_PDB(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_PDB(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::XYZDP)
-        tsd::io::import_XYZDP(ctx, m_filename.c_str());
+        tsd::io::import_XYZDP(scene, m_filename.c_str());
       else if (selectedFileType == app::ImporterType::HSMESH)
-        tsd::io::import_HSMESH(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_HSMESH(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::VOLUME)
-        tsd::io::import_volume(ctx, m_filename.c_str());
+        tsd::io::import_volume(scene, m_filename.c_str());
       else if (selectedFileType == app::ImporterType::NEURAL)
-        tsd::io::import_PT(ctx, m_filename.c_str(), importRoot);
+        tsd::io::import_PT(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::GLTF)
-        tsd::io::import_GLTF(ctx, m_filename.c_str(), importRoot);
-      ctx.signalLayerChange(layer);
+        tsd::io::import_GLTF(scene, m_filename.c_str(), importRoot);
+      scene.signalLayerChange(layer);
     };
 
     if (!appCore()->windows.taskModal)

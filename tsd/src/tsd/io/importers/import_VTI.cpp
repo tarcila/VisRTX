@@ -50,17 +50,17 @@ static anari::DataType vtkTypeToANARIType(int vtkType)
 }
 
 static ArrayRef makeArray3D(
-    Context &ctx, vtkDataArray *array, vtkIdType w, vtkIdType h, vtkIdType d)
+    Scene &scene, vtkDataArray *array, vtkIdType w, vtkIdType h, vtkIdType d)
 {
   void *ptr = array->GetVoidPointer(0);
   int vtkType = array->GetDataType();
 
-  auto arr = ctx.createArray(vtkTypeToANARIType(vtkType), w, h, d);
+  auto arr = scene.createArray(vtkTypeToANARIType(vtkType), w, h, d);
   arr->setData(ptr);
   return arr;
 }
 
-SpatialFieldRef import_VTI(Context &ctx, const char *filepath)
+SpatialFieldRef import_VTI(Scene &scene, const char *filepath)
 {
   vtkNew<vtkXMLImageDataReader> reader;
   reader->SetFileName(filepath);
@@ -82,7 +82,7 @@ SpatialFieldRef import_VTI(Context &ctx, const char *filepath)
   grid->GetOrigin(origin);
 
   auto field =
-      ctx.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
+      scene.createObject<SpatialField>(tokens::spatial_field::structuredRegular);
   field->setName(fileOf(filepath).c_str());
   field->setParameter("origin", float3(origin[0], origin[1], origin[2]));
   field->setParameter("spacing", float3(spacing[0], spacing[1], spacing[2]));
@@ -102,7 +102,7 @@ SpatialFieldRef import_VTI(Context &ctx, const char *filepath)
       continue;
     }
 
-    auto a = makeArray3D(ctx, array, dims[0], dims[1], dims[2]);
+    auto a = makeArray3D(scene, array, dims[0], dims[1], dims[2]);
     field->setParameterObject("data", *a);
     break;
   }
@@ -110,7 +110,7 @@ SpatialFieldRef import_VTI(Context &ctx, const char *filepath)
   return field;
 }
 #else
-SpatialFieldRef import_VTI(Context &ctx, const char *filepath)
+SpatialFieldRef import_VTI(Scene &scene, const char *filepath)
 {
   logError("[import_VTI] VTK not enabled in TSD build.");
   return {};
