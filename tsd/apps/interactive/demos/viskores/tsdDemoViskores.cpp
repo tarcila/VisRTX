@@ -17,7 +17,7 @@
 #include "NodeEditor.h"
 #include "NodeInfoWindow.h"
 
-namespace tsd_viewer {
+namespace tsd::demo {
 
 using TSDApplication = tsd::ui::imgui::Application;
 namespace tsd_ui = tsd::ui::imgui;
@@ -264,7 +264,7 @@ DockSpace           ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1105 Spli
   viskores::graph::ExecutionGraph m_graph;
 };
 
-} // namespace tsd_viewer
+} // namespace tsd::demo
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -273,7 +273,7 @@ DockSpace           ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1105 Spli
 int main(int argc, const char *argv[])
 {
   {
-    tsd_viewer::Application app(argc, argv);
+    tsd::demo::Application app(argc, argv);
     app.run(1920, 1080, "Viskores Demo App");
   }
 
