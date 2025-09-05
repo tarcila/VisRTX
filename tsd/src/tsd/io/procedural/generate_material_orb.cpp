@@ -13,48 +13,49 @@ namespace tsd::io {
 
 #define addObject(name, source, mat_type, mat)                                 \
   {                                                                            \
-    auto mesh = scene.createObject<Geometry>(tokens::geometry::triangle);        \
+    auto mesh = scene.createObject<Geometry>(tokens::geometry::triangle);      \
     mesh->setName((std::string(name) + "_geometry").c_str());                  \
                                                                                \
-    auto positionArray = scene.createArray(                                      \
+    auto positionArray = scene.createArray(                                    \
         ANARI_FLOAT32_VEC3, std::size(source::vertex_position) / 3);           \
     positionArray->setData(std::data(source::vertex_position));                \
                                                                                \
-    auto normalArray = scene.createArray(                                        \
+    auto normalArray = scene.createArray(                                      \
         ANARI_FLOAT32_VEC3, std::size(source::vertex_normal) / 3);             \
     normalArray->setData(std::data(source::vertex_normal));                    \
                                                                                \
-    auto uvArray =                                                             \
-        scene.createArray(ANARI_FLOAT32_VEC2, std::size(source::vertex_uv) / 2); \
+    auto uvArray = scene.createArray(                                          \
+        ANARI_FLOAT32_VEC2, std::size(source::vertex_uv) / 2);                 \
     uvArray->setData(std::data(source::vertex_uv));                            \
                                                                                \
     mesh->setParameterObject("vertex.position"_t, *positionArray);             \
     mesh->setParameterObject("vertex.normal"_t, *normalArray);                 \
     mesh->setParameterObject("vertex.attribute0"_t, *uvArray);                 \
                                                                                \
-    mat = scene.createObject<Material>(mat_type);                                \
+    mat = scene.createObject<Material>(mat_type);                              \
     auto matName = std::string(name) + "_material";                            \
     mat->setName(matName.c_str());                                             \
                                                                                \
-    auto surface = scene.createSurface(name, mesh, mat);                         \
-    scene.insertChildObjectNode(orb_root, surface);                              \
+    auto surface = scene.createSurface(name, mesh, mat);                       \
+    scene.insertChildObjectNode(orb_root, surface);                            \
   }
 
 static SamplerRef makeCheckboardTexture(Scene &scene, int size)
 {
   auto tex = scene.createObject<Sampler>(tokens::sampler::image2D);
 
-  auto array = scene.createArray(ANARI_FLOAT32_VEC3, size, size);
-  auto *data = array->mapAs<tsd::math::float3>();
+  auto array = scene.createArray(ANARI_FLOAT32_VEC4, size, size);
+  auto *data = array->mapAs<tsd::math::float4>();
+
+  constexpr auto lightGray = tsd::math::float4(.7f, .7f, .7f, 1.f);
+  constexpr auto darkGray = tsd::math::float4(.3f, .3f, .3f, 1.f);
   for (int h = 0; h < size; h++) {
     for (int w = 0; w < size; w++) {
       bool even = h & 1;
       if (even)
-        data[h * size + w] =
-            w & 1 ? tsd::math::float3(.7f) : tsd::math::float3(.3f);
+        data[h * size + w] = w & 1 ? lightGray : darkGray;
       else
-        data[h * size + w] =
-            w & 1 ? tsd::math::float3(.3f) : tsd::math::float3(.7f);
+        data[h * size + w] = w & 1 ? darkGray : lightGray;
     }
   }
   array->unmap();
@@ -120,4 +121,4 @@ void generate_material_orb(Scene &scene, LayerNodeRef location)
   mat->setParameterObject("color"_t, *tex);
 }
 
-} // namespace tsd
+} // namespace tsd::io
