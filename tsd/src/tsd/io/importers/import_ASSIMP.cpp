@@ -58,12 +58,12 @@ static SamplerRef importEmbeddedTexture(
 
 static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
     const std::vector<MaterialRef> &materials,
-    const aiScene *scene)
+    const aiScene *a_scene)
 {
   std::vector<SurfaceRef> tsdMeshes;
 
-  for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
-    aiMesh *mesh = scene->mMeshes[i];
+  for (unsigned i = 0; i < a_scene->mNumMeshes; ++i) {
+    aiMesh *mesh = a_scene->mMeshes[i];
 
     auto tsdMesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
@@ -196,7 +196,7 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
 }
 
 static std::vector<MaterialRef> importASSIMPMaterials(
-    Scene &scene, const aiScene *scene, const std::string &filename)
+    Scene &scene, const aiScene *a_scene, const std::string &filename)
 {
   std::vector<MaterialRef> materials;
 
@@ -204,8 +204,8 @@ static std::vector<MaterialRef> importASSIMPMaterials(
 
   std::string basePath = pathOf(filename);
 
-  for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
-    aiMaterial *assimpMat = scene->mMaterials[i];
+  for (unsigned i = 0; i < a_scene->mNumMaterials; ++i) {
+    aiMaterial *assimpMat = a_scene->mMaterials[i];
     ai_int matType;
     assimpMat->Get(AI_MATKEY_SHADING_MODEL, matType);
 
@@ -215,7 +215,7 @@ static std::vector<MaterialRef> importASSIMPMaterials(
                            bool isLinear = false) -> SamplerRef {
       SamplerRef tex;
       if (texName.length != 0) {
-        auto *embeddedTexture = scene->GetEmbeddedTexture(texName.C_Str());
+        auto *embeddedTexture = a_scene->GetEmbeddedTexture(texName.C_Str());
         if (embeddedTexture)
           tex = importEmbeddedTexture(scene, embeddedTexture, cache);
         else
@@ -522,12 +522,12 @@ static std::vector<MaterialRef> importASSIMPMaterials(
 }
 
 static std::vector<LightRef> importASSIMPLights(
-    Scene &scene, const aiScene *scene)
+    Scene &scene, const aiScene *a_scene)
 {
   std::vector<LightRef> lights;
 
-  for (unsigned i = 0; i < scene->mNumLights; ++i) {
-    aiLight *assimpLight = scene->mLights[i];
+  for (unsigned i = 0; i < a_scene->mNumLights; ++i) {
+    aiLight *assimpLight = a_scene->mLights[i];
     LightRef lightRef;
 
     float intensity =
@@ -641,22 +641,22 @@ void import_ASSIMP(
   if (flatten)
     importFlags |= aiProcess_PreTransformVertices;
 
-  const aiScene *scene = importer.ReadFile(filename, importFlags);
+  const aiScene *a_scene = importer.ReadFile(filename, importFlags);
 
-  if (scene == nullptr) {
+  if (a_scene == nullptr) {
     Assimp::DefaultLogger::get()->error(importer.GetErrorString());
     return;
   }
 
-  auto lights = importASSIMPLights(scene, scene);
-  auto materials = importASSIMPMaterials(scene, scene, filename);
-  auto meshes = importASSIMPSurfaces(scene, materials, scene);
+  auto lights = importASSIMPLights(scene, a_scene);
+  auto materials = importASSIMPMaterials(scene, a_scene, filename);
+  auto meshes = importASSIMPSurfaces(scene, materials, a_scene);
 
   populateASSIMPLayer(scene,
       location ? location : scene.defaultLayer()->root(),
       meshes,
       lights,
-      scene->mRootNode);
+      a_scene->mRootNode);
 }
 #else
 void import_ASSIMP(
