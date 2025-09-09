@@ -350,7 +350,7 @@ void Core::setSelectedObject(tsd::core::Object *o)
 
 void Core::setSelectedNode(tsd::core::LayerNode &n)
 {
-  setSelectedObject(tsd.scene.getObject(n->value));
+  setSelectedObject(n->getObject(&tsd.scene));
   auto *layer = n.container();
   tsd.selectedNode = layer->at(n.index());
 }

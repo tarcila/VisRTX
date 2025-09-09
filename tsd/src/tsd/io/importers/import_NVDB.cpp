@@ -109,8 +109,7 @@ SpatialFieldRef import_NVDB(Scene &scene, const char *filepath)
     logStatus("[import_NVDB] ...done!");
   } catch (const std::exception &e) {
     logStatus("[import_NVDB] failed: %s", e.what());
-    scene.removeObject(*field);
-    // scene.removeObject<SpatialField>(field);
+    scene.removeObject(field.data());
     return {};
   }
   return field;

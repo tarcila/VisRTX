@@ -18,6 +18,7 @@ namespace math {
 using namespace anari::math;
 using namespace helium::math;
 
+static constexpr mat3 IDENTITY_MAT3 = identity;
 static constexpr mat4 IDENTITY_MAT4 = identity;
 static constexpr float inf = std::numeric_limits<float>::infinity();
 

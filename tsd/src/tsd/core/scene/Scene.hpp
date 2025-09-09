@@ -98,7 +98,7 @@ struct Scene
   Object *getObject(anari::DataType type, size_t i) const;
   size_t numberOfObjects(anari::DataType type) const;
 
-  void removeObject(const Object &o);
+  void removeObject(const Object *o);
   void removeObject(const Any &o);
   void removeAllObjects();
 

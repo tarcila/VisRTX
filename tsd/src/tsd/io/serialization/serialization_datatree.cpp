@@ -126,9 +126,9 @@ static void layerToNode(Layer &layer, core::DataNode &node)
     else
       currentNode = &currentParentNode->child("children")->append();
 
-    currentNode->append("name") = tsdNode->name;
-    currentNode->append("value") = tsdNode->value;
-    currentNode->append("enabled") = tsdNode->enabled;
+    currentNode->append("name") = tsdNode->name();
+    currentNode->append("value") = tsdNode->getValueRaw();
+    currentNode->append("enabled") = tsdNode->isEnabled();
     currentNode->append("children");
 
     return true;
@@ -321,7 +321,7 @@ static void nodeToLayer(core::DataNode &rootNode, Layer &layer)
       currentNode = layer.insert_last_child(currentParentNode,
           {node["value"].getValue(),
               node["name"].getValueAs<std::string>().c_str()});
-      (*currentNode)->enabled = node["enabled"].getValueOr(true);
+      (*currentNode)->setEnabled(node["enabled"].getValueOr(true));
     }
 
     return true;

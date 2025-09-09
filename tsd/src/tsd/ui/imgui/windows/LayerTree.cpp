@@ -123,9 +123,10 @@ void LayerTree::buildUI_tree()
           | ImGuiTreeNodeFlags_OpenOnDoubleClick
           | ImGuiTreeNodeFlags_SpanAvailWidth;
 
-      tsd::core::Object *obj = scene.getObject(node->value);
+      tsd::core::Object *obj = node->getObject(&scene);
 
-      const bool firstDisabled = firstDisabledNode == nullptr && !node->enabled;
+      const bool firstDisabled =
+          firstDisabledNode == nullptr && !node->isEnabled();
       if (firstDisabled) {
         firstDisabledNode = &node;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.3f, 0.3f, 1.f));
@@ -140,10 +141,10 @@ void LayerTree::buildUI_tree()
       }
 
       const char *nameText = "<unhandled UI node type>";
-      if (!node->name.empty())
-        nameText = node->name.c_str();
+      if (!node->name().empty())
+        nameText = node->name().c_str();
       else {
-        switch (node->value.type()) {
+        switch (node->type()) {
         case ANARI_FLOAT32_MAT4:
           nameText = "xfm";
           break;
@@ -156,17 +157,14 @@ void LayerTree::buildUI_tree()
         case ANARI_LIGHT:
           nameText = obj ? obj->name().c_str() : "UNABLE TO FIND LIGHT";
           break;
-        case ANARI_STRING:
-          nameText = node->value.getCStr();
-          break;
         default:
-          nameText = anari::toString(node->value.type());
+          nameText = anari::toString(node->type());
           break;
         }
       }
 
       const char *typeText = "[-]";
-      switch (node->value.type()) {
+      switch (node->type()) {
       case ANARI_FLOAT32_MAT4:
         typeText = "[T]";
         break;
@@ -199,8 +197,8 @@ void LayerTree::buildUI_tree()
         m_hoveredNode = node.index();
         if (node->isObject()) {
           ImGui::SetTooltip("object: %s[%zu]",
-              anari::toString(node->value.type()),
-              node->value.getAsObjectIndex());
+              anari::toString(node->type()),
+              node->getObjectIndex());
         } else if (node->isTransform())
           ImGui::SetTooltip("transform: ANARI_FLOAT32_MAT4");
       }
@@ -255,11 +253,14 @@ void LayerTree::buildUI_objectSceneMenu()
   bool clearSelectedNode = false;
 
   if (ImGui::BeginPopup("LayerTree_contextMenu_object")) {
-    if (nodeSelected && ImGui::Checkbox("visible", &(*menuNode)->enabled))
+    bool enabled = (*menuNode)->isEnabled();
+    if (nodeSelected && ImGui::Checkbox("visible", &enabled)) {
+      (*menuNode)->setEnabled(enabled);
       scene.signalLayerChange(&layer);
+    }
 
     if (nodeSelected && ImGui::BeginMenu("rename")) {
-      ImGui::InputText("##edit_node_name", &(*menuNode)->name);
+      ImGui::InputText("##edit_node_name", &(*menuNode)->name());
       ImGui::EndMenu();
     }
 
@@ -278,10 +279,10 @@ void LayerTree::buildUI_objectSceneMenu()
 
       if (ImGui::BeginMenu("existing object")) {
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
-  if (scene.numberOfObjects(type) > 0 && ImGui::BeginMenu(text)) {               \
-    if (auto i = tsd::ui::buildUI_objects_menulist(scene, type);                 \
+  if (scene.numberOfObjects(type) > 0 && ImGui::BeginMenu(text)) {             \
+    if (auto i = tsd::ui::buildUI_objects_menulist(scene, type);               \
         i != TSD_INVALID_INDEX)                                                \
-      scene.insertChildObjectNode(menuNode, type, i);                            \
+      scene.insertChildObjectNode(menuNode, type, i);                          \
     ImGui::EndMenu();                                                          \
   }
         OBJECT_UI_MENU_ITEM("surface", ANARI_SURFACE);
@@ -442,7 +443,8 @@ void LayerTree::buildUI_setActiveLayersSceneMenus()
     for (auto &ls : scene.layers()) {
       ImGui::PushID(ls.second.ptr.get());
       // Make sure at least one layer is always active
-      ImGui::BeginDisabled(scene.numberOfActiveLayers() < 2 && ls.second.active);
+      ImGui::BeginDisabled(
+          scene.numberOfActiveLayers() < 2 && ls.second.active);
 
       bool active = ls.second.active;
       if (ImGui::Checkbox(ls.first.c_str(), &active))

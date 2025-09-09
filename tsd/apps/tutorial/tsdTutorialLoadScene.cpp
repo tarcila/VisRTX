@@ -23,10 +23,10 @@ int main(int argc, const char *argv[])
   printf("----------------------TSD Tree--------------------------\n\n");
 
   auto onNodeEntry = [&](auto &node, int level) {
-    tsd::core::Object *obj = scene.getObject(node->value);
+    tsd::core::Object *obj = node->getObject(&scene);
 
     const char *typeText = "[-]";
-    switch (node->value.type()) {
+    switch (node->type()) {
     case ANARI_FLOAT32_MAT4:
       typeText = "[T]";
       break;
@@ -44,10 +44,10 @@ int main(int argc, const char *argv[])
     }
 
     const char *nameText = "<unhandled UI node type>";
-    if (!node->name.empty())
-      nameText = node->name.c_str();
+    if (!node->name().empty())
+      nameText = node->name().c_str();
     else {
-      switch (node->value.type()) {
+      switch (node->type()) {
       case ANARI_FLOAT32_MAT4:
         nameText = "xfm";
         break;
@@ -60,11 +60,8 @@ int main(int argc, const char *argv[])
       case ANARI_LIGHT:
         nameText = obj ? obj->name().c_str() : "UNABLE TO FIND LIGHT";
         break;
-      case ANARI_STRING:
-        nameText = node->value.getCStr();
-        break;
       default:
-        nameText = anari::toString(node->value.type());
+        nameText = anari::toString(node->type());
         break;
       }
     }

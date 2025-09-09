@@ -53,8 +53,8 @@ void InstancingControls::createScene()
 
   // Default (global) material //
 
-  auto mat =
-      scene.createObject<tsd::core::Material>(tsd::core::tokens::material::matte);
+  auto mat = scene.createObject<tsd::core::Material>(
+      tsd::core::tokens::material::matte);
   mat->setName("default_material");
   mat->setParameter("color", "color");
 
@@ -67,8 +67,8 @@ void InstancingControls::createScene()
 
   // Add light //
 
-  auto light =
-      scene.createObject<tsd::core::Light>(tsd::core::tokens::light::directional);
+  auto light = scene.createObject<tsd::core::Light>(
+      tsd::core::tokens::light::directional);
   light->setName("mainLight");
   light->setParameter("direction", tsd::math::float2(0.f, 240.f));
   m_light = light.data();
@@ -161,8 +161,9 @@ void InstancingControls::generateInstances()
   });
   attrArray->unmap();
 
-  (*xfmArrayNode)->customParameters["color"] =
-      tsd::core::Any(ANARI_ARRAY1D, attrArray.index());
+  (*xfmArrayNode)
+      ->setInstanceParameter(
+          "color", tsd::core::Any(ANARI_ARRAY1D, attrArray.index()));
 
   // Generate mesh //
 

@@ -52,8 +52,7 @@ ArrayRef Scene::createArrayCUDA(
   return createArrayImpl(type, items0, items1, items2, Array::MemoryKind::CUDA);
 }
 
-SurfaceRef Scene::createSurface(
-    const char *name, GeometryRef g, MaterialRef m)
+SurfaceRef Scene::createSurface(const char *name, GeometryRef g, MaterialRef m)
 {
   auto surface = createObject<Surface>();
   surface->setGeometry(g);
@@ -148,11 +147,16 @@ size_t Scene::numberOfObjects(anari::DataType type) const
 void Scene::removeObject(const Any &o)
 {
   if (auto *optr = getObject(o.type(), o.getAsObjectIndex()); optr)
-    removeObject(*optr);
+    removeObject(optr);
 }
 
-void Scene::removeObject(const Object &o)
+void Scene::removeObject(const Object *_o)
 {
+  if (!_o)
+    return;
+
+  auto &o = *_o;
+
   if (m_updateDelegate)
     m_updateDelegate->signalObjectRemoved(&o);
 
@@ -355,7 +359,7 @@ LayerNodeRef Scene::insertChildNode(LayerNodeRef parent, const char *name)
 {
   auto *layer = parent->container();
   auto inst = layer->insert_last_child(parent, tsd::core::Any{});
-  (*inst)->name = name;
+  (*inst)->name() = name;
   return inst;
 }
 
@@ -364,7 +368,7 @@ LayerNodeRef Scene::insertChildTransformNode(
 {
   auto *layer = parent->container();
   auto inst = layer->insert_last_child(parent, tsd::core::Any{xfm});
-  (*inst)->name = name;
+  (*inst)->name() = name;
   signalLayerChange(parent->container());
   return inst;
 }
@@ -373,7 +377,7 @@ LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, anari::DataType type, size_t idx, const char *name)
 {
   auto inst = parent->insert_last_child(tsd::core::Any{type, idx});
-  (*inst)->name = name;
+  (*inst)->name() = name;
   signalLayerChange(parent->container());
   return inst;
 }
@@ -396,7 +400,7 @@ void Scene::removeInstancedObject(
     });
 
     for (auto &o : objects)
-      removeObject(o->value().value);
+      removeObject(o->value().getObject(this));
   }
 
   layer->erase(obj);
@@ -486,13 +490,13 @@ void Scene::defragmentObjectStorage()
     layer.traverse(layer.root(), [&](LayerNode &node, int /*level*/) {
       if (!node->isObject())
         return true;
-      auto objType = node->value.type();
+      auto objType = node->type();
       if (!defragmentations[objType])
         return true;
 
-      size_t newIdx = getUpdatedIndex(objType, node->value.getAsObjectIndex());
+      size_t newIdx = getUpdatedIndex(objType, node->getObjectIndex());
       if (newIdx != INVALID_INDEX)
-        node->value = Any(objType, newIdx);
+        node->setAsObject(objType, newIdx);
       else
         toErase.push_back(&node);
 
@@ -592,10 +596,10 @@ void Scene::removeUnusedObjects()
   auto countLayerObjReferenceIndices = [&](Layer &layer) {
     layer.traverse(layer.root(), [&](LayerNode &node, int /*level*/) {
       if (node->isObject()) {
-        auto objType = node->value.type();
+        auto objType = node->type();
         if (anari::isArray(objType))
           objType = ANARI_ARRAY;
-        auto idx = node->value.getAsObjectIndex();
+        auto idx = node->getObjectIndex();
         if (idx != INVALID_INDEX)
           usages[objType][idx]++;
       }
@@ -649,7 +653,7 @@ void Scene::removeUnusedObjects()
             usages[objType][idx]--;
         }
 
-        removeObject(*ref);
+        removeObject(ref.data());
       }
     });
   };

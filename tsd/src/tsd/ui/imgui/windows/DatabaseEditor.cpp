@@ -31,7 +31,7 @@ void DatabaseEditor::buildUI()
 
         ImGui::PushID(o);
         if (ImGui::Button("delete"))
-          appCore()->tsd.scene.removeObject(*o);
+          appCore()->tsd.scene.removeObject(o);
         else
           tsd::ui::buildUI_object(*o, appCore()->tsd.scene, true);
         ImGui::PopID();

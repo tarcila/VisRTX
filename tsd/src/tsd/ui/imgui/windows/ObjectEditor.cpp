@@ -35,38 +35,23 @@ void ObjectEditor::buildUI()
     } else if (selectedNode->isTransform()) {
       // Setup transform values //
 
-      math::mat3 srt;
-
+      auto srt = selectedNode->getTransformSRT();
       auto &sc = srt[0];
       auto &azelrot = srt[1];
       auto &tl = srt[2];
-
-      auto setSRTCache = [&]() {
-        math::mat4 rot;
-        math::decomposeMatrix(selectedNode->getTransform(), sc, rot, tl);
-        azelrot = math::degrees(math::matrixToAzElRoll(rot));
-        selectedNode->valueCache["SRT"] = srt;
-      };
-
-      const bool hasCachedSRT = selectedNode->valueCache.contains("SRT");
-      if (hasCachedSRT)
-        srt = selectedNode->valueCache["SRT"].getAs<math::mat3>();
-      else
-        setSRTCache();
 
       // UI widgets //
 
       bool doUpdate = false;
 
-      ImGui::BeginDisabled(selectedNode->value == selectedNode->defaultValue);
+      ImGui::BeginDisabled(selectedNode->isDefaultValue());
       if (ImGui::Button("reset")) {
-        selectedNode->value = selectedNode->defaultValue;
+        selectedNode->setToDefaultValue();
         doUpdate = true;
-        setSRTCache();
       }
       ImGui::SameLine();
       if (ImGui::Button("set default"))
-        selectedNode->defaultValue = selectedNode->value;
+        selectedNode->setCurrentValueAsDefault();
       ImGui::EndDisabled();
 
       doUpdate |= ImGui::DragFloat3("scale", &sc.x);
@@ -76,26 +61,13 @@ void ObjectEditor::buildUI()
       // Handle transform update //
 
       if (doUpdate) {
-        auto rot = math::IDENTITY_MAT4;
-        rot = math::mul(rot,
-            math::rotation_matrix(math::rotation_quat(
-                math::float3(0.f, 1.f, 0.f), math::radians(azelrot.x))));
-        rot = math::mul(rot,
-            math::rotation_matrix(math::rotation_quat(
-                math::float3(1.f, 0.f, 0.f), math::radians(azelrot.y))));
-        rot = math::mul(rot,
-            math::rotation_matrix(math::rotation_quat(
-                math::float3(0.f, 0.f, 1.f), math::radians(azelrot.z))));
-
-        selectedNode->value = math::mul(math::translation_matrix(tl),
-            math::mul(rot, math::scaling_matrix(sc)));
-        selectedNode->valueCache["SRT"] = srt;
+        selectedNode->setAsTransform(srt);
         auto *layer = selectedNode.container();
         scene->signalLayerChange(layer);
       }
     } else if (!selectedNode->isEmpty()) {
       ImGui::Text(
-          "{unhandled '%s' node}", anari::toString(selectedNode->value.type()));
+          "{unhandled '%s' node}", anari::toString(selectedNode->type()));
     } else {
       ImGui::Text("TODO: empty node");
     }

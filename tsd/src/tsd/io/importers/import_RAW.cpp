@@ -72,8 +72,8 @@ SpatialFieldRef import_RAW(Scene &scene, const char *filepath)
   if (!std::fread((char *)voxelData, size, 1, fileHandle)) {
     logError("[import_RAW] unable to open RAW file: '%s'", file.c_str());
     voxelArray->unmap();
-    scene.removeObject(*voxelArray);
-    scene.removeObject(*field);
+    scene.removeObject(voxelArray.data());
+    scene.removeObject(field.data());
     std::fclose(fileHandle);
     return {};
   }

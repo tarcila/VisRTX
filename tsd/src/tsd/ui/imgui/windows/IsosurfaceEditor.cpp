@@ -69,7 +69,7 @@ void IsosurfaceEditor::buildUI()
       std::copy(isovalues + i + 1, isovalues + arr->size(), v + i);
       newArr->unmap();
       selectedIsosurface->setParameterObject("isovalue", *newArr);
-      scene.removeObject(*arr);
+      scene.removeObject(arr);
     }
     ImGui::EndDisabled();
 
@@ -88,7 +88,7 @@ void IsosurfaceEditor::buildUI()
     auto newArr = scene.createArray(ANARI_FLOAT32, arr->size() + 1);
     newArr->setData(isovalues, arr->size(), 0);
     selectedIsosurface->setParameterObject("isovalue", *newArr);
-    scene.removeObject(*arr);
+    scene.removeObject(arr);
   }
 }
 

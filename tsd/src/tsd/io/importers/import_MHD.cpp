@@ -102,8 +102,8 @@ SpatialFieldRef import_MHD(Scene &scene, const char *filepath)
     logError(
         "[import_RAW] unable to open RAW file: '%s'", dataFilepath.c_str());
     voxelArray->unmap();
-    scene.removeObject(*voxelArray);
-    scene.removeObject(*field);
+    scene.removeObject(voxelArray.data());
+    scene.removeObject(field.data());
     fclose(fileHandle);
     return {};
   }
