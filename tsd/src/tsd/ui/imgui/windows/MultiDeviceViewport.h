@@ -7,6 +7,7 @@
 #include <tsd/ui/imgui/windows/Window.h>
 // tsd_rendering
 #include <tsd/rendering/pipeline/RenderPipeline.h>
+#include <tsd/rendering/pipeline/passes/SSAOPass.h>
 #include <tsd/rendering/index/RenderIndexAllLayers.hpp>
 #include <tsd/rendering/view/Manipulator.hpp>
 // std
@@ -79,10 +80,16 @@ struct MultiDeviceViewport : public Window
   // display //
 
   bool m_showAxes{true};
+  bool m_enableSSAO{false};
+  float m_ssaoRadius{0.5f};
+  float m_ssaoBias{0.025f};
+  float m_ssaoIntensity{1.0f};
+  int m_ssaoSamples{64};
 
   tsd::rendering::RenderPipeline m_pipeline;
   tsd::rendering::MultiDeviceSceneRenderPass *m_anariPass{nullptr};
   tsd::rendering::AnariAxesRenderPass *m_axesPass{nullptr};
+  tsd::rendering::SSAOPass *m_ssaoPass{nullptr};
   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
 
   tsd::math::int2 m_viewportSize{0, 0};

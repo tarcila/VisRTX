@@ -251,6 +251,17 @@ void MultiDeviceViewport::setupRenderPipeline(
     anari::release(d, d);
   }
 
+  // Add SSAO pass if enabled
+  if (m_enableSSAO) {
+    m_ssaoPass = m_pipeline.emplace_back<tsd::rendering::SSAOPass>();
+    m_ssaoPass->setRadius(m_ssaoRadius);
+    m_ssaoPass->setBias(m_ssaoBias);
+    m_ssaoPass->setIntensity(m_ssaoIntensity);
+    m_ssaoPass->setSampleCount(m_ssaoSamples);
+  } else {
+    m_ssaoPass = nullptr;
+  }
+
   m_outputPass = m_pipeline.emplace_back<tsd::rendering::CopyToSDLTexturePass>(
       m_app->sdlRenderer());
 
@@ -430,6 +441,50 @@ void MultiDeviceViewport::ui_menubar()
 
         if (current != m_resolutionScale)
           reshape(m_viewportSize);
+
+        ImGui::Unindent(INDENT_AMOUNT);
+      }
+
+      ImGui::Separator();
+
+      {
+        ImGui::Text("Postprocessing:");
+        ImGui::Indent(INDENT_AMOUNT);
+
+        bool ssaoChanged = false;
+        if (ImGui::Checkbox("Enable SSAO", &m_enableSSAO))
+          ssaoChanged = true;
+
+        if (m_enableSSAO) {
+          ImGui::Indent(INDENT_AMOUNT);
+          if (ImGui::SliderFloat("Radius", &m_ssaoRadius, 0.1f, 2.0f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setRadius(m_ssaoRadius);
+          }
+          if (ImGui::SliderFloat("Bias", &m_ssaoBias, 0.0f, 0.1f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setBias(m_ssaoBias);
+          }
+          if (ImGui::SliderFloat("Intensity", &m_ssaoIntensity, 0.0f, 3.0f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setIntensity(m_ssaoIntensity);
+          }
+          if (ImGui::SliderInt("Samples", &m_ssaoSamples, 8, 128)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setSampleCount(m_ssaoSamples);
+          }
+          ImGui::Unindent(INDENT_AMOUNT);
+        }
+
+        if (ssaoChanged) {
+          auto devices = std::vector<anari::Device>();
+          if (m_ri) {
+            for (size_t i = 0; i < m_ri->size(); i++) {
+              devices.push_back(getRenderIndex(i)->device());
+            }
+          }
+          setupRenderPipeline(devices);
+        }
 
         ImGui::Unindent(INDENT_AMOUNT);
       }

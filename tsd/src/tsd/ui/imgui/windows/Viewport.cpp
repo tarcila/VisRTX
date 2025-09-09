@@ -453,6 +453,18 @@ void Viewport::setupRenderPipeline()
       m_pipeline.emplace_back<tsd::rendering::VisualizeDepthPass>();
   m_visualizeDepthPass->setEnabled(false);
   m_outlinePass = m_pipeline.emplace_back<tsd::rendering::OutlineRenderPass>();
+  
+  // Add SSAO pass if enabled
+  if (m_enableSSAO) {
+    m_ssaoPass = m_pipeline.emplace_back<tsd::rendering::SSAOPass>();
+    m_ssaoPass->setRadius(m_ssaoRadius);
+    m_ssaoPass->setBias(m_ssaoBias);
+    m_ssaoPass->setIntensity(m_ssaoIntensity);
+    m_ssaoPass->setSampleCount(m_ssaoSamples);
+  } else {
+    m_ssaoPass = nullptr;
+  }
+  
   m_axesPass = m_pipeline.emplace_back<tsd::rendering::AnariAxesRenderPass>(
       m_device, m_extensions);
   m_axesPass->setEnabled(m_showAxes);
@@ -468,6 +480,12 @@ void Viewport::teardownDevice()
 
   m_pipeline.clear();
   m_anariPass = nullptr;
+  m_pickPass = nullptr;
+  m_visualizeDepthPass = nullptr;
+  m_outlinePass = nullptr;
+  m_axesPass = nullptr;
+  m_ssaoPass = nullptr;
+  m_outputPass = nullptr;
   m_outlinePass = nullptr;
   m_outputPass = nullptr;
 
@@ -874,6 +892,44 @@ void Viewport::ui_menubar()
 
         if (current != m_resolutionScale)
           reshape(m_viewportSize);
+
+        ImGui::Unindent(INDENT_AMOUNT);
+      }
+
+      ImGui::Separator();
+
+      {
+        ImGui::Text("Postprocessing:");
+        ImGui::Indent(INDENT_AMOUNT);
+
+        bool ssaoChanged = false;
+        if (ImGui::Checkbox("Enable SSAO", &m_enableSSAO))
+          ssaoChanged = true;
+
+        if (m_enableSSAO) {
+          ImGui::Indent(INDENT_AMOUNT);
+          if (ImGui::SliderFloat("Radius", &m_ssaoRadius, 0.1f, 2.0f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setRadius(m_ssaoRadius);
+          }
+          if (ImGui::SliderFloat("Bias", &m_ssaoBias, 0.0f, 0.1f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setBias(m_ssaoBias);
+          }
+          if (ImGui::SliderFloat("Intensity", &m_ssaoIntensity, 0.0f, 3.0f)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setIntensity(m_ssaoIntensity);
+          }
+          if (ImGui::SliderInt("Samples", &m_ssaoSamples, 8, 128)) {
+            if (m_ssaoPass)
+              m_ssaoPass->setSampleCount(m_ssaoSamples);
+          }
+          ImGui::Unindent(INDENT_AMOUNT);
+        }
+
+        if (ssaoChanged) {
+          setupRenderPipeline();
+        }
 
         ImGui::Unindent(INDENT_AMOUNT);
       }

@@ -9,10 +9,13 @@
 // tsd_core
 #include "tsd/core/scene/Object.hpp"
 #include "tsd/core/scene/UpdateDelegate.hpp"
+// tsd_ui_imgui
+#include <tsd/ui/imgui/windows/Window.h>
 // tsd_rendering
-#include "tsd/rendering/index/RenderIndex.hpp"
-#include "tsd/rendering/pipeline/RenderPipeline.h"
-#include "tsd/rendering/view/Manipulator.hpp"
+#include <tsd/rendering/pipeline/RenderPipeline.h>
+#include <tsd/rendering/pipeline/passes/SSAOPass.h>
+#include <tsd/rendering/index/RenderIndexAllLayers.hpp>
+#include <tsd/rendering/view/Manipulator.hpp>
 // std
 #include <array>
 #include <functional>
@@ -91,6 +94,13 @@ struct Viewport : public Window
   bool m_showAxes{true};
   float m_depthVisualMaximum{1.f};
 
+  // SSAO parameters
+  bool m_enableSSAO{false};
+  float m_ssaoRadius{0.5f};
+  float m_ssaoBias{0.025f};
+  float m_ssaoIntensity{1.0f};
+  int m_ssaoSamples{64};
+
   float m_fov{40.f};
 
   // Picking state //
@@ -139,6 +149,7 @@ struct Viewport : public Window
   tsd::rendering::VisualizeDepthPass *m_visualizeDepthPass{nullptr};
   tsd::rendering::OutlineRenderPass *m_outlinePass{nullptr};
   tsd::rendering::AnariAxesRenderPass *m_axesPass{nullptr};
+  tsd::rendering::SSAOPass *m_ssaoPass{nullptr};
   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
 
   tsd::math::int2 m_viewportSize{0, 0};

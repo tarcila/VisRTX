@@ -18,6 +18,7 @@ PRIVATE
   pipeline/passes/OutlineRenderPass.cpp
   pipeline/passes/PickPass.cpp
   pipeline/passes/RenderPass.cpp
+  pipeline/passes/SSAOPass.cpp
   pipeline/passes/VisualizeDepthPass.cpp
   pipeline/RenderPipeline.cpp
   view/ManipulatorToAnari.cpp
@@ -37,6 +38,7 @@ if (TSD_USE_CUDA)
     pipeline/passes/AnariSceneRenderPass.cpp
     pipeline/passes/OutlineRenderPass.cpp
     pipeline/passes/RenderPass.cpp
+    pipeline/passes/SSAOPass.cpp
     pipeline/passes/VisualizeDepthPass.cpp
     PROPERTIES
       COMPILE_OPTIONS "--extended-lambda;--expt-relaxed-constexpr;-Xcudafe=--diag_suppress=20012;-Wno-deprecated-gpu-targets"
