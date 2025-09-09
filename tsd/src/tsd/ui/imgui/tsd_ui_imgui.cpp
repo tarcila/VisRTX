@@ -117,7 +117,7 @@ static void buildUI_parameter_contextMenu(
             }
 
             if (ImGui::MenuItem("mdl")) {
-              m = ctx.createObject<tsd::core::Material>(
+              m = scene.createObject<tsd::core::Material>(
                   tsd::core::tokens::material::mdl);
             }
 
