@@ -65,6 +65,7 @@ using LayerMap = FlatMap<Token, LayerState>;
 struct Scene
 {
   Scene();
+  ~Scene();
 
   Scene(const Scene &) = delete;
   Scene &operator=(const Scene &) = delete;
@@ -316,7 +317,7 @@ inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
     IndexedVector<OBJ_T> &iv, Token subtype)
 {
   auto retval = iv.emplace(subtype);
-  retval->m_context = this;
+  retval->m_scene = this;
   retval->m_index = retval.index();
   if (m_updateDelegate) {
     retval->setUpdateDelegate(m_updateDelegate);
@@ -326,11 +327,10 @@ inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
 }
 
 template <typename OBJ_T>
-inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
-    IndexedVector<OBJ_T> &iv)
+inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(IndexedVector<OBJ_T> &iv)
 {
   auto retval = iv.emplace();
-  retval->m_context = this;
+  retval->m_scene = this;
   retval->m_index = retval.index();
   if (m_updateDelegate) {
     retval->setUpdateDelegate(m_updateDelegate);
@@ -364,10 +364,10 @@ inline T *Object::parameterValueAsObject(Token name)
       "Object::parameterValueAsObject() can only retrieve object values");
 
   auto *p = parameter(name);
-  auto *scene = context();
-  if (!p || !scene || !p->value().holdsObject())
+  auto *s = scene();
+  if (!p || !s || !p->value().holdsObject())
     return nullptr;
-  return (T *)scene->getObject(p->value());
+  return (T *)s->getObject(p->value());
 }
 
 } // namespace tsd::core

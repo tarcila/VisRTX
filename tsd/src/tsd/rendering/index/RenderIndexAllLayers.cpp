@@ -172,7 +172,7 @@ void RenderIndexAllLayers::syncLayerInstances(
   auto *layer = const_cast<Layer *>(_layer);
 
   RenderToAnariObjectsVisitor visitor(
-      d, m_cache, &instances, m_ctx, mask, m_filter ? &m_filter : nullptr);
+      d, m_cache, &instances, mask, m_filter ? &m_filter : nullptr);
   layer->traverse(layer->root(), visitor);
 
   auto &cached = m_instanceCache[layer];

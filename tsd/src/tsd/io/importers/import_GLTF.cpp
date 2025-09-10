@@ -1318,10 +1318,8 @@ static void populateGLTFLayer(Scene &scene,
   }
 
   // Add light if present (KHR_lights_punctual extension)
-  if (node.light >= 0 && node.light < lights.size()) {
-    auto light = lights[node.light];
-    nodeRef->insert_first_child({ANARI_LIGHT, light->index()});
-  }
+  if (node.light >= 0 && node.light < lights.size())
+    nodeRef->insert_first_child({lights[node.light]});
 
   // Process children
   for (int childIndex : node.children) {

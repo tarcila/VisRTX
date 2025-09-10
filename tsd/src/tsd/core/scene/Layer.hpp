@@ -20,12 +20,20 @@ struct LayerNodeData
   LayerNodeData() = default;
   LayerNodeData(const char *n);
   LayerNodeData(Object *o, const char *n = "");
-  LayerNodeData(anari::DataType type, size_t index, const char *n = "");
+  LayerNodeData(
+      anari::DataType type, size_t index, Scene *s, const char *n = "");
   LayerNodeData(const math::mat4 &m, const char *n = "");
   LayerNodeData(const math::mat3 &m, const char *n = "");
   LayerNodeData(Array *a, const char *n = "");
   template <typename T>
   LayerNodeData(IndexedVectorRef<T> obj, const char *n = "");
+
+  LayerNodeData(const LayerNodeData &o);
+  LayerNodeData(LayerNodeData &&o);
+  LayerNodeData &operator=(const LayerNodeData &o);
+  LayerNodeData &operator=(LayerNodeData &&o);
+
+  ~LayerNodeData();
 
   bool hasDefault() const;
   bool isDefaultValue() const;
@@ -39,25 +47,27 @@ struct LayerNodeData
   bool isEnabled() const;
 
   void setAsObject(Object *o);
-  void setAsObject(anari::DataType type, size_t index);
+  void setAsObject(anari::DataType type, size_t index, Scene *s);
   void setAsTransform(const math::mat4 &m);
   void setAsTransform(const math::mat4 &m, const math::mat4 &defaultM);
   void setAsTransform(const math::mat3 &srt);
   void setAsTransformArray(Array *a);
+  void setEmpty();
+
   void setEnabled(bool enabled);
 
-  Object *getObject(Scene *scene) const;
+  Object *getObject() const;
   size_t getObjectIndex() const;
   math::mat4 getTransform() const;
   math::mat3 getTransformSRT() const;
-  Array *getTransformArray(Scene *scene) const;
+  Array *getTransformArray() const;
 
   std::string &name();
 
   //////////////////////////////////////////////////////////////////
   // Warning: these operate on the raw Any value, no type checking!
   Any getValueRaw() const;
-  void setValueRaw(const Any &v);
+  void setValueRaw(const Any &v, Scene *scene = nullptr);
   //////////////////////////////////////////////////////////////////
 
   const InstanceParameterMap &getInstanceParameters() const;
@@ -65,6 +75,9 @@ struct LayerNodeData
   void clearInstanceParameters();
 
  private:
+  void incObjectUseCount();
+  void decObjectUseCount();
+
   // Data //
 
   std::string m_name;
@@ -73,6 +86,7 @@ struct LayerNodeData
   Any m_defaultValue;
   math::mat3 m_srt; // scale, azelrot, translation
   InstanceParameterMap m_instanceParameters;
+  Scene *m_scene{nullptr};
 };
 
 using Layer = Forest<LayerNodeData>;

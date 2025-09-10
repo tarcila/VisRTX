@@ -181,6 +181,10 @@ void buildUI_object(tsd::core::Object &o,
         o.subtype().c_str());
   }
 
+  ImGui::Text("use count: %zu", o.useCount());
+
+  ImGui::Separator();
+
   if (o.numParameters() > 0) {
     // regular parameters //
 

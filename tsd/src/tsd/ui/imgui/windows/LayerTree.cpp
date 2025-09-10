@@ -123,7 +123,7 @@ void LayerTree::buildUI_tree()
           | ImGuiTreeNodeFlags_OpenOnDoubleClick
           | ImGuiTreeNodeFlags_SpanAvailWidth;
 
-      tsd::core::Object *obj = node->getObject(&scene);
+      tsd::core::Object *obj = node->getObject();
 
       const bool firstDisabled =
           firstDisabledNode == nullptr && !node->isEnabled();

@@ -3,6 +3,8 @@
 
 #include "tsd/core/scene/Object.hpp"
 #include "tsd/core/AnariObjectCache.hpp"
+#include "tsd/core/Logging.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <iomanip>
 
@@ -36,30 +38,42 @@ Object::Object(anari::DataType type, Token stype)
     : m_type(type), m_subtype(stype)
 {}
 
+Object::~Object()
+{
+  for (auto &p : m_parameters)
+    decObjectUseCountParameter(&p.second);
+}
+
 Object::Object(Object &&o)
 {
+  for (auto &p : m_parameters)
+    decObjectUseCountParameter(&p.second);
   m_parameters = std::move(o.m_parameters);
   m_type = std::move(o.m_type);
   m_subtype = std::move(o.m_subtype);
   m_name = std::move(o.m_name);
-  m_context = std::move(o.m_context);
+  m_scene = std::move(o.m_scene);
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
+  m_useCount = std::move(o.m_useCount);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
 }
 
 Object &Object::operator=(Object &&o)
 {
+  for (auto &p : m_parameters)
+    decObjectUseCountParameter(&p.second);
   m_parameters = std::move(o.m_parameters);
   m_type = std::move(o.m_type);
   m_subtype = std::move(o.m_subtype);
   m_name = std::move(o.m_name);
-  m_context = std::move(o.m_context);
+  m_scene = std::move(o.m_scene);
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
+  m_useCount = std::move(o.m_useCount);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
   return *this;
@@ -80,9 +94,32 @@ size_t Object::index() const
   return m_index;
 }
 
-Scene *Object::context() const
+Scene *Object::scene() const
 {
-  return m_context;
+  return m_scene;
+}
+
+size_t Object::useCount() const
+{
+  return m_useCount;
+}
+
+void Object::incUseCount()
+{
+  m_useCount++;
+}
+
+void Object::decUseCount()
+{
+  if (m_useCount > 0)
+    m_useCount--;
+  else {
+    logError(
+        "Object::decUseCount() called on object with zero use count on object"
+        " of type %s and name '%s'",
+        anari::toString(type()),
+        name().c_str());
+  }
 }
 
 const std::string &Object::name() const
@@ -170,9 +207,10 @@ Parameter *Object::setParameter(Token name, ANARIDataType type, const void *v)
     return nullptr;
 
   auto *p = parameter(name);
-  if (p)
+  if (p) {
+    decObjectUseCountParameter(p);
     p->setValue({type, v});
-  else {
+  } else {
     p = &(addParameter(name));
     p->setValue({type, v});
   }
@@ -182,9 +220,10 @@ Parameter *Object::setParameter(Token name, ANARIDataType type, const void *v)
 Parameter *Object::setParameterObject(Token name, const Object &obj)
 {
   auto *p = parameter(name);
-  if (p)
+  if (p) {
+    decObjectUseCountParameter(p);
     p->setValue({obj.type(), obj.index()});
-  else {
+  } else {
     p = &(addParameter(name));
     p->setValue({obj.type(), obj.index()});
   }
@@ -198,8 +237,11 @@ Parameter *Object::parameter(Token name)
 
 void Object::removeParameter(Token name)
 {
-  if (auto *p = parameter(name); p && m_updateDelegate)
-    m_updateDelegate->signalParameterRemoved(this, p);
+  if (auto *p = parameter(name); p) {
+    decObjectUseCountParameter(p);
+    if (m_updateDelegate)
+      m_updateDelegate->signalParameterRemoved(this, p);
+  }
   m_parameters.erase(name);
 }
 
@@ -285,8 +327,11 @@ void Object::setUpdateDelegate(BaseUpdateDelegate *ud)
   m_updateDelegate = ud;
 }
 
-void Object::parameterChanged(const Parameter *p)
+void Object::parameterChanged(const Parameter *p, const Any &oldValue)
 {
+  if (auto *obj = m_scene->getObject(oldValue))
+    obj->decUseCount();
+  incObjectUseCountParameter(p);
   if (m_updateDelegate)
     m_updateDelegate->signalParameterUpdated(this, p);
 }
@@ -299,6 +344,18 @@ void Object::removeParameter(const Parameter *p)
 BaseUpdateDelegate *Object::updateDelegate() const
 {
   return m_updateDelegate;
+}
+
+void Object::incObjectUseCountParameter(const Parameter *p)
+{
+  if (auto *obj = m_scene->getObject(p->value()))
+    obj->incUseCount();
+}
+
+void Object::decObjectUseCountParameter(const Parameter *p)
+{
+  if (auto *obj = m_scene->getObject(p->value()))
+    obj->decUseCount();
 }
 
 void Object::initMetadata() const

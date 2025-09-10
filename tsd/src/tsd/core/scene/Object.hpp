@@ -46,7 +46,7 @@ struct Object : public ParameterObserver
   using ParameterMap = FlatMap<Token, Parameter>;
 
   Object(anari::DataType type = ANARI_UNKNOWN, Token subtype = tokens::none);
-  virtual ~Object() = default;
+  virtual ~Object();
 
   // Movable, not copyable
   Object(const Object &) = delete;
@@ -57,7 +57,13 @@ struct Object : public ParameterObserver
   virtual anari::DataType type() const;
   Token subtype() const;
   size_t index() const;
-  Scene *context() const;
+  Scene *scene() const;
+
+  //// Use count tracking (Scene garbage collection) ////
+
+  size_t useCount() const;
+  void incUseCount();
+  void decUseCount();
 
   //// Metadata ////
 
@@ -122,16 +128,19 @@ struct Object : public ParameterObserver
   void setUpdateDelegate(BaseUpdateDelegate *ud);
 
  protected:
-  virtual void parameterChanged(const Parameter *p) override;
+  virtual void parameterChanged(const Parameter *p, const Any &oldVal) override;
   virtual void removeParameter(const Parameter *p) override;
   BaseUpdateDelegate *updateDelegate() const;
 
  private:
   friend struct Scene;
 
+  void incObjectUseCountParameter(const Parameter *p);
+  void decObjectUseCountParameter(const Parameter *p);
+
   void initMetadata() const;
 
-  Scene *m_context{nullptr};
+  Scene *m_scene{nullptr};
   ParameterMap m_parameters;
   anari::DataType m_type{ANARI_UNKNOWN};
   Token m_subtype;
@@ -140,6 +149,7 @@ struct Object : public ParameterObserver
   size_t m_index{0};
   BaseUpdateDelegate *m_updateDelegate{nullptr};
   mutable std::unique_ptr<core::DataTree> m_metadata;
+  size_t m_useCount{0};
 };
 
 void print(const Object &obj, std::ostream &out = std::cout);
@@ -152,6 +162,27 @@ constexpr bool isObject()
   return std::is_same<Object, T>::value || std::is_base_of<Object, T>::value;
 }
 
+// Object use-count pointer type //////////////////////////////////////////////
+
+struct ObjectUsePtr
+{
+  ObjectUsePtr() = default;
+  ObjectUsePtr(Object *o);
+  ObjectUsePtr(const ObjectUsePtr &o);
+  ObjectUsePtr(ObjectUsePtr &&o);
+  ~ObjectUsePtr();
+
+  ObjectUsePtr &operator=(const ObjectUsePtr &o);
+  ObjectUsePtr &operator=(ObjectUsePtr &&o);
+
+  Object *get() const;
+  Object *operator->() const;
+  operator bool() const;
+
+ private:
+  Object *m_object{nullptr};
+};
+
 // ANARI object info parsing //////////////////////////////////////////////////
 
 std::vector<std::string> getANARIObjectSubtypes(
@@ -161,6 +192,8 @@ Object parseANARIObjectInfo(
     anari::Device d, ANARIDataType type, const char *subtype);
 
 // Inlined definitions ////////////////////////////////////////////////////////
+
+// Object //
 
 template <typename T>
 inline Parameter *Object::setParameter(Token name, T value)
@@ -183,6 +216,69 @@ inline std::optional<T> Object::parameterValueAs(Token name)
   if (!p || !p->value().is<T>())
     return {};
   return p->value().get<T>();
+}
+
+// ObjectUsePtr //
+
+inline ObjectUsePtr::ObjectUsePtr(Object *o) : m_object(o)
+{
+  if (m_object)
+    m_object->incUseCount();
+}
+
+inline ObjectUsePtr::ObjectUsePtr(const ObjectUsePtr &o) : m_object(o.m_object)
+{
+  if (m_object)
+    m_object->incUseCount();
+}
+
+inline ObjectUsePtr::ObjectUsePtr(ObjectUsePtr &&o) : m_object(o.m_object)
+{
+  o.m_object = nullptr;
+}
+
+inline ObjectUsePtr::~ObjectUsePtr()
+{
+  if (m_object)
+    m_object->decUseCount();
+}
+
+inline ObjectUsePtr &ObjectUsePtr::operator=(const ObjectUsePtr &o)
+{
+  if (this != &o) {
+    if (m_object)
+      m_object->decUseCount();
+    m_object = o.m_object;
+    if (m_object)
+      m_object->incUseCount();
+  }
+  return *this;
+}
+
+inline ObjectUsePtr &ObjectUsePtr::operator=(ObjectUsePtr &&o)
+{
+  if (this != &o) {
+    if (m_object)
+      m_object->decUseCount();
+    m_object = o.m_object;
+    o.m_object = nullptr;
+  }
+  return *this;
+}
+
+inline Object *ObjectUsePtr::get() const
+{
+  return m_object;
+}
+
+inline Object *ObjectUsePtr::operator->() const
+{
+  return m_object;
+}
+
+inline ObjectUsePtr::operator bool() const
+{
+  return m_object != nullptr;
 }
 
 } // namespace tsd::core

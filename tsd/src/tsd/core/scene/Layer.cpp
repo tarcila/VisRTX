@@ -2,15 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/Layer.hpp"
+#include "tsd/core/Logging.hpp"
 #include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
 LayerNodeData::LayerNodeData(const char *n) : m_name(n)
 {
-  m_srt[0] = math::float3(1.f, 1.f, 1.f);
-  m_srt[1] = math::float3(0.f, 0.f, 0.f);
-  m_srt[2] = math::float3(0.f, 0.f, 0.f);
+  setEmpty();
 }
 
 LayerNodeData::LayerNodeData(Object *o, const char *n) : LayerNodeData(n)
@@ -18,10 +17,11 @@ LayerNodeData::LayerNodeData(Object *o, const char *n) : LayerNodeData(n)
   setAsObject(o);
 }
 
-LayerNodeData::LayerNodeData(anari::DataType type, size_t index, const char *n)
+LayerNodeData::LayerNodeData(
+    anari::DataType type, size_t index, Scene *s, const char *n)
     : LayerNodeData(n)
 {
-  setAsObject(type, index);
+  setAsObject(type, index, s);
 }
 
 LayerNodeData::LayerNodeData(const math::mat4 &m, const char *n)
@@ -39,6 +39,65 @@ LayerNodeData::LayerNodeData(const math::mat3 &m, const char *n)
 LayerNodeData::LayerNodeData(Array *a, const char *n) : LayerNodeData(n)
 {
   setAsTransformArray(a);
+}
+
+LayerNodeData::LayerNodeData(const LayerNodeData &o)
+{
+  m_name = o.m_name;
+  m_enabled = o.m_enabled;
+  m_value = o.m_value;
+  m_defaultValue = o.m_defaultValue;
+  m_srt = o.m_srt;
+  m_instanceParameters = o.m_instanceParameters;
+  m_scene = o.m_scene;
+  incObjectUseCount();
+}
+
+LayerNodeData::LayerNodeData(LayerNodeData &&o)
+{
+  m_name = std::move(o.m_name);
+  m_enabled = std::move(o.m_enabled);
+  m_value = std::move(o.m_value);
+  m_defaultValue = std::move(o.m_defaultValue);
+  m_srt = std::move(o.m_srt);
+  m_instanceParameters = std::move(o.m_instanceParameters);
+  m_scene = std::move(o.m_scene);
+  o.m_scene = nullptr;
+  o.m_value.reset();
+}
+
+LayerNodeData &LayerNodeData::operator=(const LayerNodeData &o)
+{
+  decObjectUseCount();
+  m_name = o.m_name;
+  m_enabled = o.m_enabled;
+  m_value = o.m_value;
+  m_defaultValue = o.m_defaultValue;
+  m_srt = o.m_srt;
+  m_instanceParameters = o.m_instanceParameters;
+  m_scene = o.m_scene;
+  incObjectUseCount();
+  return *this;
+}
+
+LayerNodeData &LayerNodeData::operator=(LayerNodeData &&o)
+{
+  decObjectUseCount();
+  m_name = std::move(o.m_name);
+  m_enabled = std::move(o.m_enabled);
+  m_value = std::move(o.m_value);
+  m_defaultValue = std::move(o.m_defaultValue);
+  m_srt = std::move(o.m_srt);
+  m_instanceParameters = std::move(o.m_instanceParameters);
+  m_scene = std::move(o.m_scene);
+  o.m_scene = nullptr;
+  o.m_value.reset();
+  return *this;
+}
+
+LayerNodeData::~LayerNodeData()
+{
+  decObjectUseCount();
 }
 
 bool LayerNodeData::hasDefault() const
@@ -73,17 +132,17 @@ anari::DataType LayerNodeData::type() const
 
 bool LayerNodeData::isObject() const
 {
-  return anari::isObject(m_value.type());
+  return anari::isObject(type());
 }
 
 bool LayerNodeData::isTransform() const
 {
-  return m_value.type() == ANARI_FLOAT32_MAT4;
+  return type() == ANARI_FLOAT32_MAT4;
 }
 
 bool LayerNodeData::isEmpty() const
 {
-  return m_value;
+  return !m_value;
 }
 
 bool LayerNodeData::isEnabled() const
@@ -93,19 +152,27 @@ bool LayerNodeData::isEnabled() const
 
 void LayerNodeData::setAsObject(Object *o)
 {
-  m_value.reset();
   if (o)
-    setAsObject(o->type(), o->index());
+    setAsObject(o->type(), o->index(), o->scene());
+  else {
+    tsd::core::logWarning(
+        "LayerNodeData::setAsObject() called with null object,"
+        " setting to empty");
+    setEmpty();
+  }
 }
 
-void LayerNodeData::setAsObject(anari::DataType type, size_t index)
+void LayerNodeData::setAsObject(anari::DataType type, size_t index, Scene *s)
 {
-  m_defaultValue.reset();
+  decObjectUseCount();
   m_value = Any(type, index);
+  m_scene = s;
+  incObjectUseCount();
 }
 
 void LayerNodeData::setAsTransform(const math::mat4 &m)
 {
+  decObjectUseCount();
   m_value = m;
   if (!hasDefault())
     m_defaultValue = m_value;
@@ -127,6 +194,7 @@ void LayerNodeData::setAsTransform(
 
 void LayerNodeData::setAsTransform(const math::mat3 &srt)
 {
+  decObjectUseCount();
   m_srt = srt;
   auto &sc = srt[0];
   auto &azelrot = srt[1];
@@ -154,14 +222,26 @@ void LayerNodeData::setAsTransformArray(Array *a)
   setAsObject(a);
 }
 
+void LayerNodeData::setEmpty()
+{
+  decObjectUseCount();
+  m_value.reset();
+  m_srt[0] = math::float3(1.f, 1.f, 1.f);
+  m_srt[1] = math::float3(0.f, 0.f, 0.f);
+  m_srt[2] = math::float3(0.f, 0.f, 0.f);
+  m_scene = nullptr;
+  clearInstanceParameters();
+  m_name.clear();
+}
+
 void LayerNodeData::setEnabled(bool e)
 {
   m_enabled = e;
 }
 
-Object *LayerNodeData::getObject(Scene *scene) const
+Object *LayerNodeData::getObject() const
 {
-  return scene->getObject(m_value);
+  return isObject() && m_scene ? m_scene->getObject(m_value) : nullptr;
 }
 
 size_t LayerNodeData::getObjectIndex() const
@@ -182,9 +262,9 @@ math::mat3 LayerNodeData::getTransformSRT() const
                              math::float3(0.f, 0.f, 0.f)};
 }
 
-Array *LayerNodeData::getTransformArray(Scene *scene) const
+Array *LayerNodeData::getTransformArray() const
 {
-  auto *obj = getObject(scene);
+  auto *obj = getObject();
   if (obj && obj->type() == ANARI_ARRAY1D) {
     auto *a = (Array *)obj;
     if (a->elementType() == ANARI_FLOAT32_MAT4)
@@ -203,10 +283,13 @@ Any LayerNodeData::getValueRaw() const
   return m_value;
 }
 
-void LayerNodeData::setValueRaw(const Any &v)
+void LayerNodeData::setValueRaw(const Any &v, Scene *scene)
 {
+  setEmpty();
+  m_scene = scene;
   m_value = v;
   setCurrentValueAsDefault();
+  incObjectUseCount();
 }
 
 const InstanceParameterMap &LayerNodeData::getInstanceParameters() const
@@ -222,6 +305,18 @@ void LayerNodeData::setInstanceParameter(const std::string &name, Any v)
 void LayerNodeData::clearInstanceParameters()
 {
   m_instanceParameters.clear();
+}
+
+void LayerNodeData::incObjectUseCount()
+{
+  if (auto *o = getObject(); o)
+    o->incUseCount();
+}
+
+void LayerNodeData::decObjectUseCount()
+{
+  if (auto *o = getObject(); o)
+    o->decUseCount();
 }
 
 } // namespace tsd::core

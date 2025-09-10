@@ -68,7 +68,7 @@ anari::Object SpatialField::makeANARIObject(anari::Device d) const
 tsd::math::float2 SpatialField::computeValueRange()
 {
   tsd::math::float2 retval{0.f, 1.f};
-  auto *scene = this->context();
+  auto *scene = this->scene();
   if (!scene)
     return retval;
 

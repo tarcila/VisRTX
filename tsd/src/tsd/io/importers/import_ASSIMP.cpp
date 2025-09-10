@@ -613,7 +613,7 @@ static void populateASSIMPLayer(Scene &scene,
 
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {
     auto mesh = surfaces.at(node->mMeshes[i]);
-    tr->insert_last_child({ANARI_SURFACE, mesh.index(), mesh->name().c_str()});
+    tr->insert_last_child({mesh, mesh->name().c_str()});
   }
 
   // https://github.com/assimp/assimp/issues/1168#issuecomment-278673292
@@ -625,7 +625,7 @@ static void populateASSIMPLayer(Scene &scene,
       [name](const LightRef &lightRef) { return lightRef->name() == name; });
 
   if (it != lights.end())
-    tr->insert_first_child({ANARI_LIGHT, (*it)->index()});
+    tr->insert_first_child({ANARI_LIGHT, (*it)->index(), &scene});
 
   for (unsigned int i = 0; i < node->mNumChildren; i++)
     populateASSIMPLayer(scene, tr, surfaces, lights, node->mChildren[i]);

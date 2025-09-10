@@ -38,9 +38,10 @@ Parameter &Parameter::setDescription(const char *d)
 
 Parameter &Parameter::setValue(const Any &newValue)
 {
+  auto oldValue = m_value;
   m_value = newValue;
   if (m_observer)
-    m_observer->parameterChanged(this);
+    m_observer->parameterChanged(this, oldValue);
   return *this;
 }
 
@@ -78,7 +79,7 @@ Parameter &Parameter::setEnabled(bool enabled)
 {
   m_enabled = enabled;
   if (m_observer)
-    m_observer->parameterChanged(this);
+    m_observer->parameterChanged(this, m_value);
   return *this;
 }
 

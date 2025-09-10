@@ -10,7 +10,8 @@ namespace {
 
 struct MockObject : public tsd::core::ParameterObserver
 {
-  void parameterChanged(const tsd::core::Parameter *) override
+  void parameterChanged(
+      const tsd::core::Parameter *, const tsd::core::Any &) override
   {
     notified = true;
   }

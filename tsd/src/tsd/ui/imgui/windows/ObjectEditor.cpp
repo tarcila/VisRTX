@@ -30,7 +30,7 @@ void ObjectEditor::buildUI()
   } else {
     auto &selectedNode = *appCore()->tsd.selectedNode;
 
-    if (auto *selectedObject = selectedNode->getObject(scene); selectedObject) {
+    if (auto *selectedObject = selectedNode->getObject(); selectedObject) {
       tsd::ui::buildUI_object(*selectedObject, appCore()->tsd.scene, true);
     } else if (selectedNode->isTransform()) {
       // Setup transform values //

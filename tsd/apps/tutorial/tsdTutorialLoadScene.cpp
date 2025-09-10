@@ -23,7 +23,7 @@ int main(int argc, const char *argv[])
   printf("----------------------TSD Tree--------------------------\n\n");
 
   auto onNodeEntry = [&](auto &node, int level) {
-    tsd::core::Object *obj = node->getObject(&scene);
+    tsd::core::Object *obj = node->getObject();
 
     const char *typeText = "[-]";
     switch (node->type()) {

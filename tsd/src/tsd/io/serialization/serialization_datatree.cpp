@@ -293,7 +293,7 @@ static void nodeToNewObject(Scene &scene, core::DataNode &node)
   nodeToObject(node, *obj);
 }
 
-static void nodeToLayer(core::DataNode &rootNode, Layer &layer)
+static void nodeToLayer(core::DataNode &rootNode, Layer &layer, Scene &scene)
 {
   std::stack<LayerNodeRef> tsdNodes;
   LayerNodeRef currentParentNode;
@@ -320,7 +320,7 @@ static void nodeToLayer(core::DataNode &rootNode, Layer &layer)
     else {
       currentNode = layer.insert_last_child(
           currentParentNode, {node["name"].getValueAs<std::string>().c_str()});
-      (*currentNode)->setValueRaw(node["value"].getValue());
+      (*currentNode)->setValueRaw(node["value"].getValue(), &scene);
       (*currentNode)->setEnabled(node["enabled"].getValueOr(true));
     }
 
@@ -436,7 +436,7 @@ void load_Scene(Scene &scene, core::DataNode &root)
   layerRoot.foreach_child([&](auto &nLayer) {
     tsd::core::Token layerName = nLayer.name().c_str();
     auto &tLayer = *scene.addLayer(layerName);
-    nodeToLayer(nLayer, tLayer);
+    nodeToLayer(nLayer, tLayer, scene);
     bool active = true;
     nLayer["isActive"].getValue(ANARI_BOOL, &active);
     scene.setLayerActive(layerName, active);

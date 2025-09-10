@@ -12,8 +12,6 @@
 
 namespace tsd::core {
 
-using Any = tsd::core::Any;
-
 enum ParameterUsageHint
 {
   NONE = 0,
@@ -26,7 +24,7 @@ enum ParameterUsageHint
 struct Parameter;
 struct ParameterObserver
 {
-  virtual void parameterChanged(const Parameter *p) = 0;
+  virtual void parameterChanged(const Parameter *p, const Any &oldValue) = 0;
   virtual void removeParameter(const Parameter *p) = 0;
 };
 

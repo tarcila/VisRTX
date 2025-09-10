@@ -30,6 +30,39 @@ Scene::Scene()
   createObject<Material>(tokens::material::matte)->setName("default_material");
 }
 
+Scene::~Scene()
+{
+  m_layers.clear();
+
+  auto reportObjectUsages = [&](auto &array) {
+    foreach_item_const(array, [&](auto *o) {
+      if (!o || o->useCount() == 0)
+        return;
+
+      if (o->type() == ANARI_MATERIAL && o->index() == 0)
+        return;
+
+      logWarning(
+          "Scene::~Scene(): object of type %s, index [%zu], and name '%s' has"
+          " non-zero use count of %zu at scene destruction",
+          anari::toString(o->type()),
+          o->index(),
+          o->name().c_str(),
+          o->useCount());
+    });
+    array.clear();
+  };
+
+  reportObjectUsages(m_db.light);
+  reportObjectUsages(m_db.surface);
+  reportObjectUsages(m_db.volume);
+  reportObjectUsages(m_db.geometry);
+  reportObjectUsages(m_db.material);
+  reportObjectUsages(m_db.sampler);
+  reportObjectUsages(m_db.field);
+  reportObjectUsages(m_db.array);
+}
+
 MaterialRef Scene::defaultMaterial() const
 {
   return getObject<Material>(0);
@@ -376,7 +409,7 @@ LayerNodeRef Scene::insertChildTransformNode(
 LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, anari::DataType type, size_t idx, const char *name)
 {
-  auto inst = parent->insert_last_child({type, idx});
+  auto inst = parent->insert_last_child({type, idx, this});
   (*inst)->name() = name;
   signalLayerChange(parent->container());
   return inst;
@@ -400,7 +433,7 @@ void Scene::removeInstancedObject(
     });
 
     for (auto &o : objects)
-      removeObject(o->value().getObject(this));
+      removeObject(o->value().getObject());
   }
 
   layer->erase(obj);
@@ -496,7 +529,7 @@ void Scene::defragmentObjectStorage()
 
       size_t newIdx = getUpdatedIndex(objType, node->getObjectIndex());
       if (newIdx != INVALID_INDEX)
-        node->setAsObject(objType, newIdx);
+        node->setAsObject(objType, newIdx, this);
       else
         toErase.push_back(&node);
 
@@ -575,102 +608,17 @@ void Scene::removeUnusedObjects()
 {
   tsd::core::logStatus("Removing unused context objects");
 
-  FlatMap<anari::DataType, std::vector<int>> usages;
-
-  usages[ANARI_ARRAY].resize(m_db.array.capacity(), 0);
-  usages[ANARI_SURFACE].resize(m_db.surface.capacity(), 0);
-  usages[ANARI_GEOMETRY].resize(m_db.geometry.capacity(), 0);
-  usages[ANARI_MATERIAL].resize(m_db.material.capacity(), 0);
-  usages[ANARI_SAMPLER].resize(m_db.sampler.capacity(), 0);
-  usages[ANARI_VOLUME].resize(m_db.volume.capacity(), 0);
-  usages[ANARI_SPATIAL_FIELD].resize(m_db.field.capacity(), 0);
-  usages[ANARI_LIGHT].resize(m_db.light.capacity(), 0);
-
   // Always keep around the default material //
-
-  if (!usages[ANARI_MATERIAL].empty())
-    usages[ANARI_MATERIAL][0] = 1;
-
-  // Function to count object references in layers //
-
-  auto countLayerObjReferenceIndices = [&](Layer &layer) {
-    layer.traverse(layer.root(), [&](LayerNode &node, int /*level*/) {
-      if (node->isObject()) {
-        auto objType = node->type();
-        if (anari::isArray(objType))
-          objType = ANARI_ARRAY;
-        auto idx = node->getObjectIndex();
-        if (idx != INVALID_INDEX)
-          usages[objType][idx]++;
-      }
-
-      return true;
-    });
-  };
-
-  // Function to count object references in object parameters //
-
-  auto countParameterReferences = [&](auto &array) {
-    foreach_item(array, [&](Object *o) {
-      if (!o)
-        return;
-      for (size_t i = 0; i < o->numParameters(); i++) {
-        auto &p = o->parameterAt(i);
-        const auto &v = p.value();
-        if (!v.holdsObject())
-          continue;
-        auto objType = v.type();
-        if (anari::isArray(objType))
-          objType = ANARI_ARRAY;
-        auto idx = v.getAsObjectIndex();
-        if (idx != INVALID_INDEX)
-          usages[objType][idx]++;
-      }
-    });
-  };
-
-  // Function to remove unused objects from object arrays //
+  ObjectUsePtr defaultMat = getObject<Material>(0).data();
 
   auto removeUnused = [&](auto &array) {
     foreach_item_ref(array, [&](auto ref) {
       if (!ref)
         return;
-      auto objType = ref->type();
-      if (anari::isArray(objType))
-        objType = ANARI_ARRAY;
-      if (usages[objType][ref.index()] <= 0) {
-        // Decrement reference counts for this object's object parameters
-        for (size_t i = 0; i < ref->numParameters(); i++) {
-          auto &p = ref->parameterAt(i);
-          const auto &v = p.value();
-          if (!v.holdsObject())
-            continue;
-          auto objType = v.type();
-          if (anari::isArray(objType))
-            objType = ANARI_ARRAY;
-          auto idx = v.getAsObjectIndex();
-          if (idx != INVALID_INDEX)
-            usages[objType][idx]--;
-        }
-
+      if (auto *obj = ref.data(); obj && obj->useCount() == 0)
         removeObject(ref.data());
-      }
     });
   };
-
-  // Invoke above functions on all object arrays, top-down //
-
-  for (auto itr = m_layers.begin(); itr != m_layers.end(); itr++)
-    countLayerObjReferenceIndices(*itr->second.ptr);
-
-  countParameterReferences(m_db.surface);
-  countParameterReferences(m_db.volume);
-  countParameterReferences(m_db.light);
-  countParameterReferences(m_db.geometry);
-  countParameterReferences(m_db.material);
-  countParameterReferences(m_db.field);
-  countParameterReferences(m_db.sampler);
-  countParameterReferences(m_db.array);
 
   removeUnused(m_db.surface);
   removeUnused(m_db.volume);
@@ -712,7 +660,7 @@ ArrayRef Scene::createArrayImpl(anari::DataType type,
   else
     retval = m_db.array.emplace(type, items0, kind);
 
-  retval->m_context = this;
+  retval->m_scene = this;
   retval->m_index = retval.index();
 
   if (m_updateDelegate) {

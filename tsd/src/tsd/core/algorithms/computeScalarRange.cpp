@@ -19,7 +19,7 @@ tsd::math::float2 computeScalarRange(const Array &a)
   const bool elementsAreScalars =
       !anari::isObject(type) && anari::componentsOf(type) == 1;
 
-  if (auto *scene = a.context(); elementsAreArrays && scene) {
+  if (auto *scene = a.scene(); elementsAreArrays && scene) {
     const auto *begin = (uint64_t *)a.data();
     const auto *end = begin + a.size();
     std::for_each(begin, end, [&](uint64_t idx) {
