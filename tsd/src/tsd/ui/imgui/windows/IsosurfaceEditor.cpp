@@ -111,8 +111,7 @@ void IsosurfaceEditor::addIsosurfaceGeometryFromSelected()
 
   auto s = scene.createSurface("isosurface", g, scene.defaultMaterial());
 
-  auto n = layer->insert_last_child(
-      layer->root(), tsd::core::Any(ANARI_SURFACE, s.index()));
+  auto n = layer->insert_last_child(layer->root(), {s});
 
   appCore()->setSelectedNode(*n);
   scene.signalLayerChange(layer);

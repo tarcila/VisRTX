@@ -776,7 +776,8 @@ static std::vector<MaterialRef> importGLTFMaterials(
             float4(iridescenceThicknessMinimum, 0.0f, 0.0f, 0.0f));
         material->setParameterObject("iridescenceThickness"_t, *sampler);
       } else {
-        material->setParameter("iridescenceThickness"_t, iridescenceThicknessMaximum - iridescenceThicknessMinimum);
+        material->setParameter("iridescenceThickness"_t,
+            iridescenceThicknessMaximum - iridescenceThicknessMinimum);
       }
     } else {
       // Default values
@@ -1311,8 +1312,7 @@ static void populateGLTFLayer(Scene &scene,
 
       if (surfaceIndex < surfaces.size()) {
         auto surface = surfaces[surfaceIndex];
-        nodeRef->insert_last_child(
-            {Any(ANARI_SURFACE, surface.index()), surface->name().c_str()});
+        nodeRef->insert_last_child({surface, surface->name().c_str()});
       }
     }
   }
@@ -1320,7 +1320,7 @@ static void populateGLTFLayer(Scene &scene,
   // Add light if present (KHR_lights_punctual extension)
   if (node.light >= 0 && node.light < lights.size()) {
     auto light = lights[node.light];
-    nodeRef->insert_first_child(Any(ANARI_LIGHT, light->index()));
+    nodeRef->insert_first_child({ANARI_LIGHT, light->index()});
   }
 
   // Process children

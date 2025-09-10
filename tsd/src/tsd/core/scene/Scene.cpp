@@ -358,7 +358,7 @@ void Scene::removeLayer(const Layer *layer)
 LayerNodeRef Scene::insertChildNode(LayerNodeRef parent, const char *name)
 {
   auto *layer = parent->container();
-  auto inst = layer->insert_last_child(parent, tsd::core::Any{});
+  auto inst = layer->insert_last_child(parent, {});
   (*inst)->name() = name;
   return inst;
 }
@@ -367,7 +367,7 @@ LayerNodeRef Scene::insertChildTransformNode(
     LayerNodeRef parent, mat4 xfm, const char *name)
 {
   auto *layer = parent->container();
-  auto inst = layer->insert_last_child(parent, tsd::core::Any{xfm});
+  auto inst = layer->insert_last_child(parent, xfm);
   (*inst)->name() = name;
   signalLayerChange(parent->container());
   return inst;
@@ -376,7 +376,7 @@ LayerNodeRef Scene::insertChildTransformNode(
 LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, anari::DataType type, size_t idx, const char *name)
 {
-  auto inst = parent->insert_last_child(tsd::core::Any{type, idx});
+  auto inst = parent->insert_last_child({type, idx});
   (*inst)->name() = name;
   signalLayerChange(parent->container());
   return inst;

@@ -73,7 +73,7 @@ void InstancingControls::createScene()
   light->setParameter("direction", tsd::math::float2(0.f, 240.f));
   m_light = light.data();
 
-  layer->root()->insert_first_child(tsd::core::Any(ANARI_LIGHT, light.index()));
+  layer->root()->insert_first_child({light});
 
   // Finally update instancing in RenderIndexes //
 
@@ -118,8 +118,7 @@ void InstancingControls::generateSpheres()
   auto surface =
       scene.createSurface("random_spheres", spheres, scene.defaultMaterial());
 
-  scene.defaultLayer()->root()->insert_last_child(
-      tsd::core::Any(ANARI_SURFACE, surface.index()));
+  scene.defaultLayer()->root()->insert_last_child({surface});
 }
 
 void InstancingControls::generateInstances()
@@ -131,8 +130,8 @@ void InstancingControls::generateInstances()
   size_t numXfms = size_t(m_numInstances);
   auto xfmArray = scene.createArray(ANARI_FLOAT32_MAT4, numXfms);
 
-  auto xfmArrayNode = scene.defaultLayer()->root()->insert_last_child(
-      tsd::core::Any(ANARI_ARRAY1D, xfmArray.index()));
+  auto xfmArrayNode =
+      scene.defaultLayer()->root()->insert_last_child({xfmArray});
 
   std::mt19937 rng;
   rng.seed(0);

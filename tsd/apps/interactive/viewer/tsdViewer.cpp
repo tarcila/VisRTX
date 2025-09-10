@@ -81,8 +81,7 @@ class Application : public TSDApplication
         light->setName("mainLight");
         light->setParameter("direction", tsd::math::float2(0.f, 240.f));
 
-        scene.defaultLayer()->root()->insert_first_child(
-            tsd::core::Any(ANARI_LIGHT, light.index()));
+        scene.defaultLayer()->root()->insert_first_child({light});
       }
 
       tsd::core::logStatus("...scene load complete! (%.3fs)", loadSeconds);

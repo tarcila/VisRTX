@@ -1,8 +1,8 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tsd/io/importers.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/io/importers.hpp"
 
 #include <array>
 #include <cmath>
@@ -405,8 +405,7 @@ void readPDBFile(Scene &scene, const char *filename, LayerNodeRef location)
   auto sphereSurface = scene.createSurface(basename.c_str(), spheres, material);
 
   // Insert the surface reference into the layer tree
-  location->insert_last_child(
-      tsd::core::Any(ANARI_SURFACE, sphereSurface->index()));
+  location->insert_last_child({sphereSurface});
 }
 
 /**
@@ -421,4 +420,4 @@ void import_PDB(Scene &scene, const char *filename, LayerNodeRef location)
 {
   readPDBFile(scene, filename, location);
 }
-}; // namespace tsd
+}; // namespace tsd::io

@@ -18,9 +18,14 @@ using InstanceParameterMap = FlatMap<std::string, Any>;
 struct LayerNodeData
 {
   LayerNodeData() = default;
+  LayerNodeData(const char *n);
+  LayerNodeData(Object *o, const char *n = "");
+  LayerNodeData(anari::DataType type, size_t index, const char *n = "");
+  LayerNodeData(const math::mat4 &m, const char *n = "");
+  LayerNodeData(const math::mat3 &m, const char *n = "");
+  LayerNodeData(Array *a, const char *n = "");
   template <typename T>
-  LayerNodeData(T v, const char *n = "");
-  LayerNodeData(Any v, const char *n);
+  LayerNodeData(IndexedVectorRef<T> obj, const char *n = "");
 
   bool hasDefault() const;
   bool isDefaultValue() const;
@@ -49,16 +54,19 @@ struct LayerNodeData
 
   std::string &name();
 
+  //////////////////////////////////////////////////////////////////
+  // Warning: these operate on the raw Any value, no type checking!
   Any getValueRaw() const;
-
+  void setValueRaw(const Any &v);
+  //////////////////////////////////////////////////////////////////
 
   const InstanceParameterMap &getInstanceParameters() const;
   void setInstanceParameter(const std::string &name, Any v);
   void clearInstanceParameters();
 
+ private:
   // Data //
 
- private:
   std::string m_name;
   bool m_enabled{true};
   Any m_value;
@@ -75,8 +83,8 @@ using LayerNodeRef = LayerNode::Ref;
 // Inlined definitions ////////////////////////////////////////////////////////
 
 template <typename T>
-inline LayerNodeData::LayerNodeData(T v, const char *n)
-    : LayerNodeData(Any(v), n)
+inline LayerNodeData::LayerNodeData(IndexedVectorRef<T> obj, const char *n)
+    : LayerNodeData(obj.data(), n)
 {}
 
 } // namespace tsd::core

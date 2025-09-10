@@ -5,9 +5,9 @@
 #define TSD_USE_ASSIMP 1
 #endif
 
+#include "tsd/core/Logging.hpp"
 #include "tsd/io/importers.hpp"
 #include "tsd/io/importers/detail/importer_common.hpp"
-#include "tsd/core/Logging.hpp"
 #if TSD_USE_ASSIMP
 // assimp
 #include <assimp/postprocess.h>
@@ -68,7 +68,8 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
     auto tsdMesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
     unsigned numVertices = mesh->mNumVertices;
-    auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, numVertices);
+    auto vertexPositionArray =
+        scene.createArray(ANARI_FLOAT32_VEC3, numVertices);
     auto *outVertices = vertexPositionArray->mapAs<float3>();
 
     auto vertexNormalArray = scene.createArray(
@@ -87,8 +88,8 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
         vertexTangentArray ? vertexTangentArray->mapAs<float4>() : nullptr;
 
     // TODO: test for AI_MAX_NUMBER_OF_COLOR_SETS, import all..
-    auto vertexColorArray =
-        scene.createArray(ANARI_FLOAT32_VEC4, mesh->mColors[0] ? numVertices : 0);
+    auto vertexColorArray = scene.createArray(
+        ANARI_FLOAT32_VEC4, mesh->mColors[0] ? numVertices : 0);
     float4 *outColors =
         vertexColorArray ? vertexColorArray->mapAs<float4>() : nullptr;
 
@@ -187,7 +188,8 @@ static std::vector<SurfaceRef> importASSIMPSurfaces(Scene &scene,
     tsdMesh->setName((std::string(mesh->mName.C_Str()) + "_geometry").c_str());
 
     unsigned matID = mesh->mMaterialIndex;
-    auto tsdMat = matID < 0 ? scene.defaultMaterial() : materials[size_t(matID)];
+    auto tsdMat =
+        matID < 0 ? scene.defaultMaterial() : materials[size_t(matID)];
     tsdMeshes.push_back(
         scene.createSurface(mesh->mName.C_Str(), tsdMesh, tsdMat));
   }
@@ -219,7 +221,8 @@ static std::vector<MaterialRef> importASSIMPMaterials(
         if (embeddedTexture)
           tex = importEmbeddedTexture(scene, embeddedTexture, cache);
         else
-          tex = importTexture(scene, basePath + texName.C_Str(), cache, isLinear);
+          tex =
+              importTexture(scene, basePath + texName.C_Str(), cache, isLinear);
       }
 
       return tex;
@@ -302,10 +305,12 @@ static std::vector<MaterialRef> importASSIMPMaterials(
 #ifdef AI_MATKEY_ANISOTROPY_TEXTURE
       // anisotropic texture added with assimp 6.0
       if (aiString anisotropyTexture;
-          assimpMat->GetTexture(AI_MATKEY_ANISOTROPY_TEXTURE, &anisotropyTexture)
+          assimpMat->GetTexture(
+              AI_MATKEY_ANISOTROPY_TEXTURE, &anisotropyTexture)
           == AI_SUCCESS) {
         if (auto sampler = loadTexture(anisotropyTexture, true); sampler) {
-          // Map red to red/green/blue as expected by our gltf pbr implementation
+          // Map red to red/green/blue as expected by our gltf pbr
+          // implementation
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_ANISOTROPY, 0));
           sampler->setParameter("inTransform"_t, tx);
@@ -316,7 +321,8 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           m->setParameterObject("anisotropyDirection"_t, *sampler);
         }
         if (auto sampler = loadTexture(anisotropyTexture, true); sampler) {
-          // Map red to red/green/blue as expected by our gltf pbr implementation
+          // Map red to red/green/blue as expected by our gltf pbr
+          // implementation
           auto tx = getTextureUVTransform(
               AI_MATKEY_UVTRANSFORM(aiTextureType_ANISOTROPY, 0));
           sampler->setParameter("inTransform"_t, tx);
@@ -327,10 +333,11 @@ static std::vector<MaterialRef> importASSIMPMaterials(
         }
       } else
 #endif
-      if (ai_real anisotropyFactor;
-          assimpMat->Get(AI_MATKEY_ANISOTROPY_FACTOR, anisotropyFactor)
-          == AI_SUCCESS) {
-        m->setParameter("anisotropyStrength"_t, ANARI_FLOAT32, &anisotropyFactor);
+          if (ai_real anisotropyFactor;
+              assimpMat->Get(AI_MATKEY_ANISOTROPY_FACTOR, anisotropyFactor)
+              == AI_SUCCESS) {
+        m->setParameter(
+            "anisotropyStrength"_t, ANARI_FLOAT32, &anisotropyFactor);
       }
 
 #ifdef AI_MATKEY_ANISOTROPY_ROTATION
@@ -338,7 +345,8 @@ static std::vector<MaterialRef> importASSIMPMaterials(
       if (ai_real anisotropyRotation;
           assimpMat->Get(AI_MATKEY_ANISOTROPY_ROTATION, anisotropyRotation)
           == AI_SUCCESS) {
-        m->setParameter("anisotropyRotation"_t, ANARI_FLOAT32, &anisotropyRotation);
+        m->setParameter(
+            "anisotropyRotation"_t, ANARI_FLOAT32, &anisotropyRotation);
       }
 #endif
 
@@ -419,9 +427,8 @@ static std::vector<MaterialRef> importASSIMPMaterials(
           assimpMat->Get(
               AI_MATKEY_CLEARCOAT_ROUGHNESS_FACTOR, clearcoatRoughnessFactor)
           == AI_SUCCESS) {
-        m->setParameter("clearcoatRoughness"_t,
-            ANARI_FLOAT32,
-            &clearcoatRoughnessFactor);
+        m->setParameter(
+            "clearcoatRoughness"_t, ANARI_FLOAT32, &clearcoatRoughnessFactor);
       }
 
       if (aiString clearcoatNormalTexture;
@@ -597,8 +604,8 @@ static void populateASSIMPLayer(Scene &scene,
     const std::vector<LightRef> &lights,
     const aiNode *node)
 {
-  static_assert(
-      sizeof(tsd::math::mat4) == sizeof(aiMatrix4x4), "matrix type size mismatch");
+  static_assert(sizeof(tsd::math::mat4) == sizeof(aiMatrix4x4),
+      "matrix type size mismatch");
   tsd::math::mat4 mat;
   std::memcpy(&mat, &node->mTransformation, sizeof(mat));
   mat = tsd::math::transpose(mat);
@@ -606,8 +613,7 @@ static void populateASSIMPLayer(Scene &scene,
 
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {
     auto mesh = surfaces.at(node->mMeshes[i]);
-    tr->insert_last_child(
-        {Any(ANARI_SURFACE, mesh.index()), mesh->name().c_str()});
+    tr->insert_last_child({ANARI_SURFACE, mesh.index(), mesh->name().c_str()});
   }
 
   // https://github.com/assimp/assimp/issues/1168#issuecomment-278673292
@@ -618,9 +624,8 @@ static void populateASSIMPLayer(Scene &scene,
       lights.end(),
       [name](const LightRef &lightRef) { return lightRef->name() == name; });
 
-  if (it != lights.end()) {
-    tr->insert_first_child(tsd::core::Any(ANARI_LIGHT, (*it)->index()));
-  }
+  if (it != lights.end())
+    tr->insert_first_child({ANARI_LIGHT, (*it)->index()});
 
   for (unsigned int i = 0; i < node->mNumChildren; i++)
     populateASSIMPLayer(scene, tr, surfaces, lights, node->mChildren[i]);
@@ -637,7 +642,8 @@ void import_ASSIMP(
 
   Assimp::Importer importer;
 
-  auto importFlags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_FlipUVs;
+  auto importFlags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices
+      | aiProcess_FlipUVs;
   if (flatten)
     importFlags |= aiProcess_PreTransformVertices;
 
@@ -666,4 +672,4 @@ void import_ASSIMP(
 }
 #endif
 
-} // namespace tsd
+} // namespace tsd::io

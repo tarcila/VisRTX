@@ -1,9 +1,9 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tsd/core/Logging.hpp"
 #include "tsd/io/importers.hpp"
 #include "tsd/io/importers/detail/importer_common.hpp"
-#include "tsd/core/Logging.hpp"
 // tinyply
 #define TINYPLY_IMPLEMENTATION
 #include "tinyply.h"
@@ -161,9 +161,9 @@ void import_PLY(Scene &scene, const char *filename, LayerNodeRef location)
 
     // Mesh //
 
-    auto ply_root =
-        scene.insertChildNode(location ? location : scene.defaultLayer()->root(),
-            fileOf(filename).c_str());
+    auto ply_root = scene.insertChildNode(
+        location ? location : scene.defaultLayer()->root(),
+        fileOf(filename).c_str());
     auto mesh = scene.createObject<Geometry>(tokens::geometry::triangle);
 
     auto makeArray1DForMesh = [&](Token parameterName,
@@ -205,11 +205,11 @@ void import_PLY(Scene &scene, const char *filename, LayerNodeRef location)
     mesh->setName((objectName + "_mesh").c_str());
 
     auto surface = scene.createSurface(objectName.c_str(), mesh, mat);
-    ply_root->insert_last_child(Any(ANARI_SURFACE, surface.index()));
+    ply_root->insert_last_child({surface});
 
   } catch (const std::exception &e) {
     logError("[import_PLY] caught tinyply exception: %s", e.what());
   }
 }
 
-} // namespace tsd
+} // namespace tsd::io

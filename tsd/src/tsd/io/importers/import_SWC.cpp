@@ -1,8 +1,8 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tsd/io/importers.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/io/importers.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -92,7 +92,8 @@ void readSWCFile(
   sphereRadii.reserve(numPoints);
 
   for (const auto &p : points) {
-    spherePositions.push_back(tsd::math::float3(p.second.x, p.second.y, p.second.z));
+    spherePositions.push_back(
+        tsd::math::float3(p.second.x, p.second.y, p.second.z));
     sphereRadii.push_back(p.second.radius * 0.5);
   }
 
@@ -120,7 +121,8 @@ void readSWCFile(
     if (p.second.parent == -1)
       continue;
 
-    conePositions.push_back(tsd::math::float3(p.second.x, p.second.y, p.second.z));
+    conePositions.push_back(
+        tsd::math::float3(p.second.x, p.second.y, p.second.z));
     coneRadii.push_back(p.second.radius * 0.5f);
 
     const auto &p1 = points[p.second.parent];
@@ -157,8 +159,7 @@ void readSWCFile(
   m->setParameter("metallic"_t, ANARI_FLOAT32, &metallic);
   m->setParameter("roughness"_t, ANARI_FLOAT32, &roughness);
 
-  const auto swcLocation =
-      location->insert_first_child(tsd::core::Any(ANARI_GEOMETRY, 1));
+  const auto swcLocation = location->insert_first_child({});
 
   // Create surfaces for the spheres and cones
   const std::string basename =
@@ -186,4 +187,4 @@ void import_SWC(Scene &scene, const char *filename, LayerNodeRef location)
   readSWCFile(scene, filename, location);
 }
 
-} // namespace tsd
+} // namespace tsd::io

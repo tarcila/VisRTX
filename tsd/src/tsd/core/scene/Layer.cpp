@@ -6,12 +6,39 @@
 
 namespace tsd::core {
 
-LayerNodeData::LayerNodeData(Any v, const char *n) : m_value(v), m_name(n)
+LayerNodeData::LayerNodeData(const char *n) : m_name(n)
 {
-  setCurrentValueAsDefault();
   m_srt[0] = math::float3(1.f, 1.f, 1.f);
   m_srt[1] = math::float3(0.f, 0.f, 0.f);
   m_srt[2] = math::float3(0.f, 0.f, 0.f);
+}
+
+LayerNodeData::LayerNodeData(Object *o, const char *n) : LayerNodeData(n)
+{
+  setAsObject(o);
+}
+
+LayerNodeData::LayerNodeData(anari::DataType type, size_t index, const char *n)
+    : LayerNodeData(n)
+{
+  setAsObject(type, index);
+}
+
+LayerNodeData::LayerNodeData(const math::mat4 &m, const char *n)
+    : LayerNodeData(n)
+{
+  setAsTransform(m);
+}
+
+LayerNodeData::LayerNodeData(const math::mat3 &m, const char *n)
+    : LayerNodeData(n)
+{
+  setAsTransform(m);
+}
+
+LayerNodeData::LayerNodeData(Array *a, const char *n) : LayerNodeData(n)
+{
+  setAsTransformArray(a);
 }
 
 bool LayerNodeData::hasDefault() const
@@ -174,6 +201,12 @@ std::string &LayerNodeData::name()
 Any LayerNodeData::getValueRaw() const
 {
   return m_value;
+}
+
+void LayerNodeData::setValueRaw(const Any &v)
+{
+  m_value = v;
+  setCurrentValueAsDefault();
 }
 
 const InstanceParameterMap &LayerNodeData::getInstanceParameters() const
