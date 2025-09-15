@@ -164,23 +164,37 @@ constexpr bool isObject()
 
 // Object use-count pointer type //////////////////////////////////////////////
 
+template <typename T>
 struct ObjectUsePtr
 {
+  static_assert(isObject<T>(),
+      "ObjectUsePtr can only be instantiated with tsd::core::Object types");
+
   ObjectUsePtr() = default;
-  ObjectUsePtr(Object *o);
-  ObjectUsePtr(const ObjectUsePtr &o);
-  ObjectUsePtr(ObjectUsePtr &&o);
+  ObjectUsePtr(T *o);
+  ObjectUsePtr(const ObjectUsePtr<T> &o);
+  ObjectUsePtr(ObjectUsePtr<T> &&o);
   ~ObjectUsePtr();
 
-  ObjectUsePtr &operator=(const ObjectUsePtr &o);
-  ObjectUsePtr &operator=(ObjectUsePtr &&o);
+  ObjectUsePtr &operator=(const ObjectUsePtr<T> &o);
+  ObjectUsePtr &operator=(ObjectUsePtr<T> &&o);
 
-  Object *get() const;
-  Object *operator->() const;
+  ObjectUsePtr &operator=(T *o);
+  ObjectUsePtr &operator=(IndexedVectorRef<T> o);
+
+  void reset();
+
+  const T *get() const;
+  const T *operator->() const;
+  const T &operator*() const;
+  T *get();
+  T *operator->();
+  T &operator*();
+
   operator bool() const;
 
  private:
-  Object *m_object{nullptr};
+  IndexedVectorRef<T> m_object;
 };
 
 // ANARI object info parsing //////////////////////////////////////////////////
@@ -220,34 +234,39 @@ inline std::optional<T> Object::parameterValueAs(Token name)
 
 // ObjectUsePtr //
 
-inline ObjectUsePtr::ObjectUsePtr(Object *o) : m_object(o)
+template <typename T>
+inline ObjectUsePtr<T>::ObjectUsePtr(T *o)
+    : m_object(o ? o->self() : IndexedVectorRef<T>{})
 {
   if (m_object)
     m_object->incUseCount();
 }
 
-inline ObjectUsePtr::ObjectUsePtr(const ObjectUsePtr &o) : m_object(o.m_object)
+template <typename T>
+inline ObjectUsePtr<T>::ObjectUsePtr(const ObjectUsePtr<T> &o)
+    : m_object(o.m_object)
 {
   if (m_object)
     m_object->incUseCount();
 }
 
-inline ObjectUsePtr::ObjectUsePtr(ObjectUsePtr &&o) : m_object(o.m_object)
+template <typename T>
+inline ObjectUsePtr<T>::ObjectUsePtr(ObjectUsePtr<T> &&o) : m_object(o.m_object)
 {
-  o.m_object = nullptr;
+  o.m_object = {};
 }
 
-inline ObjectUsePtr::~ObjectUsePtr()
+template <typename T>
+inline ObjectUsePtr<T>::~ObjectUsePtr()
 {
-  if (m_object)
-    m_object->decUseCount();
+  reset();
 }
 
-inline ObjectUsePtr &ObjectUsePtr::operator=(const ObjectUsePtr &o)
+template <typename T>
+inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(const ObjectUsePtr &o)
 {
   if (this != &o) {
-    if (m_object)
-      m_object->decUseCount();
+    reset();
     m_object = o.m_object;
     if (m_object)
       m_object->incUseCount();
@@ -255,30 +274,92 @@ inline ObjectUsePtr &ObjectUsePtr::operator=(const ObjectUsePtr &o)
   return *this;
 }
 
-inline ObjectUsePtr &ObjectUsePtr::operator=(ObjectUsePtr &&o)
+template <typename T>
+inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(ObjectUsePtr<T> &&o)
 {
   if (this != &o) {
-    if (m_object)
-      m_object->decUseCount();
+    reset();
     m_object = o.m_object;
-    o.m_object = nullptr;
+    o.m_object = {};
+    if (m_object)
+      m_object->incUseCount();
   }
   return *this;
 }
 
-inline Object *ObjectUsePtr::get() const
+template <typename T>
+inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(T *o)
 {
-  return m_object;
+  reset();
+  if (o) {
+    m_object = o->self();
+    o->incUseCount();
+  }
+  return *this;
 }
 
-inline Object *ObjectUsePtr::operator->() const
+template <typename T>
+inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(IndexedVectorRef<T> o)
 {
-  return m_object;
+  static_assert(isObject<T>(),
+      "ObjectUsePtr can only be assigned IndexedVectorRef<T> when T is a"
+      " tsd::core::Object type");
+  reset();
+  if (o) {
+    m_object = o;
+    o->incUseCount();
+  }
+  return *this;
 }
 
-inline ObjectUsePtr::operator bool() const
+template <typename T>
+void ObjectUsePtr<T>::reset()
 {
-  return m_object != nullptr;
+  if (m_object)
+    m_object->decUseCount();
+  m_object = {};
+}
+
+template <typename T>
+inline const T *ObjectUsePtr<T>::get() const
+{
+  return m_object.data();
+}
+
+template <typename T>
+inline const T *ObjectUsePtr<T>::operator->() const
+{
+  return m_object.data();
+}
+
+template <typename T>
+inline const T &ObjectUsePtr<T>::operator*() const
+{
+  return *get();
+}
+
+template <typename T>
+inline T *ObjectUsePtr<T>::get()
+{
+  return m_object.data();
+}
+
+template <typename T>
+inline T *ObjectUsePtr<T>::operator->()
+{
+  return m_object.data();
+}
+
+template <typename T>
+inline T &ObjectUsePtr<T>::operator*()
+{
+  return *get();
+}
+
+template <typename T>
+inline ObjectUsePtr<T>::operator bool() const
+{
+  return m_object;
 }
 
 } // namespace tsd::core

@@ -41,13 +41,15 @@ SpatialField::SpatialField(Token stype) : Object(ANARI_SPATIAL_FIELD, stype)
         .setDescription("array of refinement ratios between levels");
     addParameter("block.bounds")
         .setValue({ANARI_ARRAY1D, INVALID_INDEX})
-        .setDescription("array of grid bounds, in voxel space, for each AMR block");
+        .setDescription(
+            "array of grid bounds, in voxel space, for each AMR block");
     addParameter("block.level")
         .setValue({ANARI_ARRAY1D, INVALID_INDEX})
         .setDescription("array of each block's refinement level");
     addParameter("block.data")
         .setValue({ANARI_ARRAY1D, INVALID_INDEX})
-        .setDescription("array of 3D arrays containing the scalar voxel data (deprecated");
+        .setDescription(
+            "array of 3D arrays containing the scalar voxel data (deprecated");
     addParameter("data")
         .setValue({ANARI_ARRAY1D, INVALID_INDEX})
         .setDescription("array of floats containing the scalar voxel data");
@@ -58,6 +60,12 @@ SpatialField::SpatialField(Token stype) : Object(ANARI_SPATIAL_FIELD, stype)
     addParameter("filter").setValue("linear").setStringValues(
         {"linear", "nearest"});
   }
+}
+
+IndexedVectorRef<SpatialField> SpatialField::self() const
+{
+  return scene() ? scene()->getObject<SpatialField>(index())
+                 : IndexedVectorRef<SpatialField>{};
 }
 
 anari::Object SpatialField::makeANARIObject(anari::Device d) const

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/objects/Light.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
@@ -87,6 +88,12 @@ Light::Light(Token subtype) : Object(ANARI_LIGHT, subtype)
             "light in a direction, in W/sr")
         .setMin(0.f);
   }
+}
+
+IndexedVectorRef<Light> Light::self() const
+{
+  return scene() ? scene()->getObject<Light>(index())
+                 : IndexedVectorRef<Light>{};
 }
 
 anari::Object Light::makeANARIObject(anari::Device d) const

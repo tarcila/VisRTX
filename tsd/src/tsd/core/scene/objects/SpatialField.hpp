@@ -18,6 +18,8 @@ struct SpatialField : public Object
   SpatialField(Token subtype = tokens::unknown);
   virtual ~SpatialField() = default;
 
+  IndexedVectorRef<SpatialField> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 
   tsd::math::float2 computeValueRange();

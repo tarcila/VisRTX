@@ -16,6 +16,8 @@ struct Volume : public Object
   Volume(Token subtype = tokens::unknown);
   virtual ~Volume() = default;
 
+  IndexedVectorRef<Volume> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

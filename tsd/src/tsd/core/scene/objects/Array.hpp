@@ -57,6 +57,8 @@ struct Array : public Object
   void setData(const std::vector<T> &data, size_t startOffset = 0);
   void setData(const void *data, size_t byteOffset = 0);
 
+  IndexedVectorRef<Array> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 
   // Movable, not copyable

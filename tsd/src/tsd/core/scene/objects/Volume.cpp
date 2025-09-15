@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/objects/Volume.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
@@ -34,6 +35,12 @@ Volume::Volume(Token stype) : Object(ANARI_VOLUME, stype)
         defaultOpacityControlPoints,
         2);
   }
+}
+
+IndexedVectorRef<Volume> Volume::self() const
+{
+  return scene() ? scene()->getObject<Volume>(index())
+                 : IndexedVectorRef<Volume>{};
 }
 
 anari::Object Volume::makeANARIObject(anari::Device d) const

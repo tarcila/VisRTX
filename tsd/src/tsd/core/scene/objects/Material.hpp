@@ -16,6 +16,8 @@ struct Material : public Object
   Material(Token subtype = tokens::unknown);
   virtual ~Material() = default;
 
+  IndexedVectorRef<Material> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

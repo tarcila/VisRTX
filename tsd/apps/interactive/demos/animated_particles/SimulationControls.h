@@ -32,16 +32,16 @@ struct SimulationControls : public tsd::ui::imgui::Window
   std::pair<tsd::math::float3, tsd::math::float3> updateBhPoints();
   void iterateSimulation();
 
-  tsd::core::GeometryRef m_particleGeom;
-  tsd::core::GeometryRef m_bhGeom;
-  tsd::core::SamplerRef m_particleColorSampler;
-  tsd::core::ArrayRef m_dataPoints;
-  tsd::core::ArrayRef m_dataPointsCUDA;
-  tsd::core::ArrayRef m_dataDistances;
-  tsd::core::ArrayRef m_dataDistancesCUDA;
-  tsd::core::ArrayRef m_dataVelocities;
-  tsd::core::ArrayRef m_dataVelocitiesCUDA;
-  tsd::core::ArrayRef m_dataBhPoints;
+  tsd::core::ObjectUsePtr<tsd::core::Geometry> m_particleGeom;
+  tsd::core::ObjectUsePtr<tsd::core::Geometry> m_bhGeom;
+  tsd::core::ObjectUsePtr<tsd::core::Sampler> m_particleColorSampler;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataPoints;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataPointsCUDA;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataDistances;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataDistancesCUDA;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataVelocities;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataVelocitiesCUDA;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataBhPoints;
   int m_particlesPerSide{100};
   tsd::demo::ParticleSystemParameters m_params;
   float m_angle{0.f};

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/objects/Sampler.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
@@ -52,6 +53,12 @@ Sampler::Sampler(Token subtype) : Object(ANARI_SAMPLER, subtype)
     addParameter("outTransform").setValue(math::scaling_matrix(float3(1.f)));
     addParameter("outOffset").setValue(float4(0.f));
   }
+}
+
+IndexedVectorRef<Sampler> Sampler::self() const
+{
+  return scene() ? scene()->getObject<Sampler>(index())
+                 : IndexedVectorRef<Sampler>{};
 }
 
 anari::Object Sampler::makeANARIObject(anari::Device d) const

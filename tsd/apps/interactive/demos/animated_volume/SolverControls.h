@@ -30,10 +30,10 @@ struct SolverControls : public tsd::ui::imgui::Window
   void iterateSolver();
   void exportRAW();
 
-  tsd::core::SpatialFieldRef m_field;
-  tsd::core::ArrayRef m_dataHost;
-  tsd::core::ArrayRef m_dataCUDA_1;
-  tsd::core::ArrayRef m_dataCUDA_2;
+  tsd::core::ObjectUsePtr<tsd::core::SpatialField> m_field;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataHost;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataCUDA_1;
+  tsd::core::ObjectUsePtr<tsd::core::Array> m_dataCUDA_2;
   int m_iterationsPerCycle{2};
   tsd::math::int3 m_dims{256, 256, 256};
   int m_totalIterations{0};

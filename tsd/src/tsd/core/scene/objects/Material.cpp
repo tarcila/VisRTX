@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/objects/Material.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <limits>
 
@@ -59,7 +60,8 @@ Material::Material(Token subtype) : Object(ANARI_MATERIAL, subtype)
         .setMax(1.f);
     addParameter("anisotropyDirection")
         .setValue(float2(1.f, 0.f))
-        .setDescription("direction in tangent and bitangent space, in [-1:1]^2");
+        .setDescription(
+            "direction in tangent and bitangent space, in [-1:1]^2");
     addParameter("anisotropyRotation")
         .setValue(0.f)
         .setDescription("anisotropy rotation (in radians)")
@@ -139,6 +141,12 @@ Material::Material(Token subtype) : Object(ANARI_MATERIAL, subtype)
         .setDescription("thickness of the thin-film layer")
         .setMin(0.f);
   }
+}
+
+IndexedVectorRef<Material> Material::self() const
+{
+  return scene() ? scene()->getObject<Material>(index())
+                 : IndexedVectorRef<Material>{};
 }
 
 anari::Object Material::makeANARIObject(anari::Device d) const

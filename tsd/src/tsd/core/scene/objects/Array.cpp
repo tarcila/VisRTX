@@ -8,6 +8,7 @@
 #include "tsd/core/scene/objects/Array.hpp"
 
 #include "tsd/core/Logging.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <stdexcept>
 #if TSD_USE_CUDA
@@ -108,6 +109,12 @@ void Array::setData(const void *data, size_t byteOffset)
   auto *bytes = (const uint8_t *)data;
   std::memcpy(map(), bytes + byteOffset, size() * elementSize());
   unmap();
+}
+
+IndexedVectorRef<Array> Array::self() const
+{
+  return scene() ? scene()->getObject<Array>(index())
+                 : IndexedVectorRef<Array>{};
 }
 
 anari::Object Array::makeANARIObject(anari::Device d) const

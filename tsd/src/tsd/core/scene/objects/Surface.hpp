@@ -20,6 +20,8 @@ struct Surface : public Object
   void setGeometry(GeometryRef g);
   void setMaterial(MaterialRef m);
 
+  IndexedVectorRef<Surface> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

@@ -16,6 +16,8 @@ struct Sampler : public Object
   Sampler(Token subtype = tokens::unknown);
   virtual ~Sampler() = default;
 
+  IndexedVectorRef<Sampler> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

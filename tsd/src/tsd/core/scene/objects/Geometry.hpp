@@ -16,6 +16,8 @@ struct Geometry : public Object
   Geometry(Token subtype = tokens::unknown);
   virtual ~Geometry() = default;
 
+  IndexedVectorRef<Geometry> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

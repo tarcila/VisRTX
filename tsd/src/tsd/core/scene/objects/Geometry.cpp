@@ -2,10 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/core/scene/objects/Geometry.hpp"
+#include "tsd/core/scene/Scene.hpp"
 
 namespace tsd::core {
 
 Geometry::Geometry(Token stype) : Object(ANARI_GEOMETRY, stype) {}
+
+IndexedVectorRef<Geometry> Geometry::self() const
+{
+  return scene() ? scene()->getObject<Geometry>(index())
+                 : IndexedVectorRef<Geometry>{};
+}
 
 anari::Object Geometry::makeANARIObject(anari::Device d) const
 {

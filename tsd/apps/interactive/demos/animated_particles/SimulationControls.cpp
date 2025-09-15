@@ -92,31 +92,28 @@ void SimulationControls::setGeometry(tsd::core::GeometryRef particles,
 
 void SimulationControls::remakeDataArrays()
 {
-  auto &scene = appCore()->tsd.scene;
-  auto resetArrayRef = [&](auto &ref) {
-    if (ref)
-      scene.removeObject(ref.data());
-    ref = {};
-  };
-
-  resetArrayRef(m_dataPoints);
-  resetArrayRef(m_dataPointsCUDA);
-  resetArrayRef(m_dataDistances);
-  resetArrayRef(m_dataDistancesCUDA);
-  resetArrayRef(m_dataVelocities);
-  resetArrayRef(m_dataVelocitiesCUDA);
-  resetArrayRef(m_dataBhPoints);
-
   const int numParticles =
       m_particlesPerSide * m_particlesPerSide * m_particlesPerSide;
 
+  auto &scene = appCore()->tsd.scene;
   m_dataPointsCUDA = scene.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
   m_dataDistancesCUDA = scene.createArrayCUDA(ANARI_FLOAT32, numParticles);
-  m_dataVelocitiesCUDA = scene.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
+  m_dataVelocitiesCUDA =
+      scene.createArrayCUDA(ANARI_FLOAT32_VEC3, numParticles);
   m_dataPoints = scene.createArray(ANARI_FLOAT32_VEC3, numParticles);
   m_dataDistances = scene.createArray(ANARI_FLOAT32, numParticles);
   m_dataVelocities = scene.createArray(ANARI_FLOAT32_VEC3, numParticles);
   m_dataBhPoints = scene.createArray(ANARI_FLOAT32_VEC3, 2);
+
+  m_dataPointsCUDA->setName("particle positions (CUDA)");
+  m_dataDistancesCUDA->setName("particle distances (CUDA)");
+  m_dataVelocitiesCUDA->setName("particle velocities (CUDA)");
+  m_dataPoints->setName("particle positions");
+  m_dataDistances->setName("particle distances");
+  m_dataVelocities->setName("particle velocities");
+  m_dataBhPoints->setName("black hole positions");
+
+  scene.removeUnusedObjects();
 }
 
 void SimulationControls::resetSimulation()

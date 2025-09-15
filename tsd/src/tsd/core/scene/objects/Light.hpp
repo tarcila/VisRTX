@@ -16,6 +16,8 @@ struct Light : public Object
   Light(Token subtype = tokens::unknown);
   virtual ~Light() = default;
 
+  IndexedVectorRef<Light> self() const;
+
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 

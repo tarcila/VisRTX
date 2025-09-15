@@ -220,10 +220,9 @@ Parameter *Object::setParameter(Token name, ANARIDataType type, const void *v)
 Parameter *Object::setParameterObject(Token name, const Object &obj)
 {
   auto *p = parameter(name);
-  if (p) {
-    decObjectUseCountParameter(p);
+  if (p)
     p->setValue({obj.type(), obj.index()});
-  } else {
+  else {
     p = &(addParameter(name));
     p->setValue({obj.type(), obj.index()});
   }
@@ -348,12 +347,16 @@ BaseUpdateDelegate *Object::updateDelegate() const
 
 void Object::incObjectUseCountParameter(const Parameter *p)
 {
+  if (!m_scene)
+    return;
   if (auto *obj = m_scene->getObject(p->value()))
     obj->incUseCount();
 }
 
 void Object::decObjectUseCountParameter(const Parameter *p)
 {
+  if (!m_scene)
+    return;
   if (auto *obj = m_scene->getObject(p->value()))
     obj->decUseCount();
 }
