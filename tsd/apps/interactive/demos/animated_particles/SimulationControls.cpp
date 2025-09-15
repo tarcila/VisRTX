@@ -95,7 +95,7 @@ void SimulationControls::remakeDataArrays()
   auto &scene = appCore()->tsd.scene;
   auto resetArrayRef = [&](auto &ref) {
     if (ref)
-      scene.removeObject(*ref);
+      scene.removeObject(ref.data());
     ref = {};
   };
 

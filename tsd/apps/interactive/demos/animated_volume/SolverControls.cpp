@@ -97,11 +97,11 @@ void SolverControls::remakeDataArray()
 
   auto &scene = appCore()->tsd.scene;
   if (m_dataHost)
-    scene.removeObject(*m_dataHost);
+    scene.removeObject(m_dataHost.data());
   if (m_dataCUDA_1)
-    scene.removeObject(*m_dataCUDA_1);
+    scene.removeObject(m_dataCUDA_1.data());
   if (m_dataCUDA_2)
-    scene.removeObject(*m_dataCUDA_2);
+    scene.removeObject(m_dataCUDA_2.data());
 
   m_dataHost = {};
   m_dataCUDA_1 = {};

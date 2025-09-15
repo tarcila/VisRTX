@@ -80,13 +80,14 @@ class Application : public TSDApplication
     volume->setParameterObject("color", *colorArray);
 
     scene.defaultLayer()->root()->insert_first_child(
-        tsd::core::Any(ANARI_VOLUME, volume.index()));
+        {ANARI_VOLUME, volume.index(), &core->tsd.scene});
 
     // Setup app //
 
     core->tsd.selectedObject = volume.data();
 
-    tsd::core::logStatus("%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
+    tsd::core::logStatus(
+        "%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
     core->tsd.sceneLoadComplete = true;
 
     viewport->setLibrary(core->commandLine.libraryList[0], false);

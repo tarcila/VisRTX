@@ -102,18 +102,19 @@ class Application : public TSDApplication
     surface->setParameterObject("geometry", *particles);
     surface->setParameterObject("material", *particleMat);
     scene.defaultLayer()->root()->insert_first_child(
-        tsd::core::Any(ANARI_SURFACE, surface.index()));
+        {ANARI_SURFACE, surface.index(), &core->tsd.scene});
 
     surface = scene.createObject<tsd::core::Surface>();
     surface->setName("bh_surface");
     surface->setParameterObject("geometry", *blackHoles);
     surface->setParameterObject("material", *bhMat);
     scene.defaultLayer()->root()->insert_first_child(
-        tsd::core::Any(ANARI_SURFACE, surface.index()));
+        {ANARI_SURFACE, surface.index(), &core->tsd.scene});
 
     // Setup app //
 
-    tsd::core::logStatus("%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
+    tsd::core::logStatus(
+        "%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
     core->tsd.sceneLoadComplete = true;
 
     viewport->setLibrary(core->commandLine.libraryList[0], false);
