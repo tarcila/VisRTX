@@ -374,9 +374,6 @@ VISRTX_GLOBAL void __raygen__()
         if (glm::any(glm::isnan(vec3(shadingResult)))) {
           color = vec3(0.f);
           opacity = 0.f;
-        } else {
-          color = vec3(shadingResult);
-          opacity = shadingResult.w;
         }
         accumulateValue(color, vec3(shadingResult), opacity);
         accumulateValue(opacity, shadingResult.w, opacity);
