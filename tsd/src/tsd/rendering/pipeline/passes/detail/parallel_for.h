@@ -19,13 +19,16 @@
 #define DEVICE_FCN_INLINE inline
 #endif
 
+#include "ComputeStream.h"
+
 namespace tsd::rendering::detail {
 
 template <typename FCN>
-inline void parallel_for(uint32_t start, uint32_t end, FCN &&fcn)
+inline void parallel_for(
+    ComputeStream stream, uint32_t start, uint32_t end, FCN &&fcn)
 {
 #ifdef ENABLE_CUDA
-  thrust::for_each(thrust::device,
+  thrust::for_each(thrust::cuda::par.on(stream),
       thrust::make_counting_iterator(start),
       thrust::make_counting_iterator(end),
       fcn);
@@ -37,4 +40,4 @@ inline void parallel_for(uint32_t start, uint32_t end, FCN &&fcn)
 #endif
 }
 
-} // namespace tsd::detail
+} // namespace tsd::rendering::detail

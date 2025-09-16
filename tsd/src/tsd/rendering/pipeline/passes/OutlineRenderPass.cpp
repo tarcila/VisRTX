@@ -19,11 +19,10 @@ DEVICE_FCN_INLINE uint32_t shadePixel(uint32_t c_in)
   return helium::cvt_color_to_uint32(c_out);
 };
 
-void computeOutline(
-    RenderBuffers &b, uint32_t outlineId, tsd::math::uint2 size)
+void computeOutline(RenderBuffers &b, uint32_t outlineId, tsd::math::uint2 size)
 {
   detail::parallel_for(
-      0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
+      b.stream, 0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
         uint32_t y = i / size.x;
         uint32_t x = i % size.x;
 

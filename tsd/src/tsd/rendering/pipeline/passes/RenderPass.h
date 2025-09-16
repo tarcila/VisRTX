@@ -3,7 +3,10 @@
 
 #pragma once
 
+// tsd_core
 #include "tsd/core/TSDMath.hpp"
+// tsd_rendering
+#include "tsd/rendering/pipeline/passes/detail/ComputeStream.h"
 
 namespace tsd::rendering {
 
@@ -12,6 +15,7 @@ struct RenderBuffers
   uint32_t *color{nullptr};
   float *depth{nullptr};
   uint32_t *objectId{nullptr};
+  detail::ComputeStream stream{};
 };
 
 struct RenderPass
@@ -44,7 +48,8 @@ namespace detail {
 void *allocate_(size_t numBytes);
 void free_(void *ptr);
 void memcpy_(void *dst, const void *src, size_t numBytes);
-void convertFloatColorBuffer_(const float *v, uint8_t *out, size_t totalSize);
+void convertFloatColorBuffer_(
+    ComputeStream stream, const float *v, uint8_t *out, size_t totalSize);
 
 template <typename T>
 inline void copy(T *dst, const T *src, size_t numElements)

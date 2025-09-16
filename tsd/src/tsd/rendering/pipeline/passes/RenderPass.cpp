@@ -82,11 +82,13 @@ void memcpy_(void *dst, const void *src, size_t numBytes)
 #endif
 }
 
-void convertFloatColorBuffer_(const float *v, uint8_t *out, size_t totalSize)
+void convertFloatColorBuffer_(
+    ComputeStream stream, const float *v, uint8_t *out, size_t totalSize)
 {
-  detail::parallel_transform(v, v + totalSize, out, [] DEVICE_FCN(float v) {
-    return uint8_t(std::clamp(v, 0.f, 1.f) * 255);
-  });
+  detail::parallel_transform(
+      stream, v, v + totalSize, out, [] DEVICE_FCN(float v) {
+        return uint8_t(std::clamp(v, 0.f, 1.f) * 255);
+      });
 }
 
 } // namespace detail

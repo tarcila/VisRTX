@@ -11,11 +11,10 @@ namespace tsd::rendering {
 
 // Thrust kernels /////////////////////////////////////////////////////////////
 
-void computeDepthImage(
-    RenderBuffers &b, float maxDepth, tsd::math::uint2 size)
+void computeDepthImage(RenderBuffers &b, float maxDepth, tsd::math::uint2 size)
 {
   detail::parallel_for(
-      0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
+      b.stream, 0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
         const float depth = b.depth[i];
         const float v = std::clamp(depth / maxDepth, 0.f, 1.f);
         b.color[i] = helium::cvt_color_to_uint32({tsd::math::float3(v), 1.f});

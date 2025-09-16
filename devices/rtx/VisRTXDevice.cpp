@@ -430,6 +430,8 @@ VisRTXDevice::~VisRTXDevice()
   optixModuleDestroy(state.intersectionModules.customIntersectors);
 
   optixDeviceContextDestroy(state.optixContext);
+
+  cudaStreamDestroy(state.stream);
 }
 
 bool VisRTXDevice::initDevice()

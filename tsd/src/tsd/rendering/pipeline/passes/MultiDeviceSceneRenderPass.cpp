@@ -104,6 +104,7 @@ void MultiDeviceSceneRenderPass::updateSize()
 
 void MultiDeviceSceneRenderPass::render(RenderBuffers &b, int stageId)
 {
+  m_buffers.stream = b.stream;
   foreach_frame([](anari::Device d, anari::Frame f) { anari::render(d, f); });
   foreach_frame([](anari::Device d, anari::Frame f) { anari::wait(d, f); });
   copyFrameData();
@@ -121,8 +122,10 @@ void MultiDeviceSceneRenderPass::copyFrameData()
   const size_t totalSize = size.x * size.y;
   if (totalSize > 0 && size.x == color.width && size.y == color.height) {
     if (color.pixelType == ANARI_FLOAT32_VEC4) {
-      detail::convertFloatColorBuffer_(
-          (const float *)color.data, (uint8_t *)m_buffers.color, totalSize * 4);
+      detail::convertFloatColorBuffer_(m_buffers.stream,
+          (const float *)color.data,
+          (uint8_t *)m_buffers.color,
+          totalSize * 4);
     } else {
       detail::copy(m_buffers.color, (uint32_t *)color.data, totalSize);
     }

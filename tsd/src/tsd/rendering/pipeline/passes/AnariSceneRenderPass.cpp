@@ -28,7 +28,7 @@ void compositeFrame(RenderBuffers &b_out,
     bool firstPass)
 {
   detail::parallel_for(
-      0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
+      b_out.stream, 0u, uint32_t(size.x * size.y), [=] DEVICE_FCN(uint32_t i) {
         const float currentDepth = b_in.depth[i];
         const float incomingDepth = b_out.depth[i];
         if (firstPass || currentDepth < incomingDepth) {
@@ -148,15 +148,11 @@ void AnariSceneRenderPass::setEnableIDs(bool on)
   } else {
     tsd::core::logInfo("[RenderPipeline] disabling objectId frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.objectId");
+    anari::commitParameters(m_device, m_frame);
 
     auto size = getDimensions();
     const size_t totalSize = size_t(size.x) * size_t(size.y);
-#if ENABLE_CUDA
-    thrust::fill(m_buffers.objectId, m_buffers.objectId + totalSize, ~0u);
-#else
     std::fill(m_buffers.objectId, m_buffers.objectId + totalSize, ~0u);
-#endif
-    anari::commitParameters(m_device, m_frame);
   }
 }
 
@@ -181,23 +177,17 @@ void AnariSceneRenderPass::updateSize()
   m_buffers.color = detail::allocate<uint32_t>(totalSize);
   m_buffers.depth = detail::allocate<float>(totalSize);
   m_buffers.objectId = detail::allocate<uint32_t>(totalSize);
-#if ENABLE_CUDA
-  thrust::fill(m_buffers.color, m_buffers.color + totalSize, 0u);
-  thrust::fill(m_buffers.depth,
-      m_buffers.depth + totalSize,
-      std::numeric_limits<float>::infinity());
-  thrust::fill(m_buffers.objectId, m_buffers.objectId + totalSize, ~0u);
-#else
   std::fill(m_buffers.color, m_buffers.color + totalSize, 0u);
   std::fill(m_buffers.depth,
       m_buffers.depth + totalSize,
       std::numeric_limits<float>::infinity());
   std::fill(m_buffers.objectId, m_buffers.objectId + totalSize, ~0u);
-#endif
 }
 
 void AnariSceneRenderPass::render(RenderBuffers &b, int stageId)
 {
+  m_buffers.stream = b.stream;
+
   if (m_firstFrame)
     anari::render(m_device, m_frame);
 
@@ -230,8 +220,10 @@ void AnariSceneRenderPass::copyFrameData()
   const size_t totalSize = size.x * size.y;
   if (totalSize > 0 && size.x == color.width && size.y == color.height) {
     if (color.pixelType == ANARI_FLOAT32_VEC4) {
-      detail::convertFloatColorBuffer_(
-          (const float *)color.data, (uint8_t *)m_buffers.color, totalSize * 4);
+      detail::convertFloatColorBuffer_(m_buffers.stream,
+          (const float *)color.data,
+          (uint8_t *)m_buffers.color,
+          totalSize * 4);
     } else
       detail::copy(m_buffers.color, (uint32_t *)color.data, totalSize);
 

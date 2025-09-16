@@ -6,14 +6,15 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
-#ifdef ENABLE_CUDA
-// cuda
-#include <cuda_runtime_api.h>
-#endif
 
 namespace tsd::rendering {
 
-RenderPipeline::RenderPipeline() = default;
+RenderPipeline::RenderPipeline()
+{
+#ifdef ENABLE_CUDA
+  cudaStreamCreate(&m_buffers.stream);
+#endif
+}
 
 RenderPipeline::RenderPipeline(int width, int height)
 {
@@ -23,6 +24,9 @@ RenderPipeline::RenderPipeline(int width, int height)
 RenderPipeline::~RenderPipeline()
 {
   void cleanup();
+#ifdef ENABLE_CUDA
+  cudaStreamDestroy(m_buffers.stream);
+#endif
 }
 
 void RenderPipeline::setDimensions(uint32_t width, uint32_t height)
