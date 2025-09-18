@@ -95,11 +95,12 @@ struct Object : public ParameterObserver
   Parameter *setParameter(Token name, ANARIDataType type, const void *v);
   Parameter *setParameterObject(Token name, const Object &obj);
 
+  const Parameter *parameter(Token name) const;
   Parameter *parameter(Token name);
   template <typename T>
   std::optional<T> parameterValueAs(Token name);
   template <typename T = Object>
-  T *parameterValueAsObject(Token name);
+  T *parameterValueAsObject(Token name) const;
 
   void removeParameter(Token name);
   void removeAllParameters();
@@ -172,6 +173,7 @@ struct ObjectUsePtr
 
   ObjectUsePtr() = default;
   ObjectUsePtr(T *o);
+  ObjectUsePtr(IndexedVectorRef<T> o);
   ObjectUsePtr(const ObjectUsePtr<T> &o);
   ObjectUsePtr(ObjectUsePtr<T> &&o);
   ~ObjectUsePtr();
@@ -237,6 +239,14 @@ inline std::optional<T> Object::parameterValueAs(Token name)
 template <typename T>
 inline ObjectUsePtr<T>::ObjectUsePtr(T *o)
     : m_object(o ? o->self() : IndexedVectorRef<T>{})
+{
+  if (m_object)
+    m_object->incUseCount();
+}
+
+template <typename T>
+inline ObjectUsePtr<T>::ObjectUsePtr(IndexedVectorRef<T> o)
+    : m_object(o)
 {
   if (m_object)
     m_object->incUseCount();

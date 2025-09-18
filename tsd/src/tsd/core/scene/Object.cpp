@@ -229,6 +229,11 @@ Parameter *Object::setParameterObject(Token name, const Object &obj)
   return p;
 }
 
+const Parameter *Object::parameter(Token name) const
+{
+  return m_parameters.at(name);
+}
+
 Parameter *Object::parameter(Token name)
 {
   return m_parameters.at(name);

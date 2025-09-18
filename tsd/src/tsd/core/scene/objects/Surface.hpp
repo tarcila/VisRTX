@@ -20,6 +20,8 @@ struct Surface : public Object
   void setGeometry(GeometryRef g);
   void setMaterial(MaterialRef m);
 
+  Geometry *geometry() const;
+  Material *material() const;
   IndexedVectorRef<Surface> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
@@ -34,4 +36,4 @@ extern const Token material;
 
 } // namespace tokens::surface
 
-} // namespace tsd
+} // namespace tsd::core

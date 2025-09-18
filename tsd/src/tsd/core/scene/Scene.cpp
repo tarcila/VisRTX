@@ -452,6 +452,32 @@ void Scene::signalActiveLayersChanged()
     m_updateDelegate->signalActiveLayersChanged();
 }
 
+void Scene::removeUnusedObjects()
+{
+  tsd::core::logStatus("Removing unused context objects");
+
+  // Always keep around the default material //
+  ObjectUsePtr defaultMat = getObject<Material>(0).data();
+
+  auto removeUnused = [&](auto &array) {
+    foreach_item_ref(array, [&](auto ref) {
+      if (!ref)
+        return;
+      if (auto *obj = ref.data(); obj && obj->useCount() == 0)
+        removeObject(ref.data());
+    });
+  };
+
+  removeUnused(m_db.surface);
+  removeUnused(m_db.volume);
+  removeUnused(m_db.light);
+  removeUnused(m_db.geometry);
+  removeUnused(m_db.material);
+  removeUnused(m_db.field);
+  removeUnused(m_db.sampler);
+  removeUnused(m_db.array);
+}
+
 void Scene::defragmentObjectStorage()
 {
   FlatMap<anari::DataType, bool> defragmentations;
@@ -604,30 +630,10 @@ void Scene::defragmentObjectStorage()
     m_updateDelegate->signalInvalidateCachedObjects();
 }
 
-void Scene::removeUnusedObjects()
+void Scene::cleanupScene()
 {
-  tsd::core::logStatus("Removing unused context objects");
-
-  // Always keep around the default material //
-  ObjectUsePtr defaultMat = getObject<Material>(0).data();
-
-  auto removeUnused = [&](auto &array) {
-    foreach_item_ref(array, [&](auto ref) {
-      if (!ref)
-        return;
-      if (auto *obj = ref.data(); obj && obj->useCount() == 0)
-        removeObject(ref.data());
-    });
-  };
-
-  removeUnused(m_db.surface);
-  removeUnused(m_db.volume);
-  removeUnused(m_db.light);
-  removeUnused(m_db.geometry);
-  removeUnused(m_db.material);
-  removeUnused(m_db.field);
-  removeUnused(m_db.sampler);
-  removeUnused(m_db.array);
+  removeUnusedObjects();
+  defragmentObjectStorage();
 }
 
 void Scene::removeAllSecondaryLayers()

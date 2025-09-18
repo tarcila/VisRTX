@@ -18,6 +18,16 @@ void Surface::setMaterial(MaterialRef m)
   setParameterObject(tokens::surface::material, *m);
 }
 
+Geometry *Surface::geometry() const
+{
+  return parameterValueAsObject<Geometry>(tokens::surface::geometry);
+}
+
+Material *Surface::material() const
+{
+  return parameterValueAsObject<Material>(tokens::surface::material);
+}
+
 IndexedVectorRef<Surface> Surface::self() const
 {
   return scene() ? scene()->getObject<Surface>(index())

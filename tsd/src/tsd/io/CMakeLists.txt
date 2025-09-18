@@ -31,6 +31,7 @@ PRIVATE
   importers/import_VTU.cpp
   importers/import_XYZDP.cpp
   procedural/generate_cylinders.cpp
+  procedural/generate_default_lights.cpp
   procedural/generate_hdri_dome.cpp
   procedural/generate_hdri_test_image.cpp
   procedural/generate_material_orb.cpp

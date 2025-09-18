@@ -167,8 +167,9 @@ struct Scene
   // Cleanup operations //
   ////////////////////////
 
-  void defragmentObjectStorage();
   void removeUnusedObjects();
+  void defragmentObjectStorage();
+  void cleanupScene(); // remove unused + defragment
 
  private:
   void removeAllSecondaryLayers();
@@ -358,7 +359,7 @@ inline Scene::AddedObject<T> Scene::insertNewChildObjectNode(
 // Object definitions /////////////////////////////////////////////////////////
 
 template <typename T>
-inline T *Object::parameterValueAsObject(Token name)
+inline T *Object::parameterValueAsObject(Token name) const
 {
   static_assert(isObject<T>(),
       "Object::parameterValueAsObject() can only retrieve object values");

@@ -111,6 +111,15 @@ void Array::setData(const void *data, size_t byteOffset)
   unmap();
 }
 
+size_t Array::setData(std::FILE *stream)
+{
+  if (!stream)
+    return 0;
+  auto r = std::fread(map(), elementSize(), size(), stream);
+  unmap();
+  return r;
+}
+
 IndexedVectorRef<Array> Array::self() const
 {
   return scene() ? scene()->getObject<Array>(index())

@@ -7,10 +7,16 @@
 #include <tsd/ui/imgui/Application.h>
 #include <tsd/ui/imgui/windows/CameraPoses.h>
 #include <tsd/ui/imgui/windows/DatabaseEditor.h>
+#include <tsd/ui/imgui/windows/IsosurfaceEditor.h>
 #include <tsd/ui/imgui/windows/LayerTree.h>
 #include <tsd/ui/imgui/windows/Log.h>
-#include <tsd/ui/imgui/windows/MultiDeviceViewport.h>
 #include <tsd/ui/imgui/windows/ObjectEditor.h>
+#include <tsd/ui/imgui/windows/TransferFunctionEditor.h>
+#include <tsd/ui/imgui/windows/Viewport.h>
+// std
+#include <chrono>
+
+#include "AnimationControls.h"
 
 namespace tsd_viewer {
 
@@ -20,25 +26,7 @@ namespace tsd_ui = tsd::ui::imgui;
 class Application : public TSDApplication
 {
  public:
-  Application(int argc, const char *argv[]) : TSDApplication(argc, argv)
-  {
-    // Setup default scene //
-
-    auto *core = appCore();
-    auto &scene = core->tsd.scene;
-
-    core->setupSceneFromCommandLine();
-
-    const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
-        && scene.numberOfObjects(ANARI_LIGHT) == 0;
-    if (setupDefaultLight) {
-      tsd::core::logStatus("...setting up default light");
-      tsd::io::generate_default_lights(scene);
-    }
-
-    core->tsd.sceneLoadComplete = true;
-  }
-
+  Application(int argc, const char *argv[]) : TSDApplication(argc, argv) {}
   ~Application() override = default;
 
   anari_viewer::WindowArray setupWindows() override
@@ -49,24 +37,44 @@ class Application : public TSDApplication
 
     auto *cameras = new tsd_ui::CameraPoses(this);
     auto *log = new tsd_ui::Log(this);
-    auto *viewport = new tsd_ui::MultiDeviceViewport(
-        this, &core->view.manipulator, "Viewport");
-    auto *dbeditor = new tsd_ui::DatabaseEditor(this);
+    auto *viewport =
+        new tsd_ui::Viewport(this, &core->view.manipulator, "Viewport");
     auto *oeditor = new tsd_ui::ObjectEditor(this);
     auto *otree = new tsd_ui::LayerTree(this);
-    otree->setEnableAddRemoveLayers(false);
+    auto *acontrols = new tsd::demo::AnimationControls(this);
 
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
-    windows.emplace_back(dbeditor);
     windows.emplace_back(oeditor);
     windows.emplace_back(otree);
     windows.emplace_back(log);
+    windows.emplace_back(acontrols);
 
     setWindowArray(windows);
 
-    loadStateForNextFrame(); // important to do this *before* setting up barney
-    viewport->setLibrary("barney");
+    // Populate scene //
+
+    auto populateScene = [vp = viewport, core = core]() {
+      auto &scene = core->tsd.scene;
+
+      const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
+          && scene.numberOfObjects(ANARI_LIGHT) == 0;
+      if (setupDefaultLight) {
+        tsd::core::logStatus("...setting up default lights");
+        tsd::io::generate_default_lights(scene);
+      }
+
+      core->tsd.sceneLoadComplete = true;
+
+      if (!core->commandLine.loadedFromStateFile)
+        vp->setLibrary(core->commandLine.libraryList[0], false);
+    };
+
+#if 1
+    m_taskModal->activate(populateScene, "Please Wait: Loading Scene...");
+#else
+    populateScene();
+#endif
 
     return windows;
   }
@@ -83,7 +91,7 @@ class Application : public TSDApplication
     return R"layout(
 [Window][MainDockSpace]
 Pos=0,26
-Size=1920,1105
+Size=1920,1054
 Collapsed=0
 
 [Window][Debug##Default]
@@ -93,7 +101,7 @@ Collapsed=0
 
 [Window][Viewport]
 Pos=549,26
-Size=1371,848
+Size=1371,797
 Collapsed=0
 DockId=0x00000006,0
 
@@ -104,19 +112,19 @@ Collapsed=0
 DockId=0x00000009,1
 
 [Window][Layers]
-Pos=0,26
-Size=547,575
+Pos=0,228
+Size=547,346
 Collapsed=0
-DockId=0x00000008,0
+DockId=0x0000000E,0
 
 [Window][Object Editor]
-Pos=0,603
-Size=547,528
+Pos=0,576
+Size=547,504
 Collapsed=0
 DockId=0x00000009,0
 
 [Window][Log]
-Pos=549,876
+Pos=549,825
 Size=1371,255
 Collapsed=0
 DockId=0x00000005,0
@@ -140,10 +148,21 @@ Collapsed=0
 DockId=0x0000000B,0
 
 [Window][Camera Poses]
-Pos=0,26
-Size=547,575
+Pos=0,228
+Size=547,346
 Collapsed=0
-DockId=0x00000008,1
+DockId=0x0000000E,1
+
+[Window][Animation Controls]
+Pos=0,26
+Size=547,200
+Collapsed=0
+DockId=0x0000000D,0
+
+[Window][##]
+Pos=792,482
+Size=336,116
+Collapsed=0
 
 [Table][0x44C159D3,2]
 Column 0  Weight=1.0000
@@ -175,10 +194,12 @@ Column 0  Weight=1.0000
 Column 1  Weight=1.0000
 
 [Docking][Data]
-DockSpace         ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1105 Split=X
+DockSpace         ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=X
   DockNode        ID=0x00000003 Parent=0x80F5B4C5 SizeRef=1368,1054 Split=X
     DockNode      ID=0x00000001 Parent=0x00000003 SizeRef=547,1105 Split=Y Selected=0xCD8384B1
-      DockNode    ID=0x00000008 Parent=0x00000001 SizeRef=547,575 Selected=0xCD8384B1
+      DockNode    ID=0x00000008 Parent=0x00000001 SizeRef=547,575 Split=Y Selected=0xCD8384B1
+        DockNode  ID=0x0000000D Parent=0x00000008 SizeRef=547,200 Selected=0x9AE0FB0A
+        DockNode  ID=0x0000000E Parent=0x00000008 SizeRef=547,346 Selected=0xCD8384B1
       DockNode    ID=0x00000009 Parent=0x00000001 SizeRef=547,528 Selected=0x82B4C496
     DockNode      ID=0x00000002 Parent=0x00000003 SizeRef=1371,1105 Split=Y
       DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=1370,797 Split=X Selected=0xC450F867
@@ -205,7 +226,7 @@ int main(int argc, const char *argv[])
 {
   {
     tsd_viewer::Application app(argc, argv);
-    app.run(1920, 1080, "TSD Multi-Device Viewer");
+    app.run(1920, 1080, "TSD Demo | Animated Time Series");
   }
 
   return 0;

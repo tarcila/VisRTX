@@ -22,8 +22,6 @@ void ImportFileDialog::buildUI()
   constexpr int MAX_LENGTH = 2000;
   m_filename.reserve(MAX_LENGTH);
 
-  bool update = false;
-
   const char *importers[] = {"ASSIMP",
       "ASSIMP_FLAT",
       "DLAF",
@@ -53,7 +51,6 @@ void ImportFileDialog::buildUI()
 
   if (!outPath.empty()) {
     m_filename = outPath;
-    update = true;
     outPath.clear();
   }
 
@@ -65,7 +62,7 @@ void ImportFileDialog::buildUI()
     return 0;
   };
 
-  update |= ImGui::InputText("##filename",
+  ImGui::InputText("##filename",
       m_filename.data(),
       MAX_LENGTH,
       ImGuiInputTextFlags_CallbackEdit,

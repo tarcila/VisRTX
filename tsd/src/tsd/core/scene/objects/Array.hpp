@@ -7,6 +7,7 @@
 // std
 #include <cassert>
 #include <cstddef>
+#include <cstdio>
 #include <memory>
 
 namespace tsd::core {
@@ -56,6 +57,7 @@ struct Array : public Object
   template <typename T>
   void setData(const std::vector<T> &data, size_t startOffset = 0);
   void setData(const void *data, size_t byteOffset = 0);
+  size_t setData(std::FILE *stream);
 
   IndexedVectorRef<Array> self() const;
 
@@ -116,4 +118,4 @@ inline void Array::setData(const std::vector<T> &data, size_t startOffset)
   setData(data.data(), data.size(), startOffset);
 }
 
-} // namespace tsd
+} // namespace tsd::core

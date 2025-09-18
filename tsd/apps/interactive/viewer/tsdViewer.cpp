@@ -1,6 +1,8 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+// tsd_io
+#include <tsd/io/procedural.hpp>
 // tsd_ui_imgui
 #include <tsd/ui/imgui/Application.h>
 #include <tsd/ui/imgui/windows/CameraPoses.h>
@@ -75,13 +77,7 @@ class Application : public TSDApplication
           && scene.numberOfObjects(ANARI_LIGHT) == 0;
       if (setupDefaultLight) {
         tsd::core::logStatus("...setting up default light");
-
-        auto light = scene.createObject<tsd::core::Light>(
-            tsd::core::tokens::light::directional);
-        light->setName("mainLight");
-        light->setParameter("direction", tsd::math::float2(0.f, 240.f));
-
-        scene.defaultLayer()->root()->insert_first_child({light});
+        tsd::io::generate_default_lights(scene);
       }
 
       tsd::core::logStatus("...scene load complete! (%.3fs)", loadSeconds);
