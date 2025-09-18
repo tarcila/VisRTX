@@ -19,6 +19,9 @@ AnimationControls::AnimationControls(
 
 void AnimationControls::buildUI()
 {
+    if (ImGui::IsKeyPressed(ImGuiKey_Space) && m_geometry)
+      m_playing = !m_playing;
+
   buildUI_incrementAnimation();
 
   buildUI_fileSelection();
