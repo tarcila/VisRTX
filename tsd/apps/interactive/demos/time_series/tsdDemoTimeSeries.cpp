@@ -39,12 +39,15 @@ class Application : public TSDApplication
     auto *log = new tsd_ui::Log(this);
     auto *viewport =
         new tsd_ui::Viewport(this, &core->view.manipulator, "Viewport");
+    auto *viewport2 =
+        new tsd_ui::Viewport(this, &core->view.manipulator, "Secondary View");
     auto *oeditor = new tsd_ui::ObjectEditor(this);
     auto *otree = new tsd_ui::LayerTree(this);
     auto *acontrols = new tsd::demo::AnimationControls(this);
 
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
+    windows.emplace_back(viewport2);
     windows.emplace_back(oeditor);
     windows.emplace_back(otree);
     windows.emplace_back(log);
@@ -52,27 +55,34 @@ class Application : public TSDApplication
 
     setWindowArray(windows);
 
+    if (core->commandLine.secondaryViewportLibrary.empty())
+      viewport2->hide();
+
     // Populate scene //
 
-    auto populateScene = [vp = viewport, ac = acontrols, core = core]() {
-      core->setupSceneFromCommandLine(true);
+    auto populateScene =
+        [vp = viewport, vp2 = viewport2, ac = acontrols, core = core]() {
+          core->setupSceneFromCommandLine(true);
 
-      if (!core->commandLine.filenames.empty())
-        ac->setAnimationFile(core->commandLine.filenames[0].second);
+          if (!core->commandLine.filenames.empty())
+            ac->setAnimationFile(core->commandLine.filenames[0].second);
 
-      auto &scene = core->tsd.scene;
-      const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
-          && scene.numberOfObjects(ANARI_LIGHT) == 0;
-      if (setupDefaultLight) {
-        tsd::core::logStatus("...setting up default lights");
-        tsd::io::generate_default_lights(scene);
-      }
+          auto &scene = core->tsd.scene;
+          const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
+              && scene.numberOfObjects(ANARI_LIGHT) == 0;
+          if (setupDefaultLight) {
+            tsd::core::logStatus("...setting up default lights");
+            tsd::io::generate_default_lights(scene);
+          }
 
-      core->tsd.sceneLoadComplete = true;
+          core->tsd.sceneLoadComplete = true;
 
-      if (!core->commandLine.loadedFromStateFile)
-        vp->setLibrary(core->commandLine.libraryList[0], false);
-    };
+          if (!core->commandLine.loadedFromStateFile) {
+            vp->setLibrary(core->commandLine.libraryList[0], false);
+            if (!core->commandLine.secondaryViewportLibrary.empty())
+              vp2->setLibrary(core->commandLine.secondaryViewportLibrary);
+          }
+        };
 
 #if 1
     m_taskModal->activate(populateScene, "Please Wait: Loading Scene...");
