@@ -20,6 +20,8 @@ struct AnimationControls : public tsd::ui::imgui::Window
   AnimationControls(tsd::ui::imgui::Application *app,
       const char *name = "Animation Controls");
 
+  void setAnimationFile(const std::string &filename);
+
   void buildUI() override;
 
  private:

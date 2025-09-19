@@ -146,6 +146,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::NEURAL;
     else if (arg == "-gltf")
       importerType = ImporterType::GLTF;
+    else if (arg == "-axyz")
+      importerType = ImporterType::AXYZ;
     else
       this->commandLine.filenames.push_back({importerType, arg});
   }

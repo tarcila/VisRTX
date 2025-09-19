@@ -54,9 +54,13 @@ class Application : public TSDApplication
 
     // Populate scene //
 
-    auto populateScene = [vp = viewport, core = core]() {
-      auto &scene = core->tsd.scene;
+    auto populateScene = [vp = viewport, ac = acontrols, core = core]() {
+      core->setupSceneFromCommandLine(true);
 
+      if (!core->commandLine.filenames.empty())
+        ac->setAnimationFile(core->commandLine.filenames[0].second);
+
+      auto &scene = core->tsd.scene;
       const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
           && scene.numberOfObjects(ANARI_LIGHT) == 0;
       if (setupDefaultLight) {

@@ -45,6 +45,7 @@ enum class ImporterType
   NEURAL,
   TSD,
   GLTF,
+  AXYZ, // only valid for time series demo app
   NONE
 };
 

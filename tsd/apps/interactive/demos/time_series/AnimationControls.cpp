@@ -17,10 +17,22 @@ AnimationControls::AnimationControls(
     : tsd::ui::imgui::Window(app, name)
 {}
 
+void AnimationControls::setAnimationFile(const std::string &filename)
+{
+  m_filename = filename;
+  auto doLoad = [&]() { importAnimation(); };
+  if (!appCore()->windows.taskModal)
+    doLoad();
+  else {
+    appCore()->windows.taskModal->activate(
+        doLoad, "Please Wait: Importing Data...");
+  }
+}
+
 void AnimationControls::buildUI()
 {
-    if (ImGui::IsKeyPressed(ImGuiKey_Space) && m_geometry)
-      m_playing = !m_playing;
+  if (ImGui::IsKeyPressed(ImGuiKey_Space) && m_geometry)
+    m_playing = !m_playing;
 
   buildUI_incrementAnimation();
 
@@ -76,15 +88,8 @@ void AnimationControls::buildUI_fileSelection()
   const bool readyToLoad = !m_filename.empty() && m_timeSteps.empty();
 
   ImGui::BeginDisabled(!readyToLoad);
-  if (ImGui::Button("load animation")) {
-    auto doLoad = [&]() { importAnimation(); };
-    if (!appCore()->windows.taskModal)
-      doLoad();
-    else {
-      appCore()->windows.taskModal->activate(
-          doLoad, "Please Wait: Importing Data...");
-    }
-  }
+  if (ImGui::Button("load animation"))
+    setAnimationFile(m_filename);
   ImGui::EndDisabled();
 
   ImGui::SameLine();
