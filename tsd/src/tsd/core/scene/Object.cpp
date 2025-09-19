@@ -333,8 +333,10 @@ void Object::setUpdateDelegate(BaseUpdateDelegate *ud)
 
 void Object::parameterChanged(const Parameter *p, const Any &oldValue)
 {
-  if (auto *obj = m_scene->getObject(oldValue))
-    obj->decUseCount();
+  if (m_scene) {
+    if (auto *obj = m_scene->getObject(oldValue); obj != nullptr)
+      obj->decUseCount();
+  }
   incObjectUseCountParameter(p);
   if (m_updateDelegate)
     m_updateDelegate->signalParameterUpdated(this, p);
