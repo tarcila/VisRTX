@@ -127,7 +127,7 @@ static void buildUI_parameter_contextMenu(
 
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
   if (ImGui::BeginMenu(text)) {                                                \
-    if (auto i = buildUI_objects_menulist(scene, type);                          \
+    if (auto i = buildUI_objects_menulist(scene, type);                        \
         i != TSD_INVALID_INDEX && p)                                           \
       p->setValue({type, i});                                                  \
     ImGui::EndMenu();                                                          \
@@ -173,6 +173,18 @@ void buildUI_object(tsd::core::Object &o,
   if (o.type() == ANARI_SURFACE) {
     // no-subtype
     ImGui::Text("[%zu]: '%s'", o.index(), o.name().c_str());
+  } else if (anari::isArray(o.type())) {
+    ImGui::Text("[%zu]: '%s'", o.index(), o.name().c_str());
+    const auto &a = *(tsd::core::Array *)&o;
+    const auto t = a.type();
+    ImGui::Text("%s", anari::toString(t));
+    if (t == ANARI_ARRAY3D)
+      ImGui::Text(" size: %zu x %zu x %zu", a.dim(0), a.dim(1), a.dim(2));
+    else if (t == ANARI_ARRAY2D)
+      ImGui::Text(" size: %zu x %zu", a.dim(0), a.dim(1));
+    else
+      ImGui::Text(" size: %zu", a.dim(0));
+    ImGui::Text(" type: %s", anari::toString(a.elementType()));
   } else {
     // is-subtyped
     ImGui::Text("[%zu]: '%s' (subtype: '%s')",

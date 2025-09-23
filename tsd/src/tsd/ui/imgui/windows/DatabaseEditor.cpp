@@ -30,7 +30,10 @@ void DatabaseEditor::buildUI()
         ImGui::Separator();
 
         ImGui::PushID(o);
-        if (ImGui::Button("delete"))
+        ImGui::BeginDisabled(o->useCount() > 0);
+        const bool doDelete = ImGui::Button("delete");
+        ImGui::EndDisabled();
+        if (doDelete)
           appCore()->tsd.scene.removeObject(o);
         else
           tsd::ui::buildUI_object(*o, appCore()->tsd.scene, true);
@@ -46,8 +49,9 @@ void DatabaseEditor::buildUI()
   buildUI_objectSection(db.material, "Materials");
   buildUI_objectSection(db.geometry, "Geometries");
   buildUI_objectSection(db.surface, "Surfaces");
-  buildUI_objectSection(db.field, "SpatialFields");
+  buildUI_objectSection(db.field, "Spatial Fields");
   buildUI_objectSection(db.volume, "Volumes");
+  buildUI_objectSection(db.array, "Arrays");
 
   ImGui::EndDisabled();
 }
