@@ -29,10 +29,10 @@ extern const Token cone;
 extern const Token curve;
 extern const Token cylinder;
 extern const Token isosurface;
+extern const Token neural;
 extern const Token quad;
 extern const Token sphere;
 extern const Token triangle;
-extern const Token neural;
 } // namespace tokens::geometry
 
 } // namespace tsd::core

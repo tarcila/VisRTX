@@ -22,6 +22,6 @@ void buildUI_parameter(tsd::core::Object &o,
     tsd::core::Scene &scene,
     bool asTable = false);
 size_t buildUI_objects_menulist(
-    const tsd::core::Scene &scene, anari::DataType type);
+    const tsd::core::Scene &scene, anari::DataType &type);
 
 } // namespace tsd::ui

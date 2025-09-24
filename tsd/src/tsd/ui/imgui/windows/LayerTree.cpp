@@ -280,9 +280,10 @@ void LayerTree::buildUI_objectSceneMenu()
       if (ImGui::BeginMenu("existing object")) {
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
   if (scene.numberOfObjects(type) > 0 && ImGui::BeginMenu(text)) {             \
-    if (auto i = tsd::ui::buildUI_objects_menulist(scene, type);               \
+    auto t = type;                                                             \
+    if (auto i = tsd::ui::buildUI_objects_menulist(scene, t);                  \
         i != TSD_INVALID_INDEX)                                                \
-      scene.insertChildObjectNode(menuNode, type, i);                          \
+      scene.insertChildObjectNode(menuNode, t, i);                             \
     ImGui::EndMenu();                                                          \
   }
         OBJECT_UI_MENU_ITEM("surface", ANARI_SURFACE);

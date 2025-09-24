@@ -25,10 +25,10 @@ const Token cone = "cone";
 const Token curve = "curve";
 const Token cylinder = "cylinder";
 const Token isosurface = "isosurface";
+const Token neural = "neural";
 const Token quad = "quad";
 const Token sphere = "sphere";
 const Token triangle = "triangle";
-const Token neural = "neural";
 
 } // namespace tokens::geometry
 
