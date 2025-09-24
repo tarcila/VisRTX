@@ -45,7 +45,7 @@ void anariStatusFunc(const void *_core,
     tsd::core::logDebug("[ANARI][DEBUG][%s][%p] %s", typeStr, source, message);
 }
 
-static std::vector<std::string> parseLibraryList()
+static std::vector<std::string> parseLibraryList(bool defaultNone)
 {
   const char *libsFromEnv = getenv("TSD_ANARI_LIBRARIES");
 
@@ -73,7 +73,10 @@ static std::vector<std::string> parseLibraryList()
       libList.push_back("environment");
   }
 
-  libList.push_back("{none}");
+  if (defaultNone)
+    libList.insert(libList.begin(), "{none}");
+  else
+    libList.push_back("{none}");
 
   return libList;
 }
@@ -92,10 +95,11 @@ Core::~Core()
 
 void Core::parseCommandLine(int argc, const char **argv)
 {
-  this->commandLine.libraryList = parseLibraryList();
-
-  if (argc < 2 || argv == nullptr)
+  if (argc < 2 || argv == nullptr) {
+    this->commandLine.libraryList =
+        parseLibraryList(!this->commandLine.useDefaultRenderer);
     return;
+  }
 
   auto importerType = ImporterType::NONE;
 
@@ -111,6 +115,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       this->commandLine.preloadDevices = true;
     else if (arg == "--secondaryView" || arg == "-sv")
       this->commandLine.secondaryViewportLibrary = argv[++i];
+    else if (arg == "--noDefaultRenderer")
+      this->commandLine.useDefaultRenderer = false;
     else if (arg == "-tsd") {
       importerType = ImporterType::TSD;
       this->commandLine.loadingScene = true;
@@ -151,6 +157,9 @@ void Core::parseCommandLine(int argc, const char **argv)
     else
       this->commandLine.filenames.push_back({importerType, arg});
   }
+
+  this->commandLine.libraryList =
+      parseLibraryList(!this->commandLine.useDefaultRenderer);
 }
 
 void Core::setupSceneFromCommandLine(bool hdriOnly)

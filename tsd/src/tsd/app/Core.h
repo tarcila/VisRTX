@@ -52,6 +52,7 @@ enum class ImporterType
 struct CommandLineOptions
 {
   bool useDefaultLayout{true};
+  bool useDefaultRenderer{true};
   bool loadingScene{false};
   bool preloadDevices{false};
   bool loadedFromStateFile{false};
