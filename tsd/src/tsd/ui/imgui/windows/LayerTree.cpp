@@ -272,10 +272,76 @@ void LayerTree::buildUI_objectSceneMenu()
 
       ImGui::Separator();
 
-      if (ImGui::MenuItem("imported file"))
-        appCore()->windows.importDialog->show();
+      if (ImGui::BeginMenu("new object")) {
+        if (ImGui::BeginMenu("light")) {
+          if (ImGui::MenuItem("directional")) {
+            scene.insertNewChildObjectNode<tsd::core::Light>(menuNode,
+                tsd::core::tokens::light::directional,
+                "directional light");
+            clearSelectedNode = true;
+          }
 
-      ImGui::Separator();
+          if (ImGui::MenuItem("point")) {
+            scene.insertNewChildObjectNode<tsd::core::Light>(
+                menuNode, tsd::core::tokens::light::point, "point light");
+            clearSelectedNode = true;
+          }
+
+          if (ImGui::MenuItem("quad")) {
+            scene.insertNewChildObjectNode<tsd::core::Light>(
+                menuNode, tsd::core::tokens::light::quad, "quad light");
+            clearSelectedNode = true;
+          }
+
+          if (ImGui::MenuItem("spot")) {
+            scene.insertNewChildObjectNode<tsd::core::Light>(
+                menuNode, tsd::core::tokens::light::spot, "spot light");
+            clearSelectedNode = true;
+          }
+
+          if (ImGui::BeginMenu("hdri")) {
+            if (ImGui::MenuItem("simple dome")) {
+              tsd::io::generate_hdri_dome(scene, menuNode);
+              clearSelectedNode = true;
+            }
+
+            if (ImGui::MenuItem("test image")) {
+              tsd::io::generate_hdri_test_image(scene, menuNode);
+              clearSelectedNode = true;
+            }
+            ImGui::EndMenu(); // "hdri"
+          }
+
+          ImGui::EndMenu(); // "light"
+        }
+
+        if (ImGui::BeginMenu("surface")) {
+          tsd::core::GeometryRef g;
+#define OBJECT_UI_MENU_ITEM(text, subtype)                                     \
+  if (ImGui::MenuItem(text)) {                                                 \
+    g = scene.createObject<tsd::core::Geometry>(                               \
+        tsd::core::tokens::geometry::subtype);                                 \
+  }
+          OBJECT_UI_MENU_ITEM("cone", cone);
+          OBJECT_UI_MENU_ITEM("curve", curve);
+          OBJECT_UI_MENU_ITEM("cylinder", cylinder);
+          OBJECT_UI_MENU_ITEM("isosurface", isosurface);
+          OBJECT_UI_MENU_ITEM("neural", neural);
+          OBJECT_UI_MENU_ITEM("quad", quad);
+          OBJECT_UI_MENU_ITEM("sphere", sphere);
+          OBJECT_UI_MENU_ITEM("triangle", triangle);
+#undef OBJECT_UI_MENU_ITEM
+          if (g) {
+            auto s = scene.createSurface("", g, scene.defaultMaterial());
+            scene.insertChildObjectNode(menuNode, s, "surface");
+            clearSelectedNode = true;
+          }
+
+          ImGui::EndMenu(); // "surface"
+        }
+
+        ImGui::EndMenu(); // "new object"
+      }
 
       if (ImGui::BeginMenu("existing object")) {
 #define OBJECT_UI_MENU_ITEM(text, type)                                        \
@@ -286,11 +352,16 @@ void LayerTree::buildUI_objectSceneMenu()
       scene.insertChildObjectNode(menuNode, t, i);                             \
     ImGui::EndMenu();                                                          \
   }
+        OBJECT_UI_MENU_ITEM("light", ANARI_LIGHT);
         OBJECT_UI_MENU_ITEM("surface", ANARI_SURFACE);
         OBJECT_UI_MENU_ITEM("volume", ANARI_VOLUME);
-        OBJECT_UI_MENU_ITEM("light", ANARI_LIGHT);
         ImGui::EndMenu();
       }
+
+      ImGui::Separator();
+
+      if (ImGui::MenuItem("import..."))
+        appCore()->windows.importDialog->show();
 
       ImGui::Separator();
 
@@ -323,50 +394,6 @@ void LayerTree::buildUI_objectSceneMenu()
         if (ImGui::MenuItem("noise volume")) {
           tsd::io::generate_noiseVolume(scene, menuNode);
           clearSelectedNode = true;
-        }
-
-        ImGui::EndMenu();
-      }
-
-      ImGui::Separator();
-
-      if (ImGui::BeginMenu("light")) {
-        if (ImGui::MenuItem("directional")) {
-          scene.insertNewChildObjectNode<tsd::core::Light>(menuNode,
-              tsd::core::tokens::light::directional,
-              "directional light");
-          clearSelectedNode = true;
-        }
-
-        if (ImGui::MenuItem("point")) {
-          scene.insertNewChildObjectNode<tsd::core::Light>(
-              menuNode, tsd::core::tokens::light::point, "point light");
-          clearSelectedNode = true;
-        }
-
-        if (ImGui::MenuItem("quad")) {
-          scene.insertNewChildObjectNode<tsd::core::Light>(
-              menuNode, tsd::core::tokens::light::quad, "quad light");
-          clearSelectedNode = true;
-        }
-
-        if (ImGui::MenuItem("spot")) {
-          scene.insertNewChildObjectNode<tsd::core::Light>(
-              menuNode, tsd::core::tokens::light::spot, "spot light");
-          clearSelectedNode = true;
-        }
-
-        if (ImGui::BeginMenu("hdri")) {
-          if (ImGui::MenuItem("simple dome")) {
-            tsd::io::generate_hdri_dome(scene, menuNode);
-            clearSelectedNode = true;
-          }
-
-          if (ImGui::MenuItem("test image")) {
-            tsd::io::generate_hdri_test_image(scene, menuNode);
-            clearSelectedNode = true;
-          }
-          ImGui::EndMenu();
         }
 
         ImGui::EndMenu();
