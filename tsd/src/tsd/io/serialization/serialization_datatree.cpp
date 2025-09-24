@@ -318,10 +318,10 @@ static void nodeToLayer(core::DataNode &rootNode, Layer &layer, Scene &scene)
     if (level == 0)
       currentNode = layer.root();
     else {
-      currentNode = layer.insert_last_child(
-          currentParentNode, {node["name"].getValueAs<std::string>().c_str()});
+      currentNode = layer.insert_last_child(currentParentNode, {});
       (*currentNode)->setValueRaw(node["value"].getValue(), &scene);
       (*currentNode)->setEnabled(node["enabled"].getValueOr(true));
+      (*currentNode)->name() = node["name"].getValueAs<std::string>();
     }
 
     return true;
