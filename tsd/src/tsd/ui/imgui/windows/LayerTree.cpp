@@ -259,6 +259,24 @@ void LayerTree::buildUI_objectSceneMenu()
       scene.signalLayerChange(&layer);
     }
 
+    if (nodeSelected && ImGui::MenuItem("show all")) {
+      layer.traverse(menuNode, [&](auto &n, int) {
+        n->setEnabled(true);
+        return true;
+      });
+      scene.signalLayerChange(&layer);
+    }
+
+    if (nodeSelected && ImGui::MenuItem("hide all")) {
+      layer.traverse(menuNode, [&](auto &n, int) {
+        n->setEnabled(false);
+        return true;
+      });
+      scene.signalLayerChange(&layer);
+    }
+
+    ImGui::Separator();
+
     if (nodeSelected && ImGui::BeginMenu("rename")) {
       ImGui::InputText("##edit_node_name", &(*menuNode)->name());
       ImGui::EndMenu();
