@@ -257,8 +257,6 @@ Sampler *SamplerRegistry::loadFromDDS(
     }
 
     std::vector<std::byte> imageContent(linearSize);
-    auto wasFlipped = dds::vflipImage(dds, data(imageContent));
-
     Array1DMemoryDescriptor desc = {
         {
             data(imageContent),
@@ -278,24 +276,13 @@ Sampler *SamplerRegistry::loadFromDDS(
     image2d->setParam("format", std::string(compressedFormat));
     image2d->setParam("size", U64Vec2(dds->header.width, dds->header.height));
     array1d->refDec(helium::PUBLIC);
-    if (!wasFlipped) {
-      // Ideally, we what to flip the content of the image so actual transforms
-      // can be applied to the samplers. Not achievable for all cases, so
-      // we use that as a fallback.
-      image2d->setParam("inTransform",
-          glm::mat4({1.0f, 0.0, 0.0f, 0.0f},
-              {0.0f, -1.0f, 0.0f, 0.0f},
-              {0.0f, 0.0f, 1.0f, 0.0f},
-              {0.0f, 0.0f, 0.0f, 1.0f}));
-      image2d->setParam("inOffset", glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-    }
+
     image2d->commitParameters();
     image2d->finalize();
     tex = image2d;
   } else if (format) {
     std::vector<std::byte> imageContent(
         dds->header.width * dds->header.height * 4);
-    auto wasFlipped = dds::vflipImage(dds, data(imageContent));
 
     anari::DataType texelType = ANARI_UNKNOWN;
 
@@ -317,17 +304,7 @@ Sampler *SamplerRegistry::loadFromDDS(
     auto image2d = new Image2D(m_deviceState);
     image2d->setParam("image", array2d);
     array2d->refDec(helium::PUBLIC);
-    if (!wasFlipped) {
-      // Ideally, we what to flip the content of the image so actual transforms
-      // can be applied to the samplers. Not implemented/achievable for all
-      // cases, so we use that as a fallback.
-      image2d->setParam("inTransform",
-          glm::mat4({1.0f, 0.0, 0.0f, 0.0f},
-              {0.0f, -1.0f, 0.0f, 0.0f},
-              {0.0f, 0.0f, 1.0f, 0.0f},
-              {0.0f, 0.0f, 0.0f, 1.0f}));
-      image2d->setParam("inOffset", glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
-    }
+
     image2d->commitParameters();
     image2d->finalize();
     tex = image2d;
