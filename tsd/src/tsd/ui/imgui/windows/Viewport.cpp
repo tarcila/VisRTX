@@ -708,6 +708,11 @@ void Viewport::ui_menubar()
         if (ImGui::RadioButton(libName.c_str(), isThisLibrary))
           setLibrary(libName, false);
       }
+      ImGui::Separator();
+      if (ImGui::MenuItem("reload device")) {
+        auto lib = m_libName; // setLibrary() clears m_libName
+        setLibrary(lib, false);
+      }
       ImGui::EndMenu();
     }
 
