@@ -88,7 +88,7 @@ void Triangle::finalize()
 
   if (m_vertexTangent && m_vertex->size() != m_vertexTangent->size()) {
     reportMessage(ANARI_SEVERITY_WARNING,
-        "'vertex.Tangent' on triangle geometry not the same size as "
+        "'vertex.tangent' on triangle geometry not the same size as "
         "'vertex.position' (%zu) vs. (%zu)",
         m_vertexTangent->size(),
         m_vertex->size());
