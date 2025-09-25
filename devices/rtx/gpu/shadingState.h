@@ -100,7 +100,7 @@ struct MDLShadingState
 {
   ShadingStateMaterial state;
   TextureHandler textureHandler;
-  ResourceData resData;
+  __align__(16) ResourceData resData;
 
   glm::mat3x4 objectToWorld;
   glm::mat3x4 worldToObject;
