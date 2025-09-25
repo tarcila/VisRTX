@@ -744,7 +744,7 @@ void Viewport::ui_menubar()
         ImGui::Indent(INDENT_AMOUNT);
 
         tsd::ui::buildUI_object(
-            m_rendererObjects[m_currentRenderer], appCore()->tsd.scene, false);
+            m_rendererObjects[m_currentRenderer], appCore()->tsd.scene, true);
 
         ImGui::Unindent(INDENT_AMOUNT);
         ImGui::Separator();

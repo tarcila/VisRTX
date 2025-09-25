@@ -216,8 +216,8 @@ void buildUI_object(tsd::core::Object &o,
   // regular parameters //
 
   if (useTableForParameters) {
-    const ImGuiTableFlags flags =
-        ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable;
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg
+        | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchSame;
     if (ImGui::BeginTable("parameters", 2, flags)) {
       ImGui::TableSetupColumn("Parameter");
       ImGui::TableSetupColumn("Value");
