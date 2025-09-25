@@ -56,6 +56,7 @@ struct CommandLineOptions
   bool loadingScene{false};
   bool preloadDevices{false};
   bool loadedFromStateFile{false};
+  std::string stateFile;
   std::vector<std::pair<ImporterType, std::string>> filenames;
   ImporterType importerType{ImporterType::NONE};
   std::vector<std::string> libraryList;

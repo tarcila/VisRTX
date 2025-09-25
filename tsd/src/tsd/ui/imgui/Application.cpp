@@ -33,13 +33,8 @@ Application::Application(int argc, const char **argv)
     printf("done\n");
   }
 
-  auto &filenames = m_core.commandLine.filenames;
-  if (!filenames.empty()
-      && filenames[0].first == tsd::app::ImporterType::NONE) {
-    m_filenameToLoadNextFrame = filenames[0].second;
-    filenames.clear();
-    m_core.commandLine.loadedFromStateFile = true;
-  }
+  if (!core->commandLine.stateFile.empty())
+    m_filenameToLoadNextFrame = core->commandLine.stateFile;
 }
 
 Application::~Application() = default;

@@ -154,8 +154,14 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::GLTF;
     else if (arg == "-axyz")
       importerType = ImporterType::AXYZ;
-    else
-      this->commandLine.filenames.push_back({importerType, arg});
+    else {
+      if (importerType != ImporterType::NONE)
+        this->commandLine.filenames.push_back({importerType, arg});
+      else {
+        this->commandLine.stateFile = arg;
+        this->commandLine.loadedFromStateFile = true;
+      }
+    }
   }
 
   this->commandLine.libraryList =
