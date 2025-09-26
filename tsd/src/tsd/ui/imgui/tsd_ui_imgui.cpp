@@ -23,58 +23,73 @@ static void buildUI_parameter_contextMenu(
     if (ImGui::BeginMenu("set type")) {
       if (ImGui::BeginMenu("uniform")) {
         if (ImGui::MenuItem("direction")) {
-          p->setValue(tsd::math::float2(0.f));
           p->setUsage(tsd::core::ParameterUsageHint::DIRECTION);
+          p->setValue(tsd::math::float2(0.f));
         }
 
         if (ImGui::BeginMenu("color")) {
           if (ImGui::MenuItem("rgb") && p) {
-            p->setValue(tsd::math::float3(1));
             p->setUsage(tsd::core::ParameterUsageHint::COLOR);
+            p->setValue(tsd::math::float3(1));
           }
           if (ImGui::MenuItem("rgba") && p) {
-            p->setValue(tsd::math::float4(1));
             p->setUsage(tsd::core::ParameterUsageHint::COLOR);
+            p->setValue(tsd::math::float4(1));
           }
           ImGui::EndMenu(); // "color"
         }
 
+        if (ImGui::BeginMenu("transform")) {
+          if (ImGui::MenuItem("identity") && p) {
+            p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::scaling_matrix(tsd::math::float3(1.f)));
+          }
+          ImGui::Separator();
+          if (ImGui::MenuItem("value range") && p) {
+            p->setUsage(tsd::core::ParameterUsageHint::VALUE_RANGE_TRANSFORM);
+            p->setValue(tsd::math::float2(0.f, 1.f));
+          }
+          ImGui::EndMenu(); // "transform"
+        }
+
+        ImGui::Separator();
+
         if (ImGui::BeginMenu("float")) {
           if (ImGui::MenuItem("float1") && p) {
-            p->setValue(1.f);
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(1.f);
           }
           if (ImGui::MenuItem("float2") && p) {
-            p->setValue(tsd::math::float2(1.f));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::float2(1.f));
           }
           if (ImGui::MenuItem("float3") && p) {
-            p->setValue(tsd::math::float3(1.f));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::float3(1.f));
           }
           if (ImGui::MenuItem("float4") && p) {
-            p->setValue(tsd::math::float4(1.f));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::float4(1.f));
           }
           ImGui::EndMenu(); // "float"
         }
 
         if (ImGui::BeginMenu("int")) {
           if (ImGui::MenuItem("int1") && p) {
-            p->setValue(0);
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(0);
           }
           if (ImGui::MenuItem("int2") && p) {
-            p->setValue(tsd::math::int2(1));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::int2(1));
           }
           if (ImGui::MenuItem("int3") && p) {
-            p->setValue(tsd::math::int3(1));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::int3(1));
           }
           if (ImGui::MenuItem("int4") && p) {
-            p->setValue(tsd::math::int4(1));
             p->setUsage(tsd::core::ParameterUsageHint::NONE);
+            p->setValue(tsd::math::int4(1));
           }
           ImGui::EndMenu(); // "float"
         }
@@ -85,10 +100,10 @@ static void buildUI_parameter_contextMenu(
       ImGui::Separator();
 
       if (ImGui::MenuItem("attribute")) {
-        p->setValue("attribute0");
         p->setStringValues(
             {"attribute0", "attribute1", "attribute2", "attribute3", "color"});
         p->setStringSelection(0);
+        p->setValue("attribute0");
       }
 
       ImGui::Separator();
