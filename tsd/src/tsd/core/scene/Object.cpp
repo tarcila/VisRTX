@@ -292,7 +292,7 @@ void Object::updateANARIParameter(anari::Device d,
   if (!o)
     return;
 
-  if (cache && !p.isEnabled()) {
+  if (!p.isEnabled()) {
     anari::unsetParameter(d, o, n);
   } else if (cache && p.value().holdsObject()) {
     auto objType = p.value().type();
