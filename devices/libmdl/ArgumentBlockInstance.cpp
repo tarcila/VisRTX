@@ -103,7 +103,8 @@ auto ArgumentBlockInstance::setValue(std::string_view name, const float (&value)
   _setValue(name, value);
 }
 
-auto ArgumentBlockInstance::reset(std::string_view name) -> void {
+auto ArgumentBlockInstance::reset(std::string_view name) -> void
+{
   auto argumentLayoutIt = m_argumentBlockDescriptor.m_nameToArgbBlockLayout.find(std::string(name));
   if (argumentLayoutIt == cend(m_argumentBlockDescriptor.m_nameToArgbBlockLayout)) return;
 

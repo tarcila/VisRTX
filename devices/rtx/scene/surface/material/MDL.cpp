@@ -115,7 +115,6 @@ void MDL::syncSource()
           libmdl::parseMaterialSourceName(source, &deviceState()->mdl->core);
       if (!moduleName.empty() && !materialName.empty()) {
         std::tie(uuid, argumentBlockDescriptor) = materialRegistry.acquireMaterial(moduleName, materialName);
-      
         if (uuid == libmdl::Uuid{}) {
           reportMessage(ANARI_SEVERITY_ERROR,
               "Failed to acquire material %s, falling back to %s",
@@ -209,7 +208,6 @@ void MDL::syncParameters()
 
         continue;
       }
-
 
       switch (type) {
       case libmdl::ArgumentBlockDescriptor::ArgumentType::Bool: {
