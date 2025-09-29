@@ -56,7 +56,8 @@ Object::Object(Object &&o)
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
-  m_useCount = std::move(o.m_useCount);
+  m_useCountApp = std::move(o.m_useCountApp);
+  m_useCountParameter = std::move(o.m_useCountParameter);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
 }
@@ -73,7 +74,8 @@ Object &Object::operator=(Object &&o)
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
-  m_useCount = std::move(o.m_useCount);
+  m_useCountApp = std::move(o.m_useCountApp);
+  m_useCountParameter = std::move(o.m_useCountParameter);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
   return *this;
@@ -99,26 +101,35 @@ Scene *Object::scene() const
   return m_scene;
 }
 
-size_t Object::useCount() const
+size_t Object::totalUseCount() const
 {
-  return m_useCount;
+  return useCount(UseKind::APP) + useCount(UseKind::PARAMETER);
 }
 
-void Object::incUseCount()
+size_t Object::useCount(UseKind kind) const
 {
-  m_useCount++;
+  return kind == UseKind::APP ? m_useCountApp : m_useCountParameter;
 }
 
-void Object::decUseCount()
+void Object::incUseCount(UseKind kind)
 {
-  if (m_useCount > 0)
-    m_useCount--;
+  kind == UseKind::APP ? m_useCountApp++ : m_useCountParameter++;
+}
+
+void Object::decUseCount(UseKind kind)
+{
+  size_t *useCount =
+      kind == UseKind::APP ? &m_useCountApp : &m_useCountParameter;
+
+  if (*useCount > 0)
+    (*useCount)--;
   else {
     logError(
         "Object::decUseCount() called on object with zero use count on object"
-        " of type %s and name '%s'",
+        " of type %s and name '%s', with use kind of {%s}",
         anari::toString(type()),
-        name().c_str());
+        name().c_str(),
+        kind == UseKind::APP ? "APP" : "PARAMETER");
   }
 }
 
@@ -335,7 +346,7 @@ void Object::parameterChanged(const Parameter *p, const Any &oldValue)
 {
   if (m_scene) {
     if (auto *obj = m_scene->getObject(oldValue); obj != nullptr)
-      obj->decUseCount();
+      obj->decUseCount(UseKind::PARAMETER);
   }
   incObjectUseCountParameter(p);
   if (m_updateDelegate)
@@ -357,7 +368,7 @@ void Object::incObjectUseCountParameter(const Parameter *p)
   if (!m_scene)
     return;
   if (auto *obj = m_scene->getObject(p->value()))
-    obj->incUseCount();
+    obj->incUseCount(UseKind::PARAMETER);
 }
 
 void Object::decObjectUseCountParameter(const Parameter *p)
@@ -365,7 +376,7 @@ void Object::decObjectUseCountParameter(const Parameter *p)
   if (!m_scene)
     return;
   if (auto *obj = m_scene->getObject(p->value()))
-    obj->decUseCount();
+    obj->decUseCount(UseKind::PARAMETER);
 }
 
 void Object::initMetadata() const

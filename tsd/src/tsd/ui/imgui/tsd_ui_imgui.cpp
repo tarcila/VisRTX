@@ -224,7 +224,10 @@ void buildUI_object(tsd::core::Object &o,
         o.subtype().c_str());
   }
 
-  ImGui::Text("use count: %zu", o.useCount());
+  ImGui::Text("use counts: {a | %zu} {p | %zu}",
+      o.useCount(tsd::core::Object::UseKind::APP),
+      o.useCount(tsd::core::Object::UseKind::PARAMETER));
+  ImGui::SetTooltip("references to this object: 'application' + 'parameter'");
 
   ImGui::Separator();
 

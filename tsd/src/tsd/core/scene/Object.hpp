@@ -44,6 +44,9 @@ extern Token unknown;
 struct Object : public ParameterObserver
 {
   using ParameterMap = FlatMap<Token, Parameter>;
+  // clang-format off
+  enum class UseKind { APP, PARAMETER };
+  // clang-format on
 
   Object(anari::DataType type = ANARI_UNKNOWN, Token subtype = tokens::none);
   virtual ~Object();
@@ -61,9 +64,10 @@ struct Object : public ParameterObserver
 
   //// Use count tracking (Scene garbage collection) ////
 
-  size_t useCount() const;
-  void incUseCount();
-  void decUseCount();
+  size_t totalUseCount() const;
+  size_t useCount(UseKind kind) const;
+  void incUseCount(UseKind kind = UseKind::APP);
+  void decUseCount(UseKind kind = UseKind::APP);
 
   //// Metadata ////
 
@@ -150,7 +154,8 @@ struct Object : public ParameterObserver
   size_t m_index{0};
   BaseUpdateDelegate *m_updateDelegate{nullptr};
   mutable std::unique_ptr<core::DataTree> m_metadata;
-  size_t m_useCount{0};
+  size_t m_useCountApp{0};
+  size_t m_useCountParameter{0};
 };
 
 void print(const Object &obj, std::ostream &out = std::cout);
@@ -245,8 +250,7 @@ inline ObjectUsePtr<T>::ObjectUsePtr(T *o)
 }
 
 template <typename T>
-inline ObjectUsePtr<T>::ObjectUsePtr(IndexedVectorRef<T> o)
-    : m_object(o)
+inline ObjectUsePtr<T>::ObjectUsePtr(IndexedVectorRef<T> o) : m_object(o)
 {
   if (m_object)
     m_object->incUseCount();

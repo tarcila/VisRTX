@@ -30,7 +30,7 @@ void DatabaseEditor::buildUI()
         ImGui::Separator();
 
         ImGui::PushID(o);
-        ImGui::BeginDisabled(o->useCount() > 0);
+        ImGui::BeginDisabled(o->totalUseCount() > 0);
         const bool doDelete = ImGui::Button("delete");
         ImGui::EndDisabled();
         if (doDelete)

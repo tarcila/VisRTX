@@ -36,7 +36,7 @@ Scene::~Scene()
 
   auto reportObjectUsages = [&](auto &array) {
     foreach_item_const(array, [&](auto *o) {
-      if (!o || o->useCount() == 0)
+      if (!o || o->totalUseCount() == 0)
         return;
 
       if (o->type() == ANARI_MATERIAL && o->index() == 0)
@@ -48,7 +48,7 @@ Scene::~Scene()
           anari::toString(o->type()),
           o->index(),
           o->name().c_str(),
-          o->useCount());
+          o->totalUseCount());
     });
     array.clear();
   };
@@ -463,7 +463,7 @@ void Scene::removeUnusedObjects()
     foreach_item_ref(array, [&](auto ref) {
       if (!ref)
         return;
-      if (auto *obj = ref.data(); obj && obj->useCount() == 0)
+      if (auto *obj = ref.data(); obj && obj->totalUseCount() == 0)
         removeObject(ref.data());
     });
   };
