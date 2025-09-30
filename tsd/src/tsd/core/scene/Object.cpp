@@ -131,6 +131,12 @@ void Object::decUseCount(UseKind kind)
         name().c_str(),
         kind == UseKind::APP ? "APP" : "PARAMETER");
   }
+
+  if (kind == UseKind::PARAMETER && *useCount == 0 && m_scene) {
+    // If parameter use count just went to zero, notify scene that this object's
+    // corresponding ANARI handle might be garbage-collectable now.
+    m_scene->signalObjectParameterUseCountZero(this);
+  }
 }
 
 const std::string &Object::name() const

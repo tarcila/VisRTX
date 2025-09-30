@@ -83,6 +83,12 @@ void MultiUpdateDelegate::signalObjectRemoved(const Object *o)
     d->signalObjectRemoved(o);
 }
 
+void MultiUpdateDelegate::signalObjectParameterUseCountZero(const Object *obj)
+{
+  for (auto &d : m_delegates)
+    d->signalObjectParameterUseCountZero(obj);
+}
+
 void MultiUpdateDelegate::signalRemoveAllObjects()
 {
   for (auto &d : m_delegates)

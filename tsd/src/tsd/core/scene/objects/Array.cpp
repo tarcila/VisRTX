@@ -16,6 +16,11 @@
 #include <cuda_runtime.h>
 #endif
 
+static void noopANARIDeleter(const void *, const void *)
+{
+  // do nothing
+}
+
 namespace tsd::core {
 
 Array::Array(anari::DataType type, size_t items0, Array::MemoryKind kind)
@@ -136,15 +141,22 @@ anari::Object Array::makeANARIObject(anari::Device d) const
   const void *ptr = anari::isObject(elementType()) ? nullptr : m_data;
   switch (type()) {
   case ANARI_ARRAY1D:
-    retval = anari::newArray1D(d, ptr, nullptr, nullptr, elementType(), dim(0));
+    retval = anari::newArray1D(
+        d, ptr, noopANARIDeleter, nullptr, elementType(), dim(0));
     break;
   case ANARI_ARRAY2D:
     retval = anari::newArray2D(
-        d, ptr, nullptr, nullptr, elementType(), dim(0), dim(1));
+        d, ptr, noopANARIDeleter, nullptr, elementType(), dim(0), dim(1));
     break;
   case ANARI_ARRAY3D:
-    retval = anari::newArray3D(
-        d, ptr, nullptr, nullptr, elementType(), dim(0), dim(1), dim(2));
+    retval = anari::newArray3D(d,
+        ptr,
+        noopANARIDeleter,
+        nullptr,
+        elementType(),
+        dim(0),
+        dim(1),
+        dim(2));
     break;
   default:
     break;

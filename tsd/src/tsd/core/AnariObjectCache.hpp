@@ -21,6 +21,8 @@ struct AnariObjectCache
       anari::DataType type, size_t index, bool createIfNotPresent);
   anari::Object getHandle(const Object *o, bool createIfNotPresent);
   void insertEmptyHandle(anari::DataType type);
+  void releaseHandle(anari::DataType type, size_t index);
+  void releaseHandle(const Object *o);
   void removeHandle(anari::DataType type, size_t index);
   void removeHandle(const Object *o);
   void clear();

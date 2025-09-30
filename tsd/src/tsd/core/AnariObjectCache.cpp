@@ -107,6 +107,18 @@ void AnariObjectCache::insertEmptyHandle(anari::DataType type)
   }
 }
 
+void AnariObjectCache::releaseHandle(anari::DataType type, size_t index)
+{
+  removeHandle(type, index);
+  insertEmptyHandle(type);
+}
+
+void AnariObjectCache::releaseHandle(const Object *o)
+{
+  if (o)
+    return releaseHandle(o->type(), o->index());
+}
+
 void AnariObjectCache::removeHandle(anari::DataType type, size_t index)
 {
   auto handle = getHandle(type, index, false);
