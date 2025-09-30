@@ -45,7 +45,7 @@ struct Object : public ParameterObserver
 {
   using ParameterMap = FlatMap<Token, Parameter>;
   // clang-format off
-  enum class UseKind { APP, PARAMETER };
+  enum class UseKind { APP, PARAMETER, LAYER };
   // clang-format on
 
   Object(anari::DataType type = ANARI_UNKNOWN, Token subtype = tokens::none);
@@ -154,8 +154,12 @@ struct Object : public ParameterObserver
   size_t m_index{0};
   BaseUpdateDelegate *m_updateDelegate{nullptr};
   mutable std::unique_ptr<core::DataTree> m_metadata;
-  size_t m_useCountApp{0};
-  size_t m_useCountParameter{0};
+  struct UseCounts
+  {
+    size_t app{0};
+    size_t parameter{0};
+    size_t layer{0};
+  } m_useCounts;
 };
 
 void print(const Object &obj, std::ostream &out = std::cout);

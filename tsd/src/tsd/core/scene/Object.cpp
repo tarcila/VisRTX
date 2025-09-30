@@ -56,8 +56,7 @@ Object::Object(Object &&o)
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
-  m_useCountApp = std::move(o.m_useCountApp);
-  m_useCountParameter = std::move(o.m_useCountParameter);
+  m_useCounts = std::move(o.m_useCounts);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
 }
@@ -74,8 +73,7 @@ Object &Object::operator=(Object &&o)
   m_index = std::move(o.m_index);
   m_updateDelegate = std::move(o.m_updateDelegate);
   m_metadata = std::move(o.m_metadata);
-  m_useCountApp = std::move(o.m_useCountApp);
-  m_useCountParameter = std::move(o.m_useCountParameter);
+  m_useCounts = std::move(o.m_useCounts);
   for (auto &p : m_parameters)
     p.second.setObserver(this);
   return *this;
@@ -103,23 +101,58 @@ Scene *Object::scene() const
 
 size_t Object::totalUseCount() const
 {
-  return useCount(UseKind::APP) + useCount(UseKind::PARAMETER);
+  return useCount(UseKind::APP) + useCount(UseKind::PARAMETER)
+      + useCount(UseKind::LAYER);
 }
 
 size_t Object::useCount(UseKind kind) const
 {
-  return kind == UseKind::APP ? m_useCountApp : m_useCountParameter;
+  switch (kind) {
+  case UseKind::APP:
+    return m_useCounts.app;
+  case UseKind::PARAMETER:
+    return m_useCounts.parameter;
+  case UseKind::LAYER:
+    return m_useCounts.layer;
+  }
+
+  logError("Object::UseCount() called with an unhandled UseKind");
+  return 0;
 }
 
 void Object::incUseCount(UseKind kind)
 {
-  kind == UseKind::APP ? m_useCountApp++ : m_useCountParameter++;
+  switch (kind) {
+  case UseKind::APP:
+    m_useCounts.app++;
+    break;
+  case UseKind::PARAMETER:
+    m_useCounts.parameter++;
+    break;
+  case UseKind::LAYER:
+    m_useCounts.layer++;
+    break;
+  }
 }
 
 void Object::decUseCount(UseKind kind)
 {
-  size_t *useCount =
-      kind == UseKind::APP ? &m_useCountApp : &m_useCountParameter;
+  size_t *useCount = nullptr;
+  const char *typeStr = "UNKNOWN";
+  switch (kind) {
+  case UseKind::APP:
+    useCount = &m_useCounts.app;
+    typeStr = "APP";
+    break;
+  case UseKind::PARAMETER:
+    useCount = &m_useCounts.parameter;
+    typeStr = "PARAMETER";
+    break;
+  case UseKind::LAYER:
+    useCount = &m_useCounts.layer;
+    typeStr = "LAYER";
+    break;
+  }
 
   if (*useCount > 0)
     (*useCount)--;
@@ -129,7 +162,7 @@ void Object::decUseCount(UseKind kind)
         " of type %s and name '%s', with use kind of {%s}",
         anari::toString(type()),
         name().c_str(),
-        kind == UseKind::APP ? "APP" : "PARAMETER");
+        typeStr);
   }
 
   if (kind == UseKind::PARAMETER && *useCount == 0 && m_scene) {

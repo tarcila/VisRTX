@@ -310,13 +310,13 @@ void LayerNodeData::clearInstanceParameters()
 void LayerNodeData::incObjectUseCount()
 {
   if (auto *o = getObject(); o)
-    o->incUseCount();
+    o->incUseCount(Object::UseKind::LAYER);
 }
 
 void LayerNodeData::decObjectUseCount()
 {
   if (auto *o = getObject(); o)
-    o->decUseCount();
+    o->decUseCount(Object::UseKind::LAYER);
 }
 
 } // namespace tsd::core
