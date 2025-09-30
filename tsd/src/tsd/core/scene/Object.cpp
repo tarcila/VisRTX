@@ -169,6 +169,10 @@ void Object::decUseCount(UseKind kind)
     // If parameter use count just went to zero, notify scene that this object's
     // corresponding ANARI handle might be garbage-collectable now.
     m_scene->signalObjectParameterUseCountZero(this);
+  } else if (kind == UseKind::LAYER && *useCount == 0 && m_scene) {
+    // If parameter use count just went to zero, notify scene that this object's
+    // corresponding ANARI handle might be garbage-collectable now.
+    m_scene->signalObjectLayerUseCountZero(this);
   }
 }
 

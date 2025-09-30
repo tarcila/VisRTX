@@ -22,6 +22,8 @@ struct RenderIndexAllLayers : public RenderIndex
   void setIncludedLayers(const std::vector<const Layer *> &layers);
 
   void signalArrayUnmapped(const Array *a) override;
+  void signalObjectParameterUseCountZero(const Object *obj) override;
+  void signalObjectLayerUseCountZero(const Object *obj) override;
   void signalLayerAdded(const Layer *l) override;
   void signalLayerUpdated(const Layer *l) override;
   void signalLayerRemoved(const Layer *l) override;

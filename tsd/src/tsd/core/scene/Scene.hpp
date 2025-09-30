@@ -163,6 +163,7 @@ struct Scene
   void signalLayerChange(const Layer *l);
   void signalActiveLayersChanged();
   void signalObjectParameterUseCountZero(const Object *obj);
+  void signalObjectLayerUseCountZero(const Object *obj);
 
   ////////////////////////
   // Cleanup operations //

@@ -111,19 +111,6 @@ void RenderIndex::signalParameterRemoved(const Object *o, const Parameter *p)
   }
 }
 
-void RenderIndex::signalObjectParameterUseCountZero(const Object *o)
-{
-  m_cache.releaseHandle(o);
-#if 0
-    tsd::core::logDebug(
-        "RenderIndex: Object of type %s and name '%s' has "
-        "parameter use count zero; its ANARI handle may be "
-        "released now.",
-        anari::toString(o->type()),
-        o->name().c_str());
-#endif
-}
-
 void RenderIndex::signalArrayMapped(const Array *a)
 {
   if (anari::isObject(a->elementType()))

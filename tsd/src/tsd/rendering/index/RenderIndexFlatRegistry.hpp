@@ -14,6 +14,8 @@ struct RenderIndexFlatRegistry : public RenderIndex
 
   bool isFlat() const override;
   void signalObjectAdded(const Object *o) override;
+  void signalObjectParameterUseCountZero(const Object *obj) override;
+  void signalObjectLayerUseCountZero(const Object *obj) override;
 
  private:
   void updateWorld() override;

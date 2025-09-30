@@ -77,16 +77,22 @@ void MultiUpdateDelegate::signalArrayUnmapped(const Array *a)
     d->signalArrayUnmapped(a);
 }
 
-void MultiUpdateDelegate::signalObjectRemoved(const Object *o)
-{
-  for (auto &d : m_delegates)
-    d->signalObjectRemoved(o);
-}
-
 void MultiUpdateDelegate::signalObjectParameterUseCountZero(const Object *obj)
 {
   for (auto &d : m_delegates)
     d->signalObjectParameterUseCountZero(obj);
+}
+
+void MultiUpdateDelegate::signalObjectLayerUseCountZero(const Object *obj)
+{
+  for (auto &d : m_delegates)
+    d->signalObjectLayerUseCountZero(obj);
+}
+
+void MultiUpdateDelegate::signalObjectRemoved(const Object *o)
+{
+  for (auto &d : m_delegates)
+    d->signalObjectRemoved(o);
 }
 
 void MultiUpdateDelegate::signalRemoveAllObjects()

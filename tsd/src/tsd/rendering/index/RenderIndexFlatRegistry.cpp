@@ -24,6 +24,16 @@ void RenderIndexFlatRegistry::signalObjectAdded(const Object *obj)
   updateWorld();
 }
 
+void RenderIndexFlatRegistry::signalObjectParameterUseCountZero(const Object *)
+{
+  // no-op
+}
+
+void RenderIndexFlatRegistry::signalObjectLayerUseCountZero(const Object *)
+{
+  // no-op
+}
+
 void RenderIndexFlatRegistry::updateWorld()
 {
   auto d = device();

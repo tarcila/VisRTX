@@ -458,6 +458,12 @@ void Scene::signalObjectParameterUseCountZero(const Object *obj)
     m_updateDelegate->signalObjectParameterUseCountZero(obj);
 }
 
+void Scene::signalObjectLayerUseCountZero(const Object *obj)
+{
+  if (m_updateDelegate)
+    m_updateDelegate->signalObjectLayerUseCountZero(obj);
+}
+
 void Scene::removeUnusedObjects()
 {
   tsd::core::logStatus("Removing unused context objects");

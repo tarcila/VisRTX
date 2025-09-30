@@ -39,7 +39,6 @@ struct RenderIndex : public BaseUpdateDelegate
   void signalObjectAdded(const Object *o) override;
   void signalParameterUpdated(const Object *o, const Parameter *p) override;
   void signalParameterRemoved(const Object *o, const Parameter *p) override;
-  void signalObjectParameterUseCountZero(const Object *obj) override;
   void signalArrayMapped(const Array *a) override;
   void signalArrayUnmapped(const Array *a) override;
   void signalLayerAdded(const Layer *l) override;
