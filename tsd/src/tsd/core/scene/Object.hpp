@@ -250,14 +250,14 @@ inline ObjectUsePtr<T>::ObjectUsePtr(T *o)
     : m_object(o ? o->self() : IndexedVectorRef<T>{})
 {
   if (m_object)
-    m_object->incUseCount();
+    m_object->incUseCount(Object::UseKind::APP);
 }
 
 template <typename T>
 inline ObjectUsePtr<T>::ObjectUsePtr(IndexedVectorRef<T> o) : m_object(o)
 {
   if (m_object)
-    m_object->incUseCount();
+    m_object->incUseCount(Object::UseKind::APP);
 }
 
 template <typename T>
@@ -265,7 +265,7 @@ inline ObjectUsePtr<T>::ObjectUsePtr(const ObjectUsePtr<T> &o)
     : m_object(o.m_object)
 {
   if (m_object)
-    m_object->incUseCount();
+    m_object->incUseCount(Object::UseKind::APP);
 }
 
 template <typename T>
@@ -287,7 +287,7 @@ inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(const ObjectUsePtr &o)
     reset();
     m_object = o.m_object;
     if (m_object)
-      m_object->incUseCount();
+      m_object->incUseCount(Object::UseKind::APP);
   }
   return *this;
 }
@@ -300,7 +300,7 @@ inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(ObjectUsePtr<T> &&o)
     m_object = o.m_object;
     o.m_object = {};
     if (m_object)
-      m_object->incUseCount();
+      m_object->incUseCount(Object::UseKind::APP);
   }
   return *this;
 }
@@ -311,7 +311,7 @@ inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(T *o)
   reset();
   if (o) {
     m_object = o->self();
-    o->incUseCount();
+    o->incUseCount(Object::UseKind::APP);
   }
   return *this;
 }
@@ -325,7 +325,7 @@ inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(IndexedVectorRef<T> o)
   reset();
   if (o) {
     m_object = o;
-    o->incUseCount();
+    o->incUseCount(Object::UseKind::APP);
   }
   return *this;
 }
@@ -334,7 +334,7 @@ template <typename T>
 void ObjectUsePtr<T>::reset()
 {
   if (m_object)
-    m_object->decUseCount();
+    m_object->decUseCount(Object::UseKind::APP);
   m_object = {};
 }
 
