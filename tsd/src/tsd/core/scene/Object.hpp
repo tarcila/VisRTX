@@ -174,7 +174,7 @@ constexpr bool isObject()
 
 // Object use-count pointer type //////////////////////////////////////////////
 
-template <typename T>
+template <typename T, Object::UseKind K = Object::UseKind::APP>
 struct ObjectUsePtr
 {
   static_assert(isObject<T>(),
@@ -183,12 +183,12 @@ struct ObjectUsePtr
   ObjectUsePtr() = default;
   ObjectUsePtr(T *o);
   ObjectUsePtr(IndexedVectorRef<T> o);
-  ObjectUsePtr(const ObjectUsePtr<T> &o);
-  ObjectUsePtr(ObjectUsePtr<T> &&o);
+  ObjectUsePtr(const ObjectUsePtr<T, K> &o);
+  ObjectUsePtr(ObjectUsePtr<T, K> &&o);
   ~ObjectUsePtr();
 
-  ObjectUsePtr &operator=(const ObjectUsePtr<T> &o);
-  ObjectUsePtr &operator=(ObjectUsePtr<T> &&o);
+  ObjectUsePtr &operator=(const ObjectUsePtr<T, K> &o);
+  ObjectUsePtr &operator=(ObjectUsePtr<T, K> &&o);
 
   ObjectUsePtr &operator=(T *o);
   ObjectUsePtr &operator=(IndexedVectorRef<T> o);
@@ -245,79 +245,80 @@ inline std::optional<T> Object::parameterValueAs(Token name)
 
 // ObjectUsePtr //
 
-template <typename T>
-inline ObjectUsePtr<T>::ObjectUsePtr(T *o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::ObjectUsePtr(T *o)
     : m_object(o ? o->self() : IndexedVectorRef<T>{})
 {
   if (m_object)
     m_object->incUseCount(Object::UseKind::APP);
 }
 
-template <typename T>
-inline ObjectUsePtr<T>::ObjectUsePtr(IndexedVectorRef<T> o) : m_object(o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::ObjectUsePtr(IndexedVectorRef<T> o) : m_object(o)
 {
   if (m_object)
     m_object->incUseCount(Object::UseKind::APP);
 }
 
-template <typename T>
-inline ObjectUsePtr<T>::ObjectUsePtr(const ObjectUsePtr<T> &o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::ObjectUsePtr(const ObjectUsePtr<T, K> &o)
     : m_object(o.m_object)
 {
   if (m_object)
     m_object->incUseCount(Object::UseKind::APP);
 }
 
-template <typename T>
-inline ObjectUsePtr<T>::ObjectUsePtr(ObjectUsePtr<T> &&o) : m_object(o.m_object)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::ObjectUsePtr(ObjectUsePtr<T, K> &&o)
+    : m_object(o.m_object)
 {
   o.m_object = {};
 }
 
-template <typename T>
-inline ObjectUsePtr<T>::~ObjectUsePtr()
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::~ObjectUsePtr()
 {
   reset();
 }
 
-template <typename T>
-inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(const ObjectUsePtr &o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(const ObjectUsePtr &o)
 {
   if (this != &o) {
     reset();
     m_object = o.m_object;
     if (m_object)
-      m_object->incUseCount(Object::UseKind::APP);
+      m_object->incUseCount(K);
   }
   return *this;
 }
 
-template <typename T>
-inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(ObjectUsePtr<T> &&o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(ObjectUsePtr<T, K> &&o)
 {
   if (this != &o) {
     reset();
     m_object = o.m_object;
     o.m_object = {};
     if (m_object)
-      m_object->incUseCount(Object::UseKind::APP);
+      m_object->incUseCount(K);
   }
   return *this;
 }
 
-template <typename T>
-inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(T *o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(T *o)
 {
   reset();
   if (o) {
     m_object = o->self();
-    o->incUseCount(Object::UseKind::APP);
+    o->incUseCount(K);
   }
   return *this;
 }
 
-template <typename T>
-inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(IndexedVectorRef<T> o)
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(IndexedVectorRef<T> o)
 {
   static_assert(isObject<T>(),
       "ObjectUsePtr can only be assigned IndexedVectorRef<T> when T is a"
@@ -325,57 +326,57 @@ inline ObjectUsePtr<T> &ObjectUsePtr<T>::operator=(IndexedVectorRef<T> o)
   reset();
   if (o) {
     m_object = o;
-    o->incUseCount(Object::UseKind::APP);
+    o->incUseCount(K);
   }
   return *this;
 }
 
-template <typename T>
-void ObjectUsePtr<T>::reset()
+template <typename T, Object::UseKind K>
+void ObjectUsePtr<T, K>::reset()
 {
   if (m_object)
-    m_object->decUseCount(Object::UseKind::APP);
+    m_object->decUseCount(K);
   m_object = {};
 }
 
-template <typename T>
-inline const T *ObjectUsePtr<T>::get() const
+template <typename T, Object::UseKind K>
+inline const T *ObjectUsePtr<T, K>::get() const
 {
   return m_object.data();
 }
 
-template <typename T>
-inline const T *ObjectUsePtr<T>::operator->() const
+template <typename T, Object::UseKind K>
+inline const T *ObjectUsePtr<T, K>::operator->() const
 {
   return m_object.data();
 }
 
-template <typename T>
-inline const T &ObjectUsePtr<T>::operator*() const
+template <typename T, Object::UseKind K>
+inline const T &ObjectUsePtr<T, K>::operator*() const
 {
   return *get();
 }
 
-template <typename T>
-inline T *ObjectUsePtr<T>::get()
+template <typename T, Object::UseKind K>
+inline T *ObjectUsePtr<T, K>::get()
 {
   return m_object.data();
 }
 
-template <typename T>
-inline T *ObjectUsePtr<T>::operator->()
+template <typename T, Object::UseKind K>
+inline T *ObjectUsePtr<T, K>::operator->()
 {
   return m_object.data();
 }
 
-template <typename T>
-inline T &ObjectUsePtr<T>::operator*()
+template <typename T, Object::UseKind K>
+inline T &ObjectUsePtr<T, K>::operator*()
 {
   return *get();
 }
 
-template <typename T>
-inline ObjectUsePtr<T>::operator bool() const
+template <typename T, Object::UseKind K>
+inline ObjectUsePtr<T, K>::operator bool() const
 {
   return m_object;
 }

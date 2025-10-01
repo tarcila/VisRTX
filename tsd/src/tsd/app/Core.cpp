@@ -220,6 +220,8 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
         tsd::io::import_PT(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::GLTF)
         tsd::io::import_GLTF(tsd.scene, f.second.c_str(), root);
+      else if (f.first == ImporterType::AXYZ)
+        tsd::io::import_AXYZ(tsd.scene, f.second.c_str(), root);
       else
         tsd::core::logWarning(
             "...skipping unknown file type for '%s'", f.second.c_str());

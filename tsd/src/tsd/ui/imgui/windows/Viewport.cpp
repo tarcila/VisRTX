@@ -1094,7 +1094,7 @@ void Viewport::ui_overlay()
 
     ImGui::Separator();
 
-    ImGui::Checkbox("camera setup", &m_showCameraInfo);
+    ImGui::Checkbox("camera config", &m_showCameraInfo);
     if (m_showCameraInfo) {
       auto at = m_arcball->at();
       auto azel = m_arcball->azel();

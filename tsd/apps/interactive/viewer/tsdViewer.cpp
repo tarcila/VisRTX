@@ -5,6 +5,7 @@
 #include <tsd/io/procedural.hpp>
 // tsd_ui_imgui
 #include <tsd/ui/imgui/Application.h>
+#include <tsd/ui/imgui/windows/Animations.h>
 #include <tsd/ui/imgui/windows/CameraPoses.h>
 #include <tsd/ui/imgui/windows/DatabaseEditor.h>
 #include <tsd/ui/imgui/windows/IsosurfaceEditor.h>
@@ -33,6 +34,7 @@ class Application : public TSDApplication
 
     auto *core = appCore();
 
+    auto *animations = new tsd_ui::Animations(this);
     auto *cameras = new tsd_ui::CameraPoses(this);
     auto *log = new tsd_ui::Log(this);
     auto *viewport =
@@ -45,6 +47,7 @@ class Application : public TSDApplication
     auto *tfeditor = new tsd_ui::TransferFunctionEditor(this);
     auto *isoeditor = new tsd_ui::IsosurfaceEditor(this);
 
+    windows.emplace_back(animations);
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
     windows.emplace_back(viewport2);
@@ -173,7 +176,18 @@ DockId=0x0000000B,0
 Pos=0,26
 Size=547,575
 Collapsed=0
+DockId=0x00000008,2
+
+[Window][Animations]
+Pos=0,26
+Size=547,575
+Collapsed=0
 DockId=0x00000008,1
+
+[Window][##]
+Pos=792,507
+Size=336,116
+Collapsed=0
 
 [Table][0x44C159D3,2]
 Column 0  Weight=1.0000

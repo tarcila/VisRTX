@@ -10,6 +10,7 @@ PRIVATE
   importers/detail/HDRImage.cpp
   importers/detail/importer_common.cpp
   importers/import_ASSIMP.cpp
+  importers/import_AXYZ.cpp
   importers/import_DLAF.cpp
   importers/import_E57XYZ.cpp
   importers/import_FLASH.cpp

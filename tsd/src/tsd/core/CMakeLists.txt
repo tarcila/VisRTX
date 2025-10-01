@@ -14,6 +14,7 @@ PRIVATE
   algorithms/detail/computeScalarRange_ufixed16.cpp
   algorithms/detail/computeScalarRange_float32.cpp
   algorithms/detail/computeScalarRange_float64.cpp
+  scene/Animation.cpp
   scene/Layer.cpp
   scene/Object.cpp
   scene/Scene.cpp

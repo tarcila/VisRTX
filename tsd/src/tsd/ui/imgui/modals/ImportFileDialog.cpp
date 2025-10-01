@@ -22,8 +22,10 @@ void ImportFileDialog::buildUI()
   constexpr int MAX_LENGTH = 2000;
   m_filename.reserve(MAX_LENGTH);
 
-  const char *importers[] = {"ASSIMP",
+  const char *importers[] = {
+      "ASSIMP",
       "ASSIMP_FLAT",
+      "AXYZ",
       "DLAF",
       "E57XYZ",
       "NBODY",
@@ -38,10 +40,10 @@ void ImportFileDialog::buildUI()
       "HSMESH",
       "NEURAL",
       "GLTF",
-      };
+  };
 
-  ImGui::Combo("importer type", &m_selectedFileType, importers,
-      std::size(importers));
+  ImGui::Combo(
+      "importer type", &m_selectedFileType, importers, std::size(importers));
 
   static std::string outPath;
   if (ImGui::Button("...")) {
@@ -124,6 +126,8 @@ void ImportFileDialog::buildUI()
         tsd::io::import_PT(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::GLTF)
         tsd::io::import_GLTF(scene, m_filename.c_str(), importRoot);
+      else if (selectedFileType == app::ImporterType::AXYZ)
+        tsd::io::import_AXYZ(scene, m_filename.c_str(), importRoot);
       scene.signalLayerChange(layer);
     };
 

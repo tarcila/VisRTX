@@ -33,6 +33,7 @@ Scene::Scene()
 Scene::~Scene()
 {
   m_layers.clear();
+  m_animations.objects.clear();
 
   auto reportObjectUsages = [&](auto &array) {
     foreach_item_const(array, [&](auto *o) {
@@ -462,6 +463,67 @@ void Scene::signalObjectLayerUseCountZero(const Object *obj)
 {
   if (m_updateDelegate)
     m_updateDelegate->signalObjectLayerUseCountZero(obj);
+}
+
+size_t Scene::numberOfAnimations() const
+{
+  return m_animations.objects.size();
+}
+
+Animation *Scene::animation(size_t i) const
+{
+  if (i < m_animations.objects.size())
+    return m_animations.objects[i].get();
+  return nullptr;
+}
+
+void Scene::removeAnimation(Animation *a)
+{
+  auto itr = std::find_if(m_animations.objects.begin(),
+      m_animations.objects.end(),
+      [&](auto &anim) { return anim.get() == a; });
+  if (itr != m_animations.objects.end())
+    m_animations.objects.erase(itr);
+}
+
+void Scene::removeAllAnimations()
+{
+  m_animations.objects.clear();
+}
+
+void Scene::setAnimationTime(float time)
+{
+  m_animations.time = time;
+  for (auto &a : m_animations.objects)
+    a->update(time);
+}
+
+float Scene::getAnimationTime() const
+{
+  return m_animations.time;
+}
+
+void Scene::setAnimationIncrement(float increment)
+{
+  m_animations.incrementSize = increment;
+  if (increment > 0.5f) {
+    logWarning(
+        "[scene] setting animation increment > 0.5 will cause odd"
+        " animation behavior.");
+  }
+}
+
+float Scene::getAnimationIncrement() const
+{
+  return m_animations.incrementSize;
+}
+
+void Scene::incrementAnimationTime()
+{
+  auto newTime = m_animations.time + m_animations.incrementSize;
+  if (newTime > 1.f)
+    newTime = 0.f;
+  setAnimationTime(newTime);
 }
 
 void Scene::removeUnusedObjects()

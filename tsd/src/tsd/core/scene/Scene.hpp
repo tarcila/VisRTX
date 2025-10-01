@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "tsd/core/scene/Animation.hpp"
 #include "tsd/core/scene/Layer.hpp"
 #include "tsd/core/scene/objects/Array.hpp"
 #include "tsd/core/scene/objects/Geometry.hpp"
@@ -165,6 +166,24 @@ struct Scene
   void signalObjectParameterUseCountZero(const Object *obj);
   void signalObjectLayerUseCountZero(const Object *obj);
 
+  ////////////////
+  // Animations //
+  ////////////////
+
+  template <typename T>
+  T *addAnimation(const char *name = "");
+  size_t numberOfAnimations() const;
+  Animation *animation(size_t i) const;
+  void removeAnimation(Animation *a);
+  void removeAllAnimations();
+
+  void setAnimationTime(float time /* 0.f - 1.f */);
+  float getAnimationTime() const;
+
+  void setAnimationIncrement(float increment);
+  float getAnimationIncrement() const;
+  void incrementAnimationTime();
+
   ////////////////////////
   // Cleanup operations //
   ////////////////////////
@@ -195,7 +214,16 @@ struct Scene
   BaseUpdateDelegate *m_updateDelegate{nullptr};
   LayerMap m_layers;
   size_t m_numActiveLayers{0};
+  struct AnimationData
+  {
+    float incrementSize{0.01f};
+    float time{0.f};
+    std::vector<std::unique_ptr<Animation>> objects;
+  } m_animations;
 };
+
+using GeometryTimeSeries = AnimatedTimeSeries<Geometry>;
+using SpatialFieldTimeSeries = AnimatedTimeSeries<SpatialField>;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Inlined definitions ////////////////////////////////////////////////////////
@@ -313,6 +341,18 @@ template <>
 inline LightRef Scene::getObject(size_t i) const
 {
   return m_db.light.at(i);
+}
+
+template <typename T>
+T *Scene::addAnimation(const char *name)
+{
+  static_assert(std::is_base_of<Animation, T>::value,
+      "Scene::addAnimation<> can only create tsd::Animation subclasses");
+  auto anim = std::make_unique<T>();
+  anim->name() = name;
+  auto *retval = anim.get();
+  m_animations.objects.push_back(std::move(anim));
+  return retval;
 }
 
 template <typename OBJ_T>
