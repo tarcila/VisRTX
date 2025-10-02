@@ -3,6 +3,7 @@
 
 #include "tsd/core/scene/Scene.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/core/scene/ObjectUsePtr.hpp"
 // std
 #include <sstream>
 
@@ -531,7 +532,7 @@ void Scene::removeUnusedObjects()
   tsd::core::logStatus("Removing unused context objects");
 
   // Always keep around the default material //
-  ObjectUsePtr defaultMat = getObject<Material>(0).data();
+  ObjectUsePtr<Material> defaultMat = getObject<Material>(0).data();
 
   auto removeUnused = [&](auto &array) {
     foreach_item_ref(array, [&](auto ref) {

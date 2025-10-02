@@ -5,6 +5,7 @@
 
 #include "tsd/core/Logging.hpp"
 #include "tsd/core/scene/Object.hpp"
+#include "tsd/core/scene/ObjectUsePtr.hpp"
 #include "tsd/core/scene/objects/Array.hpp"
 // std
 #include <algorithm>
