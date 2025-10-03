@@ -40,6 +40,7 @@ PRIVATE
   procedural/generate_noiseVolume.cpp
   procedural/generate_randomSpheres.cpp
   procedural/generate_rtow.cpp
+  serialization/export_SceneToUSD.cpp
   serialization/serialization_datatree.cpp
 )
 

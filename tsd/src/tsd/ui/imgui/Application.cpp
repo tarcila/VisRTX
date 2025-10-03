@@ -155,6 +155,11 @@ void Application::uiFrameStart()
 
       ImGui::Separator();
 
+      if (ImGui::MenuItem("Export as USD..."))
+        io::export_SceneToUSD(m_core.tsd.scene, "scene.usda");
+
+      ImGui::Separator();
+
       if (ImGui::MenuItem("Quit", "CTRL+Q"))
         std::exit(0);
 

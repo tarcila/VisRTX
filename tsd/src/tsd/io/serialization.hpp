@@ -23,6 +23,8 @@ void save_Scene(Scene &scene, core::DataNode &root);
 void load_Scene(Scene &scene, const char *filename);
 void load_Scene(Scene &scene, core::DataNode &root);
 
+void export_SceneToUSD(Scene &scene, const char *filename);
+
 // clang-format on
 
 } // namespace tsd::io

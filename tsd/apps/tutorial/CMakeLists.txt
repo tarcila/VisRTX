@@ -14,6 +14,7 @@ macro(define_tutorial TUTORIAL_NAME)
 endmacro()
 
 define_tutorial(tsdTutorialDataTreeDemo)
+define_tutorial(tsdTutorialExportUSDScene)
 define_tutorial(tsdTutorialFlipDiff)
 define_tutorial(tsdTutorialForestDemo)
 define_tutorial(tsdTutorialLoadScene)

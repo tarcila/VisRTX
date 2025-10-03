@@ -7,10 +7,13 @@
 #include <tsd/io/procedural.hpp>
 #include <tsd/io/serialization.hpp>
 
-int main()
+int main(int argc, char** argv)
 {
   tsd::core::Scene scene;
-  tsd::io::generate_material_orb(scene, scene.defaultLayer()->root());
-  tsd::io::save_Scene(scene, "scene.tsd");
+  if (argc > 1)
+    tsd::io::load_Scene(scene, argv[1]);
+  else
+    tsd::io::generate_material_orb(scene, scene.defaultLayer()->root());
+  tsd::io::export_SceneToUSD(scene, "scene.usda");
   return 0;
 }
