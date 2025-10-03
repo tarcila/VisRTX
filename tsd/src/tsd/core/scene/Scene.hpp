@@ -339,15 +339,6 @@ inline LightRef Scene::getObject(size_t i) const
   return m_db.light.at(i);
 }
 
-inline Animation *Scene::addAnimation(const char *name)
-{
-  auto anim = std::make_unique<Animation>();
-  anim->name() = name;
-  auto *retval = anim.get();
-  m_animations.objects.push_back(std::move(anim));
-  return retval;
-}
-
 template <typename OBJ_T>
 inline IndexedVectorRef<OBJ_T> Scene::createObjectImpl(
     IndexedVector<OBJ_T> &iv, Token subtype)

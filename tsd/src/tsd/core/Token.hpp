@@ -17,6 +17,7 @@ struct Token
 
   const char *c_str() const;
   const char *value() const;
+  std::string str() const;
 
   bool empty() const;
   operator bool() const;

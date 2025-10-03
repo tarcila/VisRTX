@@ -10,8 +10,6 @@ namespace tsd::core {
 
 static std::unique_ptr<std::unordered_set<std::string>> g_tokenRegistry;
 
-// Token definitions //////////////////////////////////////////////////////////
-
 Token::Token(const char *s) : Token(std::string(s)) {}
 
 Token::Token(const std::string &s)
@@ -32,6 +30,11 @@ const char *Token::c_str() const
 const char *Token::value() const
 {
   return m_value;
+}
+
+std::string Token::str() const
+{
+  return empty() ? std::string() : std::string(c_str());
 }
 
 bool Token::empty() const

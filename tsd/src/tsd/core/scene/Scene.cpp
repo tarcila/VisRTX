@@ -466,6 +466,14 @@ void Scene::signalObjectLayerUseCountZero(const Object *obj)
     m_updateDelegate->signalObjectLayerUseCountZero(obj);
 }
 
+Animation *Scene::addAnimation(const char *name)
+{
+  auto anim = std::unique_ptr<Animation>(new Animation(this, name));
+  auto *retval = anim.get();
+  m_animations.objects.push_back(std::move(anim));
+  return retval;
+}
+
 size_t Scene::numberOfAnimations() const
 {
   return m_animations.objects.size();

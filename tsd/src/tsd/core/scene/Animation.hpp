@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "tsd/core/DataTree.hpp"
 #include "tsd/core/scene/AnyObjectUsePtr.hpp"
 #include "tsd/core/scene/ObjectUsePtr.hpp"
 #include "tsd/core/scene/objects/Array.hpp"
@@ -12,10 +13,13 @@
 
 namespace tsd::core {
 
+struct Scene;
+
 struct Animation
 {
-  Animation() = default;
   ~Animation() = default;
+
+  Scene *scene() const;
 
   std::string &name();
   const std::string &name() const;
@@ -27,7 +31,15 @@ struct Animation
 
   void update(float time);
 
+  void serialize(DataNode &node) const;
+  void deserialize(DataNode &node);
+
  private:
+  Animation(Scene *s, const char *name);
+
+  friend struct Scene;
+
+  Scene *m_scene{nullptr};
   std::string m_name;
   std::string m_info{"<incomplete animation>"};
 

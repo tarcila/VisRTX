@@ -3,10 +3,18 @@
 
 #include "tsd/core/scene/Animation.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // std
 #include <algorithm>
 
 namespace tsd::core {
+
+Animation::Animation(Scene *s, const char *name) : m_scene(s), m_name(name) {}
+
+Scene *Animation::scene() const
+{
+  return m_scene;
+}
 
 std::string &Animation::name()
 {
@@ -49,6 +57,52 @@ void Animation::update(float time)
     ts.object->setParameterObject(ts.parameterName, *ts.steps[idx]);
     m_info = "current timestep: " + std::to_string(idx) + "/"
         + std::to_string(ts.steps.size() - 1);
+  }
+}
+
+void Animation::serialize(DataNode &node) const
+{
+  node["name"] = name();
+
+  // Serialize as timestep animation //
+
+  auto &ts = m_timesteps;
+
+  // Collect timestep array indices
+
+  std::vector<size_t> arrayIndices;
+  arrayIndices.reserve(ts.steps.size());
+  for (auto &s : ts.steps)
+    arrayIndices.push_back(s->index());
+
+  // Write node values
+
+  auto &timeseries = node["timeseries"];
+  timeseries["object"] = ts.object
+      ? tsd::core::Any(ts.object->type(), ts.object->index())
+      : tsd::core::Any();
+  timeseries["parameterName"] = ts.parameterName.str();
+  timeseries["currentStep"] = ts.currentStep;
+  timeseries["steps"].setValueAsArray(arrayIndices);
+}
+
+void Animation::deserialize(DataNode &node)
+{
+  name() = node["name"].getValueAs<std::string>();
+
+  if (auto *c = node.child("timeseries"); c != nullptr) {
+    auto &ts = m_timesteps;
+    auto &tsNode = *c;
+
+    ts.object = *m_scene->getObject(tsNode["object"].getValue());
+    ts.parameterName = tsNode["parameterName"].getValueAs<std::string>();
+    ts.currentStep = tsNode["currentStep"].getValueAs<size_t>();
+
+    size_t *indices = nullptr;
+    size_t numSteps = 0;
+    tsNode["steps"].getValueAsArray<size_t>(&indices, &numSteps);
+    for (size_t i = 0; i < numSteps; i++)
+      ts.steps.emplace_back(m_scene->getObject<Array>(indices[i]));
   }
 }
 
