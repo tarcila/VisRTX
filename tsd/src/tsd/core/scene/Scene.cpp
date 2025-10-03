@@ -33,6 +33,7 @@ Scene::Scene()
 
 Scene::~Scene()
 {
+  m_updateDelegate = nullptr;
   m_layers.clear();
   m_animations.objects.clear();
 
