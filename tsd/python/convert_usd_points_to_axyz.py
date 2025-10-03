@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+## Copyright 2025 NVIDIA Corporation
+## SPDX-License-Identifier: Apache-2.0
+
 import struct
 import sys
 from pxr import Usd, UsdGeom, Vt, Gf
