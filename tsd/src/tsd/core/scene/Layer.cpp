@@ -278,6 +278,11 @@ std::string &LayerNodeData::name()
   return m_name;
 }
 
+const std::string &LayerNodeData::name() const
+{
+  return m_name;
+}
+
 Any LayerNodeData::getValueRaw() const
 {
   return m_value;

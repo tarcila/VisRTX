@@ -63,6 +63,7 @@ struct LayerNodeData
   Array *getTransformArray() const;
 
   std::string &name();
+  const std::string &name() const;
 
   //////////////////////////////////////////////////////////////////
   // Warning: these operate on the raw Any value, no type checking!

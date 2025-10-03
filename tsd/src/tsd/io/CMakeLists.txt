@@ -41,6 +41,7 @@ PRIVATE
   procedural/generate_randomSpheres.cpp
   procedural/generate_rtow.cpp
   serialization/serialization_datatree.cpp
+  serialization/export_scenetousd.cpp
 )
 
 project_include_directories(
