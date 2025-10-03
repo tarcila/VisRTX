@@ -156,8 +156,8 @@ struct DataTree
 
   // File I/O //
 
-  void save(const char *filename);
-  void load(const char *filename);
+  bool save(const char *filename);
+  bool load(const char *filename);
 
   // Visual inspection //
 
@@ -575,11 +575,11 @@ inline void DataTree::traverse(DataNode::Ref start,
   // clang-format on
 }
 
-inline void DataTree::save(const char *filename)
+inline bool DataTree::save(const char *filename)
 {
   std::FILE *fp = std::fopen(filename, "wb");
   if (!fp)
-    return;
+    return false;
 
   // Count + write number of leaf nodes //
 
@@ -628,9 +628,11 @@ inline void DataTree::save(const char *filename)
       });
 
   std::fclose(fp);
+
+  return true;
 }
 
-inline void DataTree::load(const char *filename)
+inline bool DataTree::load(const char *filename)
 {
   auto splitNullSeparatedStrings =
       [](const char *buffer, size_t bufferSize) -> std::vector<std::string> {
@@ -651,7 +653,7 @@ inline void DataTree::load(const char *filename)
 
   auto *fp = std::fopen(filename, "rb");
   if (!fp)
-    return;
+    return false;
 
   m_tree.root()->erase_subtree();
   auto &rootNode = root();
@@ -727,6 +729,7 @@ inline void DataTree::load(const char *filename)
   }
 
   std::fclose(fp);
+  return true;
 }
 
 inline void DataTree::print()

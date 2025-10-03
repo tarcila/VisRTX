@@ -326,7 +326,10 @@ void Application::saveApplicationState(const char *_filename)
 void Application::loadApplicationState(const char *filename)
 {
   // Load from file
-  m_settings.load(filename);
+  if (!m_settings.load(filename)) {
+    tsd::core::logError("failed to load state from '%s'", filename);
+    return;
+  }
 
   auto &core = *appCore();
   auto &root = m_settings.root();
