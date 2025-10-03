@@ -170,8 +170,7 @@ struct Scene
   // Animations //
   ////////////////
 
-  template <typename T>
-  T *addAnimation(const char *name = "");
+  Animation *addAnimation(const char *name = "");
   size_t numberOfAnimations() const;
   Animation *animation(size_t i) const;
   void removeAnimation(Animation *a);
@@ -221,9 +220,6 @@ struct Scene
     std::vector<std::unique_ptr<Animation>> objects;
   } m_animations;
 };
-
-using GeometryTimeSeries = AnimatedTimeSeries<Geometry>;
-using SpatialFieldTimeSeries = AnimatedTimeSeries<SpatialField>;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Inlined definitions ////////////////////////////////////////////////////////
@@ -343,12 +339,9 @@ inline LightRef Scene::getObject(size_t i) const
   return m_db.light.at(i);
 }
 
-template <typename T>
-T *Scene::addAnimation(const char *name)
+inline Animation *Scene::addAnimation(const char *name)
 {
-  static_assert(std::is_base_of<Animation, T>::value,
-      "Scene::addAnimation<> can only create tsd::Animation subclasses");
-  auto anim = std::make_unique<T>();
+  auto anim = std::make_unique<Animation>();
   anim->name() = name;
   auto *retval = anim.get();
   m_animations.objects.push_back(std::move(anim));

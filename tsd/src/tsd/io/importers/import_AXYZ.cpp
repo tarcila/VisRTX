@@ -87,10 +87,8 @@ void import_AXYZ(Scene &scene, const char *filepath, LayerNodeRef location)
 
   // animation
 
-  auto *anim = scene.addAnimation<tsd::core::GeometryTimeSeries>(file.c_str());
-  anim->setTargetObject(*geom);
-  anim->setTargetParameterName("vertex.position");
-  anim->setSteps(timeSteps);
+  auto *anim = scene.addAnimation(file.c_str());
+  anim->setAsTimeSteps(*geom, "vertex.position", timeSteps);
 }
 
 } // namespace tsd::io
