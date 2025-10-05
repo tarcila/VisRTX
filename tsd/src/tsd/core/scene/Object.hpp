@@ -103,6 +103,8 @@ struct Object : public ParameterObserver
   Parameter *parameter(Token name);
   template <typename T>
   std::optional<T> parameterValueAs(Token name);
+  template <typename T>
+  const std::optional<T> parameterValueAs(Token name) const;
   template <typename T = Object>
   T *parameterValueAsObject(Token name) const;
 
@@ -197,6 +199,18 @@ inline Parameter *Object::setParameter(Token name, T value)
 
 template <typename T>
 inline std::optional<T> Object::parameterValueAs(Token name)
+{
+  static_assert(!isObject<T>(),
+      "Object::parameterValueAs() does not work on parameters holding objects");
+
+  auto *p = parameter(name);
+  if (!p || !p->value().is<T>())
+    return {};
+  return p->value().get<T>();
+}
+
+template <typename T>
+inline const std::optional<T> Object::parameterValueAs(Token name) const
 {
   static_assert(!isObject<T>(),
       "Object::parameterValueAs() does not work on parameters holding objects");
