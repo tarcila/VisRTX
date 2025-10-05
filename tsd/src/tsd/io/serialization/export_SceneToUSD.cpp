@@ -875,6 +875,8 @@ void export_SceneToUSD(Scene &scene, const char *filename)
   tsd::core::logStatus("...done exporting USD scene to file: %s", filename);
 }
 #else
+
+namespace tsd::io {
 void export_SceneToUSD(Scene &, const char *)
 {
   tsd::core::logError("[export_USD] USD not enabled in TSD build.");
