@@ -59,6 +59,7 @@ PRIVATE
   $<BUILD_INTERFACE:tsd_ext_mikktspace>
   $<BUILD_INTERFACE:tsd_ext_nanovdb>
   $<BUILD_INTERFACE:tsd_ext_tinyexr>
+  $<BUILD_INTERFACE:tsd_ext_tinyexr_impl>
   $<BUILD_INTERFACE:tsd_ext_tinyobjloader>
   $<BUILD_INTERFACE:tsd_ext_tinyply>
   $<BUILD_INTERFACE:tsd_ext_tinygltf>
