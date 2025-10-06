@@ -478,19 +478,22 @@ void load_Scene(Scene &scene, core::DataNode &root)
 
   // Animations
 
-  tsd::core::logStatus("  ...converting animations");
+  if (auto *c = root.child("animation"); c != nullptr) {
+    tsd::core::logStatus("  ...converting animations");
 
-  auto &animationRoot = root["animation"];
+    auto &animationRoot = *c;
+    auto &animationObjects = animationRoot["objects"];
+    animationObjects.foreach_child([&](auto &animationNode) {
+      scene.addAnimation()->deserialize(animationNode);
+    });
 
-  auto &animationObjects = animationRoot["objects"];
-  animationObjects.foreach_child([&](auto &animationNode) {
-    scene.addAnimation()->deserialize(animationNode);
-  });
-
-  auto &animationSettings = animationRoot["settings"];
-  scene.setAnimationTime(animationSettings["time"].getValueAs<float>());
-  scene.setAnimationIncrement(
-      animationSettings["increment"].getValueAs<float>());
+    auto &animationSettings = animationRoot["settings"];
+    scene.setAnimationTime(animationSettings["time"].getValueAs<float>());
+    scene.setAnimationIncrement(
+        animationSettings["increment"].getValueAs<float>());
+  } else {
+    tsd::core::logStatus("  ...no animations found!");
+  }
 
   tsd::core::logStatus("  ...done!");
 }
