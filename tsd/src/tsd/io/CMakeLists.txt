@@ -28,6 +28,7 @@ PRIVATE
   importers/import_RAW.cpp
   importers/import_SMESH.cpp
   importers/import_SWC.cpp
+  importers/import_TRK.cpp
   importers/import_volume.cpp
   importers/import_VTI.cpp
   importers/import_VTU.cpp

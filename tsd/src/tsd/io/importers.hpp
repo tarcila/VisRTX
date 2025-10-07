@@ -25,6 +25,7 @@ void import_PLY(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_PT(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_SMESH(Scene &scene, const char *filename, LayerNodeRef location = {}, bool isAnimation = false);
 void import_SWC(Scene &scene, const char *filename, LayerNodeRef location = {});
+void import_TRK(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_USD(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
 void import_XYZDP(Scene &scene, const char *filename, LayerNodeRef location = {});
 

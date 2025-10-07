@@ -153,6 +153,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::SMESH_ANIMATION;
     else if (arg == "-swc")
       importerType = ImporterType::SWC;
+    else if (arg == "-trk")
+      importerType = ImporterType::TRK;
     else if (arg == "-usd")
       importerType = ImporterType::USD;
     else if (arg == "-xyzdp")
@@ -231,6 +233,8 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
         tsd::io::import_GLTF(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::AXYZ)
         tsd::io::import_AXYZ(tsd.scene, f.second.c_str(), root);
+      else if (f.first == ImporterType::TRK)
+        tsd::io::import_TRK(tsd.scene, f.second.c_str(), root);
       else
         tsd::core::logWarning(
             "...skipping unknown file type for '%s'", f.second.c_str());

@@ -44,6 +44,7 @@ enum class ImporterType
   SMESH,
   SMESH_ANIMATION, // time series version
   SWC,
+  TRK,
   USD,
   XYZDP,
   VOLUME,

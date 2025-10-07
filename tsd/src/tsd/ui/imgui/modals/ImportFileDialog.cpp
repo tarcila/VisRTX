@@ -39,6 +39,7 @@ void ImportFileDialog::buildUI()
       "SMESH",
       "SMESH_ANIMATION",
       "SWC",
+      "TRK",
       "USD",
       "XYZDP",
       "VOLUME",
@@ -128,6 +129,8 @@ void ImportFileDialog::buildUI()
         tsd::io::import_SMESH(scene, m_filename.c_str(), importRoot, true);
       else if (selectedFileType == app::ImporterType::SWC)
         tsd::io::import_SWC(scene, m_filename.c_str(), importRoot);
+      else if (selectedFileType == app::ImporterType::TRK)
+        tsd::io::import_TRK(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::USD)
         tsd::io::import_USD(scene, m_filename.c_str(), importRoot);
       else if (selectedFileType == app::ImporterType::XYZDP)
