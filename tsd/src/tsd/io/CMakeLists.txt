@@ -26,6 +26,7 @@ PRIVATE
   importers/import_PLY.cpp
   importers/import_PT.cpp
   importers/import_RAW.cpp
+  importers/import_SMESH.cpp
   importers/import_SWC.cpp
   importers/import_volume.cpp
   importers/import_VTI.cpp

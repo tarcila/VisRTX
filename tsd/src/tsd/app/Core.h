@@ -30,22 +30,24 @@ enum class ImporterType
 {
   ASSIMP = 0,
   ASSIMP_FLAT,
+  AXYZ,
   DLAF,
   E57XYZ,
-  NBODY,
-  PLY,
-  OBJ,
-  USD,
-  HDRI,
-  VOLUME,
-  SWC,
-  PDB,
-  XYZDP,
-  HSMESH,
-  NEURAL,
-  TSD,
   GLTF,
-  AXYZ, // only valid for time series demo app
+  HDRI,
+  HSMESH,
+  NBODY,
+  OBJ,
+  PDB,
+  PLY,
+  PT,
+  SMESH,
+  SMESH_ANIMATION, // time series version
+  SWC,
+  USD,
+  XYZDP,
+  VOLUME,
+  TSD,
   NONE
 };
 

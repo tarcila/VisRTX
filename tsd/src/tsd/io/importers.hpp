@@ -20,12 +20,14 @@ void import_HDRI(Scene &scene, const char *filename, LayerNodeRef location = {})
 void import_HSMESH(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_NBODY(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
 void import_OBJ(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
-void import_USD(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
-void import_PLY(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_PDB(Scene &scene, const char *filename, LayerNodeRef location = {});
-void import_SWC(Scene &scene, const char *filename, LayerNodeRef location = {});
-void import_XYZDP(Scene &scene, const char *filename, LayerNodeRef location = {});
+void import_PLY(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_PT(Scene &scene, const char *filename, LayerNodeRef location = {});
+void import_SMESH(Scene &scene, const char *filename, LayerNodeRef location = {}, bool isAnimation = false);
+void import_SWC(Scene &scene, const char *filename, LayerNodeRef location = {});
+void import_USD(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
+void import_XYZDP(Scene &scene, const char *filename, LayerNodeRef location = {});
+
 SpatialFieldRef import_RAW(Scene &scene, const char *filename);
 SpatialFieldRef import_FLASH(Scene &scene, const char *filename);
 SpatialFieldRef import_NVDB(Scene &scene, const char *filename);

@@ -14,6 +14,7 @@
 namespace tsd::core {
 
 struct Scene;
+using TimeStepArrays = std::vector<ObjectUsePtr<Array>>;
 
 struct Animation
 {
@@ -25,9 +26,12 @@ struct Animation
   const std::string &name() const;
   const std::string &info() const;
 
+  void setAsTimeSteps(
+      Object &obj, Token parameter, const TimeStepArrays &steps);
+
   void setAsTimeSteps(Object &obj,
-      Token parameter,
-      const std::vector<ObjectUsePtr<Array>> &steps);
+      const std::vector<Token> &parameters,
+      const std::vector<TimeStepArrays> &steps);
 
   void update(float time);
 
@@ -46,8 +50,8 @@ struct Animation
   struct TimeStepData
   {
     AnyObjectUsePtr object;
-    Token parameterName;
-    std::vector<ObjectUsePtr<Array>> steps;
+    std::vector<Token> parameterName;
+    std::vector<TimeStepArrays> steps;
     size_t currentStep{TSD_INVALID_INDEX};
   } m_timesteps;
 };

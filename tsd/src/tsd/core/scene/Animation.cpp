@@ -32,31 +32,53 @@ const std::string &Animation::info() const
 }
 
 void Animation::setAsTimeSteps(
-    Object &obj, Token parameter, const std::vector<ObjectUsePtr<Array>> &steps)
+    Object &obj, Token parameter, const TimeStepArrays &steps)
 {
   m_timesteps.object = obj;
-  m_timesteps.parameterName = parameter;
-  m_timesteps.steps = steps;
+  m_timesteps.parameterName = {parameter};
+  m_timesteps.steps = {steps};
   m_info = "current timestep: 0/" + std::to_string(steps.size() - 1);
+}
+
+void Animation::setAsTimeSteps(Object &obj,
+    const std::vector<Token> &parameters,
+    const std::vector<TimeStepArrays> &steps)
+{
+  if (parameters.size() != steps.size()) {
+    logError(
+        "[AnimatedTimeSeries::setAsTimeSteps()] parameter/steps size mismatch");
+    return;
+  }
+
+  m_timesteps.object = obj;
+  m_timesteps.parameterName = parameters;
+  m_timesteps.steps = steps;
+  m_info = "current timestep: 0/"
+      + std::to_string(steps.empty() ? 0 : steps[0].size() - 1);
 }
 
 void Animation::update(float time)
 {
   auto &ts = m_timesteps;
 
-  if (ts.steps.empty() || !ts.object || !ts.parameterName) {
+  if (ts.steps.empty() || !ts.object || ts.parameterName.empty()) {
     logWarning(
         "[AnimatedTimeSeries::update()] incomplete animation object '%s'",
         name().c_str());
     return;
   }
 
-  const float scaledTime = std::clamp(time, 0.f, 1.f) * (ts.steps.size() - 1);
-  const size_t idx = static_cast<size_t>(std::ceil(scaledTime));
-  if (idx != ts.currentStep) {
-    ts.object->setParameterObject(ts.parameterName, *ts.steps[idx]);
-    m_info = "current timestep: " + std::to_string(idx) + "/"
-        + std::to_string(ts.steps.size() - 1);
+  for (size_t i = 0; i < ts.steps.size(); i++) {
+    auto &steps = ts.steps[i];
+    auto &parameterName = ts.parameterName[i];
+
+    const float scaledTime = std::clamp(time, 0.f, 1.f) * (steps.size() - 1);
+    const size_t idx = static_cast<size_t>(std::ceil(scaledTime));
+    if (idx != ts.currentStep) {
+      ts.object->setParameterObject(parameterName, *steps[idx]);
+      m_info = "current timestep: " + std::to_string(idx) + "/"
+          + std::to_string(ts.steps.size() - 1);
+    }
   }
 }
 
@@ -68,41 +90,71 @@ void Animation::serialize(DataNode &node) const
 
   auto &ts = m_timesteps;
 
-  // Collect timestep array indices
-
-  std::vector<size_t> arrayIndices;
-  arrayIndices.reserve(ts.steps.size());
-  for (auto &s : ts.steps)
-    arrayIndices.push_back(s->index());
-
   // Write node values
 
   auto &timeseries = node["timeseries"];
   timeseries["object"] = ts.object
       ? tsd::core::Any(ts.object->type(), ts.object->index())
       : tsd::core::Any();
-  timeseries["parameterName"] = ts.parameterName.str();
   timeseries["currentStep"] = ts.currentStep;
-  timeseries["steps"].setValueAsArray(arrayIndices);
+
+  // Write animation sets
+
+  auto &animationSets = timeseries["animationSets"];
+  for (size_t i = 0; i < ts.steps.size(); i++) {
+    auto &setNode = animationSets.append();
+    setNode["parameterName"] = ts.parameterName[i].str();
+
+    std::vector<size_t> setArrayIndices;
+    setArrayIndices.reserve(ts.steps[i].size());
+    for (auto &s : ts.steps[i])
+      setArrayIndices.push_back(s->index());
+
+    setNode["steps"].setValueAsArray(setArrayIndices);
+  }
 }
 
 void Animation::deserialize(DataNode &node)
 {
+  auto getTimeStepArrays = [this](DataNode &setNode) {
+    size_t *indices = nullptr;
+    size_t numSteps = 0;
+    setNode["steps"].getValueAsArray<size_t>(&indices, &numSteps);
+    TimeStepArrays steps;
+    for (size_t i = 0; i < numSteps; i++)
+      steps.emplace_back(m_scene->getObject<Array>(indices[i]));
+    return steps;
+  };
+
+  //////////////////
+
   name() = node["name"].getValueAs<std::string>();
 
   if (auto *c = node.child("timeseries"); c != nullptr) {
     auto &ts = m_timesteps;
     auto &tsNode = *c;
 
-    ts.object = *m_scene->getObject(tsNode["object"].getValue());
-    ts.parameterName = tsNode["parameterName"].getValueAs<std::string>();
-    ts.currentStep = tsNode["currentStep"].getValueAs<size_t>();
+    auto object = m_scene->getObject(tsNode["object"].getValue());
 
-    size_t *indices = nullptr;
-    size_t numSteps = 0;
-    tsNode["steps"].getValueAsArray<size_t>(&indices, &numSteps);
-    for (size_t i = 0; i < numSteps; i++)
-      ts.steps.emplace_back(m_scene->getObject<Array>(indices[i]));
+    if (auto *sets = tsNode.child("animationSets"); sets != nullptr) {
+      std::vector<Token> parameterNames;
+      std::vector<TimeStepArrays> allSteps;
+      sets->foreach_child([&](DataNode &setNode) {
+        auto parameterName =
+            Token(setNode["parameterName"].getValueAs<std::string>().c_str());
+        auto steps = getTimeStepArrays(setNode);
+        parameterNames.push_back(parameterName);
+        allSteps.push_back(steps);
+      });
+      setAsTimeSteps(*object, parameterNames, allSteps);
+    } else {
+      auto parameterName =
+          Token(tsNode["parameterName"].getValueAs<std::string>().c_str());
+      auto steps = getTimeStepArrays(tsNode);
+      setAsTimeSteps(*object, Token(parameterName.c_str()), steps);
+    }
+
+    ts.currentStep = tsNode["currentStep"].getValueAs<size_t>();
   }
 }
 

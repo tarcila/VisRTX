@@ -120,40 +120,45 @@ void Core::parseCommandLine(int argc, const char **argv)
     else if (arg == "-tsd") {
       importerType = ImporterType::TSD;
       this->commandLine.loadingScene = true;
-    } else if (arg == "-hdri")
-      importerType = ImporterType::HDRI;
-    else if (arg == "-dlaf")
-      importerType = ImporterType::DLAF;
-    else if (arg == "-e57xyz")
-      importerType = ImporterType::E57XYZ;
-    else if (arg == "-nbody")
-      importerType = ImporterType::NBODY;
-    else if (arg == "-obj")
-      importerType = ImporterType::OBJ;
-    else if (arg == "-usd")
-      importerType = ImporterType::USD;
+    }
+    else if (arg == "-axyz")
+      importerType = ImporterType::AXYZ;
     else if (arg == "-assimp")
       importerType = ImporterType::ASSIMP;
     else if (arg == "-assimp_flat")
       importerType = ImporterType::ASSIMP_FLAT;
-    else if (arg == "-ply")
-      importerType = ImporterType::PLY;
-    else if (arg == "-volume")
-      importerType = ImporterType::VOLUME;
-    else if (arg == "-swc")
-      importerType = ImporterType::SWC;
-    else if (arg == "-pdb")
-      importerType = ImporterType::PDB;
-    else if (arg == "-xyzdp")
-      importerType = ImporterType::XYZDP;
-    else if (arg == "-hsmesh")
-      importerType = ImporterType::HSMESH;
-    else if (arg == "-pt")
-      importerType = ImporterType::NEURAL;
+    else if (arg == "-dlaf")
+      importerType = ImporterType::DLAF;
+    else if (arg == "-e57xyz")
+      importerType = ImporterType::E57XYZ;
     else if (arg == "-gltf")
       importerType = ImporterType::GLTF;
-    else if (arg == "-axyz")
-      importerType = ImporterType::AXYZ;
+    else if (arg == "-hdri")
+      importerType = ImporterType::HDRI;
+    else if (arg == "-hsmesh")
+      importerType = ImporterType::HSMESH;
+    else if (arg == "-nbody")
+      importerType = ImporterType::NBODY;
+    else if (arg == "-obj")
+      importerType = ImporterType::OBJ;
+    else if (arg == "-pdb")
+      importerType = ImporterType::PDB;
+    else if (arg == "-ply")
+      importerType = ImporterType::PLY;
+    else if (arg == "-pt")
+      importerType = ImporterType::PT;
+    else if (arg == "-smesh")
+      importerType = ImporterType::SMESH;
+    else if (arg == "-smesh_animation")
+      importerType = ImporterType::SMESH_ANIMATION;
+    else if (arg == "-swc")
+      importerType = ImporterType::SWC;
+    else if (arg == "-usd")
+      importerType = ImporterType::USD;
+    else if (arg == "-xyzdp")
+      importerType = ImporterType::XYZDP;
+    else if (arg == "-volume")
+      importerType = ImporterType::VOLUME;
     else {
       if (importerType != ImporterType::NONE)
         this->commandLine.filenames.push_back({importerType, arg});
@@ -206,6 +211,10 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
         tsd::io::import_NBODY(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::HDRI)
         tsd::io::import_HDRI(tsd.scene, f.second.c_str());
+      else if (f.first == ImporterType::SMESH)
+        tsd::io::import_SMESH(tsd.scene, f.second.c_str(), root, false);
+      else if (f.first == ImporterType::SMESH_ANIMATION)
+        tsd::io::import_SMESH(tsd.scene, f.second.c_str(), root, true);
       else if (f.first == ImporterType::SWC)
         tsd::io::import_SWC(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::PDB)
@@ -216,7 +225,7 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
         tsd::io::import_HSMESH(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::VOLUME)
         tsd::io::import_volume(tsd.scene, f.second.c_str());
-      else if (f.first == ImporterType::NEURAL)
+      else if (f.first == ImporterType::PT)
         tsd::io::import_PT(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::GLTF)
         tsd::io::import_GLTF(tsd.scene, f.second.c_str(), root);
