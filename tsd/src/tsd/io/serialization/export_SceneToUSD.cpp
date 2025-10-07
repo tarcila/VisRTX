@@ -79,7 +79,7 @@ static pxr::SdfPath tsdSurfaceToUSD(
       auto triangleCount = triangleIds->size();
 
       faceVertexCounts.resize(triangleCount, 3);
-      faceVertexIndices.resize(triangleCount);
+      faceVertexIndices.resize(triangleCount * 3);
       std::copy_n(
           (int *)triangles, triangleCount * 3, faceVertexIndices.begin());
     } else {
