@@ -146,6 +146,27 @@ static void buildUI_parameter_contextMenu(
             ImGui::EndMenu(); // "geometry"
           }
 
+          if (ImGui::BeginMenu("sampler")) {
+            tsd::core::SamplerRef s;
+
+#define OBJECT_UI_MENU_ITEM(text, subtype)                                     \
+  if (ImGui::MenuItem(text)) {                                                 \
+    s = scene.createObject<tsd::core::Sampler>(                                \
+        tsd::core::tokens::sampler::subtype);                                  \
+  }
+            OBJECT_UI_MENU_ITEM("compressedImage2D", compressedImage2D);
+            OBJECT_UI_MENU_ITEM("image1D", image1D);
+            OBJECT_UI_MENU_ITEM("image2D", image2D);
+            OBJECT_UI_MENU_ITEM("image3D", image3D);
+            OBJECT_UI_MENU_ITEM("primitive", primitive);
+            OBJECT_UI_MENU_ITEM("transform", transform);
+#undef OBJECT_UI_MENU_ITEM
+
+            if (s)
+              p->setValue({s->type(), s->index()});
+            ImGui::EndMenu(); // "material"
+          }
+
           ImGui::EndMenu(); // "new"
         }
 
