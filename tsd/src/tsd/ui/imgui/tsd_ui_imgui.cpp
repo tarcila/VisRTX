@@ -228,9 +228,11 @@ void buildUI_object(tsd::core::Object &o,
       o.useCount(tsd::core::Object::UseKind::APP),
       o.useCount(tsd::core::Object::UseKind::PARAMETER),
       o.useCount(tsd::core::Object::UseKind::LAYER));
-  ImGui::SetTooltip(
-      "references to this object:"
-      " application | parameter | layer");
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "references to this object:"
+        " application | parameter | layer");
+  }
 
   ImGui::Separator();
 
