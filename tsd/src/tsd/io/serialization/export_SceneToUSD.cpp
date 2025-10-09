@@ -27,8 +27,6 @@
 
 // usd
 #include <pxr/base/gf/declare.h>
-#include <pxr/base/gf/declare.h>
-#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/usd/sdf/path.h>
@@ -95,7 +93,7 @@ static std::string sanitizeSamplerName(const std::string &samplerName)
   }
 
   // Ensure uniqueness by appending a number if necessary
-  std::string uniqueName;;
+  std::string uniqueName;
   int uniqueIndex = 0;
   do {
     uniqueName = baseName + "_" + std::to_string(uniqueIndex++);
