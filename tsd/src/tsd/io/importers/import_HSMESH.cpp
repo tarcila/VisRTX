@@ -20,19 +20,9 @@ static ArrayRef readHsArray(Scene &scene,
     anari::DataType elementType,
     std::FILE *fp)
 {
-  ArrayRef retval;
-
-  size_t size = 0;
-  auto r = std::fread(&size, sizeof(size_t), 1, fp);
-
-  if (size > 0) {
-    retval = scene.createArray(elementType, size);
-    auto *dst = retval->map();
-    r = std::fread(dst, anari::sizeOf(elementType), size, fp);
-    retval->unmap();
+  ArrayRef retval = readArray(scene, elementType, fp);
+  if (retval)
     geom->setParameterObject(param, *retval);
-  }
-
   return retval;
 }
 
@@ -59,7 +49,8 @@ void import_HSMESH(Scene &scene, const char *filepath, LayerNodeRef location)
   readHsArray(scene, geom, "vertex.color", ANARI_FLOAT32_VEC3, fp);
   readHsArray(scene, geom, "primitive.index", ANARI_UINT32_VEC3, fp);
 
-  auto scalars = readHsArray(scene, geom, "vertex.attribute0", ANARI_FLOAT32, fp);
+  auto scalars =
+      readHsArray(scene, geom, "vertex.attribute0", ANARI_FLOAT32, fp);
   if (scalars) {
     mat = scene.createObject<Material>(tokens::material::matte);
     auto range = computeScalarRange(*scalars);

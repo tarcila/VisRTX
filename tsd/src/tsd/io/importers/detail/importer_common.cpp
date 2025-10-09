@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/io/importers/detail/importer_common.hpp"
-#include "tsd/io/importers/detail/dds.h"
 #include "tsd/core/ColorMapUtil.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/io/importers/detail/dds.h"
 // mikktspace
 #include "mikktspace.h"
 // stb_image
@@ -61,6 +61,24 @@ std::vector<std::string> splitString(const std::string &s, char delim)
   for (std::string token; std::getline(stream, token, delim);)
     result.push_back(token);
   return result;
+}
+
+tsd::core::ArrayRef readArray(
+    tsd::core::Scene &scene, anari::DataType elementType, std::FILE *fp)
+{
+  tsd::core::ArrayRef retval;
+
+  size_t size = 0;
+  auto r = std::fread(&size, sizeof(size_t), 1, fp);
+
+  if (size > 0) {
+    retval = scene.createArray(elementType, size);
+    auto *dst = retval->map();
+    r = std::fread(dst, anari::sizeOf(elementType), size, fp);
+    retval->unmap();
+  }
+
+  return retval;
 }
 
 SamplerRef importDdsTexture(

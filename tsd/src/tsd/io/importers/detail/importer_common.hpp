@@ -5,6 +5,7 @@
 
 #include "tsd/core/scene/Scene.hpp"
 // std
+#include <cstdio>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -15,6 +16,9 @@ std::string pathOf(const std::string &filepath);
 std::string fileOf(const std::string &filepath);
 std::string extensionOf(const std::string &filepath);
 std::vector<std::string> splitString(const std::string &s, char delim);
+
+tsd::core::ArrayRef readArray(
+    tsd::core::Scene &scene, anari::DataType elementType, std::FILE *fp);
 
 using TextureCache = std::unordered_map<std::string, tsd::core::ArrayRef>;
 tsd::core::SamplerRef importTexture(tsd::core::Scene &scene,

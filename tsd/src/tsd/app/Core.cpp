@@ -144,6 +144,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::PDB;
     else if (arg == "-ply")
       importerType = ImporterType::PLY;
+    else if (arg == "-pointsbin")
+      importerType = ImporterType::POINTSBIN_MULTIFILE;
     else if (arg == "-pt")
       importerType = ImporterType::PT;
     else if (arg == "-smesh")
@@ -161,9 +163,20 @@ void Core::parseCommandLine(int argc, const char **argv)
     else if (arg == "-volume")
       importerType = ImporterType::VOLUME;
     else {
-      if (importerType != ImporterType::NONE)
-        this->commandLine.filenames.push_back({importerType, arg});
-      else {
+      if (importerType != ImporterType::NONE) {
+        if (importerType == ImporterType::POINTSBIN_MULTIFILE) {
+          if (!this->commandLine.currentAnimationSequence) {
+            this->commandLine.animationFilenames.push_back(
+                {ImporterType::POINTSBIN_MULTIFILE, {}});
+            this->commandLine.currentAnimationSequence =
+                &this->commandLine.animationFilenames.back();
+          }
+          this->commandLine.currentAnimationSequence->second.push_back(arg);
+        } else {
+          this->commandLine.filenames.push_back({importerType, arg});
+          this->commandLine.currentAnimationSequence = nullptr;
+        }
+      } else {
         this->commandLine.stateFile = arg;
         this->commandLine.loadedFromStateFile = true;
       }
@@ -185,13 +198,18 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
     return;
   }
 
-  if (!commandLine.loadedFromStateFile && commandLine.filenames.empty()) {
+  const bool generateOrb = !commandLine.loadingScene
+      && commandLine.filenames.size() == 0
+      && commandLine.animationFilenames.size() == 0;
+
+  if (generateOrb) {
     tsd::core::logStatus("...generating material_orb from embedded data");
     tsd::io::generate_material_orb(tsd.scene);
   } else {
+    auto root = tsd.scene.defaultLayer()->root();
+
     for (const auto &f : commandLine.filenames) {
       tsd::core::logStatus("...loading file '%s'", f.second.c_str());
-      auto root = tsd.scene.defaultLayer()->root();
       if (f.first == ImporterType::TSD)
         tsd::io::load_Scene(tsd.scene, f.second.c_str());
       else if (f.first == ImporterType::ASSIMP)
@@ -218,6 +236,8 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
         tsd::io::import_PDB(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::PLY)
         tsd::io::import_PLY(tsd.scene, f.second.c_str());
+      else if (f.first == ImporterType::POINTSBIN_MULTIFILE)
+        tsd::io::import_POINTSBIN(tsd.scene, {f.second.c_str()}, root);
       else if (f.first == ImporterType::PT)
         tsd::io::import_PT(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::SMESH)
@@ -237,6 +257,11 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
       else
         tsd::core::logWarning(
             "...skipping unknown file type for '%s'", f.second.c_str());
+    }
+
+    for (const auto &f : commandLine.animationFilenames) {
+      if (f.first == ImporterType::POINTSBIN_MULTIFILE)
+        tsd::io::import_POINTSBIN(tsd.scene, f.second, root);
     }
   }
 }

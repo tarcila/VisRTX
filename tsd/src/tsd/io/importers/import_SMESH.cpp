@@ -14,24 +14,6 @@ namespace tsd::io {
 
 using namespace tsd::core;
 
-static ArrayRef readArray(
-    Scene &scene, anari::DataType elementType, std::FILE *fp)
-{
-  ArrayRef retval;
-
-  size_t size = 0;
-  auto r = std::fread(&size, sizeof(size_t), 1, fp);
-
-  if (size > 0) {
-    retval = scene.createArray(elementType, size);
-    auto *dst = retval->map();
-    r = std::fread(dst, anari::sizeOf(elementType), size, fp);
-    retval->unmap();
-  }
-
-  return retval;
-}
-
 //
 // Importing a bespoke binary dump of just triangles + vertex attribute scalars
 //

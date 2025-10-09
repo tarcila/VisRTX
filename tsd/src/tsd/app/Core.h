@@ -40,6 +40,7 @@ enum class ImporterType
   OBJ,
   PDB,
   PLY,
+  POINTSBIN_MULTIFILE,
   PT,
   SMESH,
   SMESH_ANIMATION, // time series version
@@ -52,6 +53,9 @@ enum class ImporterType
   NONE
 };
 
+using ImportFile = std::pair<ImporterType, std::string>;
+using ImportAnimationFiles = std::pair<ImporterType, std::vector<std::string>>;
+
 struct CommandLineOptions
 {
   bool useDefaultLayout{true};
@@ -60,7 +64,9 @@ struct CommandLineOptions
   bool preloadDevices{false};
   bool loadedFromStateFile{false};
   std::string stateFile;
-  std::vector<std::pair<ImporterType, std::string>> filenames;
+  std::vector<ImportFile> filenames;
+  std::vector<ImportAnimationFiles> animationFilenames;
+  ImportAnimationFiles *currentAnimationSequence{nullptr};
   ImporterType importerType{ImporterType::NONE};
   std::vector<std::string> libraryList;
   std::string secondaryViewportLibrary;

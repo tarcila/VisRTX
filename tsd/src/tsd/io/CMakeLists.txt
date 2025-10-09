@@ -24,6 +24,7 @@ PRIVATE
   importers/import_USD.cpp
   importers/import_PDB.cpp
   importers/import_PLY.cpp
+  importers/import_POINTSBIN.cpp
   importers/import_PT.cpp
   importers/import_RAW.cpp
   importers/import_SMESH.cpp
