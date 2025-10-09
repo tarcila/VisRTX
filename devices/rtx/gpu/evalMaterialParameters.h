@@ -41,6 +41,19 @@
 
 namespace visrtx {
 
+VISRTX_DEVICE float adjustedMaterialOpacity(
+    float opacityIn, AlphaMode mode, float cutoff)
+{
+  if (mode == AlphaMode::OPAQUE)
+    return 1.f;
+  else {
+    if (mode == AlphaMode::BLEND)
+      return opacityIn;
+    else
+      return opacityIn < cutoff ? 0.f : 1.f;
+  }
+}
+
 VISRTX_DEVICE bool isPopulated(const AttributeData &ap)
 {
   return ap.numChannels > 0;
@@ -175,10 +188,24 @@ VISRTX_DEVICE uint32_t decodeCurveAttributeIndices(
 }
 
 VISRTX_DEVICE vec4 readAttributeValue(
-    uint32_t attributeID, const SurfaceHit &hit)
+    MaterialAttribute attribute, const SurfaceHit &hit)
 {
+  switch (attribute) {
+  case MaterialAttribute::WORLD_POSITION:
+  case MaterialAttribute::OBJECT_POSITION: // TODO: handle instance xfm
+    return vec4(hit.hitpoint, 1.f);
+  case MaterialAttribute::WORLD_NORMAL:
+  case MaterialAttribute::OBJECT_NORMAL: // TODO: handle instance xfm
+    return vec4(hit.Ns, 1.f);
+  case MaterialAttribute::UNKNOWN:
+    return vec4{0.f, 0.f, 0.f, 1.f};
+  default:
+    break; // read attribute from geometry below
+  }
+
   const auto &isd = *hit.instance;
   const auto &ggd = *hit.geometry;
+  const uint8_t attributeID = static_cast<uint8_t>(attribute);
   const vec4 &uf = ggd.attrUniform[attributeID];
 
   // First check per-vertex attributes
@@ -359,51 +386,15 @@ VISRTX_DEVICE vec4 getMaterialParameter(
   switch (mp.type) {
   case MaterialParameterType::VALUE:
     return mp.value;
+  case MaterialParameterType::ATTRIBUTE:
+    return readAttributeValue(mp.attribute, hit);
   case MaterialParameterType::SAMPLER:
     return evaluateSampler(fd, mp.sampler, hit);
-  case MaterialParameterType::ATTRIB_0:
-    return readAttributeValue(0, hit);
-  case MaterialParameterType::ATTRIB_1:
-    return readAttributeValue(1, hit);
-  case MaterialParameterType::ATTRIB_2:
-    return readAttributeValue(2, hit);
-  case MaterialParameterType::ATTRIB_3:
-    return readAttributeValue(3, hit);
-  case MaterialParameterType::ATTRIB_COLOR:
-    return readAttributeValue(4, hit);
-  case MaterialParameterType::WORLD_POSITION:
-    return vec4(hit.hitpoint, 1.f);
-  case MaterialParameterType::WORLD_NORMAL:
-    return vec4(hit.Ns, 1.f);
-  /////////////////////////////////////////////////////////////////////////////
-  // NOTE: these are in world space - need to quantify best performing option
-  case MaterialParameterType::OBJECT_POSITION:
-    return vec4(hit.hitpoint, 1.f);
-  case MaterialParameterType::OBJECT_NORMAL:
-    return vec4(hit.Ns, 1.f);
-  /////////////////////////////////////////////////////////////////////////////
   default:
     break;
   }
 
   return vec4{};
 }
-
-VISRTX_DEVICE float adjustedMaterialOpacity(
-    float opacityIn, AlphaMode mode, float cutoff)
-{
-  if (mode == AlphaMode::OPAQUE)
-    return 1.f;
-  else {
-    if (mode == AlphaMode::BLEND)
-      return opacityIn;
-    else
-      return opacityIn < cutoff ? 0.f : 1.f;
-  }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
 
 } // namespace visrtx

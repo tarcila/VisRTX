@@ -97,10 +97,10 @@ VISRTX_DEVICE void handleSurfaceHit()
     rd.outColor = abs(rd.Ng);
     break;
   case DebugMethod::NS:
-    rd.outColor = rd.Ns;
+    rd.outColor = readAttributeValue(MaterialAttribute::WORLD_NORMAL, rd);
     break;
   case DebugMethod::NS_ABS:
-    rd.outColor = abs(rd.Ns);
+    rd.outColor = abs(readAttributeValue(MaterialAttribute::WORLD_NORMAL, rd));
     break;
   case DebugMethod::TANGENT_U:
     rd.outColor = rd.tU * 0.5f + 0.5f;
@@ -117,19 +117,19 @@ VISRTX_DEVICE void handleSurfaceHit()
     rd.outColor = boolColor(rd.material);
     break;
   case DebugMethod::GEOMETRY_ATTRIBUTE_0:
-    rd.outColor = readAttributeValue(0, rd);
+    rd.outColor = readAttributeValue(MaterialAttribute::ATTRIB_0, rd);
     break;
   case DebugMethod::GEOMETRY_ATTRIBUTE_1:
-    rd.outColor = readAttributeValue(1, rd);
+    rd.outColor = readAttributeValue(MaterialAttribute::ATTRIB_1, rd);
     break;
   case DebugMethod::GEOMETRY_ATTRIBUTE_2:
-    rd.outColor = readAttributeValue(2, rd);
+    rd.outColor = readAttributeValue(MaterialAttribute::ATTRIB_2, rd);
     break;
   case DebugMethod::GEOMETRY_ATTRIBUTE_3:
-    rd.outColor = readAttributeValue(3, rd);
+    rd.outColor = readAttributeValue(MaterialAttribute::ATTRIB_3, rd);
     break;
   case DebugMethod::GEOMETRY_ATTRIBUTE_COLOR:
-    rd.outColor = readAttributeValue(4, rd);
+    rd.outColor = readAttributeValue(MaterialAttribute::COLOR, rd);
     break;
   default:
     rd.outColor = vec3(1.f);

@@ -77,21 +77,36 @@ void Sampler::commitParameters()
 SamplerGPUData Sampler::gpuData() const
 {
   SamplerGPUData retval;
-  if (m_inAttribute == "attribute0")
-    retval.attribute = 0;
-  else if (m_inAttribute == "attribute1")
-    retval.attribute = 1;
-  else if (m_inAttribute == "attribute2")
-    retval.attribute = 2;
-  else if (m_inAttribute == "attribute3")
-    retval.attribute = 3;
-  else if (m_inAttribute == "color")
-    retval.attribute = 4;
+  retval.attribute = attributeFromString(m_inAttribute);
   retval.inTransform = m_inTransform;
   retval.inOffset = m_inOffset;
   retval.outTransform = m_outTransform;
   retval.outOffset = m_outOffset;
   return retval;
+}
+
+MaterialAttribute attributeFromString(const std::string &str)
+{
+  if (str == "attribute0")
+    return MaterialAttribute::ATTRIB_0;
+  else if (str == "attribute1")
+    return MaterialAttribute::ATTRIB_1;
+  else if (str == "attribute2")
+    return MaterialAttribute::ATTRIB_2;
+  else if (str == "attribute3")
+    return MaterialAttribute::ATTRIB_3;
+  else if (str == "color")
+    return MaterialAttribute::COLOR;
+  else if (str == "objectNormal")
+    return MaterialAttribute::OBJECT_NORMAL;
+  else if (str == "objectPosition")
+    return MaterialAttribute::OBJECT_POSITION;
+  else if (str == "worldNormal")
+    return MaterialAttribute::WORLD_NORMAL;
+  else if (str == "worldPosition")
+    return MaterialAttribute::WORLD_POSITION;
+  else
+    return MaterialAttribute::UNKNOWN;
 }
 
 } // namespace visrtx

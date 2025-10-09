@@ -95,10 +95,14 @@ VISRTX_CALLABLE void __direct_callable__init(MDLShadingState *shadingState,
 
   // The number of texture spaces we support. Matching the number of attributes
   // ANARI exposes (4)
-  shadingState->textureCoords[0] = readAttributeValue(0, *hit);
-  shadingState->textureCoords[1] = readAttributeValue(1, *hit);
-  shadingState->textureCoords[2] = readAttributeValue(2, *hit);
-  shadingState->textureCoords[3] = readAttributeValue(3, *hit);
+  shadingState->textureCoords[0] =
+      readAttributeValue(MaterialAttribute::ATTRIB_0, *hit);
+  shadingState->textureCoords[1] =
+      readAttributeValue(MaterialAttribute::ATTRIB_1, *hit);
+  shadingState->textureCoords[2] =
+      readAttributeValue(MaterialAttribute::ATTRIB_2, *hit);
+  shadingState->textureCoords[3] =
+      readAttributeValue(MaterialAttribute::ATTRIB_3, *hit);
 
   // Take some shortcut for now and use the same tangent space for all texture
   // spaces.
@@ -163,8 +167,7 @@ vec3 __direct_callable__shadeSurface(const MDLShadingState *shadingState,
   // Eval
   const float cos_theta =
       dot(*outgoingDir, normalize(make_vec3(shadingState->state.normal)));
-  if (cos_theta > 0.0f) 
-  {
+  if (cos_theta > 0.0f) {
     BsdfEvaluateData eval_data = {};
     if (shadingState->isFrontFace) {
       eval_data.ior1 = make_float3(1.0f, 1.0f, 1.0f);
@@ -240,17 +243,20 @@ float __direct_callable__evaluateOpacity(const MDLShadingState *shadingState)
 
 VISRTX_CALLABLE
 vec3 __direct_callable__evaluateEmission(
-    const MDLShadingState *shadingState, const vec3* outgoingDir)
+    const MDLShadingState *shadingState, const vec3 *outgoingDir)
 {
-    mi::neuraylib::Edf_evaluate_data<mi::neuraylib::DF_HSM_NONE> evalData = {};
-    evalData.k1 = make_float3(*outgoingDir);
+  mi::neuraylib::Edf_evaluate_data<mi::neuraylib::DF_HSM_NONE> evalData = {};
+  evalData.k1 = make_float3(*outgoingDir);
 
-    mdlEmission_evaluate(&evalData,
-        &shadingState->state,
-        &shadingState->resData,
-        shadingState->argBlock);
+  mdlEmission_evaluate(&evalData,
+      &shadingState->state,
+      &shadingState->resData,
+      shadingState->argBlock);
 
-    vec3 intensity = mdlEmissionIntensity(&shadingState->state, &shadingState->resData, shadingState->argBlock);
+  vec3 intensity = mdlEmissionIntensity(
+      &shadingState->state, &shadingState->resData, shadingState->argBlock);
 
-    return (evalData.pdf > 1e-12f) ? make_vec3(evalData.edf) * evalData.cos * intensity / evalData.pdf : vec3(0.0f);
+  return (evalData.pdf > 1e-12f)
+      ? make_vec3(evalData.edf) * evalData.cos * intensity / evalData.pdf
+      : vec3(0.0f);
 }

@@ -59,6 +59,20 @@ namespace visrtx {
 using RandState = curandStatePhilox4_32_10_t;
 using DeviceObjectIndex = int32_t;
 
+enum class MaterialAttribute : uint8_t
+{
+  ATTRIB_0,
+  ATTRIB_1,
+  ATTRIB_2,
+  ATTRIB_3,
+  COLOR,
+  OBJECT_POSITION,
+  OBJECT_NORMAL,
+  WORLD_POSITION,
+  WORLD_NORMAL,
+  UNKNOWN
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 // Objects ////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -263,7 +277,7 @@ struct PrimIDSamplerData
 struct SamplerGPUData
 {
   SamplerType type{SamplerType::UNKNOWN};
-  int attribute{-1};
+  MaterialAttribute attribute{MaterialAttribute::UNKNOWN};
   mat4 inTransform;
   vec4 inOffset;
   mat4 outTransform;
@@ -279,19 +293,11 @@ struct SamplerGPUData
 
 // Material //
 
-enum class MaterialParameterType
+enum class MaterialParameterType : uint8_t
 {
   VALUE,
+  ATTRIBUTE,
   SAMPLER,
-  ATTRIB_COLOR,
-  ATTRIB_0,
-  ATTRIB_1,
-  ATTRIB_2,
-  ATTRIB_3,
-  WORLD_POSITION,
-  WORLD_NORMAL,
-  OBJECT_POSITION,
-  OBJECT_NORMAL,
   UNKNOWN
 };
 
@@ -301,6 +307,7 @@ struct MaterialParameter
   union
   {
     vec4 value;
+    MaterialAttribute attribute;
     DeviceObjectIndex sampler;
   };
 

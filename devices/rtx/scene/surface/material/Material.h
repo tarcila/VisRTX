@@ -57,29 +57,8 @@ inline void populateMaterialParameter(MaterialParameter &mp,
     mp.type = MaterialParameterType::SAMPLER;
     mp.sampler = sampler->index();
   } else if (!attrib.empty()) {
-    if (attrib == "color") {
-      mp.type = MaterialParameterType::ATTRIB_COLOR;
-    } else if (attrib == "attribute0") {
-      mp.type = MaterialParameterType::ATTRIB_0;
-    } else if (attrib == "attribute1") {
-      mp.type = MaterialParameterType::ATTRIB_1;
-    } else if (attrib == "attribute2") {
-      mp.type = MaterialParameterType::ATTRIB_2;
-    } else if (attrib == "attribute3") {
-      mp.type = MaterialParameterType::ATTRIB_3;
-    } else if (attrib == "worldPosition") {
-      mp.type = MaterialParameterType::WORLD_POSITION;
-    } else if (attrib == "worldNormal") {
-      mp.type = MaterialParameterType::WORLD_NORMAL;
-    } else if (attrib == "objectPosition") {
-      mp.type = MaterialParameterType::OBJECT_POSITION;
-    } else if (attrib == "objectNormal") {
-      mp.type = MaterialParameterType::OBJECT_NORMAL;
-    } else {
-      // TODO: other attributes!
-      mp.type = MaterialParameterType::VALUE;
-      mp.value = vec4(value);
-    }
+    mp.type = MaterialParameterType::ATTRIBUTE;
+    mp.attribute = attributeFromString(attrib);
   } else {
     mp.type = MaterialParameterType::VALUE;
     mp.value = vec4(value);

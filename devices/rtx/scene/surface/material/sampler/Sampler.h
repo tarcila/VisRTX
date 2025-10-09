@@ -56,6 +56,8 @@ struct Sampler : public RegisteredObject<SamplerGPUData>
   vec4 m_outOffset;
 };
 
+MaterialAttribute attributeFromString(const std::string &str);
+
 } // namespace visrtx
 
 VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::Sampler *, ANARI_SAMPLER);
