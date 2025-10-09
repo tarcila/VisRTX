@@ -99,12 +99,8 @@ static void buildUI_parameter_contextMenu(
 
       ImGui::Separator();
 
-      if (ImGui::MenuItem("attribute")) {
-        p->setStringValues(
-            {"attribute0", "attribute1", "attribute2", "attribute3", "color"});
-        p->setStringSelection(0);
-        p->setValue("attribute0");
-      }
+      if (ImGui::MenuItem("attribute"))
+        p->setToAttribute();
 
       ImGui::Separator();
 

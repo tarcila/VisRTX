@@ -71,6 +71,10 @@ struct Parameter
   const std::vector<std::string> &stringValues() const;
   int stringSelection() const;
 
+  // Convenience methods for setting to a particular kind of parameter //
+
+  void setToAttribute();
+
   ////////////////////////////////////////
 
   Parameter() = default;

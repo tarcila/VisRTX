@@ -123,6 +123,21 @@ int Parameter::stringSelection() const
   return m_stringSelection;
 }
 
+void Parameter::setToAttribute()
+{
+  setStringValues({"attribute0",
+      "attribute1",
+      "attribute2",
+      "attribute3",
+      "color",
+      "worldPosition",
+      "worldNormal",
+      "objectPosition",
+      "objectNormal"});
+  setStringSelection(0);
+  setValue("attribute0");
+}
+
 void Parameter::setObserver(ParameterObserver *o)
 {
   m_observer = o;

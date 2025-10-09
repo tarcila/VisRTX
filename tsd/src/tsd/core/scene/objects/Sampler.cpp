@@ -12,10 +12,7 @@ Sampler::Sampler(Token subtype) : Object(ANARI_SAMPLER, subtype)
       || subtype == tokens::sampler::image1D
       || subtype == tokens::sampler::image2D
       || subtype == tokens::sampler::image3D) {
-    addParameter("inAttribute")
-        .setValue("attribute0")
-        .setStringValues(
-            {"attribute0", "attribute1", "attribute2", "attribute3", "color"});
+    addParameter("inAttribute").setToAttribute();
     addParameter("filter").setValue("linear").setStringValues(
         {"linear", "nearest"});
     if (subtype == tokens::sampler::image1D) {
@@ -46,10 +43,7 @@ Sampler::Sampler(Token subtype) : Object(ANARI_SAMPLER, subtype)
     addParameter("outTransform").setValue(math::scaling_matrix(float3(1.f)));
     addParameter("outOffset").setValue(float4(0.f));
   } else if (subtype == tokens::sampler::transform) {
-    addParameter("inAttribute")
-        .setValue("attribute0")
-        .setStringValues(
-            {"attribute0", "attribute1", "attribute2", "attribute3", "color"});
+    addParameter("inAttribute").setToAttribute();
     addParameter("outTransform").setValue(math::scaling_matrix(float3(1.f)));
     addParameter("outOffset").setValue(float4(0.f));
   }
