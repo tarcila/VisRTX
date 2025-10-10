@@ -128,6 +128,8 @@ static void layerToNode(Layer &layer, core::DataNode &node)
 
     currentNode->append("name") = tsdNode->name();
     currentNode->append("value") = tsdNode->getValueRaw();
+    if (tsdNode->isTransform())
+      currentNode->append("transformSRT") = tsdNode->getTransformSRT();
     currentNode->append("enabled") = tsdNode->isEnabled();
     currentNode->append("children");
 
@@ -319,7 +321,10 @@ static void nodeToLayer(core::DataNode &rootNode, Layer &layer, Scene &scene)
       currentNode = layer.root();
     else {
       currentNode = layer.insert_last_child(currentParentNode, {});
-      (*currentNode)->setValueRaw(node["value"].getValue(), &scene);
+      if (auto *c = node.child("transformSRT"); c != nullptr)
+        (*currentNode)->setAsTransform(c->getValueAs<math::mat3>());
+      else
+        (*currentNode)->setValueRaw(node["value"].getValue(), &scene);
       (*currentNode)->setEnabled(node["enabled"].getValueOr(true));
       (*currentNode)->name() = node["name"].getValueAs<std::string>();
     }
