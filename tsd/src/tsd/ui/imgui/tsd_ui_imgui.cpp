@@ -16,6 +16,21 @@ static bool UI_stringList_callback(void *p, int index, const char **out_text)
   return true;
 }
 
+static void buildUI_array_info_tooltip_text(
+    const tsd::core::Scene &scene, size_t idx)
+{
+  const auto &a = *scene.getObject<tsd::core::Array>(idx);
+  ImGui::Text("  idx: [%zu]", idx);
+  const auto t = a.type();
+  if (t == ANARI_ARRAY3D)
+    ImGui::Text(" size: %zu x %zu x %zu", a.dim(0), a.dim(1), a.dim(2));
+  else if (t == ANARI_ARRAY2D)
+    ImGui::Text(" size: %zu x %zu", a.dim(0), a.dim(1));
+  else
+    ImGui::Text(" size: %zu", a.dim(0));
+  ImGui::Text(" type: %s", anari::toString(a.elementType()));
+}
+
 static void buildUI_parameter_contextMenu(
     tsd::core::Scene &scene, tsd::core::Object *o, tsd::core::Parameter *p)
 {
@@ -521,16 +536,7 @@ void buildUI_parameter(tsd::core::Object &o,
     ImGui::BeginTooltip();
     if (isArray) {
       const auto idx = pVal.getAsObjectIndex();
-      const auto &a = *scene.getObject<tsd::core::Array>(idx);
-      ImGui::Text("  idx: [%zu]", idx);
-      const auto t = a.type();
-      if (t == ANARI_ARRAY3D)
-        ImGui::Text(" size: %zu x %zu x %zu", a.dim(0), a.dim(1), a.dim(2));
-      else if (t == ANARI_ARRAY2D)
-        ImGui::Text(" size: %zu x %zu", a.dim(0), a.dim(1));
-      else
-        ImGui::Text(" size: %zu", a.dim(0));
-      ImGui::Text(" type: %s", anari::toString(a.elementType()));
+      buildUI_array_info_tooltip_text(scene, idx);
     } else {
       if (p.description().empty())
         ImGui::Text("%s", anari::toString(type));
@@ -579,6 +585,12 @@ size_t buildUI_objects_menulist(
     if (ImGui::MenuItem(oTitle.c_str())) {
       retval = i;
       type = obj->type();
+    }
+
+    if (anari::isArray(type) && ImGui::IsItemHovered()) {
+      ImGui::BeginTooltip();
+      buildUI_array_info_tooltip_text(scene, i);
+      ImGui::EndTooltip();
     }
 
     ImGui::PopID();
