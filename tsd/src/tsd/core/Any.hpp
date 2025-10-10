@@ -24,7 +24,7 @@ struct Any
   template <typename T>
   Any(T value);
   Any(bool value);
-  Any(size_t value);
+  explicit Any(size_t value);
 
   Any(ANARIDataType type, const void *v);
   Any(ANARIDataType type, size_t v = INVALID_INDEX); // only use for objects
