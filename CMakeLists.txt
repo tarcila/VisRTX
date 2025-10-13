@@ -39,8 +39,6 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN")
 set(CMAKE_INSTALL_MESSAGE LAZY)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
-
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -60,18 +58,11 @@ project(VisRTX VERSION 0.13.0 LANGUAGES C CXX)
 enable_testing()
 
 include(GNUInstallDirs)
-include(appendSearchPaths)
 
 ## Options ####################################################################
 
 option(VISRTX_BUILD_TSD "Build TSD sample applications" OFF)
 mark_as_advanced(VISRTX_BUILD_TSD)
-
-option(
-  VISRTX_ENABLE_MDL_SUPPORT
-  "Whether to enable NVIDIA MDL support for VisRTX materials"
-  OFF
-)
 
 ## Dependencies ###############################################################
 

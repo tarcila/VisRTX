@@ -29,15 +29,26 @@
 
 include(GenerateExportHeader)
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
+include(appendSearchPaths)
+include(EmbedPTX)
+
 ## Establish project ##
 
 project(anari_library_visrtx VERSION ${PROJECT_VERSION} LANGUAGES CXX CUDA)
 
 ## RTX device options ##
 
+option(
+  VISRTX_ENABLE_MDL_SUPPORT
+  "Whether to enable NVIDIA MDL support for VisRTX materials"
+  OFF
+)
 option(VISRTX_ENABLE_NEURAL "Enable Neural Graphics Primitives" OFF)
 option(VISRTX_ENABLE_NVTX "Enable NVTX profiling instrumentation" OFF)
 mark_as_advanced(VISRTX_ENABLE_NVTX)
+
+option(VISRTX_USE_MDL_FOR_PHYSICALLY_BASED "Use MDL for physically based materials" OFF)
 
 # Enable possibly costly debug support
 option(VISRTX_ENABLE_HDRI_SAMPLING_DEBUG "Enable HDRI sampling debug support" OFF)
@@ -94,23 +105,20 @@ if(VISRTX_ENABLE_NEURAL AND NOT ${OPTIX_FETCH_VERSION} STREQUAL "9.0")
   message(FATAL_ERROR "OptiX 9.0+ must be used to enable Neural Graphics Primitives support in VisRTX")
 endif()
 
-## Find dependencies ##
+## Resolve dependencies ##
 
 find_package(CUDAToolkit 12 REQUIRED)
 find_package(OptiX REQUIRED)
 if(VISRTX_ENABLE_MDL_SUPPORT)
-  find_package(MDL_SDK REQUIRED)
-  option(VISRTX_USE_MDL_FOR_PHYSICALLY_BASED "Use MDL for physically based materials" OFF)
+  add_subdirectory(libmdl)
 endif()
-
-include(EmbedPTX)
 
 ## Build library target ##
 
 function(embed_resource resource_file_name source_file_name variable_name)
   # Generate a unique target name based on the variable name
   set(target_name "embed_${variable_name}")
-  
+
   # Create a custom command to generate the C++ source file
   add_custom_command(
     OUTPUT ${source_file_name}
@@ -123,12 +131,10 @@ function(embed_resource resource_file_name source_file_name variable_name)
     COMMENT "Embedding ${resource_file_name} into ${source_file_name}"
     VERBATIM
   )
-  
+
   # Create a custom target to ensure the file is generated
-  add_custom_target(${target_name}
-    DEPENDS ${source_file_name}
-  )
-  
+  add_custom_target(${target_name} DEPENDS ${source_file_name})
+
   # Make the main target depend on this custom target
   add_dependencies(${PROJECT_NAME} ${target_name})
 endfunction()
@@ -136,8 +142,16 @@ endfunction()
 project_add_library(SHARED)
 
 if(VISRTX_ENABLE_MDL_SUPPORT)
-    embed_resource(${CMAKE_SOURCE_DIR}/shaders/visrtx/default.mdl "${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp" "VISRTX_DEFAULT_MDL")
-    embed_resource(${CMAKE_SOURCE_DIR}/shaders/visrtx/physically_based.mdl "${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp" "VISRTX_PHYSICALLY_BASED_MDL")
+    embed_resource(
+      ${CMAKE_SOURCE_DIR}/shaders/visrtx/default.mdl
+      "${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp"
+      "VISRTX_DEFAULT_MDL"
+    )
+    embed_resource(
+      ${CMAKE_SOURCE_DIR}/shaders/visrtx/physically_based.mdl
+      "${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp"
+      "VISRTX_PHYSICALLY_BASED_MDL"
+    )
 endif()
 
 set(SOURCES
@@ -291,7 +305,6 @@ PRIVATE
   libnanovdb
   $<$<BOOL:${VISRTX_ENABLE_NVTX}>:CUDA::nvToolsExt>
   $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
-  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:MDL_SDK::MDL_SDK>
   $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:stb_image>
 )
 
@@ -353,12 +366,12 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
     OptiX::OptiX
     CUDA::curand
     libnanovdb
+    $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
   )
   target_include_directories(${INPUT_TARGET}
   PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_LIST_DIR}
-    ${MDL_SDK_INCLUDE_DIRS}
   )
 
   if(VISRTX_ENABLE_NEURAL)
