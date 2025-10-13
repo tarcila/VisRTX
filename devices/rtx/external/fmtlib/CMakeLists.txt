@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,17 +27,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-if (WIN32)
-  return()
-endif()
-
-macro(make_test TEST_NAME)
-  project(${TEST_NAME} LANGUAGES CXX)
-  project_add_executable(${PROJECT_NAME}.cpp)
-  project_link_libraries(PRIVATE anari_library_visrtx)
-  add_test(NAME ${PROJECT_NAME} COMMAND ${PROJECT_NAME})
-endmacro()
-
-make_test(TestDeviceInit)
-make_test(TestMultiThreadedObjectCreation)
+add_library(fmt STATIC src/format.cc)
+target_include_directories(fmt PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+target_compile_definitions(fmt PUBLIC FMT_UNICODE=0)
+add_library(fmt::fmt ALIAS fmt)
+add_library(visrtx::fmt ALIAS fmt)
 

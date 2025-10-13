@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,9 +27,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-if (TARGET stb_image)
+if (TARGET visrtx::nanovdb)
   return()
 endif()
 
-add_library(stb_image STATIC stb_image_write.c stb_image.c)
-target_include_directories(stb_image INTERFACE ${CMAKE_CURRENT_LIST_DIR})
+add_library(visrtx::nanovdb INTERFACE IMPORTED)
+target_include_directories(visrtx::nanovdb
+INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../external/nanovdb/include
+)

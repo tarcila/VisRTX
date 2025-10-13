@@ -12,6 +12,12 @@ add_subdirectory(tsd_tinyobjloader)
 add_subdirectory(tsd_tinyply)
 
 if (TSD_STANDALONE_BUILD)
-  add_subdirectory(../../external/fmtlib ${CMAKE_CURRENT_BINARY_DIR}/tsd_fmt)
-  add_subdirectory(../../external/stb_image ${CMAKE_CURRENT_BINARY_DIR}/tsd_stb)
+  add_subdirectory(
+    ${CMAKE_CURRENT_LIST_DIR}/../../devices/rtx/external/fmtlib
+    ${CMAKE_CURRENT_BINARY_DIR}/tsd_fmt
+  )
+  add_subdirectory(
+    ${CMAKE_CURRENT_LIST_DIR}/../../devices/rtx/external/stb_image
+    ${CMAKE_CURRENT_BINARY_DIR}/tsd_stb
+  )
 endif()

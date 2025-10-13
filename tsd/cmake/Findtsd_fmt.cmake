@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,9 +27,11 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-add_subdirectory(catch)
-add_subdirectory(fmtlib)
-add_subdirectory(nanovdb)
-add_subdirectory(nonstd)
-add_subdirectory(stb_image)
-add_subdirectory(tiny_obj_loader)
+if (TARGET tsd::fmt)
+  return()
+endif()
+
+add_subdirectory(
+  ${CMAKE_CURRENT_LIST_DIR}/../../devices/rtx/external/fmt
+  tsd_fmt
+)

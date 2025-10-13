@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,5 +27,25 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-add_library(libnanovdb INTERFACE)
-target_include_directories(libnanovdb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
+if (TARGET visrtx::glm)
+  return()
+endif()
+
+# glm
+find_package(glm CONFIG QUIET)
+if (TARGET glm::glm)
+  message(STATUS "Found glm: (external) ${glm_DIR}")
+else()
+  # Use locally provided version of glm
+  set(glm_DIR ${CMAKE_CURRENT_LIST_DIR}/../external/glm/lib/cmake/glm)
+  find_package(glm CONFIG REQUIRED)
+  message(STATUS "Found glm: (internal) ${glm_DIR}")
+endif()
+mark_as_advanced(glm_DIR)
+
+add_library(visrtx::glm INTERFACE IMPORTED)
+target_link_libraries(visrtx::glm INTERFACE glm::glm)
+target_compile_definitions(visrtx::glm INTERFACE GLM_ENABLE_EXPERIMENTAL)
+if(WIN32)
+  target_compile_definitions(visrtx::glm INTERFACE _USE_MATH_DEFINES NOMINMAX)
+endif()

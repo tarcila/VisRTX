@@ -27,15 +27,25 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-set(CMAKE_DISABLE_SOURCE_CHANGES ON)
-set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
+if (TARGET tsd::glm)
+  return()
+endif()
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+# glm
+find_package(glm CONFIG QUIET)
+if (TARGET glm::glm)
+  message(STATUS "Found glm: (external) ${glm_DIR}")
+else()
+  # Use locally provided version of glm
+  set(glm_DIR ${CMAKE_CURRENT_LIST_DIR}/../../devices/rtx/external/glm/lib/cmake/glm)
+  find_package(glm CONFIG REQUIRED)
+  message(STATUS "Found glm: (internal) ${glm_DIR}")
+endif()
+mark_as_advanced(glm_DIR)
 
-set(CMAKE_BUILD_TYPE_INIT "RelWithDebInfo")
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-
-add_subdirectory(simple)
+add_library(tsd::glm INTERFACE IMPORTED)
+target_link_libraries(tsd::glm INTERFACE glm::glm)
+target_compile_definitions(tsd::glm INTERFACE GLM_ENABLE_EXPERIMENTAL)
+if(WIN32)
+  target_compile_definitions(tsd::glm INTERFACE _USE_MATH_DEFINES NOMINMAX)
+endif()

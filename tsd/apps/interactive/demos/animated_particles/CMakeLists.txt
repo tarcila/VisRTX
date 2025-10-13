@@ -5,8 +5,7 @@ if (NOT TSD_USE_CUDA)
   return()
 endif()
 
-list(PREPEND CMAKE_PREFIX_PATH ${CMAKE_SOURCE_DIR}/../external/glm)
-find_package(glm REQUIRED)
+find_package(tsd_glm MODULE REQUIRED)
 
 project(tsdDemoAnimatedParticles)
 project_add_executable(
@@ -14,7 +13,7 @@ project_add_executable(
   SimulationControls.cpp
   tsdDemoAnimatedParticles.cpp
 )
-project_link_libraries(tsd_ui_imgui glm::glm)
+project_link_libraries(tsd_ui_imgui tsd::glm)
 set_source_files_properties(
   particle_system.cu
   PROPERTIES
