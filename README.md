@@ -53,11 +53,7 @@ either it is installed to the same location as the ANARI-SDK or
 
 ### Provided Examples
 
-VisRTX comes with a simple, [single-file tutorial](examples/simple) that shows
-how to use VisRTX through the ANARI API. It is always enabled as it only
-requires the ANARI SDK and compiles very quickly.
-
-There is also an interactive collection of applications which provide easy ways
+There is an interactive collection of applications which provide easy ways
 to load and interact with ANARI scenes for the sake of exploring ANARI's
 capabilities, which is located in the [tsd/](tsd/) subdirectory. It is buildable
 as a stand alone project, or can be enabled when building VisRTX using the
