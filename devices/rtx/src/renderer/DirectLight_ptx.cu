@@ -406,7 +406,7 @@ VISRTX_GLOBAL void __raygen__()
         color *= opacity;
 
         const auto bg = getBackground(frameData, ss.screen, ray.dir);
-        accumulateValue(color, vec3(bg), opacity);
+        accumulateValue(color, vec3(bg) * bg.a, opacity);
         accumulateValue(opacity, bg.w, opacity);
         accumulateValue(outputColor, color, outputOpacity);
         accumulateValue(outputOpacity, opacity, outputOpacity);
