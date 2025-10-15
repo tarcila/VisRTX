@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <limits>
 #include "gpu/evalShading.h"
 #include "gpu/shadingState.h"
 #include "gpu/shading_api.h"
@@ -42,6 +43,35 @@ enum class RayType
 };
 
 DECLARE_FRAME_DATA(frameData)
+
+// Helper functions ///////////////////////////////////////////////////////////
+
+VISRTX_DEVICE vec4 shadeSurface(
+    ScreenSample &ss, const Ray &ray, const SurfaceHit &hit)
+{
+  const auto &rendererParams = frameData.renderer;
+  const auto &aoParams = rendererParams.params.ao;
+
+  // Compute ambient light contribution //
+  const float aoFactor = aoParams.aoSamples > 0
+      ? computeAO(ss,
+            ray,
+            RayType::AO,
+            hit,
+            rendererParams.occlusionDistance,
+            aoParams.aoSamples)
+      : 1.f;
+
+  MaterialShadingState shadingState;
+  materialInitShading(&shadingState, frameData, *hit.material, hit);
+  auto materialBaseColor = materialEvaluateTint(shadingState);
+  auto materialOpacity = materialEvaluateOpacity(shadingState);
+
+  const auto lighting =
+      aoFactor * rendererParams.ambientIntensity * rendererParams.ambientColor;
+
+  return vec4(materialBaseColor * lighting, materialOpacity);
+}
 
 // OptiX programs /////////////////////////////////////////////////////////////
 
@@ -86,7 +116,6 @@ VISRTX_GLOBAL void __miss__()
 VISRTX_GLOBAL void __raygen__()
 {
   auto &rendererParams = frameData.renderer;
-  auto &aoParams = rendererParams.params.ao;
 
   auto ss = createScreenSample(frameData);
   if (pixelOutOfFrame(ss.pixel, frameData.fb))
@@ -94,21 +123,30 @@ VISRTX_GLOBAL void __raygen__()
 
   for (int i = 0; i < frameData.renderer.numIterations; i++) {
     auto ray = makePrimaryRay(ss);
-    float tmax = ray.t.upper;
 
-    SurfaceHit surfaceHit;
-    VolumeHit volumeHit;
     vec3 outputColor(0.f);
-    vec3 outputNormal = ray.dir;
     float outputOpacity = 0.f;
+    vec3 outputNormal = -ray.dir;
     float depth = 1e30f;
     uint32_t primID = ~0u;
     uint32_t objID = ~0u;
     uint32_t instID = ~0u;
     bool firstHit = true;
 
-    while (outputOpacity < 0.99f) {
-      ray.t.upper = tmax;
+    SurfaceHit surfaceHit;
+
+    do {
+      // Our final sample color and opacity
+      vec3 sampleColor{};
+      float sampleOpacity{};
+
+      // Volume sampling information when applicable
+      uint32_t volumeObjID;
+      uint32_t volumeInstID;
+      vec3 volumeSampleColor;
+      float volumeSampleOpacity;
+
+      // First try and get a surface hit
       surfaceHit.foundHit = false;
       intersectSurface(ss,
           ray,
@@ -116,95 +154,98 @@ VISRTX_GLOBAL void __raygen__()
           &surfaceHit,
           primaryRayOptiXFlags(rendererParams));
 
-      vec3 color(0.f);
-      float opacity = 0.f;
-
       if (surfaceHit.foundHit) {
-        uint32_t vObjID = ~0u;
-        uint32_t vInstID = ~0u;
-        const float vDepth = rayMarchAllVolumes(ss,
+        // We have a hit, check whether we did traverse a volume before hitting
+        // the surface
+
+        const float volumeDepth = rayMarchAllVolumes(ss,
             ray,
             RayType::PRIMARY,
             surfaceHit.t,
             rendererParams.inverseVolumeSamplingRate,
-            color,
-            opacity,
-            vObjID,
-            vInstID);
+            volumeSampleColor,
+            volumeSampleOpacity,
+            volumeObjID,
+            volumeInstID);
 
+        const bool hasVolume = volumeDepth < surfaceHit.t;
         if (firstHit) {
-          const bool volumeFirst = vDepth < surfaceHit.t;
-          if (volumeFirst) {
+          if (hasVolume) {
             outputNormal = -ray.dir;
-            depth = vDepth;
+            depth = volumeDepth;
             primID = 0;
-            objID = vObjID;
-            instID = vInstID;
+            objID = volumeObjID;
+            instID = volumeInstID;
+
+            firstHit = false;
           } else {
-            outputNormal = surfaceHit.Ng;
+            outputNormal = surfaceHit.Ns;
             depth = surfaceHit.t;
             primID = computeGeometryPrimId(surfaceHit);
             objID = surfaceHit.objID;
             instID = surfaceHit.instID;
+
+            firstHit = false;
           }
-          firstHit = false;
         }
 
-        const float aoFactor = aoParams.aoSamples > 0
-            ? computeAO(ss,
-                  ray,
-                  RayType::AO,
-                  surfaceHit,
-                  rendererParams.occlusionDistance,
-                  aoParams.aoSamples)
-            : 1.f;
+        if (hasVolume) {
+          accumulateValue(sampleColor,
+              volumeSampleColor * volumeSampleOpacity,
+              sampleOpacity);
+          accumulateValue(sampleOpacity, volumeSampleOpacity, sampleOpacity);
+        }
 
-        MaterialShadingState shadingState;
-        materialInitShading(
-            &shadingState, frameData, *surfaceHit.material, surfaceHit);
-        auto materialBaseColor = materialEvaluateTint(shadingState);
-        auto materialOpacity = materialEvaluateOpacity(shadingState);
+        // Finally shade the actual surface we hit
+        const auto surfaceSample = shadeSurface(ss, ray, surfaceHit);
+        accumulateValue(
+            sampleColor, vec3(surfaceSample) * surfaceSample.a, sampleOpacity);
+        accumulateValue(sampleOpacity, surfaceSample.a, sampleOpacity);
 
-        const auto lighting = aoFactor * rendererParams.ambientIntensity
-            * rendererParams.ambientColor;
-        accumulateValue(color, materialBaseColor * lighting, opacity);
-        accumulateValue(opacity, materialOpacity, opacity);
+        accumulateValue(
+            outputColor, sampleColor * sampleOpacity, outputOpacity);
+        accumulateValue(outputOpacity, sampleOpacity, outputOpacity);
 
-        color *= opacity;
-        accumulateValue(outputColor, color, outputOpacity);
-        accumulateValue(outputOpacity, opacity, outputOpacity);
-
+        // Prepare for next ray
         ray.t.lower = surfaceHit.t + surfaceHit.epsilon;
       } else {
-        uint32_t vObjID = ~0u;
-        uint32_t vInstID = ~0u;
+        // No hit, let's try and see if we do traverse any volumes
         const float volumeDepth = rayMarchAllVolumes(ss,
             ray,
             RayType::PRIMARY,
-            ray.t.upper,
+            std::numeric_limits<float>::max(),
             rendererParams.inverseVolumeSamplingRate,
-            color,
-            opacity,
-            vObjID,
-            vInstID);
+            volumeSampleColor,
+            volumeSampleOpacity,
+            volumeObjID,
+            volumeInstID);
 
-        if (firstHit) {
-          depth = min(depth, volumeDepth);
-          primID = 0;
-          objID = vObjID;
-          instID = vInstID;
+        if (volumeDepth != std::numeric_limits<float>::max()) {
+          if (firstHit) {
+            depth = volumeDepth;
+            primID = 0;
+            objID = volumeObjID;
+            instID = volumeInstID;
+          }
+
+          accumulateValue(sampleColor,
+              volumeSampleColor * volumeSampleOpacity,
+              sampleOpacity);
+          accumulateValue(sampleOpacity, volumeSampleOpacity, sampleOpacity);
         }
 
-        color *= opacity;
+        const auto background = getBackground(frameData, ss.screen, ray.dir);
+        accumulateValue(
+            sampleColor, vec3(background) * background.a, sampleOpacity);
+        accumulateValue(sampleOpacity, background.a, sampleOpacity);
 
-        const auto bg = getBackground(frameData, ss.screen, ray.dir);
-        accumulateValue(color, vec3(bg), opacity);
-        accumulateValue(opacity, bg.w, opacity);
-        accumulateValue(outputColor, color, outputOpacity);
-        accumulateValue(outputOpacity, opacity, outputOpacity);
+        accumulateValue(
+            outputColor, sampleColor * sampleOpacity, outputOpacity);
+        accumulateValue(outputOpacity, sampleOpacity, outputOpacity);
+
         break;
       }
-    }
+    } while (outputOpacity < 0.99f);
 
     accumResults(frameData.fb,
         ss.pixel,
