@@ -1,6 +1,7 @@
 ## Copyright 2024 NVIDIA Corporation
 ## SPDX-License-Identifier: Apache-2.0
 
+add_subdirectory(tsd_agx)
 add_subdirectory(tsd_catch)
 add_subdirectory(tsd_flip)
 add_subdirectory(tsd_imnodes)

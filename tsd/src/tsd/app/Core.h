@@ -28,7 +28,8 @@ using CameraPose = tsd::rendering::CameraPose;
 
 enum class ImporterType
 {
-  ASSIMP = 0,
+  AGX,
+  ASSIMP,
   ASSIMP_FLAT,
   AXYZ,
   DLAF,

@@ -120,12 +120,14 @@ void Core::parseCommandLine(int argc, const char **argv)
     else if (arg == "-tsd") {
       importerType = ImporterType::TSD;
       this->commandLine.loadingScene = true;
-    } else if (arg == "-axyz")
-      importerType = ImporterType::AXYZ;
+    } else if (arg == "-agx")
+      importerType = ImporterType::AGX;
     else if (arg == "-assimp")
       importerType = ImporterType::ASSIMP;
     else if (arg == "-assimp_flat")
       importerType = ImporterType::ASSIMP_FLAT;
+    else if (arg == "-axyz")
+      importerType = ImporterType::AXYZ;
     else if (arg == "-dlaf")
       importerType = ImporterType::DLAF;
     else if (arg == "-e57xyz")
@@ -212,6 +214,8 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
       tsd::core::logStatus("...loading file '%s'", f.second.c_str());
       if (f.first == ImporterType::TSD)
         tsd::io::load_Scene(tsd.scene, f.second.c_str());
+      else if (f.first == ImporterType::AGX)
+        tsd::io::import_AGX(tsd.scene, f.second.c_str(), root);
       else if (f.first == ImporterType::ASSIMP)
         tsd::io::import_ASSIMP(tsd.scene, f.second.c_str(), root, false);
       else if (f.first == ImporterType::ASSIMP_FLAT)

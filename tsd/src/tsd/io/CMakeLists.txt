@@ -9,6 +9,7 @@ project_sources(
 PRIVATE
   importers/detail/HDRImage.cpp
   importers/detail/importer_common.cpp
+  importers/import_AGX.cpp
   importers/import_ASSIMP.cpp
   importers/import_AXYZ.cpp
   importers/import_DLAF.cpp
@@ -56,6 +57,7 @@ project_link_libraries(
 PUBLIC
   tsd_core
 PRIVATE
+  $<BUILD_INTERFACE:tsd_ext_agx>
   $<BUILD_INTERFACE:tsd_ext_mikktspace>
   $<BUILD_INTERFACE:tsd_ext_nanovdb>
   $<BUILD_INTERFACE:tsd_ext_tinyexr>

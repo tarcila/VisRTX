@@ -23,6 +23,7 @@ void ImportFileDialog::buildUI()
   m_filename.reserve(MAX_LENGTH);
 
   const char *importers[] = {
+      "AGX",
       "ASSIMP",
       "ASSIMP_FLAT",
       "AXYZ",
@@ -97,7 +98,9 @@ void ImportFileDialog::buildUI()
 
       auto selectedFileType =
           static_cast<app::ImporterType>(m_selectedFileType);
-      if (selectedFileType == app::ImporterType::ASSIMP)
+      if (selectedFileType == app::ImporterType::AGX)
+        tsd::io::import_AGX(scene, m_filename.c_str(), importRoot);
+      else if (selectedFileType == app::ImporterType::ASSIMP)
         tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, false);
       else if (selectedFileType == app::ImporterType::ASSIMP_FLAT)
         tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, true);

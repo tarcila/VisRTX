@@ -11,6 +11,7 @@ using namespace tsd::core;
 
 // clang-format off
 
+void import_AGX(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_ASSIMP(Scene &scene, const char *filename, LayerNodeRef location = {}, bool flatten = false);
 void import_AXYZ(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_DLAF(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
