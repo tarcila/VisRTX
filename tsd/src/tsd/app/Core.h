@@ -195,6 +195,10 @@ struct Core
 
   void parseCommandLine(int argc, const char **argv);
   void setupSceneFromCommandLine(bool hdriOnly = false);
+  void importFiles(
+      const std::vector<ImportFile> &files, tsd::core::LayerNodeRef root = {});
+  void importAnimations(const std::vector<ImportAnimationFiles> &files,
+      tsd::core::LayerNodeRef root = {});
 
   // ANARI device management //
 

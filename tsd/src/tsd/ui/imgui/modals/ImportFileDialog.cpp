@@ -96,50 +96,9 @@ void ImportFileDialog::buildUI()
       if (!importRoot)
         importRoot = layer->root();
 
-      auto selectedFileType =
-          static_cast<app::ImporterType>(m_selectedFileType);
-      if (selectedFileType == app::ImporterType::AGX)
-        tsd::io::import_AGX(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::ASSIMP)
-        tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, false);
-      else if (selectedFileType == app::ImporterType::ASSIMP_FLAT)
-        tsd::io::import_ASSIMP(scene, m_filename.c_str(), importRoot, true);
-      else if (selectedFileType == app::ImporterType::AXYZ)
-        tsd::io::import_AXYZ(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::DLAF)
-        tsd::io::import_DLAF(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::E57XYZ)
-        tsd::io::import_E57XYZ(scene, m_filename.c_str());
-      else if (selectedFileType == app::ImporterType::GLTF)
-        tsd::io::import_GLTF(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::HDRI)
-        tsd::io::import_HDRI(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::HSMESH)
-        tsd::io::import_HSMESH(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::NBODY)
-        tsd::io::import_NBODY(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::OBJ)
-        tsd::io::import_OBJ(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::PDB)
-        tsd::io::import_PDB(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::PLY)
-        tsd::io::import_PLY(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::PT)
-        tsd::io::import_PT(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::SMESH)
-        tsd::io::import_SMESH(scene, m_filename.c_str(), importRoot, false);
-      else if (selectedFileType == app::ImporterType::SMESH_ANIMATION)
-        tsd::io::import_SMESH(scene, m_filename.c_str(), importRoot, true);
-      else if (selectedFileType == app::ImporterType::SWC)
-        tsd::io::import_SWC(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::TRK)
-        tsd::io::import_TRK(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::USD)
-        tsd::io::import_USD(scene, m_filename.c_str(), importRoot);
-      else if (selectedFileType == app::ImporterType::XYZDP)
-        tsd::io::import_XYZDP(scene, m_filename.c_str());
-      else if (selectedFileType == app::ImporterType::VOLUME)
-        tsd::io::import_volume(scene, m_filename.c_str());
+      app::ImportFile file{
+          static_cast<app::ImporterType>(m_selectedFileType), m_filename};
+      core->importFiles({file}, importRoot);
       scene.signalLayerChange(layer);
     };
 
