@@ -32,11 +32,20 @@
 #include "PathTracer.h"
 // ptx
 #include "PathTracer_ptx.h"
+// std
+#include <array>
 
 namespace visrtx {
 
-static const std::vector<HitgroupFunctionNames> g_dptHitNames = {
-    {"__closesthit__", "__anyhit__"}};
+static const std::array<HitgroupFunctionNames, 2> g_ptHitNames = {
+    HitgroupFunctionNames{ "__closesthit__shading", "__anyhit__shading" },
+    HitgroupFunctionNames{ "__closesthit__shadow", "__anyhit__shadow"  }
+};
+
+static const auto g_ptMissNames = std::array<std::string, 2>{
+    "__miss__shading",
+    "__miss__shadow"
+};
 
 PathTracer::PathTracer(DeviceGlobalState *s) : Renderer(s, 1.f) {}
 
@@ -59,7 +68,13 @@ OptixModule PathTracer::optixModule() const
 
 Span<HitgroupFunctionNames> PathTracer::hitgroupSbtNames() const
 {
-  return make_Span(g_dptHitNames.data(), g_dptHitNames.size());
+  return make_Span(g_ptHitNames.data(), g_ptHitNames.size());
+}
+
+Span<std::string> PathTracer::missSbtNames() const
+{
+  return make_Span(
+      g_ptMissNames.data(), g_ptMissNames.size());
 }
 
 ptx_blob PathTracer::ptx()
