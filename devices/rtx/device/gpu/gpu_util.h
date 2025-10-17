@@ -42,6 +42,7 @@
 #include <glm/gtc/color_space.hpp>
 #include <glm/gtx/component_wise.hpp>
 #include <glm/packing.hpp>
+#include <type_traits>
 // cuda
 #include <vector_types.h>
 
@@ -129,6 +130,12 @@ VISRTX_DEVICE float atomicMaxf(float *address, float val)
 
 template <typename T>
 VISRTX_DEVICE void accumulateValue(T &a, const T &b, float interp)
+{
+  a += b * (1.f - interp);
+}
+
+template <typename T, typename Enabler = std::enable_if_t<!std::is_same_v<T, float>, void>>
+VISRTX_DEVICE void accumulateValue(T &a, const T &b, const T& interp)
 {
   a += b * (1.f - interp);
 }
