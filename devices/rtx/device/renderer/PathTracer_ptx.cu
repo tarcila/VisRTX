@@ -82,7 +82,7 @@ VISRTX_GLOBAL void __miss__()
 VISRTX_GLOBAL void __raygen__()
 {
   auto &rendererParams = frameData.renderer;
-  auto &dptParams = rendererParams.params.dpt;
+  auto &dptParams = rendererParams.params.pathTracer;
 
   PathData pathData;
 

@@ -55,9 +55,9 @@
 // renderers
 #include "renderer/AmbientOcclusion.h"
 #include "renderer/Debug.h"
-#include "renderer/DiffusePathTracer.h"
 #include "renderer/DirectLight.h"
 #include "renderer/Raycast.h"
+#include "renderer/PathTracer.h"
 #include "renderer/Test.h"
 
 // materials
@@ -732,8 +732,8 @@ DeviceInitStatus VisRTXDevice::initOptix()
           AmbientOcclusion::ptx(),
           "'ao' renderer"),
       init_module(&state.rendererModules.diffusePathTracer,
-          DiffusePathTracer::ptx(),
-          "'dpt' renderer"),
+          PathTracer::ptx(),
+          "'pathTracer' renderer"),
       init_module(&state.rendererModules.directLight,
           DirectLight::ptx(),
           "'default' renderer"),
