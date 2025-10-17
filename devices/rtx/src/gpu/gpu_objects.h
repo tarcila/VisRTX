@@ -640,7 +640,7 @@ union RendererParametersGPUData
 {
   DebugRendererGPUData debug;
   AORendererGPUData ao;
-  DPTRendererGPUData dpt;
+  DPTRendererGPUData pathTracer;
   DirectLightRendererGPUData directLight;
 };
 
