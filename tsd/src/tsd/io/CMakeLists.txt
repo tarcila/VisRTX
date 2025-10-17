@@ -41,6 +41,7 @@ PRIVATE
   procedural/generate_hdri_test_image.cpp
   procedural/generate_material_orb.cpp
   procedural/generate_monkey.cpp
+  procedural/generate_gradientVolume.cpp
   procedural/generate_noiseVolume.cpp
   procedural/generate_randomSpheres.cpp
   procedural/generate_rtow.cpp

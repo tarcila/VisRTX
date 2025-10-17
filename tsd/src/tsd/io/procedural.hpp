@@ -20,7 +20,7 @@ void generate_monkey(Scene &scene, LayerNodeRef location = {});
 VolumeRef generate_noiseVolume(Scene &scene, LayerNodeRef location = {}, ArrayRef colors = {}, ArrayRef opacities = {});
 void generate_randomSpheres(Scene &scene, LayerNodeRef location = {}, bool useDefaultMaterial = false);
 void generate_rtow(Scene &scene, LayerNodeRef location = {});
-
+VolumeRef generate_gradientVolume(Scene &scene, LayerNodeRef location = {}, ArrayRef colors = {}, ArrayRef opacities = {});
 // clang-format on
 
 } // namespace tsd::io
