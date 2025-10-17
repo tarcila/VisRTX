@@ -420,6 +420,11 @@ void LayerTree::buildUI_objectSceneMenu()
           clearSelectedNode = true;
         }
 
+        if (ImGui::MenuItem("gradient volume")) {
+          tsd::io::generate_gradientVolume(scene, menuNode);
+          clearSelectedNode = true;
+        }
+
         ImGui::EndMenu();
       }
 
