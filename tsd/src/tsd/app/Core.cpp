@@ -8,6 +8,7 @@
 #include "tsd/core/Logging.hpp"
 // tsd_io
 #include "tsd/io/importers.hpp"
+#include "tsd/io/importers/detail/importer_common.hpp"
 #include "tsd/io/procedural.hpp"
 #include "tsd/io/serialization.hpp"
 // tsd_rendering
@@ -117,6 +118,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       this->commandLine.secondaryViewportLibrary = argv[++i];
     else if (arg == "--noDefaultRenderer")
       this->commandLine.useDefaultRenderer = false;
+    else if (arg == "-l" || arg == "--layer")
+      this->commandLine.currentLayerName = argv[++i];
     else if (arg == "-tsd") {
       importerType = ImporterType::TSD;
       this->commandLine.loadingScene = true;
@@ -172,10 +175,13 @@ void Core::parseCommandLine(int argc, const char **argv)
                 {ImporterType::POINTSBIN_MULTIFILE, {}});
             this->commandLine.currentAnimationSequence =
                 &this->commandLine.animationFilenames.back();
+            this->commandLine.animationLayerNames.push_back(
+                this->commandLine.currentLayerName);
           }
           this->commandLine.currentAnimationSequence->second.push_back(arg);
         } else {
-          this->commandLine.filenames.push_back({importerType, arg});
+          this->commandLine.filenames.push_back(
+              {importerType, arg + ';' + this->commandLine.currentLayerName});
           this->commandLine.currentAnimationSequence = nullptr;
         }
       } else {
@@ -216,70 +222,87 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
 void Core::importFiles(
     const std::vector<ImportFile> &files, tsd::core::LayerNodeRef root)
 {
-  if (!root)
-    root = tsd.scene.defaultLayer()->root();
+  const bool customLocation = root;
 
   for (const auto &f : files) {
-    tsd::core::logStatus("...loading file '%s'", f.second.c_str());
+    auto files = tsd::io::splitString(f.second, ';');
+    std::string file = files[0];
+    std::string layerName = files.size() > 1 ? files[1] : "";
+    if (layerName.empty())
+      layerName = "default";
+
+    if (!customLocation) {
+      tsd::core::logStatus("...loading file '%s' in layer '%s'",
+          file.c_str(),
+          layerName.c_str());
+      root = tsd.scene.addLayer(layerName)->root();
+    } else {
+      tsd::core::logStatus("...loading file '%s'", file.c_str());
+    }
+
     if (f.first == ImporterType::TSD)
-      tsd::io::load_Scene(tsd.scene, f.second.c_str());
+      tsd::io::load_Scene(tsd.scene, file.c_str());
     else if (f.first == ImporterType::AGX)
-      tsd::io::import_AGX(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_AGX(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::ASSIMP)
-      tsd::io::import_ASSIMP(tsd.scene, f.second.c_str(), root, false);
+      tsd::io::import_ASSIMP(tsd.scene, file.c_str(), root, false);
     else if (f.first == ImporterType::ASSIMP_FLAT)
-      tsd::io::import_ASSIMP(tsd.scene, f.second.c_str(), root, true);
+      tsd::io::import_ASSIMP(tsd.scene, file.c_str(), root, true);
     else if (f.first == ImporterType::AXYZ)
-      tsd::io::import_AXYZ(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_AXYZ(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::DLAF)
-      tsd::io::import_DLAF(tsd.scene, f.second.c_str());
+      tsd::io::import_DLAF(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::E57XYZ)
-      tsd::io::import_E57XYZ(tsd.scene, f.second.c_str());
+      tsd::io::import_E57XYZ(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::GLTF)
-      tsd::io::import_GLTF(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_GLTF(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::HDRI)
-      tsd::io::import_HDRI(tsd.scene, f.second.c_str());
+      tsd::io::import_HDRI(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::HSMESH)
-      tsd::io::import_HSMESH(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_HSMESH(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::NBODY)
-      tsd::io::import_NBODY(tsd.scene, f.second.c_str());
+      tsd::io::import_NBODY(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::OBJ)
-      tsd::io::import_OBJ(tsd.scene, f.second.c_str());
+      tsd::io::import_OBJ(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::PDB)
-      tsd::io::import_PDB(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_PDB(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::PLY)
-      tsd::io::import_PLY(tsd.scene, f.second.c_str());
+      tsd::io::import_PLY(tsd.scene, file.c_str());
     else if (f.first == ImporterType::POINTSBIN_MULTIFILE)
-      tsd::io::import_POINTSBIN(tsd.scene, {f.second.c_str()}, root);
+      tsd::io::import_POINTSBIN(tsd.scene, {file.c_str()}, root);
     else if (f.first == ImporterType::PT)
-      tsd::io::import_PT(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_PT(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::SMESH)
-      tsd::io::import_SMESH(tsd.scene, f.second.c_str(), root, false);
+      tsd::io::import_SMESH(tsd.scene, file.c_str(), root, false);
     else if (f.first == ImporterType::SMESH_ANIMATION)
-      tsd::io::import_SMESH(tsd.scene, f.second.c_str(), root, true);
+      tsd::io::import_SMESH(tsd.scene, file.c_str(), root, true);
     else if (f.first == ImporterType::SWC)
-      tsd::io::import_SWC(tsd.scene, f.second.c_str());
+      tsd::io::import_SWC(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::TRK)
-      tsd::io::import_TRK(tsd.scene, f.second.c_str(), root);
+      tsd::io::import_TRK(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::USD)
-      tsd::io::import_USD(tsd.scene, f.second.c_str());
+      tsd::io::import_USD(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::XYZDP)
-      tsd::io::import_XYZDP(tsd.scene, f.second.c_str());
+      tsd::io::import_XYZDP(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::VOLUME)
-      tsd::io::import_volume(tsd.scene, f.second.c_str());
+      tsd::io::import_volume(tsd.scene, file.c_str(), root);
     else
       tsd::core::logWarning(
-          "...skipping unknown file type for '%s'", f.second.c_str());
+          "...skipping unknown file type for '%s'", file.c_str());
   }
 }
 
 void Core::importAnimations(const std::vector<ImportAnimationFiles> &files,
     tsd::core::LayerNodeRef root)
 {
-  if (!root)
-    root = tsd.scene.defaultLayer()->root();
+  const bool customLocation = root;
 
-  for (const auto &f : commandLine.animationFilenames) {
+  for (size_t i = 0; i < commandLine.animationFilenames.size(); ++i) {
+    auto &f = commandLine.animationFilenames[i];
+    auto &l = commandLine.animationLayerNames[i];
+    if (!customLocation)
+      root = tsd.scene.addLayer(l)->root();
+
     if (f.first == ImporterType::POINTSBIN_MULTIFILE)
       tsd::io::import_POINTSBIN(tsd.scene, f.second, root);
   }

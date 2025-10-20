@@ -1,10 +1,10 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tsd/io/importers.hpp"
-#include "tsd/io/importers/detail/importer_common.hpp"
 #include "tsd/core/ColorMapUtil.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/io/importers.hpp"
+#include "tsd/io/importers/detail/importer_common.hpp"
 // std
 #include <cstdio>
 
@@ -14,6 +14,7 @@ using namespace tsd::core;
 
 VolumeRef import_volume(Scene &scene,
     const char *filepath,
+    LayerNodeRef location,
     ArrayRef colorArray,
     ArrayRef opacityArray)
 {
@@ -53,7 +54,8 @@ VolumeRef import_volume(Scene &scene,
   if (field)
     valueRange = field->computeValueRange();
 
-  auto tx = scene.insertChildTransformNode(scene.defaultLayer()->root());
+  auto tx = scene.insertChildTransformNode(
+      location ? location : scene.defaultLayer()->root());
 
   auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
       tx, tokens::volume::transferFunction1D);
@@ -67,4 +69,4 @@ VolumeRef import_volume(Scene &scene,
   return volume;
 }
 
-} // namespace tsd
+} // namespace tsd::io

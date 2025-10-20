@@ -65,8 +65,10 @@ struct CommandLineOptions
   bool preloadDevices{false};
   bool loadedFromStateFile{false};
   std::string stateFile;
+  std::string currentLayerName{"default"};
   std::vector<ImportFile> filenames;
   std::vector<ImportAnimationFiles> animationFilenames;
+  std::vector<tsd::core::Token> animationLayerNames;
   ImportAnimationFiles *currentAnimationSequence{nullptr};
   ImporterType importerType{ImporterType::NONE};
   std::vector<std::string> libraryList;

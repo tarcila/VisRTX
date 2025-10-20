@@ -305,11 +305,12 @@ Layer *Scene::layer(size_t i) const
 Layer *Scene::addLayer(Token name)
 {
   auto &ls = m_layers[name];
-  if (!ls.ptr)
+  if (!ls.ptr) {
     ls.ptr.reset(new Layer({tsd::math::mat4(tsd::math::identity), "root"}));
-  if (m_updateDelegate)
-    m_updateDelegate->signalLayerAdded(ls.ptr.get());
-  m_numActiveLayers++;
+    if (m_updateDelegate)
+      m_updateDelegate->signalLayerAdded(ls.ptr.get());
+    m_numActiveLayers++;
+  }
   return ls.ptr.get();
 }
 

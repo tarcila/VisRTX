@@ -92,7 +92,7 @@ void Log::addText(tsd::core::LogLevel level, const std::string &msg)
   m_colorIDs.push_back(static_cast<int>(level));
 
   if (appCore() && appCore()->logging.echoOutput)
-    fmt::print(stdout, "{}\n", msg);
+    fmt::print(stdout, "{}", msg);
 
   auto old_size = m_buf.size();
   m_buf.append(msg.c_str());

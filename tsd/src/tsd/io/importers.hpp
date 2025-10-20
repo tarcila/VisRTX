@@ -40,6 +40,7 @@ SpatialFieldRef import_VTU(Scene &scene, const char *filename);
 
 VolumeRef import_volume(Scene &scene,
     const char *filename,
+    LayerNodeRef location = {},
     ArrayRef colors = {},
     ArrayRef opacities = {});
 

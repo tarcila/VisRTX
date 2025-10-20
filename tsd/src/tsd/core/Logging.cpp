@@ -97,7 +97,7 @@ void setLoggingCallback(LoggingCallback cb)
 void setLogToStdout()
 {
   setLoggingCallback([](LogLevel level, std::string message) {
-    fmt::print(stdout, "{}\n", message);
+    fmt::print(stdout, "{}", message);
   });
 }
 
