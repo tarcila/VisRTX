@@ -27,7 +27,6 @@ std::string objectDBInfo(const ObjectDatabase &db)
 
 Scene::Scene()
 {
-  addLayer("default");
   createObject<Material>(tokens::material::matte)->setName("default_material");
 }
 
@@ -71,8 +70,10 @@ MaterialRef Scene::defaultMaterial() const
   return getObject<Material>(0);
 }
 
-Layer *Scene::defaultLayer() const
+Layer *Scene::defaultLayer()
 {
+  if (m_layers.empty())
+    addLayer("default");
   return layer(0);
 }
 

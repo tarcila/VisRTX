@@ -74,7 +74,7 @@ struct Scene
   Scene &operator=(Scene &&) = delete;
 
   MaterialRef defaultMaterial() const;
-  Layer *defaultLayer() const;
+  Layer *defaultLayer();
 
   /////////////////////////////
   // Flat object collections //
