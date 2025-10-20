@@ -31,7 +31,8 @@ PUBLIC
 project_link_libraries(PUBLIC tsd_core)
 
 if (TSD_USE_CUDA)
-  project_link_libraries(PRIVATE CUDA::cudart)
+  find_package(thrust REQUIRED HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
+  project_link_libraries(PRIVATE CUDA::cudart Thrust::Thrust)
   set_source_files_properties(
     pipeline/passes/AnariAxesRenderPass.cpp
     pipeline/passes/AnariSceneRenderPass.cpp
