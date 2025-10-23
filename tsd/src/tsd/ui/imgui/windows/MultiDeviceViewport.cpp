@@ -19,7 +19,7 @@ MultiDeviceViewport::MultiDeviceViewport(
 
 MultiDeviceViewport::~MultiDeviceViewport()
 {
-  for (size_t i = 0; m_ri && i < m_ri->size(); i++) {
+  for (size_t i = 0; i < m_cameras.size(); i++) {
     auto *ri = getRenderIndex(i);
     auto d = ri->device();
     auto c = m_cameras[i];
@@ -31,7 +31,6 @@ MultiDeviceViewport::~MultiDeviceViewport()
 
   m_rud.renderers.clear();
   m_rud.devices.clear();
-  m_ri.reset();
 }
 
 void MultiDeviceViewport::buildUI()
@@ -80,11 +79,12 @@ void MultiDeviceViewport::centerView()
 
 void MultiDeviceViewport::setLibrary(const std::string &libName)
 {
-  auto &adm = appCore()->anari;
-  auto &scene = appCore()->tsd.scene;
+  auto *core = appCore();
+  auto &adm = core->anari;
+  auto &scene = core->tsd.scene;
 
   auto library =
-      anari::loadLibrary(libName.c_str(), tsd::app::anariStatusFunc, appCore());
+      anari::loadLibrary(libName.c_str(), tsd::app::anariStatusFunc, core);
   if (!library) {
     tsd::core::logError(
         "[multi-viewport] failed to load ANARI library '%s'", libName.c_str());
@@ -100,10 +100,6 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
       "[multi-viewport] creating %zu devices...", scene.numberOfLayers());
 
   for (size_t i = 0; i < scene.numberOfLayers(); i++) {
-    if (!m_ri) {
-      m_ri = std::make_unique<tsd::rendering::MultiRenderIndex>();
-      scene.setUpdateDelegate(m_ri.get());
-    }
     auto d = anari::newDevice(library, "default");
     devices.push_back(d);
   }
@@ -128,16 +124,15 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
 
   tsd::core::logStatus("[multi-viewport] creating cameras and renderers...");
 
-  for (size_t i = 0; m_ri && i < scene.numberOfLayers(); i++) {
+  for (size_t i = 0; i < scene.numberOfLayers(); i++) {
     auto *l = scene.layer(i);
     auto d = devices[i];
     auto c = anari::newObject<anari::Camera>(d, "perspective");
     auto r = anari::newObject<anari::Renderer>(d, "default");
 
-    auto *ri =
-        m_ri->emplace<tsd::rendering::RenderIndexAllLayers>(scene, d, true);
+    auto *ri = (tsd::rendering::RenderIndexAllLayers *)adm.acquireRenderIndex(
+        scene, d);
     ri->setIncludedLayers({l});
-    ri->populate(false);
 
     m_cameras.push_back(c);
     m_rud.devices.push_back(d);
@@ -152,14 +147,14 @@ void MultiDeviceViewport::setLibrary(const std::string &libName)
   updateAllRendererParameters();
 
   static bool firstFrame = true;
-  if (firstFrame && appCore()->commandLine.loadedFromStateFile)
+  if (firstFrame && core->commandLine.loadedFromStateFile)
     firstFrame = false;
 
   if (firstFrame || m_arcball->distance() == tsd::math::inf) {
     resetView(true);
-    if (appCore()->view.poses.empty()) {
+    if (core->view.poses.empty()) {
       tsd::core::logStatus("[multi-viewport] adding 'default' camera pose");
-      appCore()->addCurrentViewToCameraPoses("default");
+      core->addCurrentViewToCameraPoses("default");
     }
     firstFrame = false;
   }
@@ -204,7 +199,8 @@ void MultiDeviceViewport::loadSettings(tsd::core::DataNode &root)
 tsd::rendering::RenderIndexAllLayers *MultiDeviceViewport::getRenderIndex(
     size_t i) const
 {
-  return (tsd::rendering::RenderIndexAllLayers *)m_ri->get(i);
+  auto &delegate = appCore()->anari.getUpdateDelegate();
+  return (tsd::rendering::RenderIndexAllLayers *)delegate.get(i);
 }
 
 void MultiDeviceViewport::getSceneBounds(tsd::math::float3 boundsOut[2]) const
@@ -276,7 +272,7 @@ void MultiDeviceViewport::updateCamera(bool force)
   if ((!force && !m_arcball->hasChanged(m_cameraToken)))
     return;
 
-  for (size_t i = 0; m_ri && i < m_ri->size(); i++) {
+  for (size_t i = 0; i < m_cameras.size(); i++) {
     auto *ri = getRenderIndex(i);
     auto d = ri->device();
     auto c = m_cameras[i];
