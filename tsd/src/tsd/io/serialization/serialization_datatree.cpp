@@ -433,8 +433,7 @@ void load_Scene(Scene &scene, core::DataNode &root)
   tsd::core::logStatus("  ...clearing old context");
 
   scene.removeAllObjects();
-  scene.removeAllSecondaryLayers();
-  scene.defaultLayer()->root()->erase_subtree();
+  scene.removeAllLayers();
 
   // Load data from file (objects then layer) //
 

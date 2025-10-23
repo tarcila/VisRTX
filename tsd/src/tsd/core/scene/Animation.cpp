@@ -77,7 +77,7 @@ void Animation::update(float time)
     if (idx != ts.currentStep) {
       ts.object->setParameterObject(parameterName, *steps[idx]);
       m_info = "current timestep: " + std::to_string(idx) + "/"
-          + std::to_string(ts.steps.size() - 1);
+          + std::to_string(steps.size() - 1);
     }
   }
 }

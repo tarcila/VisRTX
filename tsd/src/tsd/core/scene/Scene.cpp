@@ -238,8 +238,7 @@ void Scene::removeAllObjects()
   if (m_updateDelegate)
     m_updateDelegate->signalRemoveAllObjects();
 
-  removeAllSecondaryLayers();
-  defaultLayer()->root()->erase_subtree();
+  removeAllLayers();
 
   m_db.array.clear();
   m_db.surface.clear();
@@ -722,14 +721,14 @@ void Scene::cleanupScene()
   defragmentObjectStorage();
 }
 
-void Scene::removeAllSecondaryLayers()
+void Scene::removeAllLayers()
 {
-  for (auto itr = m_layers.begin() + 1; itr != m_layers.end(); itr++) {
+  for (auto itr = m_layers.begin(); itr != m_layers.end(); itr++) {
     if (m_updateDelegate)
       m_updateDelegate->signalLayerRemoved(itr->second.ptr.get());
   }
 
-  m_layers.shrink(1);
+  m_layers.clear();
 }
 
 ArrayRef Scene::createArrayImpl(anari::DataType type,
