@@ -149,9 +149,10 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::PDB;
     else if (arg == "-ply")
       importerType = ImporterType::PLY;
-    else if (arg == "-pointsbin")
+    else if (arg == "-pointsbin") {
+      this->commandLine.currentAnimationSequence = nullptr; // reset to new seq
       importerType = ImporterType::POINTSBIN_MULTIFILE;
-    else if (arg == "-pt")
+    } else if (arg == "-pt")
       importerType = ImporterType::PT;
     else if (arg == "-smesh")
       importerType = ImporterType::SMESH;
@@ -190,6 +191,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       }
     }
   }
+
+  this->commandLine.currentAnimationSequence = nullptr;
 
   this->commandLine.libraryList =
       parseLibraryList(!this->commandLine.useDefaultRenderer);
@@ -286,9 +289,10 @@ void Core::importFiles(
       tsd::io::import_XYZDP(tsd.scene, file.c_str(), root);
     else if (f.first == ImporterType::VOLUME)
       tsd::io::import_volume(tsd.scene, file.c_str(), root);
-    else
+    else {
       tsd::core::logWarning(
           "...skipping unknown file type for '%s'", file.c_str());
+    }
   }
 }
 
@@ -305,6 +309,8 @@ void Core::importAnimations(const std::vector<ImportAnimationFiles> &files,
 
     if (f.first == ImporterType::POINTSBIN_MULTIFILE)
       tsd::io::import_POINTSBIN(tsd.scene, f.second, root);
+    else
+      tsd::core::logWarning("...skipping unknown animation file importer type");
   }
 }
 
