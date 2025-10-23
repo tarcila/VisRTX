@@ -5,6 +5,7 @@
 #include <tsd/io/procedural.hpp>
 // tsd_ui_imgui
 #include <tsd/ui/imgui/Application.h>
+#include <tsd/ui/imgui/windows/Animations.h>
 #include <tsd/ui/imgui/windows/CameraPoses.h>
 #include <tsd/ui/imgui/windows/DatabaseEditor.h>
 #include <tsd/ui/imgui/windows/LayerTree.h>
@@ -47,6 +48,7 @@ class Application : public TSDApplication
 
     auto *core = appCore();
 
+    auto *animations = new tsd_ui::Animations(this);
     auto *cameras = new tsd_ui::CameraPoses(this);
     auto *log = new tsd_ui::Log(this);
     auto *viewport = new tsd_ui::MultiDeviceViewport(
@@ -56,6 +58,7 @@ class Application : public TSDApplication
     auto *otree = new tsd_ui::LayerTree(this);
     otree->setEnableAddRemoveLayers(false);
 
+    windows.emplace_back(animations);
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
     windows.emplace_back(dbeditor);
@@ -83,7 +86,7 @@ class Application : public TSDApplication
     return R"layout(
 [Window][MainDockSpace]
 Pos=0,26
-Size=1920,1105
+Size=1920,1054
 Collapsed=0
 
 [Window][Debug##Default]
@@ -93,30 +96,30 @@ Collapsed=0
 
 [Window][Viewport]
 Pos=549,26
-Size=1371,848
+Size=1371,797
 Collapsed=0
 DockId=0x00000006,0
 
 [Window][Database Editor]
-Pos=0,603
-Size=547,528
+Pos=0,576
+Size=547,504
 Collapsed=0
 DockId=0x00000009,1
 
 [Window][Layers]
 Pos=0,26
-Size=547,575
+Size=547,548
 Collapsed=0
 DockId=0x00000008,0
 
 [Window][Object Editor]
-Pos=0,603
-Size=547,528
+Pos=0,576
+Size=547,504
 Collapsed=0
 DockId=0x00000009,0
 
 [Window][Log]
-Pos=549,876
+Pos=549,825
 Size=1371,255
 Collapsed=0
 DockId=0x00000005,0
@@ -141,7 +144,13 @@ DockId=0x0000000B,0
 
 [Window][Camera Poses]
 Pos=0,26
-Size=547,575
+Size=547,548
+Collapsed=0
+DockId=0x00000008,2
+
+[Window][Animations]
+Pos=0,26
+Size=547,548
 Collapsed=0
 DockId=0x00000008,1
 
@@ -174,8 +183,12 @@ Column 1  Weight=1.0000
 Column 0  Weight=1.0000
 Column 1  Weight=1.0000
 
+[Table][0xFE8D6E98,2]
+Column 0  Weight=1.0000
+Column 1  Weight=1.0000
+
 [Docking][Data]
-DockSpace         ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1105 Split=X
+DockSpace         ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=X
   DockNode        ID=0x00000003 Parent=0x80F5B4C5 SizeRef=1368,1054 Split=X
     DockNode      ID=0x00000001 Parent=0x00000003 SizeRef=547,1105 Split=Y Selected=0xCD8384B1
       DockNode    ID=0x00000008 Parent=0x00000001 SizeRef=547,575 Selected=0xCD8384B1
