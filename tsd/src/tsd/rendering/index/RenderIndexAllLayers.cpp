@@ -143,6 +143,15 @@ void RenderIndexAllLayers::signalRemoveAllObjects()
 
 void RenderIndexAllLayers::updateWorld()
 {
+#if 0
+  tsd::core::logDebug(
+      "RenderIndexAllLayers: updating world with %zu layers included, "
+      "%zu external instances, and %zu cached layers.",
+      m_includedLayers.size(),
+      m_externalInstances.size(),
+      m_instanceCache.size());
+#endif
+
   auto d = device();
   auto w = world();
 

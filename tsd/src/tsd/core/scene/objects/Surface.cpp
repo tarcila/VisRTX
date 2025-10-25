@@ -6,7 +6,11 @@
 
 namespace tsd::core {
 
-Surface::Surface() : Object(ANARI_SURFACE) {}
+Surface::Surface() : Object(ANARI_SURFACE)
+{
+  addParameter("visible").setValue(true).setDescription(
+      "whether the volume is visible in the scene");
+}
 
 void Surface::setGeometry(GeometryRef g)
 {

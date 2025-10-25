@@ -44,6 +44,7 @@ void Surface::commitParameters()
   m_id = getParam<uint32_t>("id", ~0u);
   m_geometry = getParamObject<Geometry>("geometry");
   m_material = getParamObject<Material>("material");
+  m_visible = getParam<bool>("visible", true);
 }
 
 void Surface::finalize()
@@ -88,6 +89,11 @@ Material *Surface::material()
 const Material *Surface::material() const
 {
   return m_material.ptr;
+}
+
+bool Surface::isVisible() const
+{
+  return m_visible;
 }
 
 OptixBuildInput Surface::buildInput() const

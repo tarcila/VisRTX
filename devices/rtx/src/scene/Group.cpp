@@ -285,10 +285,12 @@ void Group::partitionValidGeometriesByType()
       (Surface **)m_surfaceData->handlesBegin(), m_surfaceData->totalSize());
 
   for (auto s : surfaces) {
-    if (!(s && s->isValid())) {
-      reportMessage(ANARI_SEVERITY_WARNING,
-          "visrtx::Group encountered invalid surface %p",
-          s);
+    if (!(s && s->isValid() && s->isVisible())) {
+      if (s && !s->isValid()) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "visrtx::Group encountered invalid surface %p",
+            s);
+      }
       continue;
     }
     auto g = s->geometry();
@@ -310,10 +312,12 @@ void Group::partitionValidVolumes()
   auto volumes = make_Span(
       (Volume **)m_volumeData->handlesBegin(), m_volumeData->totalSize());
   for (auto v : volumes) {
-    if (!(v && v->isValid())) {
-      reportMessage(ANARI_SEVERITY_WARNING,
-          "visrtx::Group encountered invalid volume %p",
-          v);
+    if (!(v && v->isValid() && v->isVisible())) {
+      if (v && !v->isValid()) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "visrtx::Group encountered invalid volume %p",
+            v);
+      }
       continue;
     }
     m_volumes.push_back(v);

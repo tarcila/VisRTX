@@ -45,12 +45,18 @@ Volume::Volume(DeviceGlobalState *d)
 void Volume::commitParameters()
 {
   m_id = getParam<uint32_t>("id", ~0u);
+  m_visible = getParam<bool>("visible", true);
 }
 
 void Volume::markFinalized()
 {
   Object::markFinalized();
   deviceState()->objectUpdates.lastBLASChange = helium::newTimeStamp();
+}
+
+bool Volume::isVisible() const
+{
+  return m_visible;
 }
 
 OptixBuildInput Volume::buildInput() const

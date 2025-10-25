@@ -43,6 +43,8 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   void commitParameters() override;
   void markFinalized() override;
 
+  bool isVisible() const;
+
   OptixBuildInput buildInput() const;
 
   static Volume *createInstance(std::string_view subtype, DeviceGlobalState *d);
@@ -54,6 +56,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   mutable DeviceBuffer m_aabbsBuffer;
   mutable CUdeviceptr m_aabbsBufferPtr{};
   uint32_t m_id{~0u};
+  bool m_visible{true};
 };
 
 } // namespace visrtx

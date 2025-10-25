@@ -8,6 +8,8 @@ namespace tsd::core {
 
 Volume::Volume(Token stype) : Object(ANARI_VOLUME, stype)
 {
+  addParameter("visible").setValue(true).setDescription(
+      "whether the volume is visible in the scene");
   if (stype == tokens::volume::transferFunction1D) {
     addParameter("color")
         .setValue(float3{1.f})

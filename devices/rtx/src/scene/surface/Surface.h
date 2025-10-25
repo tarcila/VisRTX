@@ -50,6 +50,8 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   Material *material();
   const Material *material() const;
 
+  bool isVisible() const;
+
   OptixBuildInput buildInput() const;
 
  private:
@@ -63,6 +65,7 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   OptixBuildInput m_buildInput{};
 
   uint32_t m_id{~0u};
+  bool m_visible{true};
 };
 
 } // namespace visrtx
