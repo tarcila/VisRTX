@@ -29,11 +29,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
- #include <vtk/vtkMatrixUtilities.h>
-#include <glm/common.hpp>
-#include <system_error>
+#include <optix_device.h>
 #define VISRTX_DEBUGGING 1
- #include "gpu/gpu_debug.h"
+#include "gpu/gpu_debug.h"
 
 #include "gpu/createScreenSample.h"
 #include "gpu/evalShading.h"
@@ -70,14 +68,14 @@ struct VolumeSample
   uint32_t instID;
 };
 
-struct SampleDetails {
-    vec3 color;
-    float opacity;
-    float depth;
-    vec3 albedo;
-    vec3 normal;
+struct SampleDetails
+{
+  vec3 color;
+  float opacity;
+  float depth;
+  vec3 albedo;
+  vec3 normal;
 };
-
 
 // Helper functions
 
@@ -109,32 +107,38 @@ VISRTX_DEVICE void accumPixelSample(const FrameGPUData &frame,
 
   // Conditionally apply tonemapping during accumulation
   if (frame.renderer.tonemap)
-    detail::accumValue(fb.buffers.colorAccumulation, idx, vec4(detail::tonemap(sample.color), sample.opacity));
+    detail::accumValue(fb.buffers.colorAccumulation,
+        idx,
+        vec4(detail::tonemap(sample.color), sample.opacity));
   else
-    detail::accumValue(fb.buffers.colorAccumulation, idx, vec4(sample.color, sample.opacity));
+    detail::accumValue(
+        fb.buffers.colorAccumulation, idx, vec4(sample.color, sample.opacity));
   detail::accumValue(fb.buffers.albedo, idx, sample.albedo);
   detail::accumValue(fb.buffers.normal, idx, sample.normal);
 
   const auto accumColor = fb.buffers.colorAccumulation[idx];
-  detail::writeOutputColor(fb, accumColor, idx, frameIDOffset);
+  // Conditionally apply inverse tonemapping on output
+  const float frameDivisor = float(fb.frameID + frameIDOffset + 1);
+  const auto normalizedColor = accumColor / frameDivisor;
+  const auto outputColor = frame.renderer.tonemap
+      ? detail::inverseTonemap(normalizedColor)
+      : normalizedColor;
+  detail::writeOutputColor(fb, outputColor, idx);
 
   if (fb.checkerboardID == 0 && frameID == 0) {
     auto adjPix = uvec2(pixel.x + 1, pixel.y + 0);
     if (!pixelOutOfFrame(adjPix, fb)) {
-      detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+      detail::writeOutputColor(fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 0, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
-      detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+      detail::writeOutputColor(fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 1, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
-      detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+      detail::writeOutputColor(fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
   }
 }
@@ -175,42 +179,44 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
     MaterialShadingState shadingState;
     materialInitShading(&shadingState, frameData, *hit.material, hit);
+    auto tint = materialEvaluateTint(shadingState);
     auto opacity = materialEvaluateOpacity(shadingState);
-    // FIXME: This should also evaluate transmittance, not just opacity
 
-    auto &o = ray::rayData<float>();
+    auto &o = ray::rayData<vec3>();
 
-    accumulateValue(o, opacity, o);
+    // accumulateValue(o, tint * opacity, o);
+    o *= tint * opacity;
 
-    if (o >= 0.99f)
+    if (glm::all(
+            glm::lessThanEqual(o, vec3(std::numeric_limits<float>::epsilon()))))
       optixTerminateRay();
     else
       optixIgnoreIntersection();
   } else {
-    auto &o = ray::rayData<float>();
+    auto &o = ray::rayData<vec3>();
     VolumeHit hit;
     ray::populateVolumeHit(hit);
-    
+
     // For Woodcock tracking in shadow rays:
     // Sample one scatter event per volume intersection
     // transmittance = 0.0 means ray scattered (blocked)
     // transmittance = 1.0 means ray passed through (no interaction)
-    vec3 albedo;
-    float extinction;
-    float transmittance;
+
+    vec3 albedo = vec3(0.0f);
+    float extinction = 0.0f;
+    float transmittance = 0.0f;
+
     sampleDistanceVolume(ray::screenSample(),
         hit,
         albedo,
         extinction,
         transmittance);
-    
+
     // If transmittance is 0 (scattered), the ray is blocked
     // If transmittance is 1 (no interaction), ray passes through
-    // Convert transmittance to opacity for accumulation
-    float shadow_opacity = 1.0f - transmittance;
-    accumulateValue(o, shadow_opacity, o);
-    
-    if (o >= 0.99f) {
+    // Get actual attenuation color from albedo and extinction
+    if (transmittance <= 0.5f) {
+      o *= albedo * (1.0f - extinction);
       optixTerminateRay();
     } else {
       optixIgnoreIntersection();
@@ -220,20 +226,21 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
 VISRTX_GLOBAL void __miss__shadow()
 {
-  ray::rayData<float>() = 0.0f; // No occlusion
 }
 
-VISRTX_DEVICE float surfaceAttenuation(ScreenSample &ss, Ray r)
+VISRTX_DEVICE vec3 surfaceAttenuation(ScreenSample &ss, Ray r)
 {
-  float attenuation;
-  intersectSurface(ss, r, RayType::SHADOW, &attenuation, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+  vec3 attenuation = vec3(1.0f);
+  intersectSurface(
+      ss, r, RayType::SHADOW, &attenuation, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
   return attenuation;
 }
 
-VISRTX_DEVICE float volumeAttenuation(ScreenSample &ss, Ray r)
+VISRTX_DEVICE vec3 volumeAttenuation(ScreenSample &ss, Ray r)
 {
-  float attenuation;
-  intersectVolume(ss, r, RayType::SHADOW, &attenuation, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+  vec3 attenuation = vec3(1.0f);
+  intersectVolume(
+      ss, r, RayType::SHADOW, &attenuation, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
   return attenuation;
 }
 
@@ -256,7 +263,7 @@ VISRTX_DEVICE LightSample sampleLights(ScreenSample &ss,
 }
 
 VISRTX_DEVICE
-void sampleDistanceVolumes(ScreenSample &ss,
+void sampleVolumes(ScreenSample &ss,
     const Ray &ray,
     RayType rayType,
     VolumeSample *volumeSample)
@@ -276,7 +283,6 @@ void sampleDistanceVolumes(ScreenSample &ss,
       transmittance < 0.5f && volumeSample->depth < ray.t.upper;
   volumeSample->transmittance = transmittance;
 }
-
 
 VISRTX_GLOBAL void __raygen__()
 {
@@ -308,10 +314,10 @@ VISRTX_GLOBAL void __raygen__()
     auto volumeRay = Ray{
         ray.org,
         ray.dir,
-        {ray.t.lower, 
-          surfaceHit.foundHit ? surfaceHit.t : ray.t.upper},
+        {ray.t.lower, surfaceHit.foundHit ? surfaceHit.t : ray.t.upper},
     };
-    sampleDistanceVolumes(ss, volumeRay, RayType::SHADING, &volumeSample);
+    volumeSample = {};
+    sampleVolumes(ss, volumeRay, RayType::SHADING, &volumeSample);
 
     if (!volumeSample.foundHit && !surfaceHit.foundHit) {
       // No hit, retrun the background contribution.
@@ -321,11 +327,8 @@ VISRTX_GLOBAL void __raygen__()
       sample.depth = std::numeric_limits<float>::max();
       sample.albedo = vec3(color) * color.a;
       sample.normal = -ray.dir;
-      
-      accumPixelSample(frameData.fb,
-          ss.pixel,
-          sample,
-          i);
+
+      accumPixelSample(frameData, ss.pixel, sample, i);
       continue;
     }
 
@@ -333,31 +336,41 @@ VISRTX_GLOBAL void __raygen__()
       // Volume scattering event occurred
       setPixelIds(
           frameData.fb, ss.pixel, 0, volumeSample.objID, volumeSample.instID);
-      
+
       // volumeSample.color contains albedo (scattering color)
-      // volumeSample.opacity contains the actual opacity value from transfer function
+      // volumeSample.opacity contains the actual opacity value from transfer
+      // function
 
       sample.color = volumeSample.color;
       sample.opacity = 1.0f; // Scattering event is opaque
       sample.depth = volumeSample.depth;
       sample.albedo = volumeSample.color;
       sample.normal = -ray.dir;
+
+      nextContribution = volumeSample.color;
+          //* volumeSample.opacity; // Weight by albedo for next bounce
     }
 
     if (surfaceHit.foundHit) {
       LightSample lightSample =
           sampleLights(ss, frameData, surfaceHit.hitpoint, surfaceHit);
 
+      //const Ray shadowRay = {
+      //    surfaceHit.hitpoint + surfaceHit.Ng * surfaceHit.epsilon,
+      //    lightSample.dir,
+      //    {surfaceHit.epsilon, lightSample.dist },
+      //};
+
       const Ray shadowRay = {
-          surfaceHit.hitpoint + surfaceHit.Ng * surfaceHit.epsilon,
-          lightSample.dir,
-          {surfaceHit.epsilon, lightSample.dist},
+    surfaceHit.hitpoint,
+    lightSample.dir,
+    {surfaceHit.epsilon, lightSample.dist },
       };
 
       // Shadows
-      const float surface_o = 1.0f - surfaceAttenuation(ss, shadowRay);
-      const float volume_o = 1.f - volumeAttenuation(ss, shadowRay);
-      const float attenuation = surface_o * volume_o;
+      const auto surface_o = surfaceAttenuation(ss, shadowRay);
+      const auto volume_o = volumeAttenuation(ss, shadowRay);
+      const auto attenuation = surface_o * volume_o;
 
       // Shading
       MaterialShadingState shadingState;
@@ -369,14 +382,15 @@ VISRTX_GLOBAL void __raygen__()
       const vec3 materialTint = materialEvaluateTint(shadingState);
       const float materialOpacity = materialEvaluateOpacity(shadingState);
 
-      const vec3 materialShadedTint = materialShadeSurface(
-          shadingState, surfaceHit, lightSample, -ray.dir);
+      const vec3 materialShadedTint =
+          materialShadeSurface(shadingState, surfaceHit, lightSample, -ray.dir);
 
-      const vec3 materialColor = materialEmission +
-        (materialShadedTint * attenuation);
+      const vec3 materialColor =
+          materialEmission + (materialShadedTint * attenuation);
 
       if (volumeSample.foundHit) {
-        // Volume was hit - add surface contribution to existing volume contribution
+        // Volume was hit - add surface contribution to existing volume
+        // contribution
         accumulateValue(sample.color, materialColor, sample.opacity);
         accumulateValue(sample.albedo, materialTint, sample.opacity);
         accumulateValue(sample.opacity, materialOpacity, sample.opacity);
@@ -397,14 +411,11 @@ VISRTX_GLOBAL void __raygen__()
 
       if (rendererParams.maxRayDepth > 1) {
         auto nextRay = materialNextRay(shadingState, ray, ss.rs);
-        if (glm::any(glm::isnan(nextRay.contributionWeight)) ||
-          glm::all(glm::lessThan(nextRay.contributionWeight, glm::vec3(1.0e-8f)))) {
-
+        if (glm::any(glm::isnan(nextRay.contributionWeight))
+            || glm::all(glm::lessThan(
+                nextRay.contributionWeight, glm::vec3(1.0e-8f)))) {
           // Nothing more to accumulate, store and proceed to next iteration
-          accumPixelSample(frameData.fb,
-              ss.pixel,
-              sample,
-              i);
+          accumPixelSample(frameData, ss.pixel, sample, i);
           continue;
         }
 
@@ -418,11 +429,8 @@ VISRTX_GLOBAL void __raygen__()
             normalize(vec3(nextRay.direction)),
         };
       } else {
-        accumPixelSample(frameData.fb,
-            ss.pixel,
-            sample,
-            i);
-          continue;
+        accumPixelSample(frameData, ss.pixel, sample, i);
+        continue;
       }
     }
 
@@ -440,7 +448,7 @@ VISRTX_GLOBAL void __raygen__()
           ray.dir,
           {ray.t.lower, surfaceHit.t},
       };
-      sampleDistanceVolumes(ss, volumeRay, RayType::SHADING, &volumeSample);
+      sampleVolumes(ss, volumeRay, RayType::SHADING, &volumeSample);
 
       if (!volumeSample.foundHit && !surfaceHit.foundHit) {
         const auto background = getBackground(frameData, ss.screen, ray.dir);
@@ -449,7 +457,7 @@ VISRTX_GLOBAL void __raygen__()
 
         // For reflection, we can add background directly
         sample.color += color * nextContribution;
-        sample.albedo += color *  nextContribution;
+        sample.albedo += color * nextContribution;
         sample.opacity += opacity * glm::luminosity(nextContribution);
         break;
       }
@@ -460,16 +468,17 @@ VISRTX_GLOBAL void __raygen__()
         float opacity = volumeSample.opacity; // Opacity from transfer function
 
         sample.color += color * nextContribution;
-        sample.albedo += color *  nextContribution;
+        sample.albedo += color * nextContribution;
         sample.opacity += opacity * glm::luminosity(nextContribution);
 
-        // For volume scattering, we need to continue the path from the scatter point
-        // Sample new direction from phase function
+        // For volume scattering, we need to continue the path from the scatter
+        // point Sample new direction from phase function
         vec3 newDir = randomDir(ss.rs);
         vec3 scatterPoint = ray.org + ray.dir * volumeSample.depth;
-        
+
         // ray = Ray{scatterPoint, normalize(newDir), {1e-6f, 1e30f}};
-        nextContribution *= volumeSample.color; // Weight by albedo for next bounce
+        nextContribution *=
+            volumeSample.color; // Weight by albedo for next bounce
       }
 
       if (surfaceHit.foundHit) {
@@ -477,28 +486,31 @@ VISRTX_GLOBAL void __raygen__()
             sampleLights(ss, frameData, surfaceHit.hitpoint, surfaceHit);
 
         const Ray shadowRay = {
-            surfaceHit.hitpoint + surfaceHit.Ng * surfaceHit.epsilon,
+            surfaceHit.hitpoint,
             lightSample.dir,
-            { surfaceHit.epsilon, lightSample.dist },
+            {surfaceHit.epsilon, lightSample.dist},
         };
 
         // Shadows
-        const float surface_o = 1.0f - surfaceAttenuation(ss, shadowRay);
-        const float volume_o = 1.0f - volumeAttenuation(ss, shadowRay);
-        const float attenuation = surface_o * volume_o;
+        const auto surface_o = surfaceAttenuation(ss, shadowRay);
+        const auto volume_o = volumeAttenuation(ss, shadowRay);
+        const auto attenuation = surface_o * volume_o;
 
         // Shading
         MaterialShadingState shadingState;
-        materialInitShading(&shadingState, frameData, *surfaceHit.material, surfaceHit);
+        materialInitShading(
+            &shadingState, frameData, *surfaceHit.material, surfaceHit);
 
-        const vec3 materialEmission = materialEvaluateEmission(shadingState, -ray.dir);
+        const vec3 materialEmission =
+            materialEvaluateEmission(shadingState, -ray.dir);
         const vec3 materialTint = materialEvaluateTint(shadingState);
         const float materialOpacity = materialEvaluateOpacity(shadingState);
 
         const vec3 materialShadedTint = materialShadeSurface(
             shadingState, surfaceHit, lightSample, -ray.dir);
 
-        const vec3 materialColor = materialEmission + (materialShadedTint * materialOpacity) * attenuation;
+        const vec3 materialColor = materialEmission
+            + (materialShadedTint * materialOpacity) * attenuation;
 
         // Direct addition, already weighted by nextContribution
         sample.color += materialColor * nextContribution;
@@ -516,22 +528,16 @@ VISRTX_GLOBAL void __raygen__()
           break;
         }
 
-        ray = Ray{
-            surfaceHit.hitpoint
+        ray = Ray{surfaceHit.hitpoint
                 + surfaceHit.Ng
                     * std::copysignf(surfaceHit.epsilon,
                         dot(surfaceHit.Ns, nextRay.direction)),
             normalize(vec3(nextRay.direction)),
-            {1e-6f, 1e30f}
-        };
+            {1e-6f, 1e30f}};
       }
     }
 #endif
-
-    accumPixelSample(frameData,
-        ss.pixel,
-        sample,
-        i);
+    accumPixelSample(frameData, ss.pixel, sample, i);
   }
 }
 
