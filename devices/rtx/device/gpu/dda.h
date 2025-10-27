@@ -127,18 +127,6 @@ VISRTX_DEVICE void dda3(Ray ray, ivec3 gridDims, box3 modelBounds, Func func)
     ray.dir.y != 0.f ? (tfar.y - tnear.y) / float(gridDims.y) : inf,
     ray.dir.z != 0.f ? (tfar.z - tnear.z) / float(gridDims.z) : inf);
 
-  if(debug()) {
-    printf("DDA3 Setup:\n");
-    printf("  Ray Origin:    (%f, %f, %f)\n", ray.org.x, ray.org.y, ray.org.z);
-    printf("  Ray Direction: (%f, %f, %f)\n", ray.dir.x, ray.dir.y, ray.dir.z);
-    printf("  Ray t range:   (%f, %f)\n", ray.t.lower, ray.t.upper);
-    printf("  tnear:         (%f, %f, %f)\n", tnear.x, tnear.y, tnear.z);
-    printf("  tfar:          (%f, %f, %f)\n", tfar.x, tfar.y, tfar.z);
-    printf("  Cell ID:       (%i, %i, %i)\n", cellID.x, cellID.y, cellID.z);
-    printf("  Dist:          (%f, %f, %f)\n", dist.x, dist.y, dist.z);
-  }
-
-
   // Cell increment: if direction is zero, never step in that axis
   const ivec3 step = {
     ray.dir.x > 0.f ? 1 : (ray.dir.x < 0.f ? -1 : 0),
@@ -161,10 +149,6 @@ VISRTX_DEVICE void dda3(Ray ray, ivec3 gridDims, box3 modelBounds, Func func)
       (ray.dir.z < 0.f ? tnear.z + float(gridDims.z - cellID.z) * dist.z : inf)};
 
   float t0 = max(ray.t.lower, 0.f);
-  if (debug()) {
-    printf("  t0: %f\n", t0);
-    printf("  tnext:         (%f, %f, %f)\n", tnext.x, tnext.y, tnext.z);
-  }
 
   while (1) { // loop over grid cells
     const float t1 = min(compMin(tnext), ray.t.upper);

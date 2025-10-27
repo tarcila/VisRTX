@@ -381,8 +381,7 @@ VISRTX_DEVICE uint32_t pixelIndex(
 
 VISRTX_DEVICE void writeOutputColor(const FramebufferGPUData &fb,
     const vec4 &color,
-    const uint32_t idx,
-    const int frameIDOffset)
+    const uint32_t idx)
 {
   if (fb.format == FrameFormat::SRGB) {
     fb.buffers.outColorUint[idx] =
@@ -436,25 +435,25 @@ VISRTX_DEVICE void accumResults(const FrameGPUData &frame,
       ? detail::inverseTonemap(normalizedColor)
       : normalizedColor;
 
-  detail::writeOutputColor(fb, outputColor, idx, frameIDOffset);
+  detail::writeOutputColor(fb, outputColor, idx);
 
   if (fb.checkerboardID == 0 && frameID == 0) {
     auto adjPix = uvec2(pixel.x + 1, pixel.y + 0);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, outputColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, outputColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 0, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, outputColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, outputColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 1, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, outputColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, outputColor, detail::pixelIndex(fb, adjPix));
     }
   }
 }
