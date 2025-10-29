@@ -248,7 +248,7 @@ project_include_directories(
 
 project_link_libraries(
 PUBLIC
-  anari::anari
+  anari::anari_headers
 PRIVATE
   anari::helium
   OptiX::OptiX

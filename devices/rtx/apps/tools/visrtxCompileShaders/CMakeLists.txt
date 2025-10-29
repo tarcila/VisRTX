@@ -29,4 +29,8 @@
 
 project(visrtxCompileShaders LANGUAGES CXX)
 add_executable(${PROJECT_NAME} main.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE anari_library_visrtx)
+target_link_libraries(${PROJECT_NAME}
+PRIVATE
+  anari_library_visrtx
+  anari::anari_static
+)
