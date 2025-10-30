@@ -32,7 +32,7 @@
 // anari_cpp
 #include <anari/anari_cpp.hpp>
 // VisRTX
-#include <anari/ext/visrtx/visrtx.h>
+#include "anari/ext/visrtx/makeVisRTXDevice.h"
 
 static void statusFunc(const void * /*userData*/,
     ANARIDevice /*device*/,

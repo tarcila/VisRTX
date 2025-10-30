@@ -33,6 +33,8 @@
 #include "anari/backend/LibraryImpl.h"
 #include "anari_library_visrtx_export.h"
 
+#include "anari/ext/visrtx/visrtx_extensions.h" // for compile testing
+
 namespace visrtx {
 
 const char **query_extensions();

@@ -116,7 +116,6 @@ set(SOURCES
   Object.cpp
   optix_visrtx.cpp
   VisRTXDevice.cpp
-  VisRTXFeatureUtility.cpp
   VisRTXLibrary.cpp
 
   array/Array.cpp
@@ -284,7 +283,7 @@ if(NOT WIN32)
   endif()
 endif()
 
-project_compile_definitions(PRIVATE visrtx_EXPORTS)
+project_compile_definitions(PRIVATE anari_library_visrtx_EXPORTS)
 
 #### Generate OptiX programs as embedded PTX ####
 
@@ -405,7 +404,8 @@ install(TARGETS ${PROJECT_NAME}
 install(
 FILES
   ${PROJECT_BINARY_DIR}/${PROJECT_NAME}_export.h
-  ${CMAKE_CURRENT_LIST_DIR}/include/anari/ext/visrtx/visrtx.h
+  ${CMAKE_CURRENT_LIST_DIR}/include/anari/ext/visrtx/makeVisRTXDevice.h
+  ${CMAKE_CURRENT_LIST_DIR}/include/anari/ext/visrtx/visrtx_extensions.h
 DESTINATION
   ${CMAKE_INSTALL_INCLUDEDIR}/anari/ext/visrtx
 )

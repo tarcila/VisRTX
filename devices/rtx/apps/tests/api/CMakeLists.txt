@@ -34,7 +34,12 @@ endif()
 macro(make_test TEST_NAME)
   project(${TEST_NAME} LANGUAGES CXX)
   project_add_executable(${PROJECT_NAME}.cpp)
-  project_link_libraries(PRIVATE anari_library_visrtx)
+  project_link_libraries(
+  PRIVATE
+    anari_library_visrtx
+    anari::anari_static
+    visrtx::stb_image
+  )
   add_test(NAME ${PROJECT_NAME} COMMAND ${PROJECT_NAME})
 endmacro()
 

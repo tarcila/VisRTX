@@ -29,14 +29,72 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "anari/ext/visrtx/visrtx.h"
+#pragma once
+
+// anari
+#include <anari/anari_cpp.hpp>
 // std
 #include <cstring>
 #include <string_view>
 
+// VisRTX extension feature testing ///////////////////////////////////////////
+
+struct VisRTXExtensions
+{
+  int VISRTX_ARRAY_CUDA;
+  int VISRTX_CUDA_OUTPUT_BUFFERS;
+  int VISRTX_INSTANCE_ATTRIBUTES;
+  int VISRTX_MATERIAL_MDL;
+  int VISRTX_SPATIAL_FIELD_NANOVDB;
+  int VISRTX_TRIANGLE_BACK_FACE_CULLING;
+  int VISRTX_TRIANGLE_FACE_VARYING_ATTRIBUTES;
+};
+
+int visrtxGetObjectExtensions(VisRTXExtensions *extensions,
+    ANARIDevice device,
+    ANARIDataType objectType,
+    const char *objectSubtype);
+
+int visrtxGetInstanceExtensions(
+    VisRTXExtensions *extensions, ANARIDevice device, ANARIObject object);
+
 namespace visrtx {
 
-static void fillExtensionStruct(
+void fillExtensionStruct(VisRTXExtensions *extensions, const char *const *list);
+
+VisRTXExtensions getObjectExtensions(
+    anari::Device d, anari::DataType objectType, const char *objectSubtype);
+
+VisRTXExtensions getInstanceExtensions(anari::Device, anari::Object);
+
+} // namespace visrtx
+
+///////////////////////////////////////////////////////////////////////////////
+// Definitions ////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+inline int visrtxGetInstanceExtensions(
+    VisRTXExtensions *extensions, ANARIDevice device, ANARIObject object)
+{
+  const char *const *list = NULL;
+  anariGetProperty(device,
+      object,
+      "extension",
+      ANARI_STRING_LIST,
+      &list,
+      sizeof(list),
+      ANARI_WAIT);
+  if (list) {
+    visrtx::fillExtensionStruct(extensions, list);
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+namespace visrtx {
+
+inline void fillExtensionStruct(
     VisRTXExtensions *extensions, const char *const *list)
 {
   std::memset(extensions, 0, sizeof(VisRTXExtensions));
@@ -63,53 +121,17 @@ static void fillExtensionStruct(
   }
 }
 
-extern "C" VISRTX_DEVICE_INTERFACE int visrtxGetObjectExtensions(
-    VisRTXExtensions *extensions,
-    ANARIDevice device,
-    ANARIDataType objectType,
-    const char *objectSubtype)
-{
-  const char *const *list = (const char *const *)anariGetObjectInfo(
-      device, objectType, objectSubtype, "feature", ANARI_STRING_LIST);
-  if (list) {
-    fillExtensionStruct(extensions, list);
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-extern "C" VISRTX_DEVICE_INTERFACE int visrtxGetInstanceExtensions(
-    VisRTXExtensions *extensions, ANARIDevice device, ANARIObject object)
-{
-  const char *const *list = NULL;
-  anariGetProperty(device,
-      object,
-      "extension",
-      ANARI_STRING_LIST,
-      &list,
-      sizeof(list),
-      ANARI_WAIT);
-  if (list) {
-    fillExtensionStruct(extensions, list);
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-VISRTX_DEVICE_INTERFACE Extensions getObjectExtensions(
+inline VisRTXExtensions getObjectExtensions(
     anari::Device d, anari::DataType objectType, const char *objectSubtype)
 {
-  Extensions f;
+  VisRTXExtensions f;
   visrtxGetObjectExtensions(&f, d, objectType, objectSubtype);
   return f;
 }
 
-VISRTX_DEVICE_INTERFACE Extensions getInstanceExtensions(
-    anari::Device d, anari::Object o)
+inline VisRTXExtensions getInstanceExtensions(anari::Device d, anari::Object o)
 {
-  Extensions f;
+  VisRTXExtensions f;
   visrtxGetInstanceExtensions(&f, d, o);
   return f;
 }

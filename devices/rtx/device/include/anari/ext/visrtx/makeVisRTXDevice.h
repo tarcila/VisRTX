@@ -31,59 +31,19 @@
 
 #pragma once
 
-// ANARI-SDK
-#ifdef __cplusplus
-#include <anari/anari_cpp.hpp>
-#else
+// anari
 #include <anari/anari.h>
-#endif
-// VisRTX
+// visrtx
 #include "anari_library_visrtx_export.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Direct VisRTX device construction //////////////////////////////////////////
-
 VISRTX_DEVICE_INTERFACE ANARIDevice makeVisRTXDevice(
     ANARIStatusCallback defaultCallback ANARI_DEFAULT_VAL(0),
     const void *userPtr ANARI_DEFAULT_VAL(0));
 
-// VisRTX extension feature testing ///////////////////////////////////////////
-
-typedef struct
-{
-  int VISRTX_ARRAY_CUDA;
-  int VISRTX_CUDA_OUTPUT_BUFFERS;
-  int VISRTX_INSTANCE_ATTRIBUTES;
-  int VISRTX_MATERIAL_MDL;
-  int VISRTX_SPATIAL_FIELD_NANOVDB;
-  int VISRTX_TRIANGLE_BACK_FACE_CULLING;
-  int VISRTX_TRIANGLE_FACE_VARYING_ATTRIBUTES;
-} VisRTXExtensions;
-
-VISRTX_DEVICE_INTERFACE int visrtxGetObjectExtensions(
-    VisRTXExtensions *extensions,
-    ANARIDevice device,
-    ANARIDataType objectType,
-    const char *objectSubtype);
-
-VISRTX_DEVICE_INTERFACE int visrtxGetInstanceExtensions(
-    VisRTXExtensions *extensions, ANARIDevice device, ANARIObject object);
-
 #ifdef __cplusplus
-} // extern "C"
-
-namespace visrtx {
-
-using Extensions = VisRTXExtensions;
-
-VISRTX_DEVICE_INTERFACE Extensions getObjectExtensions(
-    anari::Device d, anari::DataType objectType, const char *objectSubtype);
-
-VISRTX_DEVICE_INTERFACE
-Extensions getInstanceExtensions(anari::Device, anari::Object);
-
-} // namespace visrtx
+}
 #endif
