@@ -43,8 +43,12 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
     return;
   }
 
-  logInfo("[import_AGX] file version=%u, objectType=%s, timeSteps=%u, constants=%u",
-      hdr.version, anari::toString(hdr.objectType), hdr.timeSteps, hdr.constantParamCount);
+  logInfo(
+      "[import_AGX] file version=%u, objectType=%s, timeSteps=%u, constants=%u",
+      hdr.version,
+      anari::toString(hdr.objectType),
+      hdr.timeSteps,
+      hdr.constantParamCount);
 
   //// Validate usable file contents ////
 
@@ -96,12 +100,15 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
       break;
 
     std::string paramName(pv.name, pv.nameLength);
-    logInfo("[import_AGX] constant param: %s, isArray=%d", paramName.c_str(), pv.isArray);
+    logInfo("[import_AGX] constant param: %s, isArray=%d",
+        paramName.c_str(),
+        pv.isArray);
 
     if (pv.isArray) {
       auto arr = scene.createArray(pv.elementType, pv.elementCount);
       if (!arr) {
-        logError("[import_AGX] failed to create array for parameter '%s'", paramName.c_str());
+        logError("[import_AGX] failed to create array for parameter '%s'",
+            paramName.c_str());
         continue;
       }
       arr->setData(pv.data);
@@ -134,8 +141,10 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
         break;
 
       std::string tsParamName(pv.name, pv.nameLength);
-      logInfo("[import_AGX] timestep param: %s, isArray=%d, elementCount=%lu", 
-              tsParamName.c_str(), pv.isArray, (unsigned long)pv.elementCount);
+      logInfo("[import_AGX] timestep param: %s, isArray=%d, elementCount=%lu",
+          tsParamName.c_str(),
+          pv.isArray,
+          (unsigned long)pv.elementCount);
 
       // TODO: support non-array animations
       if (firstStep && pv.isArray) {
@@ -145,12 +154,16 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
 
       if (pv.isArray) {
         if (paramIdx >= (int)timeSteps.size()) {
-          logError("[import_AGX] paramIdx %d out of bounds (size %zu)", paramIdx, timeSteps.size());
+          logError("[import_AGX] paramIdx %d out of bounds (size %zu)",
+              paramIdx,
+              timeSteps.size());
           break;
         }
         auto arr = scene.createArray(pv.elementType, pv.elementCount);
         if (!arr) {
-          logError("[import_AGX] failed to create array for timestep parameter '%s'", tsParamName.c_str());
+          logError(
+              "[import_AGX] failed to create array for timestep parameter '%s'",
+              tsParamName.c_str());
           paramIdx++;
           continue;
         }

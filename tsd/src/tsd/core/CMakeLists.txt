@@ -29,6 +29,7 @@ PRIVATE
   scene/objects/Surface.cpp
   scene/objects/Volume.cpp
   AnariObjectCache.cpp
+  ColorMapUtil.cpp
   Logging.cpp
   Parameter.cpp
   Token.cpp

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/ui/imgui/tsd_ui_imgui.h"
+// tsd_core
+#include "tsd/core/ColorMapUtil.hpp"
 
 namespace tsd::ui {
 
@@ -121,6 +123,34 @@ static void buildUI_parameter_contextMenu(
 
       if (ImGui::BeginMenu("object")) {
         if (ImGui::BeginMenu("new")) {
+
+          if (ImGui::BeginMenu("array")) {
+            tsd::core::ArrayRef a;
+
+            if (ImGui::BeginMenu("color map (RGB)")) {
+#define OBJECT_UI_MENU_ITEM(text, name)                                        \
+  if (ImGui::MenuItem(text)) {                                                 \
+    a = scene.createArray(ANARI_FLOAT32_VEC3, 128);                            \
+    auto colormap = tsd::core::resampleArray(tsd::core::colormap::name, 128);  \
+    a->setData(colormap);                                                      \
+    a->setName("colormap_" #name);                                             \
+  }
+              OBJECT_UI_MENU_ITEM("jet", jet);
+              OBJECT_UI_MENU_ITEM("cool to warm", cool_to_warm);
+              OBJECT_UI_MENU_ITEM("viridis", viridis);
+              OBJECT_UI_MENU_ITEM("black body", black_body);
+              OBJECT_UI_MENU_ITEM("inferno", inferno);
+              OBJECT_UI_MENU_ITEM("ice fire", ice_fire);
+              OBJECT_UI_MENU_ITEM("grayscale", grayscale);
+#undef OBJECT_UI_MENU_ITEM
+              ImGui::EndMenu(); // "color map"
+            }
+
+            if (a)
+              p->setValue({a->type(), a->index()});
+            ImGui::EndMenu(); // "array"
+          }
+
           if (ImGui::BeginMenu("material")) {
             tsd::core::MaterialRef m;
             if (ImGui::MenuItem("matte")) {
@@ -223,7 +253,7 @@ static void buildUI_parameter_contextMenu(
 
     ImGui::EndPopup();
   }
-}
+} // namespace tsd::ui
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -516,10 +546,10 @@ void buildUI_parameter(tsd::core::Object &o,
     } else {
       if (useTable) {
         auto val = pVal.getString();
-        update |= ImGui::InputText("\"%s\"", &val, ImGuiInputTextFlags_EnterReturnsTrue);
+        update |= ImGui::InputText(
+            "\"%s\"", &val, ImGuiInputTextFlags_EnterReturnsTrue);
         pVal = val.c_str();
-      }
-      else
+      } else
         ImGui::BulletText("%s | '%s'", name, pVal.getString().c_str());
     }
   } break;
