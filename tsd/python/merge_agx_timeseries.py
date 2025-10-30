@@ -285,9 +285,14 @@ def merge_geometry_arrays(arrays, array_type, vertex_counts=None, debug=False):
             'data': merged.tobytes()
         }
     else:
-        # For other arrays, just concatenate
+        # For other arrays (like vertex attributes), just concatenate
+        # These should be per-vertex and in the same order as positions
         merged_data = b''.join(arr['data'] for arr in arrays)
         total_count = sum(arr['element_count'] for arr in arrays)
+        
+        if debug and array_type.startswith('vertex.'):
+            print(f"  Concatenating {array_type}: {len(arrays)} arrays -> {total_count} elements")
+        
         return {
             'is_array': True,
             'element_type': arrays[0]['element_type'],
@@ -449,6 +454,15 @@ def merge_agx_files(input_files, output_file, pattern):
                 merged_params[name] = merged
                 if ts_idx < 3:  # Show details for first few timesteps
                     print(f"    Merged {name}: {merged['element_count']} elements")
+        
+        # Validate that attributes match vertex count
+        if ts_idx < 3 and 'vertex.position' in merged_params and 'vertex.attribute0' in merged_params:
+            pos_count = merged_params['vertex.position']['element_count']
+            attr_count = merged_params['vertex.attribute0']['element_count']
+            if pos_count == attr_count:
+                print(f"    ✓ Attribute count matches vertex count: {attr_count}")
+            else:
+                print(f"    ⚠ WARNING: Attribute count ({attr_count}) != vertex count ({pos_count})!")
                 
         writer.add_timestep(ts_idx, merged_params)
         
