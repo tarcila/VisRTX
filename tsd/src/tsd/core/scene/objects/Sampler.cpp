@@ -44,6 +44,7 @@ Sampler::Sampler(Token subtype) : Object(ANARI_SAMPLER, subtype)
     addParameter("inOffset").setValue(float4(0.f));
     addParameter("outTransform").setValue(math::scaling_matrix(float3(1.f)));
     addParameter("outOffset").setValue(float4(0.f));
+    addParameter("image").setDescription("The image array to sample from");
   } else if (subtype == tokens::sampler::transform) {
     addParameter("inAttribute").setToAttribute();
     addParameter("outTransform").setValue(math::scaling_matrix(float3(1.f)));

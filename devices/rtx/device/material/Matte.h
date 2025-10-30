@@ -48,11 +48,11 @@ struct Matte : public Material
   bool m_separateOpacity{false};
 
   vec4 m_color{vec3(0.8f), 1.f};
-  helium::IntrusivePtr<Sampler> m_colorSampler;
+  helium::ChangeObserverPtr<Sampler> m_colorSampler;
   std::string m_colorAttribute;
 
   float m_opacity{1.f};
-  helium::IntrusivePtr<Sampler> m_opacitySampler;
+  helium::ChangeObserverPtr<Sampler> m_opacitySampler;
   std::string m_opacityAttribute;
 
   float m_cutoff{0.5f};

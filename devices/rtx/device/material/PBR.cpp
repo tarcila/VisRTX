@@ -34,7 +34,16 @@
 
 namespace visrtx {
 
-PBR::PBR(DeviceGlobalState *d) : Material(d) {}
+PBR::PBR(DeviceGlobalState *d)
+    : Material(d),
+      m_colorSampler(this),
+      m_opacitySampler(this),
+      m_metallicSampler(this),
+      m_roughnessSampler(this),
+      m_normalSampler(this),
+      m_emissiveSampler(this),
+      m_transmissionSampler(this)
+{}
 
 void PBR::commitParameters()
 {
@@ -83,29 +92,29 @@ MaterialGPUData PBR::gpuData() const
 
   populateMaterialParameter(retval.materialData.physicallyBased.baseColor,
       m_color,
-      m_colorSampler,
+      m_colorSampler.get(),
       m_colorAttribute);
   populateMaterialParameter(retval.materialData.physicallyBased.opacity,
       m_opacity,
-      m_opacitySampler,
+      m_opacitySampler.get(),
       m_opacityAttribute);
   populateMaterialParameter(retval.materialData.physicallyBased.metallic,
       m_metallic,
-      m_metallicSampler,
+      m_metallicSampler.get(),
       m_metallicAttribute);
   populateMaterialParameter(retval.materialData.physicallyBased.roughness,
       m_roughness,
-      m_roughnessSampler,
+      m_roughnessSampler.get(),
       m_roughnessAttribute);
   retval.materialData.physicallyBased.normalSampler =
       m_normalSampler ? m_normalSampler->index() : ~DeviceObjectIndex{0};
   populateMaterialParameter(retval.materialData.physicallyBased.emissive,
       m_emissive,
-      m_emissiveSampler,
+      m_emissiveSampler.get(),
       m_emissiveAttribute);
   populateMaterialParameter(retval.materialData.physicallyBased.transmission,
       m_transmission,
-      m_transmissionSampler,
+      m_transmissionSampler.get(),
       m_transmissionAttribute);
 
   retval.materialData.physicallyBased.ior = m_ior;

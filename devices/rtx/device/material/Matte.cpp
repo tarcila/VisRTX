@@ -34,7 +34,9 @@
 
 namespace visrtx {
 
-Matte::Matte(DeviceGlobalState *d) : Material(d) {}
+Matte::Matte(DeviceGlobalState *d)
+    : Material(d), m_colorSampler(this), m_opacitySampler(this)
+{}
 
 void Matte::commitParameters()
 {
@@ -60,11 +62,11 @@ MaterialGPUData Matte::gpuData() const
 
   populateMaterialParameter(retval.materialData.matte.color,
       m_color,
-      m_colorSampler,
+      m_colorSampler.get(),
       m_colorAttribute);
   populateMaterialParameter(retval.materialData.matte.opacity,
       m_opacity,
-      m_opacitySampler,
+      m_opacitySampler.get(),
       m_opacityAttribute);
 
   retval.materialData.matte.cutoff = m_cutoff;

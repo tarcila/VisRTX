@@ -48,10 +48,8 @@ struct Material : public RegisteredObject<MaterialGPUData>
 // Inlined helper functions ///////////////////////////////////////////////////
 
 template <typename T>
-inline void populateMaterialParameter(MaterialParameter &mp,
-    T value,
-    helium::IntrusivePtr<Sampler> sampler,
-    const std::string &attrib)
+inline void populateMaterialParameter(
+    MaterialParameter &mp, T value, Sampler *sampler, const std::string &attrib)
 {
   if (sampler && sampler->isValid()) {
     mp.type = MaterialParameterType::SAMPLER;
