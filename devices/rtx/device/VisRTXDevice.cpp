@@ -46,9 +46,9 @@
 #include "frame/Frame.h"
 #include "optix_visrtx.h"
 #include "renderer/Renderer.h"
-#include "world/World.h"
 #include "sampler/Sampler.h"
 #include "spatial_field/SpatialField.h"
+#include "world/World.h"
 
 // PTX //
 
@@ -648,10 +648,23 @@ DeviceInitStatus VisRTXDevice::initOptix()
                             const char *message,
                             void *_device) {
     auto *device = (VisRTXDevice *)_device;
-    auto severity =
-        level <= 2 ? ANARI_SEVERITY_FATAL_ERROR : ANARI_SEVERITY_DEBUG;
-    device->reportMessage(
-        severity, "OptiX message [%u][%s]:\n%s", level, tag, message);
+    ANARIStatusSeverity severity = ANARI_SEVERITY_DEBUG;
+    switch (level) {
+    case 0:
+    case 1:
+      severity = ANARI_SEVERITY_FATAL_ERROR;
+      break;
+    case 2:
+      severity = ANARI_SEVERITY_ERROR;
+      break;
+    case 3:
+      severity = ANARI_SEVERITY_WARNING;
+      break;
+    case 4:
+    default:
+      severity = ANARI_SEVERITY_DEBUG;
+    }
+    device->reportMessage(severity, "OptiX message {%s} -- %s", tag, message);
   };
 
   OptixDeviceContextOptions options{};
