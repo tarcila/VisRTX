@@ -549,6 +549,9 @@ int VisRTXDevice::deviceGetProperty(const char *name,
   } else if (prop == "visrtx" && type == ANARI_BOOL) {
     helium::writeToVoidP(mem, true);
     return 1;
+  } else if (prop == "geometryMaxIndex" && type == ANARI_UINT64) {
+    helium::writeToVoidP(mem, uint64_t(std::numeric_limits<uint32_t>::max()));
+    return 1;
   }
   return 0;
 }
