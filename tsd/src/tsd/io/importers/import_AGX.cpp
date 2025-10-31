@@ -168,6 +168,44 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
           continue;
         }
         arr->setData(pv.data);
+        
+        // Debug: print attribute values for first timestep
+        if (firstStep && tsParamName.find("attribute") != std::string::npos) {
+          logInfo("[import_AGX] DEBUG: %s data pointer: %p, bytes: %lu",
+              tsParamName.c_str(),
+              pv.data,
+              (unsigned long)pv.dataBytes);
+          if (pv.elementType == ANARI_FLOAT32 && pv.elementCount > 0) {
+            const float *values = (const float *)pv.data;
+            float minVal = values[0], maxVal = values[0];
+            for (size_t i = 1; i < std::min((size_t)pv.elementCount, (size_t)100);
+                 i++) {
+              if (values[i] < minVal)
+                minVal = values[i];
+              if (values[i] > maxVal)
+                maxVal = values[i];
+            }
+            logInfo(
+                "[import_AGX] DEBUG: %s first 10 values: [%.6f, %.6f, %.6f, "
+                "%.6f, %.6f, %.6f, %.6f, %.6f, %.6f, %.6f]",
+                tsParamName.c_str(),
+                values[0],
+                values[1],
+                values[2],
+                values[3],
+                values[4],
+                values[5],
+                values[6],
+                values[7],
+                values[8],
+                values[9]);
+            logInfo("[import_AGX] DEBUG: %s range (first 100): [%.6f, %.6f]",
+                tsParamName.c_str(),
+                minVal,
+                maxVal);
+          }
+        }
+        
         timeSteps[paramIdx++].push_back(arr);
         if (firstStep)
           geom->setParameterObject(tsParamName.c_str(), *arr);
@@ -190,7 +228,42 @@ void import_AGX(Scene &scene, const char *filepath, LayerNodeRef location)
     return;
   }
   mat->setName("agx_material");
-  mat->setParameter("color", tsd::math::float3(0.8f, 0.8f, 0.8f));
+  
+  // Check if we have vertex attributes to map to color
+  bool hasAttribute0 = false;
+  for (const auto& name : timeStepNames) {
+    if (name.str().find("attribute0") != std::string::npos) {
+      hasAttribute0 = true;
+      break;
+    }
+  }
+  
+  if (hasAttribute0 && !timeSteps.empty() && timeSteps[0].size() > 0) {
+    // Find vertex.attribute0 in first timestep
+    size_t attr0Idx = 0;
+    for (size_t i = 0; i < timeStepNames.size(); i++) {
+      if (timeStepNames[i].str().find("attribute0") != std::string::npos) {
+        attr0Idx = i;
+        break;
+      }
+    }
+    
+    if (attr0Idx < timeSteps.size() && !timeSteps[attr0Idx].empty()) {
+      auto attr0Array = timeSteps[attr0Idx][0];
+      auto scalarRange = computeScalarRange(*attr0Array);
+      logInfo("[import_AGX] vertex.attribute0 range: [%f, %f]", scalarRange.x, scalarRange.y);
+      
+      // Create colormap sampler
+      auto colorMapSampler = makeDefaultColorMapSampler(scene, scalarRange);
+      mat->setParameterObject("color", *colorMapSampler);
+      logInfo("[import_AGX] applied colormap to material for vertex.attribute0");
+    } else {
+      mat->setParameter("color", tsd::math::float3(0.8f, 0.8f, 0.8f));
+    }
+  } else {
+    // No attributes, use fixed color
+    mat->setParameter("color", tsd::math::float3(0.8f, 0.8f, 0.8f));
+  }
 
   // surface
 

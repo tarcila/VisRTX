@@ -31,8 +31,15 @@ class AGXReader:
         self.timesteps = []
         
     def __enter__(self):
-        self.file = open(self.filepath, 'rb')
-        self._read_header()
+        try:
+            self.file = open(self.filepath, 'rb')
+            self._read_header()
+        except Exception as e:
+            if self.file:
+                self.file.close()
+                self.file = None
+            # Re-raise so caller can handle
+            raise
         return self
         
     def __exit__(self, *args):
@@ -42,8 +49,10 @@ class AGXReader:
     def _read_header(self):
         """Read AGX header."""
         magic = self.file.read(4)
+        if len(magic) < 4:
+            raise ValueError(f"File too short or empty: {self.filepath}")
         if magic != b'AGXB':
-            raise ValueError(f"Not a valid AGX file: {self.filepath}")
+            raise ValueError(f"Invalid magic number (not an AGX file): {self.filepath}")
         
         # Read header with native endianness first
         version, endian_marker, obj_type, time_steps, const_count = \
@@ -306,6 +315,9 @@ def merge_agx_files(input_files, output_file, pattern):
     
     print(f"Found {len(input_files)} AGX files to merge")
     
+    # Track corrupted files
+    corrupted_files = []
+    
     # Parse and group files by timestep
     timestep_files = defaultdict(dict)  # {timestep: {proc: filepath}}
     
@@ -321,7 +333,8 @@ def merge_agx_files(input_files, output_file, pattern):
         return False
         
     timesteps = sorted(timestep_files.keys())
-    print(f"Found {len(timesteps)} timesteps: {timesteps[0]} to {timesteps[-1]}")
+    print(f"Found {len(timesteps)} timesteps: {min(timesteps)} to {max(timesteps)}")
+    print(f"Timestep values: {timesteps[:10]}{'...' if len(timesteps) > 10 else ''}")
     
     # Read first file to get subtype and structure
     first_file = timestep_files[timesteps[0]][min(timestep_files[timesteps[0]].keys())]
@@ -352,26 +365,41 @@ def merge_agx_files(input_files, output_file, pattern):
     
     for proc in procs:
         filepath = timestep_files[first_timestep][proc]
-        with AGXReader(filepath) as reader:
-            consts, ts_data = reader.read_all()
-            
-            # Collect vertex count for this processor
-            # Try constants first, then timestep data
-            proc_vertex_count = 0
-            if 'vertex.position' in consts and consts['vertex.position']['is_array']:
-                proc_vertex_count = consts['vertex.position']['element_count']
-            elif ts_data and len(ts_data) > 0:
-                # Check first timestep
-                _, ts_params = ts_data[0]
-                if 'vertex.position' in ts_params and ts_params['vertex.position']['is_array']:
-                    proc_vertex_count = ts_params['vertex.position']['element_count']
-            
-            vertex_counts.append(proc_vertex_count)
-            
-            # Collect constant arrays (like topology if it exists)
-            for name, param in consts.items():
-                if param['is_array']:
-                    constant_arrays[name].append(param)
+        try:
+            with AGXReader(filepath) as reader:
+                consts, ts_data = reader.read_all()
+                
+                # Collect vertex count for this processor
+                # Try constants first, then timestep data
+                proc_vertex_count = 0
+                if 'vertex.position' in consts and consts['vertex.position']['is_array']:
+                    proc_vertex_count = consts['vertex.position']['element_count']
+                elif ts_data and len(ts_data) > 0:
+                    # Check first timestep
+                    _, ts_params = ts_data[0]
+                    if 'vertex.position' in ts_params and ts_params['vertex.position']['is_array']:
+                        proc_vertex_count = ts_params['vertex.position']['element_count']
+                
+                vertex_counts.append(proc_vertex_count)
+                
+                # Collect constant arrays (like topology if it exists)
+                for name, param in consts.items():
+                    if param['is_array']:
+                        constant_arrays[name].append(param)
+        except Exception as e:
+            print(f"  WARNING: Failed to read {filepath}: {e}")
+            print(f"           Treating processor {proc} as empty")
+            corrupted_files.append(filepath)
+            # Add empty data for this processor
+            vertex_counts.append(0)
+            # Add empty arrays to maintain array size consistency
+            for name in constant_arrays.keys():
+                constant_arrays[name].append({
+                    'is_array': True,
+                    'element_type': constant_arrays[name][0]['element_type'] if constant_arrays[name] else 0,
+                    'element_count': 0,
+                    'data': b''
+                })
     
     print(f"Vertex counts per processor: {vertex_counts[:10]}{'...' if len(vertex_counts) > 10 else ''}")
     print(f"Total processors: {len(vertex_counts)}, Total vertices: {sum(vertex_counts)}")
@@ -400,35 +428,60 @@ def merge_agx_files(input_files, output_file, pattern):
     # Process each timestep
     print(f"\nMerging {len(timesteps)} timesteps...")
     for ts_idx, timestep in enumerate(timesteps):
-        print(f"  Timestep {ts_idx}: {timestep}")
+        print(f"  Output timestep {ts_idx} (source timestep {timestep})")
         procs = sorted(timestep_files[timestep].keys())
         
         # Read time-varying parameters from all processors
         timestep_arrays = defaultdict(list)
+        failed_procs = []
+        
         for proc in procs:
             filepath = timestep_files[timestep][proc]
-            with AGXReader(filepath) as reader:
-                consts, ts_data = reader.read_all()
-                
-                # For single-snapshot files, we need BOTH constants (indices) and timestep data (positions)
-                # Merge them together for this timestep
-                all_params = {}
-                
-                # Get constants (includes indices)
-                for name, param in consts.items():
-                    if param['is_array']:
-                        all_params[name] = param
-                
-                # Get timestep data (includes positions, may override constants)
-                if ts_data and len(ts_data) > 0:
-                    _, params = ts_data[0]
-                    for name, param in params.items():
+            try:
+                with AGXReader(filepath) as reader:
+                    consts, ts_data = reader.read_all()
+                    
+                    # For single-snapshot files, we need BOTH constants (indices) and timestep data (positions)
+                    # Merge them together for this timestep
+                    all_params = {}
+                    
+                    # Get constants (includes indices)
+                    for name, param in consts.items():
                         if param['is_array']:
                             all_params[name] = param
+                    
+                    # Get timestep data (includes positions, may override constants)
+                    if ts_data and len(ts_data) > 0:
+                        _, params = ts_data[0]
+                        for name, param in params.items():
+                            if param['is_array']:
+                                all_params[name] = param
+                    
+                    # Add to timestep arrays
+                    for name, param in all_params.items():
+                        timestep_arrays[name].append(param)
+            except Exception as e:
+                if ts_idx == 0:  # Only warn on first timestep to avoid spam
+                    print(f"    WARNING: Failed to read {filepath}: {e}")
+                    print(f"             Treating processor {proc} as empty for this timestep")
+                corrupted_files.append(filepath)
+                failed_procs.append(proc)
                 
-                # Add to timestep arrays
-                for name, param in all_params.items():
-                    timestep_arrays[name].append(param)
+                # Add empty data for this processor to maintain consistency
+                # Use the first successful processor's keys as template
+                if timestep_arrays:
+                    for name in timestep_arrays.keys():
+                        # Add empty array with matching type
+                        if timestep_arrays[name]:
+                            timestep_arrays[name].append({
+                                'is_array': True,
+                                'element_type': timestep_arrays[name][0]['element_type'],
+                                'element_count': 0,
+                                'data': b''
+                            })
+        
+        if failed_procs and ts_idx == 0:
+            print(f"    Skipped {len(failed_procs)} corrupted/empty processors")
                         
         # Build vertex counts for THIS specific timestep
         # IMPORTANT: Counts can vary per timestep (processors may be empty at different times)
@@ -455,21 +508,95 @@ def merge_agx_files(input_files, output_file, pattern):
                 if ts_idx < 3:  # Show details for first few timesteps
                     print(f"    Merged {name}: {merged['element_count']} elements")
         
-        # Validate that attributes match vertex count
-        if ts_idx < 3 and 'vertex.position' in merged_params and 'vertex.attribute0' in merged_params:
+        # Validate and show attribute values
+        if ts_idx < 3 and 'vertex.position' in merged_params:
             pos_count = merged_params['vertex.position']['element_count']
-            attr_count = merged_params['vertex.attribute0']['element_count']
-            if pos_count == attr_count:
-                print(f"    ✓ Attribute count matches vertex count: {attr_count}")
-            else:
-                print(f"    ⚠ WARNING: Attribute count ({attr_count}) != vertex count ({pos_count})!")
-                
+            
+            # Check all vertex.attribute* parameters
+            for attr_name in [k for k in merged_params.keys() if k.startswith('vertex.attribute')]:
+                attr_count = merged_params[attr_name]['element_count']
+                if pos_count == attr_count:
+                    print(f"    ✓ {attr_name}: {attr_count} values match vertex count")
+                    
+                    # Show min/max values to verify they're changing
+                    import numpy as np
+                    dtype = np.float32  # Assuming ANARI_FLOAT32
+                    values = np.frombuffer(merged_params[attr_name]['data'], dtype=dtype)
+                    if len(values) > 0:
+                        print(f"      Value range: [{values.min():.6f}, {values.max():.6f}]")
+                else:
+                    print(f"    ⚠ WARNING: {attr_name} count ({attr_count}) != vertex count ({pos_count})!")
+        
+        # IMPORTANT: Use ts_idx (0, 1, 2...) not timestep (4320, 4321...) for output
+        # AGX animations expect sequential timestep indices starting from 0
         writer.add_timestep(ts_idx, merged_params)
         
     # Write output
     print(f"\nWriting merged file: {output_file}")
+    print(f"Summary:")
+    print(f"  - Timesteps: {len(writer.timesteps)}")
+    print(f"  - Constants: {list(writer.constants.keys())}")
+    if writer.timesteps:
+        first_ts_params = list(writer.timesteps[0][1].keys())
+        print(f"  - Per-timestep parameters: {first_ts_params}")
+        
+        # Check if attributes are in timestep data
+        attr_params = [p for p in first_ts_params if 'attribute' in p]
+        if attr_params:
+            print(f"  - ✓ Attributes in timestep data: {attr_params}")
+        else:
+            print(f"  - ⚠ WARNING: No attributes found in timestep data!")
+    
     writer.write()
+    
+    # Report corrupted files
+    if corrupted_files:
+        unique_corrupted = list(set(corrupted_files))
+        print(f"\n⚠ WARNING: Encountered {len(unique_corrupted)} corrupted/unreadable files:")
+        for f in unique_corrupted[:10]:
+            print(f"  - {f}")
+        if len(unique_corrupted) > 10:
+            print(f"  ... and {len(unique_corrupted) - 10} more")
+        print(f"\nThese files were treated as empty and skipped.")
+    
     print("Done!")
+    
+    # Verify the written file by reading it back
+    print("\nVerifying written file...")
+    try:
+        with AGXReader(output_file) as verify_reader:
+            consts, ts_data = verify_reader.read_all()
+            print(f"Read back: {len(ts_data)} timesteps")
+            
+            # Check first timestep
+            if ts_data:
+                ts_idx, params = ts_data[0]
+                print(f"\nFirst timestep (index {ts_idx}):")
+                
+                if 'vertex.attribute0' in params:
+                    import numpy as np
+                    attr_data = params['vertex.attribute0']
+                    values = np.frombuffer(attr_data['data'], dtype=np.float32)
+                    
+                    print(f"  vertex.attribute0: {len(values)} values")
+                    print(f"  Range: [{values.min():.6f}, {values.max():.6f}]")
+                    print(f"  First 10 values: {values[:10]}")
+                    print(f"  Last 10 values: {values[-10:]}")
+                    print(f"  Mean: {values.mean():.6f}, Std: {values.std():.6f}")
+                    
+                    # Check if all values are the same (indicating a problem)
+                    unique_count = len(np.unique(values))
+                    if unique_count == 1:
+                        print(f"  ⚠ WARNING: All values are identical ({values[0]})!")
+                    elif unique_count < 10:
+                        print(f"  ⚠ WARNING: Only {unique_count} unique values!")
+                    else:
+                        print(f"  ✓ {unique_count} unique values (good variation)")
+                else:
+                    print("  ⚠ WARNING: vertex.attribute0 not found in written file!")
+    except Exception as e:
+        print(f"Error verifying file: {e}")
+    
     return True
 
 
