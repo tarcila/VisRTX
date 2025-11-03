@@ -1,0 +1,44 @@
+mdl 1.8;
+
+import ::anno::*;
+import ::base::*;
+import ::df::*;
+import ::state::*;
+import ::tex::*;
+import ::math::*;
+
+export material slice(
+    uniform texture_3d volume_texture = texture_3d(),
+    uniform texture_2d transfer_function = texture_2d(),
+    uniform float2 data_range = float2(0.0, 1.0),
+    uniform float contrast = 1.0,
+) = let {
+    float3 texCoords = ::state::transform_point(
+        from: ::state::coordinate_internal,
+        to: ::state::coordinate_world,
+        point: ::state::position(),
+    );
+    float volumeSample = ::tex::lookup_float(
+                    tex: volume_texture,
+                    coord: texCoords + float3(0.5, 0.5, 0.5), // 0.5 is to compensate for the -0.5 to 0.5 world coords
+                    wrap_u: ::tex::wrap_clip,
+                    wrap_v: ::tex::wrap_clip,
+                    wrap_w: ::tex::wrap_clip,
+                );
+    float preclassifiedValue = ::math::clamp((volumeSample - data_range.x) / (data_range.y - data_range.x), 0.0, 1.0);
+    float contrastedValue = ::math::pow(preclassifiedValue, contrast); // simple contrast adjustment
+    float4 classified = ::tex::lookup_float4(
+        tex: transfer_function,
+        coord: float2(contrastedValue, 0.5), // 0.5 is for mid-texel
+        wrap_u: ::tex::wrap_clip,
+    );
+} in material(
+    surface: material_surface(
+        scattering: ::df::diffuse_reflection_bsdf(
+            tint: color(classified.x, classified.y, classified.z),
+        ),
+    ),
+    geometry: material_geometry(
+        cutout_opacity: classified.w
+    ),
+);

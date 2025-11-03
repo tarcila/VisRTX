@@ -420,6 +420,11 @@ void LayerTree::buildUI_objectSceneMenu()
           clearSelectedNode = true;
         }
 
+        if (ImGui::MenuItem("volume slice test")) {
+          tsd::io::generate_volumeSliceTest(scene, menuNode);
+          clearSelectedNode = true;
+        }
+
         ImGui::EndMenu();
       }
 
