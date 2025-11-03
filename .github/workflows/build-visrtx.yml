@@ -1,0 +1,18 @@
+name: Build VisRTX
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [linux, windows]
+    runs-on: ${{ matrix.os }}-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Dump runner info
+        run: |          
+          which nvcc
