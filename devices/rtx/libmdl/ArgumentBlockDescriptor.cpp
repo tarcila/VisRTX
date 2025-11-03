@@ -67,11 +67,11 @@ ArgumentBlockDescriptor::ArgumentBlockDescriptor(libmdl::Core *core,
       case 2: {
         switch (element_type->get_kind()) {
         case mi::neuraylib::IType::TK_INT: {
-          m_arguments.push_back({name, ArgumentType::Int});
+          m_arguments.push_back({name, ArgumentType::Int2});
           break;
         }
         case mi::neuraylib::IType::TK_FLOAT: {
-          m_arguments.push_back({name, ArgumentType::Float});
+          m_arguments.push_back({name, ArgumentType::Float2});
           break;
         }
         default: {
