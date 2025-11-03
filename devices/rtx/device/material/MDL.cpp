@@ -86,6 +86,10 @@ void MDL::clearSamplers()
 
 void MDL::commitParameters()
 {
+  m_parameterMap.clear();
+  for (auto param = params_begin(); param != params_end(); ++param) {
+    m_parameterMap[param->first] = param->second;
+  }
   Material::commitParameters();
 }
 
@@ -94,7 +98,14 @@ void MDL::finalize()
   syncSource();
   syncImplementationIndex();
   syncParameters();
-  upload();
+
+  if (const auto &argBlockData = m_argumentBlockInstance->getArgumentBlockData(); !argBlockData.empty()) {
+      m_argBlockBuffer.upload(data(argBlockData), size(argBlockData));
+  } else {
+    m_argBlockBuffer.reset();
+  }
+
+  Material::finalize();
 }
 
 void MDL::syncSource()
@@ -186,7 +197,9 @@ void MDL::syncParameters()
     }
 
     for (auto &&[name, type] : argumentBlockInstance.enumerateArguments()) {
-      auto sourceParamAny = getParamDirect(name);
+      auto sourceParamAny = m_parameterMap.find(name) != m_parameterMap.end()
+                                ? m_parameterMap[name]
+                                : helium::AnariAny{};
 
       if (sourceParamAny.valid() == 0) {
         // Parameter not set, reset to default value.
@@ -319,8 +332,22 @@ void MDL::syncParameters()
 
         if (sampler) {
           // Find a valid slot for out sampler.
-          auto it =
-              std::find(begin(m_samplers), end(m_samplers), SamplerDesc{});
+          // Check if this input if already bound and then release it
+          auto it = std::find_if(begin(m_samplers), end(m_samplers), [&name](const SamplerDesc &desc) {
+            return desc.name == name;
+          });
+          if (it != end(m_samplers)) {
+            // Found, release
+            if (it->isFromRegistry) {
+              samplerRegistry.releaseSampler(it->sampler);
+            } else {
+              it->sampler->refDec(helium::INTERNAL);
+            }
+          } else {
+            // Search for a free slot to reuse
+            it = std::find(begin(m_samplers), end(m_samplers), SamplerDesc{});
+          }
+          
           if (it == end(m_samplers)) {
             it = m_samplers.insert(it, {sampler, name, samplerIsFromRegistry});
           } else {
@@ -359,7 +386,8 @@ MaterialGPUData MDL::gpuData() const
 
   if (m_argumentBlockInstance.has_value()) {
     retval.materialData.mdl.numSamplers =
-        std::min(std::size(retval.materialData.mdl.samplers), size(m_samplers));
+      std::min(std::size(retval.materialData.mdl.samplers), size(m_samplers));
+
     std::fill(std::begin(retval.materialData.mdl.samplers),
         std::end(retval.materialData.mdl.samplers),
         DeviceObjectIndex(~0));
@@ -370,13 +398,6 @@ MaterialGPUData MDL::gpuData() const
           return v.sampler ? v.sampler->index() : DeviceObjectIndex(~0);
         });
 
-    if (const auto &argBlockData =
-            m_argumentBlockInstance->getArgumentBlockData();
-        !argBlockData.empty()) {
-      m_argBlockBuffer.upload(data(argBlockData), size(argBlockData));
-    } else {
-      m_argBlockBuffer.reset();
-    }
     retval.materialData.mdl.argBlock = m_argBlockBuffer.bytes()
         ? m_argBlockBuffer.ptrAs<const char>()
         : nullptr;

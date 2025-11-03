@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <helium/utility/AnariAny.h>
 #include "Material.h"
 #include "gpu/gpu_objects.h"
 #include "mdl/MaterialRegistry.h"
@@ -61,10 +62,11 @@ struct MDL : public Material
 
  private:
   MaterialGPUData gpuData() const override;
+  std::map<std::string, helium::AnariAny> m_parameterMap;
 
   void clearSamplers();
 
-  mutable DeviceBuffer m_argBlockBuffer;
+  DeviceBuffer m_argBlockBuffer;
 
   std::string m_source;
   std::string m_sourceType;
