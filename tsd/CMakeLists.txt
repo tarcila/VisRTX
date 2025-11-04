@@ -32,9 +32,24 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
+include(CMakeDependentOption)
+
 ## Global options ##
 
-option(BUILD_INTERACTIVE_APPS "Build interactive applications" ON)
+option(TSD_BUILD_APPS "Build TSD applications" ON)
+cmake_dependent_option(TSD_BUILD_INTERACTIVE_APPS
+  "Build interactive applications"
+  ON
+  TSD_BUILD_APPS
+  OFF
+)
+cmake_dependent_option(TSD_BUILD_UI_LIBRARY
+  "Build the TSD ImGui UI library"
+  ON
+  "NOT TSD_BUILD_INTERACTIVE_APPS"
+  ON
+)
+
 option(TSD_USE_HDF5 "Support loading AMR grids from HDF5" OFF)
 option(TSD_USE_ASSIMP "Support loading geometry with libassimp" OFF)
 option(TSD_USE_SDL3 "Use SDL3 interop in render pipeline" ON)
@@ -55,7 +70,7 @@ project(tsd LANGUAGES C CXX)
 
 ## Major dependencies ##
 
-if (BUILD_INTERACTIVE_APPS)
+if (TSD_BUILD_INTERACTIVE_APPS)
   find_package(anari ${ANARI_REQUIRED_VERSION} REQUIRED COMPONENTS viewer)
 else()
   find_package(anari ${ANARI_REQUIRED_VERSION} REQUIRED)
@@ -75,7 +90,9 @@ endif()
 
 ## Build Libraries ##
 
-add_subdirectory(apps)
+if (TSD_BUILD_APPS)
+  add_subdirectory(apps)
+endif()
 add_subdirectory(external)
 add_subdirectory(src)
 add_subdirectory(tests)
