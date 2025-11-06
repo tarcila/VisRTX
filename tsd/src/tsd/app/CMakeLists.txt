@@ -5,5 +5,5 @@ project(tsd_app)
 
 project_add_library(STATIC)
 project_sources(PRIVATE Core.cpp)
-project_link_libraries(PUBLIC tsd_core tsd_io)
+project_link_libraries(PUBLIC tsd_core tsd_io tsd_rendering)
 project_include_directories(PUBLIC ${CMAKE_CURRENT_LIST_DIR})
