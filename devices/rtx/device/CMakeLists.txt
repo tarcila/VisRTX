@@ -252,7 +252,7 @@ PRIVATE
   anari::helium
   OptiX::OptiX
   CUDA::cuda_driver
-  CUDA::curand
+  CUDA::curand_static
   CUDA::nvml
   visrtx::glm
   visrtx::fmt
@@ -320,7 +320,7 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
     anari::anari
     anari::helium
     OptiX::OptiX
-    CUDA::curand
+    CUDA::curand_static
     visrtx::glm
     visrtx::nanovdb
     $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
