@@ -775,7 +775,7 @@ void Viewport::setDatabaseCamera(tsd::core::CameraRef cam)
       m_selectedCamera.data());
   }
   updateCamera(true);
-  tsd::core::logStatus("Viewport using database camera '%s'", 
+  tsd::core::logStatus("Viewport using database camera '%s'",
                        cam->name().c_str());
 }
 
@@ -800,10 +800,10 @@ void Viewport::createCameraFromCurrentView()
   if (m_selectedCamera) {
     // If a database camera is selected, copy it
     auto sourceCam = m_selectedCamera;
-    
+
     // Create new camera with same subtype
     cam = scene.createObject<tsd::core::Camera>(sourceCam->subtype());
-    
+
     // Copy all parameters
     for (size_t i = 0; i < sourceCam->numParameters(); i++) {
       const auto &srcParam = sourceCam->parameterAt(i);
@@ -812,7 +812,7 @@ void Viewport::createCameraFromCurrentView()
     }
   } else {
     // No database camera selected, create from manipulator state
-    
+
     // Determine camera type from current ANARI camera
     tsd::core::Token subtype = tsd::core::tokens::camera::perspective;
     if (m_currentCamera == m_orthoCamera)
@@ -1019,14 +1019,15 @@ void Viewport::ui_menubar()
 
       // Build camera list
       std::vector<std::string> cameraNames = {"<Manipulator>"};
-      std::vector<tsd::core::CameraRef> cameraRefs = {{}};
+      m_menuCameraRefs.resize(1);
+      m_menuCameraRefs[0] = {};
       int currentSelection = 0;
 
       const auto &cameraDB = appCore()->tsd.scene.objectDB().camera;
       tsd::core::foreach_item_const(cameraDB, [&](const auto *cam) {
         if (cam) {
           cameraNames.push_back(cam->name());
-          cameraRefs.push_back(cam->self());
+          m_menuCameraRefs.push_back(cam->self());
           if (m_selectedCamera == cam->self()) {
             currentSelection = static_cast<int>(cameraNames.size() - 1);
           }
@@ -1043,7 +1044,7 @@ void Viewport::ui_menubar()
         if (currentSelection == 0) {
           clearDatabaseCamera();
         } else {
-          setDatabaseCamera(cameraRefs[currentSelection]);
+          setDatabaseCamera(m_menuCameraRefs[currentSelection]);
         }
       }
 
@@ -1291,15 +1292,15 @@ void Viewport::ui_overlay()
 
   if (ImGui::Begin(m_overlayWindowName.c_str(), nullptr, window_flags)) {
     ImGui::Text("  device: %s", m_libName.c_str());
-    
+
     // Camera indicator
     if (m_selectedCamera) {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), 
+      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
                          "  camera: %s", m_selectedCamera->name().c_str());
     } else {
       ImGui::Text("  camera: <Manipulator>");
     }
-    
+
     ImGui::Text("Viewport: %i x %i", m_viewportSize.x, m_viewportSize.y);
     ImGui::Text("  render: %i x %i", m_renderSize.x, m_renderSize.y);
     ImGui::Text(" samples: %i", m_frameSamples);

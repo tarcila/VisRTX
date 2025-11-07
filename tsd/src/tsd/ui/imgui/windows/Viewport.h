@@ -147,6 +147,7 @@ struct Viewport : public Window
   // Database camera state
   tsd::core::CameraRef m_selectedCamera;
   std::unique_ptr<tsd::core::CameraUpdateDelegate> m_cameraDelegate;
+  std::vector<tsd::core::CameraRef> m_menuCameraRefs;
 
   // display
 
