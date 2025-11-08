@@ -134,7 +134,7 @@ struct Viewport : public Window
     anari::Renderer r{nullptr};
   } m_rud;
 
-  // camera manipulator
+  // Camera manipulator //
 
   int m_arcballUp{1};
   tsd::rendering::Manipulator m_localArcball;
@@ -143,13 +143,12 @@ struct Viewport : public Window
   float m_apertureRadius{0.f};
   float m_focusDistance{1.f};
 
-
-  // Database camera state
+  // Database camera state //
   tsd::core::CameraRef m_selectedCamera;
   std::unique_ptr<tsd::core::CameraUpdateDelegate> m_cameraDelegate;
   std::vector<tsd::core::CameraRef> m_menuCameraRefs;
 
-  // display
+  // Display //
 
   tsd::rendering::RenderPipeline m_pipeline;
   tsd::rendering::AnariSceneRenderPass *m_anariPass{nullptr};

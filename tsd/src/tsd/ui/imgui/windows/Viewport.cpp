@@ -6,8 +6,8 @@
 #include "tsd/ui/imgui/Application.h"
 #include "tsd/ui/imgui/tsd_ui_imgui.h"
 // tsd_core
-#include "tsd/core/scene/objects/Camera.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/core/scene/objects/Camera.hpp"
 // tsd_rendering
 #include "tsd/rendering/view/ManipulatorToAnari.hpp"
 // tsd_io
@@ -19,9 +19,9 @@
 #include <filesystem>
 #include <iomanip>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
-#include <memory>
 #include <utility>
 
 // stb
@@ -79,12 +79,12 @@ void Viewport::buildUI()
   ImGui::EndDisabled();
 
   // Make is so that middle and right-clicks get the window focused.
-  // This enables middle/right-click-drag to work right away even if the window is not
-  // focused same as left-click-drag works without requiring a prior
+  // This enables middle/right-click-drag to work right away even if the window
+  // is not focused same as left-click-drag works without requiring a prior
   // left-click-focus.
-  if (ImGui::IsWindowHovered() && (
-      ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
-      ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+  if (ImGui::IsWindowHovered()
+      && (ImGui::IsMouseDown(ImGuiMouseButton_Right)
+          || ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
     ImGui::SetWindowFocus();
   }
 
@@ -591,16 +591,20 @@ void Viewport::updateCamera(bool force)
   }
 
   if (!force
-      && !(isDbCamera ? m_cameraDelegate->hasChanged(m_cameraToken) : m_arcball->hasChanged(m_cameraToken)))
-        return;
+      && !(isDbCamera ? m_cameraDelegate->hasChanged(m_cameraToken)
+                      : m_arcball->hasChanged(m_cameraToken)))
+    return;
 
   // Get compass information
   tsd::math::float3 axesDir;
   tsd::math::float3 axesUp;
   if (isDbCamera) {
     applyCameraParameters(&*m_selectedCamera);
-    axesDir = m_selectedCamera->parameterValueAs<tsd::math::float3>("direction").value_or(tsd::math::float3(0.0f, 0.0f, -1.0f));
-    axesUp = m_selectedCamera->parameterValueAs<tsd::math::float3>("up").value_or(tsd::math::float3(0.0f, 1.0f, 0.0f));
+    axesDir = m_selectedCamera->parameterValueAs<tsd::math::float3>("direction")
+                  .value_or(tsd::math::float3(0.0f, 0.0f, -1.0f));
+    axesUp =
+        m_selectedCamera->parameterValueAs<tsd::math::float3>("up").value_or(
+            tsd::math::float3(0.0f, 1.0f, 0.0f));
   } else {
     // perspective camera //
     tsd::rendering::updateCameraParametersPerspective(
@@ -748,8 +752,8 @@ void Viewport::applyCameraParameters(tsd::core::Camera *cam)
   // Not doing so creates an infinite invalidate->restart accumulation
   // loop.
   m_cameraDelegate->pushIgnoreChangeScope();
-  if (cam->subtype() == tsd::core::tokens::camera::perspective ||
-     cam->subtype() == tsd::core::tokens::camera::orthographic) {
+  if (cam->subtype() == tsd::core::tokens::camera::perspective
+      || cam->subtype() == tsd::core::tokens::camera::orthographic) {
     // Let's not check for cam->parameter("aspect")
     // and always recompute an aspect ratio based on viewport size.
     float aspect = m_viewportSize.x / float(m_viewportSize.y);
@@ -772,11 +776,11 @@ void Viewport::setDatabaseCamera(tsd::core::CameraRef cam)
   // Wire new delegate
   if (m_selectedCamera) {
     m_cameraDelegate = std::make_unique<tsd::core::CameraUpdateDelegate>(
-      m_selectedCamera.data());
+        m_selectedCamera.data());
   }
   updateCamera(true);
-  tsd::core::logStatus("Viewport using database camera '%s'",
-                       cam->name().c_str());
+  tsd::core::logStatus(
+      "Viewport using database camera '%s'", cam->name().c_str());
 }
 
 void Viewport::clearDatabaseCamera()
@@ -1034,13 +1038,16 @@ void Viewport::ui_menubar()
         }
       });
 
-      if (ImGui::Combo("Select", &currentSelection,
-          [](void* data, int idx, const char** out) {
-            auto* names = (std::vector<std::string>*)data;
-            *out = (*names)[idx].c_str();
-            return true;
-          }, &cameraNames, static_cast<int>(cameraNames.size()))) {
-
+      if (ImGui::Combo(
+              "Select",
+              &currentSelection,
+              [](void *data, int idx, const char **out) {
+                auto *names = (std::vector<std::string> *)data;
+                *out = (*names)[idx].c_str();
+                return true;
+              },
+              &cameraNames,
+              static_cast<int>(cameraNames.size()))) {
         if (currentSelection == 0) {
           clearDatabaseCamera();
         } else {
@@ -1296,7 +1303,8 @@ void Viewport::ui_overlay()
     // Camera indicator
     if (m_selectedCamera) {
       ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
-                         "  camera: %s", m_selectedCamera->name().c_str());
+          "  camera: %s",
+          m_selectedCamera->name().c_str());
     } else {
       ImGui::Text("  camera: <Manipulator>");
     }
