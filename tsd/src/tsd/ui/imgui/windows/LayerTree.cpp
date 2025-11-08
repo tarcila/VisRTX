@@ -51,6 +51,17 @@ void LayerTree::buildUI_layerHeader()
   auto &scene = appCore()->tsd.scene;
   const auto &layers = scene.layers();
 
+  if (scene.numberOfLayers() == 0) {
+    ImGui::Text("No layers in scene");
+    ImGui::BeginDisabled(!m_enableAddRemove);
+    if (ImGui::Button("new")) {
+      s_newLayerName.clear();
+      ImGui::OpenPopup("LayerTree_contextMenu_newLayer");
+    }
+    ImGui::EndDisabled();
+    return;
+  }
+
   ImGui::SetNextItemWidth(-1.0f);
   ImGui::Combo("##layer",
       &m_layerIdx,
@@ -94,6 +105,10 @@ void LayerTree::buildUI_layerHeader()
 void LayerTree::buildUI_tree()
 {
   auto &scene = appCore()->tsd.scene;
+
+  if (scene.numberOfLayers() == 0)
+    return;
+
   auto &layer = *scene.layer(m_layerIdx);
 
   if (!m_menuVisible)
@@ -246,6 +261,10 @@ void LayerTree::buildUI_activateObjectSceneMenu()
 void LayerTree::buildUI_objectSceneMenu()
 {
   auto &scene = appCore()->tsd.scene;
+
+  if (scene.numberOfLayers() == 0)
+    return;
+
   auto &layer = *scene.layer(m_layerIdx);
   const bool nodeSelected = m_menuNode != TSD_INVALID_INDEX;
   auto menuNode = nodeSelected ? layer.at(m_menuNode) : layer.root();

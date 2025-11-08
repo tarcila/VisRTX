@@ -95,10 +95,9 @@ void ImportFileDialog::buildUI()
       auto importRoot = core->tsd.selectedNode;
       if (!importRoot)
         importRoot = layer->root();
-
       app::ImportFile file{
           static_cast<app::ImporterType>(m_selectedFileType), m_filename};
-      core->importFiles({file}, importRoot);
+      core->importFile(file, importRoot);
       scene.signalLayerChange(layer);
     };
 
