@@ -105,6 +105,8 @@ void Core::parseCommandLine(int argc, const char **argv)
   auto importerType = ImporterType::NONE;
 
   for (int i = 1; i < argc; i++) {
+    if (!argv[i])
+      continue;
     std::string arg = argv[i];
     if (arg == "-v" || arg == "--verbose")
       this->logging.verbose = true;
