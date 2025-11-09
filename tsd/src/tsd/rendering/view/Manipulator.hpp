@@ -44,6 +44,9 @@ class Manipulator
   void setFixedDistance(float dist);
   void setAzel(anari::math::float2 azel);
 
+  void setZoomSpeed(float speed);
+  float zoomSpeed() const;
+
   void startNewRotation();
 
   bool hasChanged(UpdateToken &t) const;
@@ -133,6 +136,16 @@ inline void Manipulator::setFixedDistance(float dist)
 inline void Manipulator::setAzel(anari::math::float2 azel)
 {
   setConfig(m_at, m_distance, azel);
+}
+
+inline void Manipulator::setZoomSpeed(float speed)
+{
+  m_speed = speed;
+}
+
+inline float Manipulator::zoomSpeed() const
+{
+  return m_speed;
 }
 
 inline void Manipulator::startNewRotation()
