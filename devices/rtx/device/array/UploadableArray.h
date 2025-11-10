@@ -45,7 +45,11 @@ struct UploadableArray : public helium::BaseArray
   virtual void uploadArrayData() const = 0;
 
   void markDataModified();
+  helium::TimeStamp lastDataModified() const;
+
   void markDataUploaded() const;
+  helium::TimeStamp lastDataUploaded() const;
+
   bool needToUploadData() const;
 
  private:

@@ -33,8 +33,8 @@
 
 #include "array/Array.h"
 #include "sampling/CDF.h"
-#include "utility/DeviceBuffer.h"
 #include "utility/CudaImageTexture.h"
+#include "utility/DeviceBuffer.h"
 
 // anari
 #include <anari/frontend/anari_enums.h>
@@ -68,50 +68,56 @@ HDRI::~HDRI()
 void HDRI::commitParameters()
 {
   Light::commitParameters();
-  m_radiance = nullptr;
-  if (auto radiance = getParamObject<Array2D>("radiance")) {
-    if (radiance->elementType() == ANARI_FLOAT32_VEC3) {
-      m_radiance = getParamObject<Array2D>("radiance");
-    } else {
-      reportMessage(ANARI_SEVERITY_WARNING,
-          "invalid element type %s for 'radiance' on HDRI light", anari::toString(radiance->elementType()));
-    }
-  }
-}
-
-void HDRI::finalize()
-{
-  cleanup();
-
-  if (!m_radiance) {
-    reportMessage(ANARI_SEVERITY_WARNING,
-        "missing required parameter 'radiance' on HDRI light");
-    return;
-  }
-
   m_direction = getParam<vec3>("direction", vec3(1.f, 0.f, 0.f));
   m_up = getParam<vec3>("up", vec3(0.f, 0.f, 1.f));
   m_scale = getParam<float>("scale", 1.f);
   m_visible = getParam<bool>("visible", true);
+  auto *oldRadiance = m_radiance.get();
+  m_radiance = getParamObject<Array2D>("radiance");
+  if (oldRadiance != m_radiance.get())
+    m_radianceLastUpdated = {};
+}
 
-  cudaArray_t cuArray = {};
-  const bool isFp = isFloat(m_radiance->elementType());
-  if (isFp)
-    cuArray = m_radiance->acquireCUDAArrayFloat();
-  else
-    cuArray = m_radiance->acquireCUDAArrayUint8();
+void HDRI::finalize()
+{
+  if (!m_radiance) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "missing required parameter 'radiance' on HDRI light");
+    return;
+  } else if (m_radiance->elementType() != ANARI_FLOAT32_VEC3) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "invalid element type %s for 'radiance' on HDRI light",
+        anari::toString(m_radiance->elementType()));
+    m_radiance = nullptr;
+    m_radianceLastUpdated = {};
+    return;
+  }
 
-  m_size = {m_radiance->size(0), m_radiance->size(1)};
+  auto radianceDataModified = m_radiance->lastDataModified();
+  if (m_radianceLastUpdated != radianceDataModified) {
+    m_radianceLastUpdated = radianceDataModified;
 
-  m_pdfWeight =
-      generateCDFTables(m_radiance->dataAs<glm::vec3>(AddressSpace::GPU),
-          m_radiance->size(0),
-          m_radiance->size(1),
-          &m_marginalCDF,
-          &m_conditionalCDF);
+    cleanup();
 
-  m_radianceTex =
-      makeCudaTextureObject2D(cuArray, !isFp, "linear", "repeat", "clampToEdge");
+    cudaArray_t cuArray = {};
+    const bool isFp = isFloat(m_radiance->elementType());
+    if (isFp)
+      cuArray = m_radiance->acquireCUDAArrayFloat();
+    else
+      cuArray = m_radiance->acquireCUDAArrayUint8();
+
+    m_size = {m_radiance->size(0), m_radiance->size(1)};
+
+    m_pdfWeight =
+        generateCDFTables(m_radiance->dataAs<glm::vec3>(AddressSpace::GPU),
+            m_radiance->size(0),
+            m_radiance->size(1),
+            &m_marginalCDF,
+            &m_conditionalCDF);
+
+    m_radianceTex = makeCudaTextureObject2D(
+        cuArray, !isFp, "linear", "repeat", "clampToEdge");
+  }
 
 #ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG
   cudaMalloc(&m_samples, m_size.x * m_size.y * sizeof(unsigned int));

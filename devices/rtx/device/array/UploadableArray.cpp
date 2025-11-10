@@ -44,14 +44,24 @@ void UploadableArray::markDataModified()
   m_lastDataModified = helium::newTimeStamp();
 }
 
+helium::TimeStamp UploadableArray::lastDataModified() const
+{
+  return m_lastDataModified;
+}
+
 void UploadableArray::markDataUploaded() const
 {
   m_lastDataUploaded = helium::newTimeStamp();
 }
 
+helium::TimeStamp UploadableArray::lastDataUploaded() const
+{
+  return m_lastDataUploaded;
+}
+
 bool UploadableArray::needToUploadData() const
 {
-  return m_lastDataModified > m_lastDataUploaded;
+  return lastDataModified() > lastDataUploaded();
 }
 
 } // namespace visrtx
