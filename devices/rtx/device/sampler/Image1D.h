@@ -56,6 +56,7 @@ struct Image1D : public Sampler
   std::string m_filter;
   std::string m_wrap1;
   helium::ChangeObserverPtr<Array1D> m_image;
+  helium::TimeStamp m_imageLastUpdated{};
 
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};

@@ -38,9 +38,8 @@
 // Texture size is specified as a uint64_2 in the specifications.
 // Let's make sure we can process that.
 namespace anari {
-  ANARI_TYPEFOR_SPECIALIZATION(glm::u64vec2, ANARI_UINT64_VEC2);
+ANARI_TYPEFOR_SPECIALIZATION(glm::u64vec2, ANARI_UINT64_VEC2);
 }
-
 
 namespace visrtx {
 
@@ -59,16 +58,17 @@ void CompressedImage2D::commitParameters()
   m_filter = getParamString("filter", "linear");
   m_wrap1 = getParamString("wrapMode1", "clampToEdge");
   m_wrap2 = getParamString("wrapMode2", "clampToEdge");
-  m_image = getParamObject<Array1D>("image");
   auto size64 = getParam("size", glm::u64vec2(0, 0));
   m_size = {size64.x, size64.y};
   m_format = getParamString("format", "");
+  auto *oldImage = m_image.get();
+  m_image = getParamObject<Array1D>("image");
+  if (oldImage != m_image.get())
+    m_imageLastUpdated = {};
 }
 
 void CompressedImage2D::finalize()
 {
-  cleanup();
-
   if (!m_image) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'image' on CompressedImage2D sampler");
@@ -84,57 +84,64 @@ void CompressedImage2D::finalize()
     return;
   }
 
-  cudaChannelFormatKind channelFormatKind;
+  auto imageDataModified = m_image->lastDataModified();
+  if (m_imageLastUpdated != imageDataModified) {
+    m_imageLastUpdated = imageDataModified;
 
-  if (m_format == "BC1_RGB" || m_format == "BC1_RGBA") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed1;
-  } else if (m_format == "BC1_RGB_SRGB" || m_format == "BC1_RGBA_SRGB") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed1SRGB;
-  } else if (m_format == "BC2") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed2;
-  } else if (m_format == "BC2_SRGB") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed2SRGB;
-  } else if (m_format == "BC3") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed3;
-  } else if (m_format == "BC3_SRGB") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed3SRGB;
-  } else if (m_format == "BC4") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed4;
-  } else if (m_format == "BC4_SNORM") {
-    channelFormatKind = cudaChannelFormatKindSignedBlockCompressed4;
-  } else if (m_format == "BC5") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed5;
-  } else if (m_format == "BC5_SNORM") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed5;
-  } else if (m_format == "BC6H_UFLOAT") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed6H;
-  } else if (m_format == "BC6H_SFLOAT") {
-    channelFormatKind = cudaChannelFormatKindSignedBlockCompressed6H;
-  } else if (m_format == "BC7") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed7;
-  } else if (m_format == "BC7_SRGB") {
-    channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed7SRGB;
-  } else {
-    reportMessage(ANARI_SEVERITY_WARNING,
-        "invalid texture format encountered in CompressedImage2D sampler (%s)",
-        m_format);
-    return;
+    cleanup();
+
+    cudaChannelFormatKind channelFormatKind;
+
+    if (m_format == "BC1_RGB" || m_format == "BC1_RGBA") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed1;
+    } else if (m_format == "BC1_RGB_SRGB" || m_format == "BC1_RGBA_SRGB") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed1SRGB;
+    } else if (m_format == "BC2") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed2;
+    } else if (m_format == "BC2_SRGB") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed2SRGB;
+    } else if (m_format == "BC3") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed3;
+    } else if (m_format == "BC3_SRGB") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed3SRGB;
+    } else if (m_format == "BC4") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed4;
+    } else if (m_format == "BC4_SNORM") {
+      channelFormatKind = cudaChannelFormatKindSignedBlockCompressed4;
+    } else if (m_format == "BC5") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed5;
+    } else if (m_format == "BC5_SNORM") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed5;
+    } else if (m_format == "BC6H_UFLOAT") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed6H;
+    } else if (m_format == "BC6H_SFLOAT") {
+      channelFormatKind = cudaChannelFormatKindSignedBlockCompressed6H;
+    } else if (m_format == "BC7") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed7;
+    } else if (m_format == "BC7_SRGB") {
+      channelFormatKind = cudaChannelFormatKindUnsignedBlockCompressed7SRGB;
+    } else {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "invalid texture format encountered in CompressedImage2D sampler (%s)",
+          m_format);
+      return;
+    }
+    makeCudaCompressedTextureArray(
+        m_cuArray, m_size, *m_image.get(), channelFormatKind);
+
+    m_texture = makeCudaCompressedTextureObject2D(m_cuArray,
+        channelFormatKind,
+        m_filter,
+        m_wrap1,
+        m_wrap2,
+        m_borderColor);
+    m_texels = makeCudaCompressedTexelObject2D(m_cuArray,
+        channelFormatKind,
+        "nearest",
+        m_wrap1,
+        m_wrap2,
+        m_borderColor);
   }
-  makeCudaCompressedTextureArray(
-      m_cuArray, m_size, *m_image.get(), channelFormatKind);
-
-  m_texture = makeCudaCompressedTextureObject2D(m_cuArray,
-    channelFormatKind,
-      m_filter,
-      m_wrap1,
-      m_wrap2,
-      m_borderColor);
-  m_texels = makeCudaCompressedTexelObject2D(m_cuArray,
-    channelFormatKind,
-      "nearest",
-      m_wrap1,
-      m_wrap2,
-      m_borderColor);
 
   upload();
 }
@@ -174,8 +181,7 @@ SamplerGPUData CompressedImage2D::gpuData() const
   retval.image2D.texobj = m_texture;
   retval.image2D.texelTexobj = m_texels;
   retval.image2D.size = m_size;
-  retval.image2D.invSize =
-      glm::vec2(1.0f / m_size.x, 1.0f / m_size.y);
+  retval.image2D.invSize = glm::vec2(1.0f / m_size.x, 1.0f / m_size.y);
 
   return retval;
 }

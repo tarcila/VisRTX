@@ -61,6 +61,7 @@ struct CompressedImage2D : public Sampler
   std::string m_format;
   uvec2 m_size;
   helium::ChangeObserverPtr<Array1D> m_image;
+  helium::TimeStamp m_imageLastUpdated{};
 
   cudaArray_t m_cuArray{};
   cudaTextureObject_t m_texture{};

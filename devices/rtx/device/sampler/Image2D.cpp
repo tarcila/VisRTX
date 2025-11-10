@@ -46,13 +46,14 @@ void Image2D::commitParameters()
   m_filter = getParamString("filter", "linear");
   m_wrap1 = getParamString("wrapMode1", "clampToEdge");
   m_wrap2 = getParamString("wrapMode2", "clampToEdge");
+  auto *oldImage = m_image.get();
   m_image = getParamObject<Array2D>("image");
+  if (oldImage != m_image.get())
+    m_imageLastUpdated = {};
 }
 
 void Image2D::finalize()
 {
-  cleanup();
-
   if (!m_image) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'image' on image2D sampler");
@@ -68,15 +69,24 @@ void Image2D::finalize()
     return;
   }
 
-  cudaArray_t cuArray = {};
-  bool isFp = isFloat(m_image->elementType());
-  if (isFp) {
-    cuArray = m_image->acquireCUDAArrayFloat();
-  } else {
-    cuArray = m_image->acquireCUDAArrayUint8();
+  auto imageDataModified = m_image->lastDataModified();
+  if (m_imageLastUpdated != imageDataModified) {
+    m_imageLastUpdated = imageDataModified;
+
+    cleanup();
+
+    cudaArray_t cuArray = {};
+    bool isFp = isFloat(m_image->elementType());
+    if (isFp) {
+      cuArray = m_image->acquireCUDAArrayFloat();
+    } else {
+      cuArray = m_image->acquireCUDAArrayUint8();
+    }
+    m_texture = makeCudaTextureObject2D(
+        cuArray, !isFp, m_filter, m_wrap1, m_wrap2, m_borderColor);
+    m_texels = makeCudaTexelObject2D(
+        cuArray, !isFp, "nearest", m_wrap1, m_wrap2, m_borderColor);
   }
-  m_texture = makeCudaTextureObject2D(cuArray, !isFp, m_filter, m_wrap1, m_wrap2, m_borderColor);
-  m_texels = makeCudaTexelObject2D(cuArray, !isFp, "nearest", m_wrap1, m_wrap2, m_borderColor);
 
   upload();
 }

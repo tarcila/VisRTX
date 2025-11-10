@@ -58,6 +58,7 @@ struct Image3D : public Sampler
   std::string m_wrap2;
   std::string m_wrap3;
   helium::ChangeObserverPtr<Array3D> m_image;
+  helium::TimeStamp m_imageLastUpdated{};
 
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};

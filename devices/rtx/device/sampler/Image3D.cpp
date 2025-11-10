@@ -51,13 +51,14 @@ void Image3D::commitParameters()
   m_wrap1 = getParamString("wrapMode1", "clampToEdge");
   m_wrap2 = getParamString("wrapMode2", "clampToEdge");
   m_wrap3 = getParamString("wrapMode3", "clampToEdge");
+  auto *oldImage = m_image.get();
   m_image = getParamObject<Array3D>("image");
+  if (oldImage != m_image.get())
+    m_imageLastUpdated = {};
 }
 
 void Image3D::finalize()
 {
-  cleanup();
-
   if (!m_image) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'image' on image3D sampler");
@@ -73,17 +74,24 @@ void Image3D::finalize()
     return;
   }
 
-  cudaArray_t cuArray = {};
-  bool isFp = isFloat(m_image->elementType());
-  if (isFp) {
-    cuArray = m_image->acquireCUDAArrayFloat();
-  } else {
-    cuArray = m_image->acquireCUDAArrayUint8();
+  auto imageDataModified = m_image->lastDataModified();
+  if (m_imageLastUpdated != imageDataModified) {
+    m_imageLastUpdated = imageDataModified;
+
+    cleanup();
+
+    cudaArray_t cuArray = {};
+    bool isFp = isFloat(m_image->elementType());
+    if (isFp) {
+      cuArray = m_image->acquireCUDAArrayFloat();
+    } else {
+      cuArray = m_image->acquireCUDAArrayUint8();
+    }
+    m_texture = makeCudaTextureObject3D(
+        cuArray, !isFp, m_filter, m_wrap1, m_wrap2, m_wrap3, m_borderColor);
+    m_texels = makeCudaTexelObject3D(
+        cuArray, !isFp, "nearest", m_wrap1, m_wrap2, m_wrap3, m_borderColor);
   }
-  m_texture = makeCudaTextureObject3D(
-      cuArray, !isFp, m_filter, m_wrap1, m_wrap2, m_wrap3, m_borderColor);
-  m_texels = makeCudaTexelObject3D(
-      cuArray, !isFp, "nearest", m_wrap1, m_wrap2, m_wrap3, m_borderColor);
 
   upload();
 }
