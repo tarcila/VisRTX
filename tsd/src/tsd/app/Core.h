@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "tsd/app/TaskQueue.h"
 
@@ -25,6 +26,7 @@ namespace tsd::app {
 struct Core;
 
 using CameraPose = tsd::rendering::CameraPose;
+using DeviceInitParam = std::pair<std::string, tsd::core::Any>;
 
 enum class ImporterType
 {
@@ -87,7 +89,9 @@ struct ANARIDeviceManager
 {
   ANARIDeviceManager(Core *core);
 
-  anari::Device loadDevice(const std::string &libName);
+  anari::Device loadDevice(const std::string &libName,
+      const std::vector<DeviceInitParam> &initialDeviceParams = {});
+
   const anari::Extensions *loadDeviceExtensions(const std::string &libName);
   tsd::rendering::RenderIndex *acquireRenderIndex(
       tsd::core::Scene &c, anari::Device device);

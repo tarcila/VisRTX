@@ -321,7 +321,8 @@ void Core::importAnimations(const std::vector<ImportAnimationFiles> &files,
 
 ANARIDeviceManager::ANARIDeviceManager(Core *core) : m_core(core) {}
 
-anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName)
+anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName,
+    const std::vector<DeviceInitParam> &initialDeviceParams)
 {
   if (libraryName.empty() || libraryName == "{none}")
     return nullptr;
@@ -345,6 +346,15 @@ anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName)
   anari::unloadLibrary(library);
 
   anari::setParameter(dev, dev, "glAPI", "OpenGL");
+
+  for (const auto &param : initialDeviceParams) {
+    anari::setParameter(dev,
+        dev,
+        param.first.c_str(),
+        param.second.type(),
+        param.second.data());
+  }
+
   anari::commitParameters(dev, dev);
 
   m_loadedDevices[libraryName] = dev;
