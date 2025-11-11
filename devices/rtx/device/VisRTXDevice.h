@@ -157,7 +157,7 @@ struct VisRTXDevice : public helium::BaseDevice
   DeviceGlobalState *deviceState() const;
 
   int m_gpuID{-1};
-  int m_desiredGpuID{0};
+  int m_desiredGpuID{-1};
   int m_appGpuID{-1};
   bool m_eagerInit{false};
   std::atomic<DeviceInitStatus> m_initStatus{DeviceInitStatus::UNINITIALIZED};

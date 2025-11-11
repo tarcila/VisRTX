@@ -31,6 +31,8 @@
 
 #include "anari_library_visrtx_export.h"
 
+// std
+#include <cstdlib>
 // nvml
 #include <nvml.h>
 
@@ -463,7 +465,19 @@ void VisRTXDevice::deviceCommitParameters()
 {
   helium::BaseDevice::deviceCommitParameters();
   m_eagerInit = getParam<bool>("forceInit", false);
-  m_desiredGpuID = getParam<int>("cudaDevice", 0);
+  m_desiredGpuID = getParam<int>("cudaDevice", -1);
+
+  if (m_desiredGpuID < 0) {
+    if (auto *env = std::getenv("VISRTX_CUDA_DEVICE"); env) {
+      reportMessage(ANARI_SEVERITY_DEBUG,
+          "overriding cudaDevice param with VISRTX_CUDA_DEVICE env var: %s",
+          env);
+      m_desiredGpuID = std::atoi(env);
+    } else {
+      m_desiredGpuID = 0;
+    }
+  }
+
   if (m_gpuID >= 0 && m_desiredGpuID != m_gpuID) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "visrtx was already initialized to use GPU %i"
