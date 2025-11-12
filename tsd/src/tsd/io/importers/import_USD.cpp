@@ -10,13 +10,13 @@
 #include "tsd/core/TSDMath.hpp"
 #include "tsd/core/scene/objects/Array.hpp"
 #include "tsd/io/importers.hpp"
-#include "tsd/io/importers/detail/importer_common.hpp"
 #include "tsd/io/importers/detail/HDRImage.h"
+#include "tsd/io/importers/detail/importer_common.hpp"
 #if TSD_USE_USD
 // usd
+#include <pxr/base/gf/matrix4f.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
-#include <pxr/base/gf/matrix4f.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
@@ -390,11 +390,12 @@ static void import_usd_mesh(Scene &scene,
   pxr::TfToken uvInterpolation;
   bool hasUVs = false;
   bool hasUVIndices = false;
-  
+
   // Try common UV primvar names
-  const char* uvPrimvarNames[] = {"st", "uv", "UVMap"};
-  for (const char* uvName : uvPrimvarNames) {
-    pxr::UsdGeomPrimvar uvPrimvar = primvarsAPI.GetPrimvar(pxr::TfToken(uvName));
+  const char *uvPrimvarNames[] = {"st", "uv", "UVMap"};
+  for (const char *uvName : uvPrimvarNames) {
+    pxr::UsdGeomPrimvar uvPrimvar =
+        primvarsAPI.GetPrimvar(pxr::TfToken(uvName));
     if (uvPrimvar && uvPrimvar.HasValue()) {
       if (uvPrimvar.Get(&uvs)) {
         uvInterpolation = uvPrimvar.GetInterpolation();
@@ -402,14 +403,16 @@ static void import_usd_mesh(Scene &scene,
         // Check if this primvar has indices
         if (uvPrimvar.GetIndices(&uvIndices) && !uvIndices.empty()) {
           hasUVIndices = true;
-          logStatus("[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, %zu indices, interpolation: %s\n",
+          logStatus(
+              "[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, %zu indices, interpolation: %s\n",
               prim.GetName().GetString().c_str(),
               uvName,
               uvs.size(),
               uvIndices.size(),
               uvInterpolation.GetText());
         } else {
-          logStatus("[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, interpolation: %s\n",
+          logStatus(
+              "[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, interpolation: %s\n",
               prim.GetName().GetString().c_str(),
               uvName,
               uvs.size(),
@@ -420,7 +423,8 @@ static void import_usd_mesh(Scene &scene,
     }
   }
 
-  logStatus("[import_USD] Mesh '%s': %zu points, %zu faces, %zu normals, %zu UVs\n",
+  logStatus(
+      "[import_USD] Mesh '%s': %zu points, %zu faces, %zu normals, %zu UVs\n",
       prim.GetName().GetString().c_str(),
       points.size(),
       faceVertexCounts.size(),
@@ -432,14 +436,14 @@ static void import_usd_mesh(Scene &scene,
   std::vector<float2> outUVs;
   size_t index = 0;
   size_t uvIndex = 0;
-  
+
   for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
     int vertsInFace = faceVertexCounts[face];
     for (int v = 2; v < vertsInFace; ++v) {
       int idx0 = faceVertexIndices[index];
       int idx1 = faceVertexIndices[index + v - 1];
       int idx2 = faceVertexIndices[index + v];
-      
+
       // Vertices
       outVertices.push_back(
           float3(points[idx0][0], points[idx0][1], points[idx0][2]));
@@ -447,7 +451,7 @@ static void import_usd_mesh(Scene &scene,
           float3(points[idx1][0], points[idx1][1], points[idx1][2]));
       outVertices.push_back(
           float3(points[idx2][0], points[idx2][1], points[idx2][2]));
-      
+
       // Normals
       if (normals.size() == points.size()) {
         outNormals.push_back(
@@ -457,7 +461,7 @@ static void import_usd_mesh(Scene &scene,
         outNormals.push_back(
             float3(normals[idx2][0], normals[idx2][1], normals[idx2][2]));
       }
-      
+
       // UVs - handle different interpolation modes
       if (hasUVs && !uvs.empty()) {
         if (hasUVIndices) {
@@ -467,24 +471,32 @@ static void import_usd_mesh(Scene &scene,
             int uvIdx0 = uvIndices[uvIndex];
             int uvIdx1 = uvIndices[uvIndex + v - 1];
             int uvIdx2 = uvIndices[uvIndex + v];
-            if (uvIdx0 < (int)uvs.size() && uvIdx1 < (int)uvs.size() && uvIdx2 < (int)uvs.size()) {
+            if (uvIdx0 < (int)uvs.size() && uvIdx1 < (int)uvs.size()
+                && uvIdx2 < (int)uvs.size()) {
               // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-              outUVs.push_back(math::float2(uvs[uvIdx0][0], 1.0f - uvs[uvIdx0][1]));
-              outUVs.push_back(math::float2(uvs[uvIdx1][0], 1.0f - uvs[uvIdx1][1]));
-              outUVs.push_back(math::float2(uvs[uvIdx2][0], 1.0f - uvs[uvIdx2][1]));
+              outUVs.push_back(
+                  math::float2(uvs[uvIdx0][0], 1.0f - uvs[uvIdx0][1]));
+              outUVs.push_back(
+                  math::float2(uvs[uvIdx1][0], 1.0f - uvs[uvIdx1][1]));
+              outUVs.push_back(
+                  math::float2(uvs[uvIdx2][0], 1.0f - uvs[uvIdx2][1]));
             }
           }
         } else if (uvInterpolation == pxr::UsdGeomTokens->faceVarying) {
           // FaceVarying: one UV per face-vertex (most common)
           if (uvIndex + v < uvs.size()) {
             // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-            outUVs.push_back(math::float2(uvs[uvIndex][0], 1.0f - uvs[uvIndex][1]));
-            outUVs.push_back(math::float2(uvs[uvIndex + v - 1][0], 1.0f - uvs[uvIndex + v - 1][1]));
-            outUVs.push_back(math::float2(uvs[uvIndex + v][0], 1.0f - uvs[uvIndex + v][1]));
+            outUVs.push_back(
+                math::float2(uvs[uvIndex][0], 1.0f - uvs[uvIndex][1]));
+            outUVs.push_back(math::float2(
+                uvs[uvIndex + v - 1][0], 1.0f - uvs[uvIndex + v - 1][1]));
+            outUVs.push_back(
+                math::float2(uvs[uvIndex + v][0], 1.0f - uvs[uvIndex + v][1]));
           }
         } else if (uvInterpolation == pxr::UsdGeomTokens->vertex) {
           // Vertex: one UV per vertex (indexed like positions)
-          if (idx0 < (int)uvs.size() && idx1 < (int)uvs.size() && idx2 < (int)uvs.size()) {
+          if (idx0 < (int)uvs.size() && idx1 < (int)uvs.size()
+              && idx2 < (int)uvs.size()) {
             // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
             outUVs.push_back(math::float2(uvs[idx0][0], 1.0f - uvs[idx0][1]));
             outUVs.push_back(math::float2(uvs[idx1][0], 1.0f - uvs[idx1][1]));
@@ -502,10 +514,12 @@ static void import_usd_mesh(Scene &scene,
         }
       }
     }
-    
+
     // Advance indices
     index += vertsInFace;
-    if (hasUVs && (hasUVIndices || uvInterpolation == pxr::UsdGeomTokens->faceVarying)) {
+    if (hasUVs
+        && (hasUVIndices
+            || uvInterpolation == pxr::UsdGeomTokens->faceVarying)) {
       uvIndex += vertsInFace;
     }
   }
@@ -515,22 +529,24 @@ static void import_usd_mesh(Scene &scene,
       scene.createArray(ANARI_FLOAT32_VEC3, outVertices.size());
   vertexPositionArray->setData(outVertices.data(), outVertices.size());
   meshObj->setParameterObject("vertex.position", *vertexPositionArray);
-  
+
   if (!outNormals.empty()) {
-    auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, outNormals.size());
+    auto normalsArray =
+        scene.createArray(ANARI_FLOAT32_VEC3, outNormals.size());
     normalsArray->setData(outNormals.data(), outNormals.size());
     meshObj->setParameterObject("vertex.normal", *normalsArray);
   }
-  
+
   if (!outUVs.empty()) {
     auto uvArray = scene.createArray(ANARI_FLOAT32_VEC2, outUVs.size());
     uvArray->setData(outUVs.data(), outUVs.size());
     meshObj->setParameterObject("vertex.attribute0", *uvArray);
-    logStatus("[import_USD] Mesh '%s': Set %zu UV coordinates on vertex.attribute0\n",
+    logStatus(
+        "[import_USD] Mesh '%s': Set %zu UV coordinates on vertex.attribute0\n",
         prim.GetName().GetString().c_str(),
         outUVs.size());
   }
-  
+
   std::string primName = prim.GetPath().GetString();
   if (primName.empty())
     primName = "<unnamed_mesh>";
@@ -942,23 +958,25 @@ static void import_usd_dome_light(Scene &scene,
   usdLight.GetColorAttr().Get(&color);
   light->setParameter("color", float3(color[0], color[1], color[2]));
   light->setParameter("scale", intensity);
-  
+
   // Extract direction and up vectors from transformation matrix
   // ANARI defaults: direction=(1,0,0), up=(0,0,1)
   // USD dome lights use Z-up by default, matching ANARI
-  auto xfm = pxr::GfMatrix4d((double[4][4]){
-    {0.0, 1.0, 0.0, 0.0},
-    {0.0, 0.0, 1.0, 0.0},
-    {1.0, 0.0, 0.0, 0.0},
-    {0.0, 0.0, 0.0, 1.0}
-  });
+  auto xfm = pxr::GfMatrix4d(
+      // clang-format off
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 0.0,
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 1.0
+      // clang-format on
+  );
   xfm *= usdXform;
   pxr::GfVec3d dirVec = xfm.TransformDir(pxr::GfVec3d(0, 0, -1));
   pxr::GfVec3d upVec = xfm.TransformDir(pxr::GfVec3d(0, 1, 0));
-  
+
   float3 direction(dirVec[0], dirVec[1], dirVec[2]);
   float3 up(upVec[0], upVec[1], upVec[2]);
-  
+
   light->setParameter("direction", direction);
   light->setParameter("up", up);
   // Load and set environment texture from usdLight.GetTextureFileAttr()
@@ -976,7 +994,8 @@ static void import_usd_dome_light(Scene &scene,
       }
 
       ArrayRef radiance = {};
-      if (resolvedPath.find(".exr") != std::string::npos || resolvedPath.find(".hdr") != std::string::npos) {
+      if (resolvedPath.find(".exr") != std::string::npos
+          || resolvedPath.find(".hdr") != std::string::npos) {
         HDRImage img;
         if (img.import(resolvedPath)) {
           std::vector<float3> rgb(img.width * img.height);
@@ -985,20 +1004,22 @@ static void import_usd_dome_light(Scene &scene,
             memcpy(rgb.data(), img.pixel.data(), sizeof(rgb[0]) * rgb.size());
           } else if (img.numComponents == 4) {
             for (size_t i = 0; i < img.pixel.size(); i += 4) {
-              rgb[i / 4] = float3(img.pixel[i], img.pixel[i + 1], img.pixel[i + 2]);
+              rgb[i / 4] =
+                  float3(img.pixel[i], img.pixel[i + 1], img.pixel[i + 2]);
             }
           }
 
           // Handle color temperature if present
           float colorTemp = 0.0f;
-          if (usdLight.GetColorTemperatureAttr().Get(&colorTemp) && colorTemp > 0.0f) {
+          if (usdLight.GetColorTemperatureAttr().Get(&colorTemp)
+              && colorTemp > 0.0f) {
             // Convert color temperature to RGB multiplier
             // Using approximation from Planckian locus
             auto kelvinToRGB = [](float kelvin) -> float3 {
               // https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
               float temp = kelvin / 100.0f;
               float red, green, blue;
-              
+
               // Calculate red
               if (temp <= 66.0f) {
                 red = 1.0f;
@@ -1007,7 +1028,7 @@ static void import_usd_dome_light(Scene &scene,
                 red = 329.698727446f * std::pow(red, -0.1332047592f);
                 red = std::clamp(red / 255.0f, 0.0f, 1.0f);
               }
-              
+
               // Calculate green
               if (temp <= 66.0f) {
                 green = temp;
@@ -1018,7 +1039,7 @@ static void import_usd_dome_light(Scene &scene,
                 green = 288.1221695283f * std::pow(green, -0.0755148492f);
                 green = std::clamp(green / 255.0f, 0.0f, 1.0f);
               }
-              
+
               // Calculate blue
               if (temp >= 66.0f) {
                 blue = 1.0f;
@@ -1029,12 +1050,12 @@ static void import_usd_dome_light(Scene &scene,
                 blue = 138.5177312231f * std::log(blue) - 305.0447927307f;
                 blue = std::clamp(blue / 255.0f, 0.0f, 1.0f);
               }
-              
+
               return float3(red, green, blue);
             };
 
             float3 tempColor = kelvinToRGB(colorTemp);
-            for (auto& color : rgb) {
+            for (auto &color : rgb) {
               color *= float3(tempColor.x, tempColor.y, tempColor.z);
             }
             tsd::core::logStatus(
@@ -1050,7 +1071,7 @@ static void import_usd_dome_light(Scene &scene,
           if (usdLight.GetExposureAttr().Get(&exposure)) {
             // Convert exposure to linear scale: multiplier = 2^exposure
             float exposureScale = std::pow(2.0f, exposure);
-            for (auto& color : rgb) {
+            for (auto &color : rgb) {
               color *= exposureScale;
             }
             tsd::core::logStatus(
@@ -1059,7 +1080,8 @@ static void import_usd_dome_light(Scene &scene,
                 exposureScale);
           }
 
-          radiance = scene.createArray(ANARI_FLOAT32_VEC3, img.width, img.height);
+          radiance =
+              scene.createArray(ANARI_FLOAT32_VEC3, img.width, img.height);
           radiance->setData(rgb.data());
         }
       }
@@ -1151,9 +1173,10 @@ static void import_usd_prim_recursive(Scene &scene,
   // Only create a transform node if:
   // - The local transform is not identity
   // - The prim is geometry, light (not dome), or volume
-  //   For the domelight, the rationale is the domelight can encode the transformation in
-  //     its orientation axes and at least VisRTX and Barney do not correctly support 
-  //     transforming the HDRI lights.
+  //   For the domelight, the rationale is the domelight can encode the
+  //   transformation in
+  //     its orientation axes and at least VisRTX and Barney do not correctly
+  //     support transforming the HDRI lights.
   // - The prim resets the xform stack
   bool createNode = !is_identity(usdLocalXform) || isGeometry || isLight
       || isVolume || resetsXformStack;
@@ -1166,7 +1189,8 @@ static void import_usd_prim_recursive(Scene &scene,
 
   LayerNodeRef thisNode = parent;
   if (createNode) {
-    thisNode = scene.insertChildTransformNode(parent, tsdXform, primName.c_str());
+    thisNode =
+        scene.insertChildTransformNode(parent, tsdXform, primName.c_str());
   }
 
   // Import geometry for this prim (if any)
@@ -1174,9 +1198,11 @@ static void import_usd_prim_recursive(Scene &scene,
     import_usd_mesh(
         scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax, basePath);
   } else if (prim.IsA<pxr::UsdGeomPoints>()) {
-    import_usd_points(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_points(
+        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomSphere>()) {
-    import_usd_sphere(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_sphere(
+        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomCone>()) {
     import_usd_cone(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   } else if (prim.IsA<pxr::UsdGeomCylinder>()) {
@@ -1193,7 +1219,8 @@ static void import_usd_prim_recursive(Scene &scene,
   } else if (prim.IsA<pxr::UsdLuxDomeLight>()) {
     import_usd_dome_light(scene, prim, thisNode, basePath, thisWorldXform);
   } else if (prim.IsA<pxr::UsdVolVolume>()) {
-    import_usd_volume(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_volume(
+        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
   }
   // Recurse into children
   for (const auto &child : prim.GetChildren()) {
@@ -1227,7 +1254,8 @@ void import_USD(Scene &scene,
     tsd::core::logStatus("[import_USD] No default prim set.\n");
   }
   size_t primCount = 0;
-  for (auto _ : stage->Traverse()) ++primCount;
+  for (auto _ : stage->Traverse())
+    ++primCount;
   tsd::core::logStatus(
       "[import_USD] Number of prims in stage: %zu\n", primCount);
   float3 sceneMin(std::numeric_limits<float>::max());
