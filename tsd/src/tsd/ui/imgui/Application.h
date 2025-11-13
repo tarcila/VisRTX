@@ -5,6 +5,7 @@
 
 #include "modals/AppSettingsDialog.h"
 #include "modals/BlockingTaskModal.h"
+#include "modals/OfflineRenderModal.h"
 #include "modals/ImportFileDialog.h"
 // tsd_app
 #include "tsd/app/Core.h"
@@ -57,6 +58,7 @@ class Application : public anari_viewer::Application
   std::vector<Window *> m_windows;
   std::unique_ptr<AppSettingsDialog> m_appSettingsDialog;
   std::unique_ptr<BlockingTaskModal> m_taskModal;
+  std::unique_ptr<OfflineRenderModal> m_offlineRenderModal;
   std::unique_ptr<ImportFileDialog> m_fileDialog;
 
   tsd::core::DataTree m_settings;

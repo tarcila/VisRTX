@@ -142,6 +142,7 @@ struct Viewport : public Window
   float m_focusDistance{1.f};
 
   // Database camera state //
+
   tsd::core::CameraRef m_selectedCamera;
   std::unique_ptr<tsd::core::CameraUpdateDelegate> m_cameraDelegate;
   std::vector<tsd::core::CameraRef> m_menuCameraRefs;

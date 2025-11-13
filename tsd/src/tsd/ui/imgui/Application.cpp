@@ -88,6 +88,7 @@ anari_viewer::WindowArray Application::setupWindows()
 
   m_appSettingsDialog = std::make_unique<AppSettingsDialog>(this);
   m_taskModal = std::make_unique<BlockingTaskModal>(this);
+  m_offlineRenderModal = std::make_unique<OfflineRenderModal>(this);
   m_fileDialog = std::make_unique<ImportFileDialog>(this);
 
   m_core.windows.taskModal = m_taskModal.get();
@@ -152,6 +153,11 @@ void Application::uiFrameStart()
 
       if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Save sesson to 'state.tsd' in the local directory");
+
+      ImGui::Separator();
+
+      if (ImGui::MenuItem("Render Animation Sequence..."))
+        m_offlineRenderModal->start();
 
       ImGui::Separator();
 
@@ -239,6 +245,11 @@ void Application::uiFrameStart()
 
     if (m_taskModal->visible()) {
       m_taskModal->renderUI();
+      modalActive = true;
+    }
+
+    if (m_offlineRenderModal->visible()) {
+      m_offlineRenderModal->renderUI();
       modalActive = true;
     }
 

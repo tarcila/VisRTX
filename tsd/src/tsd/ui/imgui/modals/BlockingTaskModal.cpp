@@ -6,7 +6,7 @@
 namespace tsd::ui::imgui {
 
 BlockingTaskModal::BlockingTaskModal(Application *app)
-    : Modal(app, "##")
+    : Modal(app, "##blocking_task_modal")
 {}
 
 BlockingTaskModal::~BlockingTaskModal() = default;

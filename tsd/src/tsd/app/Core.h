@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "tsd/app/TaskQueue.h"
+#include "tsd/app/renderAnimationSequence.h"
 
 namespace tsd::ui::imgui {
 struct BlockingTaskModal;
@@ -149,12 +150,14 @@ struct OfflineRenderSequenceConfig
     uint32_t height{768};
     anari::DataType colorFormat{ANARI_UFIXED8_RGBA_SRGB};
     uint32_t samples{128};
+    int numFrames{1};
   } frame;
 
   struct CameraSettings
   {
     float apertureRadius{0.f};
     float focusDistance{1.f};
+    size_t cameraIndex{TSD_INVALID_INDEX};
   } camera;
 
   struct RenderSettings
@@ -163,6 +166,12 @@ struct OfflineRenderSequenceConfig
     int activeRenderer{-1};
     std::string libraryName;
   } renderer;
+
+  struct OutputSettings
+  {
+    std::string outputDirectory{"./"};
+    std::string filePrefix{"frame_"};
+  } output;
 
   void saveSettings(tsd::core::DataNode &root);
   void loadSettings(tsd::core::DataNode &root);
@@ -207,9 +216,10 @@ struct Core
   void importAnimations(const std::vector<ImportAnimationFiles> &files,
       tsd::core::LayerNodeRef root = {});
 
-  // ANARI device management //
+  // Offline rendering //
 
   void setOfflineRenderingLibrary(const std::string &libName);
+  void renderOfflineAnimationSequence(RenderSequenceCallback cb = {});
 
   // Selection //
 

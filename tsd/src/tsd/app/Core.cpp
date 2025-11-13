@@ -574,10 +574,12 @@ void OfflineRenderSequenceConfig::saveSettings(tsd::core::DataNode &root)
   frameRoot["height"] = frame.height;
   frameRoot["colorFormat"] = frame.colorFormat;
   frameRoot["samples"] = frame.samples;
+  frameRoot["numFrames"] = frame.numFrames;
 
   auto &cameraRoot = root["camera"];
   cameraRoot["apertureRadius"] = camera.apertureRadius;
   cameraRoot["focusDistance"] = camera.focusDistance;
+  cameraRoot["cameraIndex"] = camera.cameraIndex;
 
   auto &rendererRoot = root["renderer"];
   rendererRoot["activeRenderer"] = renderer.activeRenderer;
@@ -586,6 +588,10 @@ void OfflineRenderSequenceConfig::saveSettings(tsd::core::DataNode &root)
   auto &rendererObjectsRoot = rendererRoot["rendererObjects"];
   for (auto &ro : renderer.rendererObjects)
     tsd::io::objectToNode(ro, rendererObjectsRoot[ro.name()]);
+
+  auto &outputRoot = root["output"];
+  outputRoot["outputDirectory"] = output.outputDirectory;
+  outputRoot["filePrefix"] = output.filePrefix;
 }
 
 void OfflineRenderSequenceConfig::loadSettings(tsd::core::DataNode &root)
@@ -595,10 +601,12 @@ void OfflineRenderSequenceConfig::loadSettings(tsd::core::DataNode &root)
   frameRoot["height"].getValue(ANARI_UINT32, &frame.height);
   frameRoot["colorFormat"].getValue(ANARI_DATA_TYPE, &frame.colorFormat);
   frameRoot["samples"].getValue(ANARI_UINT32, &frame.samples);
+  frameRoot["numFrames"].getValue(ANARI_INT32, &frame.numFrames);
 
   auto &cameraRoot = root["camera"];
   cameraRoot["apertureRadius"].getValue(ANARI_FLOAT32, &camera.apertureRadius);
   cameraRoot["focusDistance"].getValue(ANARI_FLOAT32, &camera.focusDistance);
+  cameraRoot["cameraIndex"].getValue(ANARI_UINT64, &camera.cameraIndex);
 
   auto &rendererRoot = root["renderer"];
   rendererRoot["activeRenderer"].getValue(
@@ -612,6 +620,10 @@ void OfflineRenderSequenceConfig::loadSettings(tsd::core::DataNode &root)
     tsd::io::nodeToObject(node, ro);
     renderer.rendererObjects.push_back(std::move(ro));
   });
+
+  auto &outputRoot = root["output"];
+  outputRoot["outputDirectory"].getValue(ANARI_STRING, &output.outputDirectory);
+  outputRoot["filePrefix"].getValue(ANARI_STRING, &output.filePrefix);
 }
 
 } // namespace tsd::app

@@ -78,6 +78,21 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
   ImGui::Text("Offline Render Settings (tsdRender):");
   ImGui::Indent(tsd::ui::INDENT_AMOUNT);
 
+  // Output //
+
+  ImGui::Text("Output:");
+  ImGui::InputText("##outputDirectory",
+      &core->offline.output.outputDirectory,
+      ImGuiInputTextFlags_EnterReturnsTrue);
+  ImGui::SameLine();
+  ImGui::Text("output directory");
+
+  ImGui::InputText("##filePrefix",
+      &core->offline.output.filePrefix,
+      ImGuiInputTextFlags_EnterReturnsTrue);
+  ImGui::SameLine();
+  ImGui::Text("file prefix");
+
   // Frame //
 
   ImGui::Text("Frame:");
@@ -95,10 +110,16 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
       1,
       std::numeric_limits<int>::max());
 
-  // Depth of Field //
+  ImGui::DragInt("numFrames",
+      (int *)&core->offline.frame.numFrames,
+      1,
+      1,
+      std::numeric_limits<int>::max());
+
+  // Camera //
 
   ImGui::Separator();
-  ImGui::Text("Depth-of-Field:");
+  ImGui::Text("Camera:");
   ImGui::DragFloat("apertureRadius",
       &core->offline.camera.apertureRadius,
       1,
@@ -109,6 +130,41 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
       1,
       0.f,
       std::numeric_limits<float>::max());
+
+  // Build camera list
+  std::vector<std::string> cameraNames = {"<none>"};
+  m_menuCameraRefs.resize(1);
+  m_menuCameraRefs[0] = {};
+  int currentSelection = 0;
+
+  const auto &cameraDB = appCore()->tsd.scene.objectDB().camera;
+  tsd::core::foreach_item_const(cameraDB, [&](const auto *cam) {
+    if (cam) {
+      cameraNames.push_back(cam->name());
+      m_menuCameraRefs.push_back(cam->self());
+      if (core->offline.camera.cameraIndex == cam->index()) {
+        currentSelection = static_cast<int>(cameraNames.size() - 1);
+      }
+    }
+  });
+
+  if (ImGui::Combo(
+          "Select",
+          &currentSelection,
+          [](void *data, int idx, const char **out) {
+            auto *names = (std::vector<std::string> *)data;
+            *out = (*names)[idx].c_str();
+            return true;
+          },
+          &cameraNames,
+          static_cast<int>(cameraNames.size()))) {
+    if (currentSelection == 0)
+      core->offline.camera.cameraIndex = TSD_INVALID_INDEX;
+    else {
+      core->offline.camera.cameraIndex =
+          m_menuCameraRefs[currentSelection].index();
+    }
+  }
 
   // Renderer //
 
