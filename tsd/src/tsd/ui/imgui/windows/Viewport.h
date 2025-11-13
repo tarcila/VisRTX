@@ -89,9 +89,7 @@ struct Viewport : public Window
   bool m_mouseRotating{false};
   bool m_manipulating{false};
   bool m_frameCancelled{false};
-  bool m_saveNextFrame{false};
   bool m_echoCameraConfig{false};
-  int m_screenshotIndex{0};
 
   bool m_showOverlay{true};
   bool m_showCameraInfo{false};
@@ -157,6 +155,7 @@ struct Viewport : public Window
   tsd::rendering::OutlineRenderPass *m_outlinePass{nullptr};
   tsd::rendering::AnariAxesRenderPass *m_axesPass{nullptr};
   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
+  tsd::rendering::SaveToFilePass *m_saveToFilePass{nullptr};
 
   tsd::math::int2 m_viewportSize{0, 0};
   tsd::math::int2 m_renderSize{0, 0};

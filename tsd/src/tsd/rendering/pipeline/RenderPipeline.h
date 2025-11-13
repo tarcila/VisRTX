@@ -12,6 +12,7 @@
 #include "passes/MultiDeviceSceneRenderPass.h"
 #include "passes/OutlineRenderPass.h"
 #include "passes/PickPass.h"
+#include "passes/SaveToFilePass.h"
 #include "passes/VisualizeDepthPass.h"
 // std
 #include <memory>

@@ -399,8 +399,14 @@ void Viewport::setupRenderPipeline()
   tsd::core::logStatus("[viewport] initialized scene for '%s' device in %.2fs",
       m_libName.c_str(),
       m_timeToLoadDevice);
+
   m_anariPass =
       m_pipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
+
+  m_saveToFilePass = m_pipeline.emplace_back<tsd::rendering::SaveToFilePass>();
+  m_saveToFilePass->setEnabled(false);
+  m_saveToFilePass->setSingleShotMode(true);
+
   m_pickPass = m_pipeline.emplace_back<tsd::rendering::PickPass>();
   m_pickPass->setEnabled(false);
   m_pickPass->setPickOperation([&](tsd::rendering::RenderBuffers &b) {
@@ -485,15 +491,20 @@ void Viewport::setupRenderPipeline()
 
     m_pickPass->setEnabled(false);
   });
+
   m_visualizeDepthPass =
       m_pipeline.emplace_back<tsd::rendering::VisualizeDepthPass>();
   m_visualizeDepthPass->setEnabled(false);
+
   m_outlinePass = m_pipeline.emplace_back<tsd::rendering::OutlineRenderPass>();
+
   m_axesPass = m_pipeline.emplace_back<tsd::rendering::AnariAxesRenderPass>(
       m_device, m_extensions);
   m_axesPass->setEnabled(m_showAxes);
+
   m_outputPass = m_pipeline.emplace_back<tsd::rendering::CopyToSDLTexturePass>(
       m_app->sdlRenderer());
+
   reshape(m_viewportSize);
 }
 
@@ -506,6 +517,7 @@ void Viewport::teardownDevice()
   m_anariPass = nullptr;
   m_outlinePass = nullptr;
   m_outputPass = nullptr;
+  m_saveToFilePass = nullptr;
 
   appCore()->anari.releaseRenderIndex(m_device);
   m_rIdx = nullptr;
@@ -685,57 +697,6 @@ void Viewport::updateImage()
   m_latestAnariFL = duration * 1000;
   m_minFL = std::min(m_minFL, m_latestAnariFL);
   m_maxFL = std::max(m_maxFL, m_latestAnariFL);
-
-  // Handle screenshot saving
-  if (m_saveNextFrame) {
-    // Wait for the frame to be ready
-    anari::wait(m_device, frame);
-
-    // Map the color channel to get the frame buffer data
-    auto fb = anari::map<uint32_t>(m_device, frame, "channel.color");
-
-    if (fb.data) {
-      // Generate timestamped filename
-      auto now = std::chrono::system_clock::now();
-      auto time_t = std::chrono::system_clock::to_time_t(now);
-      auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now.time_since_epoch())
-          % 1000;
-
-      std::stringstream ss;
-      ss << "screenshot_"
-         << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << "_"
-         << std::setfill('0') << std::setw(3) << ms.count() << ".png";
-
-      // Ensure the screenshot is saved in the current working directory
-      std::filesystem::path workingDir = std::filesystem::current_path();
-      std::filesystem::path filename = workingDir / ss.str();
-
-      // Use STB's built-in vertical flip functionality for simplicity
-      stbi_flip_vertically_on_write(1);
-
-      // Save the screenshot with full alpha channel preservation
-      stbi_write_png(filename.string().c_str(),
-          fb.width,
-          fb.height,
-          4,
-          fb.data,
-          4 * fb.width);
-
-      // Reset the flip setting to avoid affecting other code
-      stbi_flip_vertically_on_write(0);
-
-      tsd::core::logStatus(
-          "Screenshot saved to '%s'", filename.string().c_str());
-    } else {
-      tsd::core::logWarning("Failed to map frame buffer for screenshot");
-    }
-
-    // Unmap the frame buffer
-    anari::unmap(m_device, frame, "channel.color");
-
-    m_saveNextFrame = false;
-  }
 }
 
 void Viewport::applyCameraParameters(tsd::core::Camera *cam)
@@ -1142,8 +1103,26 @@ void Viewport::ui_menubar()
 
       ImGui::Separator();
 
-      if (ImGui::MenuItem("take screenshot"))
-        m_saveNextFrame = true;
+      if (ImGui::MenuItem("take screenshot")) {
+        // Generate timestamped filename
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now.time_since_epoch())
+            % 1000;
+
+        std::stringstream ss;
+        ss << "screenshot_"
+           << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << "_"
+           << std::setfill('0') << std::setw(3) << ms.count() << ".png";
+
+        // Ensure the screenshot is saved in the current working directory
+        std::filesystem::path workingDir = std::filesystem::current_path();
+        std::filesystem::path filename = workingDir / ss.str();
+
+        m_saveToFilePass->setFilename(filename.string());
+        m_saveToFilePass->setEnabled(true);
+      }
 
       ImGui::EndMenu();
     }
