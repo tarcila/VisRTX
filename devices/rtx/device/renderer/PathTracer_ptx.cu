@@ -81,22 +81,6 @@ struct SampleDetails {
 
 // Helper functions
 
-VISRTX_DEVICE void setPixelIds(const FramebufferGPUData &fb,
-    const uvec2 &pixel,
-    uint32_t primID,
-    uint32_t objID,
-    uint32_t instID)
-{
-  const uint32_t idx = detail::pixelIndex(fb, pixel);
-
-  if (fb.buffers.primID)
-    fb.buffers.primID[idx] = primID;
-  if (fb.buffers.objID)
-    fb.buffers.objID[idx] = objID;
-  if (fb.buffers.instID)
-    fb.buffers.instID[idx] = instID;
-}
-
 VISRTX_DEVICE void accumPixelSample(const FrameGPUData &frame,
     const uvec2 &pixel,
     const SampleDetails &sample,
@@ -122,25 +106,25 @@ VISRTX_DEVICE void accumPixelSample(const FrameGPUData &frame,
   const auto outputColor = frame.renderer.tonemap
       ? detail::inverseTonemap(normalizedColor)
       : normalizedColor;
-  detail::writeOutputColor(fb, outputColor, idx, frameIDOffset);
+  detail::writeOutputColor(fb, outputColor, idx);
 
   if (fb.checkerboardID == 0 && frameID == 0) {
     auto adjPix = uvec2(pixel.x + 1, pixel.y + 0);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 0, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
 
     adjPix = uvec2(pixel.x + 1, pixel.y + 1);
     if (!pixelOutOfFrame(adjPix, fb)) {
       detail::writeOutputColor(
-          fb, accumColor, detail::pixelIndex(fb, adjPix), frameIDOffset);
+          fb, accumColor, detail::pixelIndex(fb, adjPix));
     }
   }
 }
