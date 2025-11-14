@@ -1,6 +1,7 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+#include <anari/anari_cpp/ext/linalg.h>
 #ifndef TSD_USE_USD
 #define TSD_USE_USD 1
 #endif
@@ -353,204 +354,298 @@ inline float3 max(const float3 &a, const float3 &b)
   return float3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
 }
 
+// Helper: Generate triangle indices from polygon face data
+// Tessellates polygons to triangles using triangle fan (assumes convex polygons)
+// Returns indices into the original vertex array
+static std::vector<uint32_t> generate_triangle_indices(
+    const pxr::VtArray<int> &faceVertexIndices,
+    const pxr::VtArray<int> &faceVertexCounts)
+{
+  std::vector<uint32_t> triangleIndices;
+  size_t faceVertexOffset = 0;
+  
+  for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
+    int vertsInFace = faceVertexCounts[face];
+    
+    // Tessellate polygon as triangle fan: (0,1,2), (0,2,3), (0,3,4), ...
+    for (int v = 2; v < vertsInFace; ++v) {
+      triangleIndices.push_back(faceVertexIndices[faceVertexOffset + 0]);
+      triangleIndices.push_back(faceVertexIndices[faceVertexOffset + v - 1]);
+      triangleIndices.push_back(faceVertexIndices[faceVertexOffset + v]);
+    }
+    
+    faceVertexOffset += vertsInFace;
+  }
+  
+  return triangleIndices;
+}
+
+// Helper: Tessellate faceVarying data from polygons to triangles
+// FaceVarying data has one value per face-vertex (corner)
+// Returns tessellated data matching the triangle fan pattern
+template<typename T>
+static std::vector<T> tessellate_facevarying_data(
+    const pxr::VtArray<T> &faceVaryingData,
+    const pxr::VtArray<int> &faceVertexCounts)
+{
+  std::vector<T> triangleData;
+  size_t faceVertexOffset = 0;
+  
+  for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
+    int vertsInFace = faceVertexCounts[face];
+    
+    // Tessellate as triangle fan: (0,1,2), (0,2,3), (0,3,4), ...
+    for (int v = 2; v < vertsInFace; ++v) {
+      triangleData.push_back(faceVaryingData[faceVertexOffset + 0]);
+      triangleData.push_back(faceVaryingData[faceVertexOffset + v - 1]);
+      triangleData.push_back(faceVaryingData[faceVertexOffset + v]);
+    }
+    
+    faceVertexOffset += vertsInFace;
+  }
+  
+  return triangleData;
+}
+
+// Helper: Tessellate uniform (per-face) data to per-triangle
+// Uniform data has one value per face
+// Returns replicated data with one value per generated triangle
+template<typename T>
+static std::vector<T> tessellate_uniform_data(
+    const pxr::VtArray<T> &uniformData,
+    const pxr::VtArray<int> &faceVertexCounts)
+{
+  std::vector<T> triangleData;
+  
+  for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
+    int vertsInFace = faceVertexCounts[face];
+    int numTriangles = vertsInFace - 2;
+    
+    // Each triangle from this face gets the same uniform value
+    for (int t = 0; t < numTriangles; ++t) {
+      triangleData.push_back(uniformData[face]);
+    }
+  }
+  
+  return triangleData;
+}
+
 // Helper: Import a UsdGeomMesh prim as a TSD mesh under the given parent node
 static void import_usd_mesh(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax,
     const std::string &basePath)
 {
   pxr::UsdGeomMesh mesh(prim);
+  
+  // Get vertex positions
   pxr::VtArray<pxr::GfVec3f> points;
   mesh.GetPointsAttr().Get(&points);
 
-  // Update scene bounding box with transformed points
-  for (size_t i = 0; i < points.size(); ++i) {
-    pxr::GfVec3f p = points[i];
-    pxr::GfVec4d p4(p[0], p[1], p[2], 1.0);
-    pxr::GfVec4d wp4 = usdXform * p4;
-    float3 wp{float(wp4[0]), float(wp4[1]), float(wp4[2])};
-    sceneMin = std::min(sceneMin, wp);
-    sceneMax = std::max(sceneMax, wp);
-  }
-
+  // Get face topology
   pxr::VtArray<int> faceVertexIndices;
   mesh.GetFaceVertexIndicesAttr().Get(&faceVertexIndices);
   pxr::VtArray<int> faceVertexCounts;
   mesh.GetFaceVertexCountsAttr().Get(&faceVertexCounts);
+
+  // Get normals and their interpolation
   pxr::VtArray<pxr::GfVec3f> normals;
+  pxr::TfToken normalsInterpolation = pxr::UsdGeomTokens->vertex; // Default
   mesh.GetNormalsAttr().Get(&normals);
+  if (!normals.empty()) {
+    normalsInterpolation = mesh.GetNormalsInterpolation();
+  }
 
-  // Try to get UV coordinates from primvars
-  pxr::UsdGeomPrimvarsAPI primvarsAPI(prim);
+  // Get UVs and their interpolation
   pxr::VtArray<pxr::GfVec2f> uvs;
-  pxr::VtArray<int> uvIndices;
-  pxr::TfToken uvInterpolation;
-  bool hasUVs = false;
-  bool hasUVIndices = false;
-
-  // Try common UV primvar names
-  const char *uvPrimvarNames[] = {"st", "uv", "UVMap"};
-  for (const char *uvName : uvPrimvarNames) {
-    pxr::UsdGeomPrimvar uvPrimvar =
-        primvarsAPI.GetPrimvar(pxr::TfToken(uvName));
-    if (uvPrimvar && uvPrimvar.HasValue()) {
-      if (uvPrimvar.Get(&uvs)) {
-        uvInterpolation = uvPrimvar.GetInterpolation();
-        hasUVs = true;
-        // Check if this primvar has indices
-        if (uvPrimvar.GetIndices(&uvIndices) && !uvIndices.empty()) {
-          hasUVIndices = true;
-          logStatus(
-              "[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, %zu indices, interpolation: %s\n",
-              prim.GetName().GetString().c_str(),
-              uvName,
-              uvs.size(),
-              uvIndices.size(),
-              uvInterpolation.GetText());
-        } else {
-          logStatus(
-              "[import_USD] Mesh '%s': Found UV primvar '%s' with %zu values, interpolation: %s\n",
-              prim.GetName().GetString().c_str(),
-              uvName,
-              uvs.size(),
-              uvInterpolation.GetText());
-        }
-        break;
-      }
-    }
+  pxr::TfToken uvsInterpolation = pxr::UsdGeomTokens->vertex; // Default
+  // USD stores UVs as primvars, typically "st" or "UVMap"
+  pxr::UsdGeomPrimvarsAPI primvarsAPI(mesh);
+  pxr::UsdGeomPrimvar stPrimvar = primvarsAPI.GetPrimvar(pxr::TfToken("st"));
+  if (!stPrimvar) {
+    stPrimvar = primvarsAPI.GetPrimvar(pxr::TfToken("UVMap"));
   }
-
-  logStatus(
-      "[import_USD] Mesh '%s': %zu points, %zu faces, %zu normals, %zu UVs\n",
-      prim.GetName().GetString().c_str(),
-      points.size(),
-      faceVertexCounts.size(),
-      normals.size(),
-      uvs.size());
-
-  std::vector<float3> outVertices;
-  std::vector<float3> outNormals;
-  std::vector<float2> outUVs;
-  size_t index = 0;
-  size_t uvIndex = 0;
-
-  for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
-    int vertsInFace = faceVertexCounts[face];
-    for (int v = 2; v < vertsInFace; ++v) {
-      int idx0 = faceVertexIndices[index];
-      int idx1 = faceVertexIndices[index + v - 1];
-      int idx2 = faceVertexIndices[index + v];
-
-      // Vertices
-      outVertices.push_back(
-          float3(points[idx0][0], points[idx0][1], points[idx0][2]));
-      outVertices.push_back(
-          float3(points[idx1][0], points[idx1][1], points[idx1][2]));
-      outVertices.push_back(
-          float3(points[idx2][0], points[idx2][1], points[idx2][2]));
-
-      // Normals
-      if (normals.size() == points.size()) {
-        outNormals.push_back(
-            float3(normals[idx0][0], normals[idx0][1], normals[idx0][2]));
-        outNormals.push_back(
-            float3(normals[idx1][0], normals[idx1][1], normals[idx1][2]));
-        outNormals.push_back(
-            float3(normals[idx2][0], normals[idx2][1], normals[idx2][2]));
-      }
-
-      // UVs - handle different interpolation modes
-      if (hasUVs && !uvs.empty()) {
-        if (hasUVIndices) {
-          // Indexed UVs: use the indices array to look up UV values
-          // The indices correspond to face-vertex ordering
-          if (uvIndex + v < uvIndices.size()) {
-            int uvIdx0 = uvIndices[uvIndex];
-            int uvIdx1 = uvIndices[uvIndex + v - 1];
-            int uvIdx2 = uvIndices[uvIndex + v];
-            if (uvIdx0 < (int)uvs.size() && uvIdx1 < (int)uvs.size()
-                && uvIdx2 < (int)uvs.size()) {
-              // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-              outUVs.push_back(
-                  math::float2(uvs[uvIdx0][0], 1.0f - uvs[uvIdx0][1]));
-              outUVs.push_back(
-                  math::float2(uvs[uvIdx1][0], 1.0f - uvs[uvIdx1][1]));
-              outUVs.push_back(
-                  math::float2(uvs[uvIdx2][0], 1.0f - uvs[uvIdx2][1]));
-            }
-          }
-        } else if (uvInterpolation == pxr::UsdGeomTokens->faceVarying) {
-          // FaceVarying: one UV per face-vertex (most common)
-          if (uvIndex + v < uvs.size()) {
-            // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-            outUVs.push_back(
-                math::float2(uvs[uvIndex][0], 1.0f - uvs[uvIndex][1]));
-            outUVs.push_back(math::float2(
-                uvs[uvIndex + v - 1][0], 1.0f - uvs[uvIndex + v - 1][1]));
-            outUVs.push_back(
-                math::float2(uvs[uvIndex + v][0], 1.0f - uvs[uvIndex + v][1]));
-          }
-        } else if (uvInterpolation == pxr::UsdGeomTokens->vertex) {
-          // Vertex: one UV per vertex (indexed like positions)
-          if (idx0 < (int)uvs.size() && idx1 < (int)uvs.size()
-              && idx2 < (int)uvs.size()) {
-            // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-            outUVs.push_back(math::float2(uvs[idx0][0], 1.0f - uvs[idx0][1]));
-            outUVs.push_back(math::float2(uvs[idx1][0], 1.0f - uvs[idx1][1]));
-            outUVs.push_back(math::float2(uvs[idx2][0], 1.0f - uvs[idx2][1]));
-          }
-        } else if (uvInterpolation == pxr::UsdGeomTokens->uniform) {
-          // Uniform: one UV per face
-          if (face < uvs.size()) {
-            // Flip V coordinate: USD has V=0 at bottom, ANARI has V=0 at top
-            math::float2 faceUV(uvs[face][0], 1.0f - uvs[face][1]);
-            outUVs.push_back(faceUV);
-            outUVs.push_back(faceUV);
-            outUVs.push_back(faceUV);
-          }
-        }
-      }
+  if (stPrimvar) {
+    // USD primvars can be indexed - need to use ComputeFlattened to expand indices
+    stPrimvar.ComputeFlattened(&uvs);
+    if (!uvs.empty()) {
+      uvsInterpolation = stPrimvar.GetInterpolation();
     }
-
-    // Advance indices
-    index += vertsInFace;
-    if (hasUVs
-        && (hasUVIndices
-            || uvInterpolation == pxr::UsdGeomTokens->faceVarying)) {
-      uvIndex += vertsInFace;
-    }
-  }
-
-  auto meshObj = scene.createObject<Geometry>(tokens::geometry::triangle);
-  auto vertexPositionArray =
-      scene.createArray(ANARI_FLOAT32_VEC3, outVertices.size());
-  vertexPositionArray->setData(outVertices.data(), outVertices.size());
-  meshObj->setParameterObject("vertex.position", *vertexPositionArray);
-
-  if (!outNormals.empty()) {
-    auto normalsArray =
-        scene.createArray(ANARI_FLOAT32_VEC3, outNormals.size());
-    normalsArray->setData(outNormals.data(), outNormals.size());
-    meshObj->setParameterObject("vertex.normal", *normalsArray);
-  }
-
-  if (!outUVs.empty()) {
-    auto uvArray = scene.createArray(ANARI_FLOAT32_VEC2, outUVs.size());
-    uvArray->setData(outUVs.data(), outUVs.size());
-    meshObj->setParameterObject("vertex.attribute0", *uvArray);
-    logStatus(
-        "[import_USD] Mesh '%s': Set %zu UV coordinates on vertex.attribute0\n",
-        prim.GetName().GetString().c_str(),
-        outUVs.size());
   }
 
   std::string primName = prim.GetPath().GetString();
   if (primName.empty())
     primName = "<unnamed_mesh>";
-  meshObj->setName(primName.c_str());
+
+  logStatus(
+      "[import_USD] Mesh '%s': %zu points, %zu faces, %zu normals (interpolation: %s), %zu UVs (interpolation: %s)\n",
+      prim.GetName().GetString().c_str(),
+      points.size(),
+      faceVertexCounts.size(),
+      normals.size(),
+      normalsInterpolation.GetText(),
+      uvs.size(),
+      uvsInterpolation.GetText());
+
+  // Convert vertex positions to float3
+  std::vector<float3> positions;
+  positions.reserve(points.size());
+  for (const auto &p : points) {
+    positions.push_back(float3(p[0], p[1], p[2]));
+  }
+
+  // Generate triangle indices from polygon faces
+  std::vector<uint32_t> indices = 
+      generate_triangle_indices(faceVertexIndices, faceVertexCounts);
+
+  logStatus(
+      "[import_USD] Mesh '%s': Generated %zu triangle indices (%zu triangles)\n",
+      prim.GetName().GetString().c_str(),
+      indices.size(),
+      indices.size() / 3);
+
+  // Create ANARI indexed triangle geometry
+  auto meshObj = scene.createObject<Geometry>(tokens::geometry::triangle);
+  
+  // Set vertex positions
+  auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, positions.size());
+  vertexPositionArray->setData(positions.data(), positions.size());
+  meshObj->setParameterObject("vertex.position", *vertexPositionArray);
+
+  // Set triangle indices
+  auto indexArray = scene.createArray(ANARI_UINT32_VEC3, indices.size() / 3);
+  indexArray->setData((uint3*)indices.data(), indices.size() / 3);
+  meshObj->setParameterObject("primitive.index", *indexArray);
+
+  // Handle normals based on USD interpolation
+  if (!normals.empty()) {
+    if (normalsInterpolation == pxr::UsdGeomTokens->vertex) {
+      // Vertex interpolation: normals are per-vertex, shared by all triangles
+      // No tessellation needed - just convert to float3
+      std::vector<float3> normalData;
+      normalData.reserve(normals.size());
+      for (const auto &n : normals) {
+        normalData.push_back(float3(n[0], n[1], n[2]));
+      }
+      
+      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+      normalsArray->setData(normalData.data(), normalData.size());
+      meshObj->setParameterObject("vertex.normal", *normalsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu normals on vertex.normal\n",
+          prim.GetName().GetString().c_str(),
+          normalData.size());
+      
+    } else if (normalsInterpolation == pxr::UsdGeomTokens->faceVarying) {
+      // FaceVarying interpolation: normals are per face-vertex (corner)
+      // Need to tessellate from polygon corners to triangle corners
+      auto tessellatedNormals = tessellate_facevarying_data(normals, faceVertexCounts);
+      
+      std::vector<float3> normalData;
+      normalData.reserve(tessellatedNormals.size());
+      for (const auto &n : tessellatedNormals) {
+        normalData.push_back(float3(n[0], n[1], n[2]));
+      }
+      
+      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+      normalsArray->setData(normalData.data(), normalData.size());
+      meshObj->setParameterObject("faceVarying.normal", *normalsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu normals on faceVarying.normal\n",
+          prim.GetName().GetString().c_str(),
+          normalData.size());
+      
+    } else if (normalsInterpolation == pxr::UsdGeomTokens->uniform) {
+      // Uniform interpolation: one normal per face
+      // Need to replicate for each triangle generated from that face
+      auto tessellatedNormals = tessellate_uniform_data(normals, faceVertexCounts);
+      
+      std::vector<float3> normalData;
+      normalData.reserve(tessellatedNormals.size());
+      for (const auto &n : tessellatedNormals) {
+        normalData.push_back(float3(n[0], n[1], n[2]));
+      }
+      
+      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+      normalsArray->setData(normalData.data(), normalData.size());
+      meshObj->setParameterObject("primitive.normal", *normalsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu normals on primitive.normal\n",
+          prim.GetName().GetString().c_str(),
+          normalData.size());
+    }
+  }
+
+  // Handle UVs based on USD interpolation
+  if (!uvs.empty()) {
+    if (uvsInterpolation == pxr::UsdGeomTokens->vertex) {
+      // Vertex interpolation: UVs are per-vertex, shared by all triangles
+      // No tessellation needed - just convert to float2
+      std::vector<float2> uvData;
+      uvData.reserve(uvs.size());
+      for (const auto &uv : uvs) {
+        // USD is bottom-up, ANARI is top-down
+        uvData.push_back(float2(uv[0], 1.0f - uv[1]));
+      }
+      
+      auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
+      uvsArray->setData(uvData.data(), uvData.size());
+      meshObj->setParameterObject("vertex.attribute0", *uvsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu UVs on vertex.attribute0\n",
+          prim.GetName().GetString().c_str(),
+          uvData.size());
+      
+    } else if (uvsInterpolation == pxr::UsdGeomTokens->faceVarying) {
+      // FaceVarying interpolation: UVs are per face-vertex (corner)
+      // Need to tessellate from polygon corners to triangle corners
+      auto tessellatedUVs = tessellate_facevarying_data(uvs, faceVertexCounts);
+      
+      std::vector<float2> uvData;
+      uvData.reserve(tessellatedUVs.size());
+      for (const auto &uv : tessellatedUVs) {
+        // USD is bottom-up, ANARI is top-down
+        uvData.push_back(float2(uv[0], 1.0f - uv[1]));
+      }
+      
+      auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
+      uvsArray->setData(uvData.data(), uvData.size());
+      meshObj->setParameterObject("faceVarying.attribute0", *uvsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu UVs on faceVarying.attribute0\n",
+          prim.GetName().GetString().c_str(),
+          uvData.size());
+      
+    } else if (uvsInterpolation == pxr::UsdGeomTokens->uniform) {
+      // Uniform interpolation: one UV per face
+      // Need to replicate for each triangle generated from that face
+      auto tessellatedUVs = tessellate_uniform_data(uvs, faceVertexCounts);
+      
+      std::vector<float2> uvData;
+      uvData.reserve(tessellatedUVs.size());
+      for (const auto &uv : tessellatedUVs) {
+        // USD is bottom-up, ANARI is top-down
+        uvData.push_back(float2(uv[0], 1.0f - uv[1]));
+      }
+      
+      auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
+      uvsArray->setData(uvData.data(), uvData.size());
+      meshObj->setParameterObject("primitive.attribute0", *uvsArray);
+      
+      logStatus(
+          "[import_USD] Mesh '%s': Set %zu UVs on primitive.attribute0\n",
+          prim.GetName().GetString().c_str(),
+          uvData.size());
+    }
+  }
+
+  meshObj->setName(prim.GetPath().GetText());
 
   // Material binding
   MaterialRef mat = get_bound_material(scene, prim, basePath);
@@ -566,9 +661,7 @@ static void import_usd_mesh(Scene &scene,
 static void import_usd_points(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
-    const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax)
+    const pxr::GfMatrix4d &usdXform)
 {
   pxr::UsdGeomPoints pointsPrim(prim);
   pxr::VtArray<pxr::GfVec3f> points;
@@ -583,8 +676,6 @@ static void import_usd_points(Scene &scene,
     pxr::GfVec4d p4(p[0], p[1], p[2], 1.0);
     pxr::GfVec4d wp4 = usdXform * p4;
     float3 wp{float(wp4[0]), float(wp4[1]), float(wp4[2])};
-    sceneMin = std::min(sceneMin, wp);
-    sceneMax = std::max(sceneMax, wp);
     outPositions.push_back(wp);
     float r = (widths.size() == points.size()) ? widths[i] * 0.5f : 0.01f;
     outRadii.push_back(r);
@@ -615,9 +706,7 @@ static void import_usd_points(Scene &scene,
 static void import_usd_sphere(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
-    const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax)
+    const pxr::GfMatrix4d &usdXform)
 {
   pxr::UsdGeomSphere spherePrim(prim);
   // UsdGeomSphere is always centered at the origin in local space
@@ -627,8 +716,6 @@ static void import_usd_sphere(Scene &scene,
   pxr::GfVec4d c4(center[0], center[1], center[2], 1.0);
   pxr::GfVec4d wc4 = usdXform * c4;
   float3 wp{float(wc4[0]), float(wc4[1]), float(wc4[2])};
-  sceneMin = std::min(sceneMin, wp - float3(radius));
-  sceneMax = std::max(sceneMax, wp + float3(radius));
   auto geom = scene.createObject<Geometry>(tokens::geometry::sphere);
   auto posArray = scene.createArray(ANARI_FLOAT32_VEC3, 1);
   posArray->setData(&wp, 1);
@@ -656,9 +743,7 @@ static void import_usd_sphere(Scene &scene,
 static void import_usd_cone(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
-    const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax)
+    const pxr::GfMatrix4d &usdXform)
 {
   pxr::UsdGeomCone conePrim(prim);
   // UsdGeomCone is always centered at the origin in local space
@@ -673,8 +758,6 @@ static void import_usd_cone(Scene &scene,
   pxr::GfVec4d c4(center[0], center[1], center[2], 1.0);
   pxr::GfVec4d wc4 = usdXform * c4;
   float3 wp{float(wc4[0]), float(wc4[1]), float(wc4[2])};
-  sceneMin = std::min(sceneMin, wp - float3(radius, radius, height * 0.5f));
-  sceneMax = std::max(sceneMax, wp + float3(radius, radius, height * 0.5f));
   // Represent as a 2-point cone (base and apex)
   std::vector<float3> positions = {wp, wp + float3(0, 0, float(height))};
   std::vector<float> radii = {float(radius), 0.f};
@@ -704,9 +787,7 @@ static void import_usd_cone(Scene &scene,
 static void import_usd_cylinder(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
-    const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax)
+    const pxr::GfMatrix4d &usdXform)
 {
   pxr::UsdGeomCylinder cylPrim(prim);
   // UsdGeomCylinder is always centered at the origin in local space
@@ -721,8 +802,6 @@ static void import_usd_cylinder(Scene &scene,
   pxr::GfVec4d c4(center[0], center[1], center[2], 1.0);
   pxr::GfVec4d wc4 = usdXform * c4;
   float3 wp{float(wc4[0]), float(wc4[1]), float(wc4[2])};
-  sceneMin = std::min(sceneMin, wp - float3(radius, radius, height * 0.5f));
-  sceneMax = std::max(sceneMax, wp + float3(radius, radius, height * 0.5f));
   // Represent as a 2-point cylinder (bottom and top)
   std::vector<float3> positions = {wp - float3(0, 0, float(height) * 0.5f),
       wp + float3(0, 0, float(height) * 0.5f)};
@@ -753,9 +832,7 @@ static void import_usd_cylinder(Scene &scene,
 static void import_usd_volume(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
-    const pxr::GfMatrix4d &usdXform,
-    float3 &sceneMin,
-    float3 &sceneMax)
+    const pxr::GfMatrix4d &usdXform)
 {
   pxr::UsdVolVolume volumePrim(prim);
 
@@ -1111,8 +1188,6 @@ static void import_usd_prim_recursive(Scene &scene,
     const pxr::UsdPrim &prim,
     LayerNodeRef parent,
     pxr::UsdGeomXformCache &xformCache,
-    float3 &sceneMin,
-    float3 &sceneMax,
     const std::string &basePath,
     const pxr::GfMatrix4d &parentWorldXform = pxr::GfMatrix4d(1.0))
 {
@@ -1136,8 +1211,6 @@ static void import_usd_prim_recursive(Scene &scene,
           prototype,
           xformNode,
           xformCache,
-          sceneMin,
-          sceneMax,
           basePath,
           thisWorldXform);
     } else {
@@ -1196,18 +1269,18 @@ static void import_usd_prim_recursive(Scene &scene,
   // Import geometry for this prim (if any)
   if (prim.IsA<pxr::UsdGeomMesh>()) {
     import_usd_mesh(
-        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax, basePath);
+        scene, prim, thisNode, thisWorldXform, basePath);
   } else if (prim.IsA<pxr::UsdGeomPoints>()) {
     import_usd_points(
-        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+        scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomSphere>()) {
     import_usd_sphere(
-        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+        scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomCone>()) {
-    import_usd_cone(scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+    import_usd_cone(scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomCylinder>()) {
     import_usd_cylinder(
-        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+        scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdLuxDistantLight>()) {
     import_usd_distant_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxRectLight>()) {
@@ -1220,7 +1293,7 @@ static void import_usd_prim_recursive(Scene &scene,
     import_usd_dome_light(scene, prim, thisNode, basePath, thisWorldXform);
   } else if (prim.IsA<pxr::UsdVolVolume>()) {
     import_usd_volume(
-        scene, prim, thisNode, thisWorldXform, sceneMin, sceneMax);
+        scene, prim, thisNode, thisWorldXform);
   }
   // Recurse into children
   for (const auto &child : prim.GetChildren()) {
@@ -1228,8 +1301,6 @@ static void import_usd_prim_recursive(Scene &scene,
         child,
         thisNode,
         xformCache,
-        sceneMin,
-        sceneMax,
         basePath,
         thisWorldXform);
   }
@@ -1258,8 +1329,6 @@ void import_USD(Scene &scene,
     ++primCount;
   tsd::core::logStatus(
       "[import_USD] Number of prims in stage: %zu\n", primCount);
-  float3 sceneMin(std::numeric_limits<float>::max());
-  float3 sceneMax(std::numeric_limits<float>::lowest());
   auto usd_root = scene.insertChildNode(
       location ? location : scene.defaultLayer()->root(), filepath);
 
@@ -1272,17 +1341,9 @@ void import_USD(Scene &scene,
     // if (prim.IsPrototype()) continue;
     if (prim.GetParent() && prim.GetParent().IsPseudoRoot()) {
       import_usd_prim_recursive(
-          scene, prim, usd_root, xformCache, sceneMin, sceneMax, basePath);
+          scene, prim, usd_root, xformCache, basePath);
     }
   }
-  tsd::core::logStatus(
-      "[import_USD] Scene bounds: min=(%f, %f, %f) max=(%f, %f, %f)\n",
-      sceneMin.x,
-      sceneMin.y,
-      sceneMin.z,
-      sceneMax.x,
-      sceneMax.y,
-      sceneMax.z);
 }
 #else
 void import_USD(Scene &scene,

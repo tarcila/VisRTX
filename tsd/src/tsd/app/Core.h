@@ -76,6 +76,8 @@ struct CommandLineOptions
   ImporterType importerType{ImporterType::NONE};
   std::vector<std::string> libraryList;
   std::string secondaryViewportLibrary;
+  std::string transferFunctionFile;
+  std::string cameraFile;
 };
 
 struct TSDState
@@ -215,6 +217,7 @@ struct Core
       const std::vector<ImportFile> &files, tsd::core::LayerNodeRef root = {});
   void importAnimations(const std::vector<ImportAnimationFiles> &files,
       tsd::core::LayerNodeRef root = {});
+  void applyTransferFunctionToAllVolumes(const std::string &filepath);
 
   // Offline rendering //
 
