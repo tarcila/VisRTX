@@ -71,21 +71,41 @@ __global__ void computeMaxOpacitiesGPU(float *maxOpacities,
     return;
   }
 
-  valueRange.lower -= xfRange.lower;
-  valueRange.lower /= xfRange.upper - xfRange.lower;
-  valueRange.upper -= xfRange.lower;
-  valueRange.upper /= xfRange.upper - xfRange.lower;
+  // Improved normalization with explicit bounds checking
+  float xfExtent = xfRange.upper - xfRange.lower;
+  if (xfExtent <= 0.f) {
+    maxOpacities[threadID] = 0.f;
+    return;
+  }
 
-  int lo = glm::clamp(
-      int(valueRange.lower * (numColors - 1)), 0, int(numColors - 1));
-  int hi = glm::clamp(
-      int(valueRange.upper * (numColors - 1)) + 1, 0, int(numColors - 1));
+  float normalizedLower = (valueRange.lower - xfRange.lower) / xfExtent;
+  float normalizedUpper = (valueRange.upper - xfRange.lower) / xfExtent;
+  
+  // Clamp to [0,1] to prevent out-of-bounds access
+  normalizedLower = glm::clamp(normalizedLower, 0.0f, 1.0f);
+  normalizedUpper = glm::clamp(normalizedUpper, 0.0f, 1.0f);
+
+  // Use higher resolution sampling to avoid missing opacity peaks
+  const int OVERSAMPLE_FACTOR = 4; // Sample 4x more densely than original
+  float rangeSpan = normalizedUpper - normalizedLower;
+  int numSamples = max(1, int(rangeSpan * numColors * OVERSAMPLE_FACTOR));
+  
+  // Cap the number of samples to prevent excessive computation
+  numSamples = min(numSamples, 256);
 
   float maxOpacity = 0.f;
-  for (int i = lo; i <= hi; ++i) {
-    float tc = (i + .5f) / numColors;
-    maxOpacity = fmaxf(maxOpacity, tex1D<::float4>(colorMap, tc).w);
+  if (numSamples == 1) {
+    // Single sample at range midpoint
+    float tc = (normalizedLower + normalizedUpper) * 0.5f;
+    maxOpacity = tex1D<::float4>(colorMap, tc).w;
+  } else {
+    // Multiple samples across the range
+    for (int i = 0; i < numSamples; ++i) {
+      float t = normalizedLower + rangeSpan * i / float(numSamples - 1);
+      maxOpacity = fmaxf(maxOpacity, tex1D<::float4>(colorMap, t).w);
+    }
   }
+  
   maxOpacities[threadID] = maxOpacity;
 }
 
@@ -113,21 +133,28 @@ __global__ void buildGridGPU(box1 *valueRanges,
   box3 voxelBounds(worldBounds.lower + vec3(voxelID) * voxelExtend,
       worldBounds.lower + vec3(voxelID) * voxelExtend + voxelExtend);
 
-  // compute the max value of all the cells that can
-  // overlap this voxel; splat out the _max_ over the
-  // overlapping MCs. (that's essentially a box filter)
-  vec3 tcs[8] = {(vec3(voxelID) + vec3(-.5f, -.5f, -.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(+.5f, -.5f, -.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(+.5f, +.5f, -.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(-.5f, +.5f, -.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(-.5f, -.5f, +.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(+.5f, -.5f, +.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(+.5f, +.5f, +.5f)) / vec3(dims),
-      (vec3(voxelID) + vec3(-.5f, +.5f, +.5f)) / vec3(dims)};
+  // Enhanced sampling strategy: 8 corners + center + 6 face centers for better feature capture
+  vec3 worldPositions[15];
+  vec3 voxelOffsets[15] = {
+      // 8 corners (original)
+      vec3(-.5f, -.5f, -.5f), vec3(+.5f, -.5f, -.5f), vec3(+.5f, +.5f, -.5f), vec3(-.5f, +.5f, -.5f),
+      vec3(-.5f, -.5f, +.5f), vec3(+.5f, -.5f, +.5f), vec3(+.5f, +.5f, +.5f), vec3(-.5f, +.5f, +.5f),
+      // Center point
+      vec3(0.0f, 0.0f, 0.0f),
+      // 6 face centers
+      vec3(-.5f, 0.0f, 0.0f), vec3(+.5f, 0.0f, 0.0f), // -X, +X faces
+      vec3(0.0f, -.5f, 0.0f), vec3(0.0f, +.5f, 0.0f), // -Y, +Y faces
+      vec3(0.0f, 0.0f, -.5f), vec3(0.0f, 0.0f, +.5f)  // -Z, +Z faces
+  };
+
+  // Convert grid offsets to actual world coordinates
+  for (int i = 0; i < 15; ++i) {
+    worldPositions[i] = worldBounds.lower + (vec3(voxelID) + voxelOffsets[i]) * voxelExtend;
+  }
 
   float voxelValue = -1e30f;
-  for (int i = 0; i < 8; ++i) {
-    float retval = sampler(vec3(tcs[i].x, tcs[i].y, tcs[i].z));
+  for (int i = 0; i < 15; ++i) {
+    float retval = sampler(worldPositions[i]);
     voxelValue = fmaxf(voxelValue, retval);
   }
 
@@ -151,7 +178,19 @@ __global__ void buildGridGPU(box1 *valueRanges,
 
 void UniformGrid::init(ivec3 dims, box3 worldBounds)
 {
-  m_dims = ivec3(iDivUp(dims.x, 16), iDivUp(dims.y, 16), iDivUp(dims.z, 16));
+  // Adaptive grid resolution based on volume dimensions
+  // Use a more sophisticated approach than fixed 16x subdivision
+  const int MIN_GRID_SIZE = 8;
+  const int MAX_GRID_SIZE = 64;
+  
+  // Calculate adaptive subdivision based on volume complexity
+  int subdivX = glm::clamp(dims.x / 32, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  int subdivY = glm::clamp(dims.y / 32, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  int subdivZ = glm::clamp(dims.z / 32, MIN_GRID_SIZE, MAX_GRID_SIZE);
+  
+  m_dims = ivec3(iDivUp(dims.x, subdivX), 
+                 iDivUp(dims.y, subdivY), 
+                 iDivUp(dims.z, subdivZ));
   m_worldBounds = worldBounds;
 
   size_t numMCs = m_dims.x * size_t(m_dims.y) * m_dims.z;
@@ -223,6 +262,10 @@ void UniformGrid::buildGrid(const SpatialFieldGPUData &sfgd)
     }
     break;
   }
+  case SpatialFieldType::UNKNOWN:
+  default:
+    // Handle unknown spatial field types gracefully
+    break;
   }
 
   cudaFree(sfgdDevice);
