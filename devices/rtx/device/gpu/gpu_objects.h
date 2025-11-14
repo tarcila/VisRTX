@@ -623,7 +623,7 @@ struct AORendererGPUData
   int aoSamples;
 };
 
-struct DPTRendererGPUData
+struct PTRendererGPUData
 {
   int maxDepth;
 };
@@ -640,7 +640,7 @@ union RendererParametersGPUData
 {
   DebugRendererGPUData debug;
   AORendererGPUData ao;
-  DPTRendererGPUData dpt;
+  PTRendererGPUData pathTracer;
   DirectLightRendererGPUData directLight;
 };
 

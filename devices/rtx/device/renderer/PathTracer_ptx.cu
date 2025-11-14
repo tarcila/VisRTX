@@ -82,7 +82,7 @@ VISRTX_GLOBAL void __miss__()
 VISRTX_GLOBAL void __raygen__()
 {
   auto &rendererParams = frameData.renderer;
-  auto &dptParams = rendererParams.params.dpt;
+  auto &ptParams = rendererParams.params.pathTracer;
 
   PathData pathData;
 
@@ -137,7 +137,7 @@ VISRTX_GLOBAL void __raygen__()
       if (!hit.foundHit && !volumeHit)
         break;
 
-      if (pathData.depth++ >= dptParams.maxDepth) {
+      if (pathData.depth++ >= ptParams.maxDepth) {
         pathData.Lw = vec3(0.f);
         break;
       }
