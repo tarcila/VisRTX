@@ -29,6 +29,7 @@ void import_SMESH(Scene &scene, const char *filename, LayerNodeRef location = {}
 void import_SWC(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_TRK(Scene &scene, const char *filename, LayerNodeRef location = {});
 void import_USD(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
+void import_USD2(Scene &scene, const char *filename, LayerNodeRef location = {}, bool useDefaultMaterial = false);
 void import_XYZDP(Scene &scene, const char *filename, LayerNodeRef location = {});
 
 SpatialFieldRef import_RAW(Scene &scene, const char *filename);

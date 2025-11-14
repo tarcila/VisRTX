@@ -169,6 +169,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::TRK;
     else if (arg == "-usd")
       importerType = ImporterType::USD;
+    else if (arg == "-usd2")
+      importerType = ImporterType::USD2;
     else if (arg == "-xyzdp")
       importerType = ImporterType::XYZDP;
     else if (arg == "-volume")
@@ -291,7 +293,10 @@ void Core::importFile(const ImportFile &f, tsd::core::LayerNodeRef root)
     tsd::io::import_TRK(tsd.scene, file.c_str(), root);
   else if (f.first == ImporterType::USD)
     tsd::io::import_USD(tsd.scene, file.c_str(), root);
-  else if (f.first == ImporterType::XYZDP)
+  else if (f.first == ImporterType::USD2) {
+    tsd::io::import_USD(tsd.scene, file.c_str(), root);
+    tsd::io::import_USD2(tsd.scene, file.c_str(), root);
+  } else if (f.first == ImporterType::XYZDP)
     tsd::io::import_XYZDP(tsd.scene, file.c_str(), root);
   else if (f.first == ImporterType::VOLUME)
     tsd::io::import_volume(tsd.scene, file.c_str(), root);

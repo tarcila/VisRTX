@@ -9,6 +9,8 @@ project_sources(
 PRIVATE
   importers/detail/HDRImage.cpp
   importers/detail/importer_common.cpp
+  importers/detail/usd/MaterialCommon.cpp
+  importers/detail/usd/OmniPbrMaterial.cpp
   importers/import_AGX.cpp
   importers/import_ASSIMP.cpp
   importers/import_AXYZ.cpp
@@ -23,6 +25,7 @@ PRIVATE
   importers/import_NVDB.cpp
   importers/import_OBJ.cpp
   importers/import_USD.cpp
+  importers/import_USD2.cpp
   importers/import_PDB.cpp
   importers/import_PLY.cpp
   importers/import_POINTSBIN.cpp

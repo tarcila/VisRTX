@@ -51,6 +51,7 @@ enum class ImporterType
   SWC,
   TRK,
   USD,
+  USD2,
   XYZDP,
   VOLUME,
   TSD,
