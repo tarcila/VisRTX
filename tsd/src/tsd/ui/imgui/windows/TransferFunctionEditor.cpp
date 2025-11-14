@@ -918,37 +918,8 @@ void TransferFunctionEditor::saveColormapTo1dt(const std::string &filepath)
     return;
   }
 
-  // Write colors with interpolated opacity at control point positions
-  // This preserves the sparse nature of opacity control points
-  for (const auto &opacityPoint : m_tfnOpacityPoints) {
-    float position = opacityPoint.x;
-    float opacity = opacityPoint.y;
-
-    // Get color at this position
-    tsd::math::float3 color(0.f);
-    if (m_currentMap == 0) {
-      // Direct color mapping
-      if (!m_tfnColorPoints->empty()) {
-        // Find closest color point or interpolate
-        if (position <= m_tfnColorPoints->front().x) {
-          auto &cp = m_tfnColorPoints->front();
-          color = tsd::math::float3(cp.y, cp.z, cp.w);
-        } else if (position >= m_tfnColorPoints->back().x) {
-          auto &cp = m_tfnColorPoints->back();
-          color = tsd::math::float3(cp.y, cp.z, cp.w);
-        } else {
-          color =
-              tsd::core::detail::interpolateColor(*m_tfnColorPoints, position);
-        }
-      }
-    } else {
-      // Interpolated color mapping
-      color = tsd::core::detail::interpolateColor(*m_tfnColorPoints, position);
-    }
-
-    file << color.x << " " << color.y << " " << color.z << " " << opacity
-         << std::endl;
-  }
+  for (auto &c : colorsAndOpacities)
+    file << c.x << " " << c.y << " " << c.z << " " << c.w << std::endl;
 
   file.close();
 
