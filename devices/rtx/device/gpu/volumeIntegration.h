@@ -301,8 +301,8 @@ VISRTX_DEVICE float _sampleDistance(ScreenSample &ss,
   };
 
   // Traverse volume grid using 3D DDA with Woodcock tracking per voxel
-  dda3(objRay, field.grid.dims, field.grid.worldBounds, woodcockFunc);
-  
+  // dda3(objRay, field.grid.dims, field.grid.worldBounds, woodcockFunc);
+  amanatidesWoo3(objRay, field.grid.dims, field.grid.worldBounds, woodcockFunc);
   // If no scattering occurred, return the exit point
   return (tr > 0.5f) ? hit.localRay.t.upper : t_out;
 }
