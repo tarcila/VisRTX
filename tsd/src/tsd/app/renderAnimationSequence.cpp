@@ -75,8 +75,6 @@ static OfflineRenderRig setupRig(tsd::app::Core &core)
   ro.updateAllANARIParameters(d, r);
   anari::commitParameters(d, r);
 
-  rig.numFrames = config.frame.numFrames;
-
   // Create pipeline stages //
 
   rig.pipeline = std::make_unique<tsd::rendering::RenderPipeline>();
@@ -133,9 +131,14 @@ void renderAnimationSequence(Core &core,
   auto d = rp.anariPass->getDevice();
   auto c = rp.anariPass->getCamera();
 
-  for (int frameIndex = 0; frameIndex < rp.numFrames; ++frameIndex) {
+  auto &config = core.offline.frame;
+  auto start = config.renderSubset ? config.startFrame : 0;
+  auto end = config.renderSubset ? config.endFrame : config.numFrames - 1;
+  auto increment = config.frameIncrement;
+
+  for (int frameIndex = start; frameIndex <= end; frameIndex += increment) {
     if (preFrameCallback) {
-      if (!preFrameCallback(frameIndex, rp.numFrames)) {
+      if (!preFrameCallback(frameIndex, config.numFrames)) {
         tsd::core::logStatus(
             "[renderAnimationSequence] Aborting render sequence at frame %d",
             frameIndex);
@@ -145,7 +148,7 @@ void renderAnimationSequence(Core &core,
 
     // Set scene time for this frame //
 
-    float time = static_cast<float>(frameIndex) / (rp.numFrames - 1);
+    float time = static_cast<float>(frameIndex) / (config.numFrames - 1);
     scene.setAnimationTime(time);
 
     // Update camera (in case it is animated) //

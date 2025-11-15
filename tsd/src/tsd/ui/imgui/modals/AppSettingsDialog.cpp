@@ -95,7 +95,7 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
 
   // Frame //
 
-  ImGui::Text("Frame:");
+  ImGui::Text("==== Frame ====");
   ImGui::DragInt("##width", (int *)&core->offline.frame.width, 1, 10, 10000);
   ImGui::SameLine();
   ImGui::Text("x");
@@ -110,16 +110,72 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
       1,
       std::numeric_limits<int>::max());
 
-  ImGui::DragInt("numFrames",
+  auto fixupStartEndFrame = [&]() {
+    auto &num = core->offline.frame.numFrames;
+    auto &start = core->offline.frame.startFrame;
+    auto &end = core->offline.frame.endFrame;
+    if (end >= num)
+      end = num - 1;
+    if (start > end)
+      end = start;
+    if (end < start)
+      start = end;
+  };
+
+  bool doFix = false;
+
+  doFix |= ImGui::DragInt("total animation frame count",
       (int *)&core->offline.frame.numFrames,
       1,
       1,
       std::numeric_limits<int>::max());
 
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Number of total frames for [0.0-1.0] animation time.");
+
+  ImGui::DragInt("frameIncrement",
+      (int *)&core->offline.frame.frameIncrement,
+      1,
+      1,
+      std::max(1, core->offline.frame.numFrames / 2));
+
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Render every {N} frames");
+
+  ImGui::Checkbox("render subset", &core->offline.frame.renderSubset);
+
+  ImGui::BeginDisabled(!core->offline.frame.renderSubset);
+
+  doFix |= ImGui::DragInt("start frame offset",
+      (int *)&core->offline.frame.startFrame,
+      1,
+      0,
+      core->offline.frame.numFrames - 1);
+
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Offset into total frame count (when rendering subset)");
+
+  doFix |= ImGui::DragInt("end frame offset",
+      (int *)&core->offline.frame.endFrame,
+      1,
+      core->offline.frame.startFrame,
+      core->offline.frame.numFrames - 1);
+
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Stop at this frame (when rendering subset),"
+        " -1 means go to last frame in full animation");
+  }
+
+  ImGui::EndDisabled();
+
+  if (doFix)
+    fixupStartEndFrame();
+
   // Camera //
 
   ImGui::Separator();
-  ImGui::Text("Camera:");
+  ImGui::Text("==== Camera ====");
   ImGui::DragFloat("apertureRadius",
       &core->offline.camera.apertureRadius,
       1,
@@ -169,7 +225,7 @@ void AppSettingsDialog::buildUI_offlineRenderSettings()
   // Renderer //
 
   ImGui::Separator();
-  ImGui::Text("Renderer:");
+  ImGui::Text("==== Renderer ====");
 
   if (ImGui::InputText("##ANARI library",
           &core->offline.renderer.libraryName,

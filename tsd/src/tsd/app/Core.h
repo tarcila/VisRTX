@@ -154,6 +154,10 @@ struct OfflineRenderSequenceConfig
     anari::DataType colorFormat{ANARI_UFIXED8_RGBA_SRGB};
     uint32_t samples{128};
     int numFrames{1};
+    bool renderSubset{false}; // use start/end
+    int startFrame{0};
+    int endFrame{0};
+    int frameIncrement{1};
   } frame;
 
   struct CameraSettings
