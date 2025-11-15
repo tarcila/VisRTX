@@ -132,7 +132,7 @@ VISRTX_DEVICE vec4 shadeSurface(
       };
 
       const float surface_o =
-        1.f - surfaceAttenuation(ss, shadowRay, RayType::SHADOW);
+          1.f - surfaceAttenuation(ss, shadowRay, RayType::SHADOW);
       const float volume_o = 1.f - volumeAttenuation(ss, shadowRay);
       const float attenuation = surface_o * volume_o;
 
@@ -248,7 +248,7 @@ VISRTX_GLOBAL void __closesthit__shadow()
 
 VISRTX_GLOBAL void __anyhit__shadow()
 {
-  auto &rendererParams = frameData.renderer;
+  auto &rendererParams = frameData.renderer.params;
 
   if (ray::isIntersectingSurfaces()) {
     SurfaceHit hit;
@@ -273,7 +273,7 @@ VISRTX_GLOBAL void __anyhit__shadow()
     rayMarchVolume(ray::screenSample(),
         hit,
         ra.attenuation,
-        rendererParams.inverseVolumeSamplingRate);
+        rendererParams.directLight.inverseVolumeSamplingRateShadows);
     if (ra.attenuation < 0.99f)
       optixIgnoreIntersection();
   }

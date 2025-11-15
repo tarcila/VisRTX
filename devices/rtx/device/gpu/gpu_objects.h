@@ -634,6 +634,7 @@ struct DirectLightRendererGPUData
   int aoSamples;
   vec3 aoColor;
   float aoIntensity;
+  float inverseVolumeSamplingRateShadows;
 };
 
 union RendererParametersGPUData

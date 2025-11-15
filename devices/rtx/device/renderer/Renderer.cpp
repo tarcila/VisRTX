@@ -30,6 +30,7 @@
  */
 
 #include "Renderer.h"
+// helium
 #include <helium/utility/TimeStamp.h>
 
 // specific renderers
@@ -161,7 +162,7 @@ void Renderer::commitParameters()
   m_occlusionDistance = getParam<float>("ambientOcclusionDistance", 1e20f);
   m_checkerboard = getParam<bool>("checkerboarding", false);
   m_denoise = getParam<bool>("denoise", false);
-  m_tonemap = getParam<bool>("tonemap", true); // enable internal tonemapping during sample accumulation
+  m_tonemap = getParam<bool>("tonemap", true);
   m_sampleLimit = getParam<int>("sampleLimit", 128);
   m_cullTriangleBF = getParam<bool>("cullTriangleBackfaces", false);
   m_volumeSamplingRate =
@@ -213,9 +214,10 @@ OptixPipeline Renderer::pipeline()
 #ifndef USE_MDL
   if (!m_pipeline)
 #else
-  if (!m_pipeline ||
-      (deviceState()->mdl && (deviceState()->mdl->materialRegistry.getLastUpdateTime()
-          > m_lastMDLMaterialLibraryUpdateCheck)))
+  if (!m_pipeline
+      || (deviceState()->mdl
+          && (deviceState()->mdl->materialRegistry.getLastUpdateTime()
+              > m_lastMDLMaterialLibraryUpdateCheck)))
 #endif
     initOptixPipeline();
 
@@ -227,9 +229,10 @@ const OptixShaderBindingTable *Renderer::sbt()
 #ifndef USE_MDL
   if (!m_pipeline)
 #else
-  if (!m_pipeline ||
-      (deviceState()->mdl && (deviceState()->mdl->materialRegistry.getLastUpdateTime()
-          > m_lastMDLMaterialLibraryUpdateCheck)))
+  if (!m_pipeline
+      || (deviceState()->mdl
+          && (deviceState()->mdl->materialRegistry.getLastUpdateTime()
+              > m_lastMDLMaterialLibraryUpdateCheck)))
 #endif
 
     initOptixPipeline();
@@ -435,7 +438,8 @@ void Renderer::initOptixPipeline()
   {
     // Matte
     constexpr auto SBT_CALLABLE_MATTE_OFFSET = 0;
-    constexpr auto SBT_CALLABLE_PHYSICALLYBASED_OFFSET = int(SurfaceShaderEntryPoints::Count);
+    constexpr auto SBT_CALLABLE_PHYSICALLYBASED_OFFSET =
+        int(SurfaceShaderEntryPoints::Count);
     std::vector<OptixProgramGroupDesc> callableDescs(
         2 * int(SurfaceShaderEntryPoints::Count));
     callableDescs[SBT_CALLABLE_MATTE_OFFSET
@@ -477,7 +481,7 @@ void Renderer::initOptixPipeline()
     callableDescs[SBT_CALLABLE_MATTE_OFFSET
         + int(SurfaceShaderEntryPoints::EvaluateOpacity)]
         .callables.entryFunctionNameDC = "__direct_callable__evaluateOpacity";
-    
+
     callableDescs[SBT_CALLABLE_MATTE_OFFSET
         + int(SurfaceShaderEntryPoints::EvaluateEmission)]
         .kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;

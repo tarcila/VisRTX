@@ -50,6 +50,8 @@ void DirectLight::commitParameters()
   Renderer::commitParameters();
   m_lightFalloff = std::clamp(getParam<float>("lightFalloff", 1.f), 0.f, 1.f);
   m_aoSamples = std::clamp(getParam<int>("ambientSamples", 1), 0, 256);
+  m_volumeSamplingRateShadows = std::clamp(
+      getParam<float>("volumeSamplingRateShadows", 0.0125f), 1e-4f, 10.f);
 }
 
 void DirectLight::populateFrameData(FrameGPUData &fd) const
@@ -60,6 +62,8 @@ void DirectLight::populateFrameData(FrameGPUData &fd) const
   directLight.aoSamples = m_aoSamples;
   directLight.aoColor = m_aoColor;
   directLight.aoIntensity = m_aoIntensity;
+  directLight.inverseVolumeSamplingRateShadows =
+      1.f / m_volumeSamplingRateShadows;
 }
 
 OptixModule DirectLight::optixModule() const

@@ -141,7 +141,16 @@
           "default": 0.125,
           "minimum": 0.001,
           "maximum": 10.0,
-          "description": "sampling rate of volumes when ray marching"
+          "description": "sampling rate of volumes when ray marching primary visibility"
+        },
+        {
+          "name": "volumeSamplingRateShadows",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0125,
+          "minimum": 0.0001,
+          "maximum": 10.0,
+          "description": "sampling rate of volumes when ray marching shadows"
         }
       ]
     },

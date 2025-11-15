@@ -51,6 +51,7 @@ struct DirectLight : public Renderer
   int m_aoSamples{1};
   vec3 m_aoColor{1.f};
   float m_aoIntensity{1.f};
+  float m_volumeSamplingRateShadows{0.0125f};
 };
 
 } // namespace visrtx
