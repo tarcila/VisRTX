@@ -119,6 +119,7 @@ static void importUsdGeomCamera(Scene &scene,
   TimeStepValues positions;
   TimeStepValues directions;
   TimeStepValues ups;
+  TimeStepValues fovs;
 
   for (auto tc = startTc; tc <= endTc; ++tc) {
     xformCache.SetTime(tc);
@@ -132,12 +133,25 @@ static void importUsdGeomCamera(Scene &scene,
 
     auto gfUp = xfm.TransformDir(pxr::GfVec3d(0, 1, 0));
     ups.push_back(tsd::math::float3(gfUp[0], gfUp[1], gfUp[2]));
+
+    pxr::GfCamera gfCamera = usdCamera.GetCamera(tc);
+
+    // Get focal length and sensor dimensions
+    float focalLength = gfCamera.GetFocalLength();
+    float verticalAperture = gfCamera.GetVerticalAperture();
+
+    // Calculate field of view from focal length and aperture
+    // FOV = 2 * atan(aperture / (2 * focal_length))
+    float fovVertical = 2.0f * std::atan(verticalAperture / (2.0f * focalLength));
+
+    fovs.push_back(fovVertical);
   }
 
   // Before actually creating the animation object, check if we have varying time samples
   auto isPositionsAnimated = isTimeStepValuesAnimated(positions);
   auto isDirectionsAnimated = isTimeStepValuesAnimated(directions);
   auto isUpsAnimated = isTimeStepValuesAnimated(ups);
+  auto isFovsAnimated = isTimeStepValuesAnimated(fovs);
 
   if (!isPositionsAnimated) {
     camera->setParameter("position", positions.front());
@@ -148,13 +162,16 @@ static void importUsdGeomCamera(Scene &scene,
   if (!isUpsAnimated) {
     camera->setParameter("up", ups.front());
   }
+  if (!isFovsAnimated) {
+    camera->setParameter("fovy", fovs.front());
+  }
 
-  if (!isPositionsAnimated && !isDirectionsAnimated && !isUpsAnimated) {
+  if (!isPositionsAnimated && !isDirectionsAnimated && !isUpsAnimated && !isFovsAnimated) {
     logStatus("[import_USD] Created static camera '%s'\n", primName.c_str());
     return;
   }
 
-
+  
   auto cameraAnimation = scene.addAnimation(primName.c_str());
   std::vector<Token> animatedParams;
   std::vector<TimeStepValues> animatedValues;
@@ -171,6 +188,11 @@ static void importUsdGeomCamera(Scene &scene,
     animatedParams.push_back("up"_t);
     animatedValues.push_back(ups);
   }
+  if (isFovsAnimated) {
+    animatedParams.push_back("fovy"_t);
+    animatedValues.push_back(fovs);
+  }
+
   cameraAnimation->setAsTimeSteps(
       *camera,
       animatedParams,
