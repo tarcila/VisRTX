@@ -228,7 +228,7 @@
           "name": "sampleLimit",
           "types": ["ANARI_INT32"],
           "tags": [],
-          "default": 128,
+          "default": 512,
           "minimum": 0,
           "description": "stop refining the frame after this number of samples"
         },
@@ -267,6 +267,14 @@
           "default": 1,
           "minimum": 1,
           "description": "samples per-pixel"
+        },
+        {
+          "name": "maxRayDepth",
+          "types": ["ANARI_INT32"],
+          "tags": [],
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum number of ray bounces"
         }
       ]
     },
