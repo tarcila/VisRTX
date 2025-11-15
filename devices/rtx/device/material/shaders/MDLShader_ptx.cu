@@ -242,6 +242,14 @@ float __direct_callable__evaluateOpacity(const MDLShadingState *shadingState)
 }
 
 VISRTX_CALLABLE
+float __direct_callable__evaluateTransmission(const MDLShadingState *shadingState)
+{
+  return 0.0f;//mdlTransmission(
+      // &shadingState->state, &shadingState->resData, shadingState->argBlock);
+}
+
+
+VISRTX_CALLABLE
 vec3 __direct_callable__evaluateEmission(
     const MDLShadingState *shadingState, const vec3 *outgoingDir)
 {

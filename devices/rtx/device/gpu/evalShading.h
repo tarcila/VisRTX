@@ -69,6 +69,17 @@ VISRTX_DEVICE vec3 materialEvaluateTint(
       &shadingState.data);
 }
 
+VISRTX_DEVICE float materialEvaluateTransmission(
+    const MaterialShadingState &shadingState)
+{
+  if (shadingState.callableBaseIndex == ~DeviceObjectIndex(0))
+    return 0.0f; // Default transmission
+
+  return optixDirectCall<float>(shadingState.callableBaseIndex
+          + int(SurfaceShaderEntryPoints::EvaluateTransmission),
+      &shadingState.data);
+}
+
 VISRTX_DEVICE float materialEvaluateOpacity(
     const MaterialShadingState &shadingState)
 {
@@ -79,6 +90,7 @@ VISRTX_DEVICE float materialEvaluateOpacity(
           + int(SurfaceShaderEntryPoints::EvaluateOpacity),
       &shadingState.data);
 }
+
 
 VISRTX_DEVICE vec3 materialEvaluateEmission(
     const MaterialShadingState &shadingState, const vec3& outgoingDir)

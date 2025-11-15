@@ -64,6 +64,12 @@ vec3 __direct_callable__evaluateTint(const MatteShadingState *shadingState)
 }
 
 VISRTX_CALLABLE
+float __direct_callable__evaluateTransmission(const MatteShadingState *shadingState)
+{
+  return 0.0f;
+}
+
+VISRTX_CALLABLE
 float __direct_callable__evaluateOpacity(const MatteShadingState *shadingState)
 {
   return shadingState->opacity;
