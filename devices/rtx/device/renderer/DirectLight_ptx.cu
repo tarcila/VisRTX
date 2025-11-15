@@ -47,9 +47,8 @@ namespace visrtx {
 
 enum class RayType
 {
-  PRIMARY = 0,
+  SHADING = 0,
   SHADOW = 1,
-  BOUNCE = 2
 };
 
 struct RayAttenuation
@@ -64,11 +63,10 @@ DECLARE_FRAME_DATA(frameData)
 
 VISRTX_DEVICE float volumeAttenuation(ScreenSample &ss, Ray r)
 {
-  RayAttenuation ra;
-  ra.ray = &r;
+  float attenuation = 1.0f;
   intersectVolume(
-      ss, r, RayType::SHADOW, &ra, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
-  return ra.attenuation;
+      ss, r, RayType::SHADOW, &attenuation, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+  return attenuation;
 }
 
 VISRTX_DEVICE vec4 shadeSurface(
@@ -97,20 +95,7 @@ VISRTX_DEVICE vec4 shadeSurface(
 
   // Handle ambient light contribution
   if (rendererParams.ambientIntensity > 0.0f) {
-#define USE_SAMPLED_AMBIENT_LIGHT 0
-#if USE_SAMPLED_AMBIENT_LIGHT
-    const LightSample ls = {
-        .radiance =
-            rendererParams.ambientColor * rendererParams.ambientIntensity,
-        .dir = sampleHemisphere(ss.rs, hit.Ns),
-        .dist = 1e20f,
-        .pdf = 1.0f,
-    };
-    contrib = materialShadeSurface(shadingState, hit, ls, -ray.dir);
-#else
-    contrib += rendererParams.ambientColor * rendererParams.ambientIntensity
-        * materialEvaluateTint(shadingState);
-#endif
+    contrib += rendererParams.ambientColor * rendererParams.ambientIntensity * materialEvaluateTint(shadingState);
   }
 
   // Handle all lights contributions
@@ -152,25 +137,15 @@ VISRTX_DEVICE vec4 shadeSurface(
   // Take AO in account
   contrib *= aoFactor;
 
-  // Then proceed with the bounce rays
-  vec3 nextRayContrib(0.0f);
-  vec3 nextRayContribWeight = vec3(1.f);
+  // Then proceed with single bounce ray
 
-  Ray bounceRay = ray;
   SurfaceHit bounceHit = hit;
+  NextRay nextRay = materialNextRay(shadingState, ray, ss.rs);
+  if (glm::any(glm::greaterThan(nextRay.contributionWeight, glm::vec3(1.0e-8f))) &&
+      glm::any(glm::greaterThan(nextRay.direction, glm::vec3(1.0e-8f)))) {
 
-  for (int depth = 0; depth < frameData.renderer.maxRayDepth; ++depth) {
-    NextRay nextRay = materialNextRay(shadingState, bounceRay, ss.rs);
 
-    if (glm::all(glm::lessThan(
-            glm::abs(vec3(nextRay.direction)), glm::vec3(1.0e-8f))))
-      break;
-
-    nextRayContribWeight *= vec3(nextRay.contributionWeight);
-    if (glm::all(glm::lessThan(nextRayContribWeight, glm::vec3(1.0e-8f))))
-      break;
-
-    bounceRay = {
+    Ray bounceRay = {
         bounceHit.hitpoint
             + bounceHit.Ng
                 * std::copysignf(
@@ -179,60 +154,28 @@ VISRTX_DEVICE vec4 shadeSurface(
     };
 
     bounceHit.foundHit = false;
-    bounceHit.isFrontFace = true;
-    intersectSurface(ss, bounceRay, RayType::BOUNCE, &bounceHit);
+    intersectSurface(ss, bounceRay, RayType::SHADING, &bounceHit);
 
     // We hit something. Gather its contribution.
     if (bounceHit.foundHit) {
-      // This HDRI search is not ideal. It does not account for light instance
-      // transformations and should be reworked later on.
-      auto hdri = (frameData.world.hdri != -1)
-          ? &frameData.registry.lights[frameData.world.hdri]
-          : nullptr;
-
-      LightSample lightSample;
-      // If we have an active HDRI, sample it.
-      if (hdri && hdri->hdri.visible) {
-        lightSample = detail::sampleHDRILight(
-            *hdri, glm::identity<mat4>(), bounceHit, ss.rs);
-      } else {
-        // Otherwise fallback to some simple background probing.
-        lightSample = {
-            rendererParams.ambientColor * rendererParams.ambientIntensity,
-            bounceHit.Ns,
-            std::numeric_limits<float>::max(),
-            1.0f / (4.0f * float(M_PI)),
-        };
-      }
       materialInitShading(
           &shadingState, frameData, *bounceHit.material, bounceHit);
-      nextRayContrib = materialShadeSurface(
-          shadingState, bounceHit, lightSample, bounceRay.dir);
 
-      if (glm::any(glm::isnan(nextRayContrib))) {
-        break;
-      }
-      contrib += nextRayContrib * nextRayContribWeight;
+      auto color = materialEvaluateTint(shadingState);
+      contrib += color * nextRay.contributionWeight;
     } else {
       // This HDRI search is not ideal. It does not account for light instance
       // transformations and should be reworked later on.
-      auto hdri = (frameData.world.hdri != -1)
-          ? &frameData.registry.lights[frameData.world.hdri]
-          : nullptr;
+      auto hdri = (frameData.world.hdri != -1) ? &frameData.registry.lights[frameData.world.hdri] : nullptr;
       // No hit, get background contribution.
       vec3 radiance;
       // If we have an active HDRI, sample it.
       if (hdri && hdri->hdri.visible) {
-        radiance =
-            detail::sampleHDRILight(*hdri, glm::identity<mat4>(), bounceRay.dir)
-                .radiance;
+        radiance = detail::sampleHDRILight(*hdri, glm::identity<mat4>(), bounceRay.dir).radiance;
       } else {
-        radiance =
-            rendererParams.ambientColor * rendererParams.ambientIntensity;
+        radiance = rendererParams.ambientColor * rendererParams.ambientIntensity;
       }
-      nextRayContrib = radiance;
-      contrib += nextRayContrib * nextRayContribWeight;
-      break;
+      contrib += radiance * nextRay.contributionWeight;
     }
   }
 
@@ -242,6 +185,11 @@ VISRTX_DEVICE vec4 shadeSurface(
 // OptiX programs /////////////////////////////////////////////////////////////
 
 VISRTX_GLOBAL void __closesthit__shadow()
+{
+  // no-op
+}
+
+VISRTX_GLOBAL void __miss__shadow()
 {
   // no-op
 }
@@ -279,29 +227,25 @@ VISRTX_GLOBAL void __anyhit__shadow()
   }
 }
 
-VISRTX_GLOBAL void __anyhit__primary()
+VISRTX_GLOBAL void __anyhit__shading()
 {
   ray::cullbackFaces();
 }
 
-VISRTX_GLOBAL void __closesthit__primary()
+VISRTX_GLOBAL void __closesthit__shading()
 {
   ray::populateHit();
 }
 
-VISRTX_GLOBAL void __anyhit__bounce()
+VISRTX_GLOBAL void __miss__shading()
 {
-  ray::cullbackFaces();
-}
-
-VISRTX_GLOBAL void __closesthit__bounce()
-{
-  ray::populateHit();
-}
-
-VISRTX_GLOBAL void __miss__()
-{
-  // TODO
+  if (ray::isIntersectingSurfaces()) {
+    auto &hit = ray::rayData<SurfaceHit>();
+    hit.foundHit = false;
+  } else {
+    auto &hit = ray::rayData<VolumeHit>();
+    hit.foundHit = false;
+  }
 }
 
 VISRTX_GLOBAL void __raygen__()
@@ -313,7 +257,7 @@ VISRTX_GLOBAL void __raygen__()
     return;
 
   for (int i = 0; i < frameData.renderer.numIterations; i++) {
-    auto ray = makePrimaryRay(ss);
+    auto ray = makePrimaryRay(ss, i == 0);
     float tmax = ray.t.upper;
 
     SurfaceHit surfaceHit;
@@ -332,7 +276,7 @@ VISRTX_GLOBAL void __raygen__()
       surfaceHit.foundHit = false;
       intersectSurface(ss,
           ray,
-          RayType::PRIMARY,
+          RayType::SHADING,
           &surfaceHit,
           primaryRayOptiXFlags(rendererParams));
 
@@ -344,7 +288,7 @@ VISRTX_GLOBAL void __raygen__()
         uint32_t vInstID = ~0u;
         const float vDepth = rayMarchAllVolumes(ss,
             ray,
-            RayType::PRIMARY,
+            RayType::SHADING,
             surfaceHit.t,
             rendererParams.inverseVolumeSamplingRate,
             color,
@@ -370,17 +314,15 @@ VISRTX_GLOBAL void __raygen__()
           firstHit = false;
         }
 
-        const vec4 shadingResult = shadeSurface(ss, ray, surfaceHit);
-        if (glm::any(glm::isnan(vec3(shadingResult)))) {
-          color = vec3(0.f);
-          opacity = 0.f;
-        }
-        accumulateValue(color, vec3(shadingResult), opacity);
-        accumulateValue(opacity, shadingResult.w, opacity);
-
-        color *= opacity;
-        accumulateValue(outputColor, color, outputOpacity);
+        // Accumulate volume
+        accumulateValue(outputColor, color * opacity, outputOpacity);
         accumulateValue(outputOpacity, opacity, outputOpacity);
+
+        // Accumulate surface
+        const vec4 surfaceColor = shadeSurface(ss, ray, surfaceHit);
+        accumulateValue(outputColor, vec3(surfaceColor) * surfaceColor.a, opacity);
+        accumulateValue(outputOpacity, surfaceColor.a, opacity);
+
 
         ray.t.lower = surfaceHit.t + surfaceHit.epsilon;
       } else {
@@ -388,7 +330,7 @@ VISRTX_GLOBAL void __raygen__()
         uint32_t vInstID = ~0u;
         const float volumeDepth = rayMarchAllVolumes(ss,
             ray,
-            RayType::PRIMARY,
+            RayType::SHADING,
             ray.t.upper,
             rendererParams.inverseVolumeSamplingRate,
             color,
@@ -403,13 +345,15 @@ VISRTX_GLOBAL void __raygen__()
           instID = vInstID;
         }
 
-        color *= opacity;
-
-        const auto bg = getBackground(frameData, ss.screen, ray.dir);
-        accumulateValue(color, vec3(bg) * bg.a, opacity);
-        accumulateValue(opacity, bg.w, opacity);
-        accumulateValue(outputColor, color, outputOpacity);
+        // Accumulate volume
+        accumulateValue(outputColor, color * opacity, outputOpacity);
         accumulateValue(outputOpacity, opacity, outputOpacity);
+
+        // Accumulate background
+        const auto bg = getBackground(frameData, ss.screen, ray.dir);
+        accumulateValue(outputColor, vec3(bg) * bg.a, outputOpacity);
+        accumulateValue(outputOpacity, bg.w, outputOpacity);
+        // We traversed nothing but a volume and already reached the background. Bail out early.
         break;
       }
     }
