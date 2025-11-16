@@ -1,6 +1,8 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+#if TSD_USE_USD
+
 #include "MaterialCommon.h"
 
 // pxr
@@ -19,7 +21,7 @@ bool getShaderFloatInput(const pxr::UsdShadeShader &shader,
   if (!input) {
     return false;
   }
-  
+
   // Check if there's a connected source
   if (input.HasConnectedSource()) {
     pxr::UsdShadeConnectableAPI source;
@@ -50,7 +52,7 @@ bool getShaderFloatInput(const pxr::UsdShadeShader &shader,
       }
     }
   }
-  
+
   // Fall back to direct value
   if (input.Get(&outValue)) {
     return true;
@@ -66,7 +68,7 @@ bool getShaderBoolInput(const pxr::UsdShadeShader &shader,
   if (!input) {
     return false;
   }
-  
+
   // Check if there's a connected source
   if (input.HasConnectedSource()) {
     pxr::UsdShadeConnectableAPI source;
@@ -97,7 +99,7 @@ bool getShaderBoolInput(const pxr::UsdShadeShader &shader,
       }
     }
   }
-  
+
   // Fall back to direct value
   if (input.Get(&outValue)) {
     return true;
@@ -113,7 +115,7 @@ bool getShaderColorInput(const pxr::UsdShadeShader &shader,
   if (!input) {
     return false;
   }
-  
+
   // Check if there's a connected source
   if (input.HasConnectedSource()) {
     pxr::UsdShadeConnectableAPI source;
@@ -144,7 +146,7 @@ bool getShaderColorInput(const pxr::UsdShadeShader &shader,
       }
     }
   }
-  
+
   // Fall back to direct value
   if (input.Get(&outValue)) {
     return true;
@@ -160,14 +162,14 @@ bool getShaderTextureInput(const pxr::UsdShadeShader &shader,
   if (!input) {
     return false;
   }
-  
+
   // Check if there's a connected texture reader
   if (input.HasConnectedSource()) {
     pxr::UsdShadeConnectableAPI source;
     pxr::TfToken sourceName;
     pxr::UsdShadeAttributeType sourceType;
     input.GetConnectedSource(&source, &sourceName, &sourceType);
-    
+
     // Check if this is a connection to a material interface input
     pxr::UsdPrim sourcePrim = source.GetPrim();
     if (sourcePrim.IsA<pxr::UsdShadeMaterial>()) {
@@ -203,7 +205,7 @@ bool getShaderTextureInput(const pxr::UsdShadeShader &shader,
       }
     }
   }
-  
+
   // Try direct asset path input
   pxr::SdfAssetPath assetPath;
   if (input.Get(&assetPath)) {
@@ -213,8 +215,10 @@ bool getShaderTextureInput(const pxr::UsdShadeShader &shader,
     }
     return !outFilePath.empty();
   }
-  
+
   return false;
 }
 
 } // namespace tsd::io::materials
+
+#endif

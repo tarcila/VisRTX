@@ -355,78 +355,78 @@ inline float3 max(const float3 &a, const float3 &b)
 }
 
 // Helper: Generate triangle indices from polygon face data
-// Tessellates polygons to triangles using triangle fan (assumes convex polygons)
-// Returns indices into the original vertex array
+// Tessellates polygons to triangles using triangle fan (assumes convex
+// polygons) Returns indices into the original vertex array
 static std::vector<uint32_t> generate_triangle_indices(
     const pxr::VtArray<int> &faceVertexIndices,
     const pxr::VtArray<int> &faceVertexCounts)
 {
   std::vector<uint32_t> triangleIndices;
   size_t faceVertexOffset = 0;
-  
+
   for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
     int vertsInFace = faceVertexCounts[face];
-    
+
     // Tessellate polygon as triangle fan: (0,1,2), (0,2,3), (0,3,4), ...
     for (int v = 2; v < vertsInFace; ++v) {
       triangleIndices.push_back(faceVertexIndices[faceVertexOffset + 0]);
       triangleIndices.push_back(faceVertexIndices[faceVertexOffset + v - 1]);
       triangleIndices.push_back(faceVertexIndices[faceVertexOffset + v]);
     }
-    
+
     faceVertexOffset += vertsInFace;
   }
-  
+
   return triangleIndices;
 }
 
 // Helper: Tessellate faceVarying data from polygons to triangles
 // FaceVarying data has one value per face-vertex (corner)
 // Returns tessellated data matching the triangle fan pattern
-template<typename T>
+template <typename T>
 static std::vector<T> tessellate_facevarying_data(
     const pxr::VtArray<T> &faceVaryingData,
     const pxr::VtArray<int> &faceVertexCounts)
 {
   std::vector<T> triangleData;
   size_t faceVertexOffset = 0;
-  
+
   for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
     int vertsInFace = faceVertexCounts[face];
-    
+
     // Tessellate as triangle fan: (0,1,2), (0,2,3), (0,3,4), ...
     for (int v = 2; v < vertsInFace; ++v) {
       triangleData.push_back(faceVaryingData[faceVertexOffset + 0]);
       triangleData.push_back(faceVaryingData[faceVertexOffset + v - 1]);
       triangleData.push_back(faceVaryingData[faceVertexOffset + v]);
     }
-    
+
     faceVertexOffset += vertsInFace;
   }
-  
+
   return triangleData;
 }
 
 // Helper: Tessellate uniform (per-face) data to per-triangle
 // Uniform data has one value per face
 // Returns replicated data with one value per generated triangle
-template<typename T>
+template <typename T>
 static std::vector<T> tessellate_uniform_data(
     const pxr::VtArray<T> &uniformData,
     const pxr::VtArray<int> &faceVertexCounts)
 {
   std::vector<T> triangleData;
-  
+
   for (size_t face = 0; face < faceVertexCounts.size(); ++face) {
     int vertsInFace = faceVertexCounts[face];
     int numTriangles = vertsInFace - 2;
-    
+
     // Each triangle from this face gets the same uniform value
     for (int t = 0; t < numTriangles; ++t) {
       triangleData.push_back(uniformData[face]);
     }
   }
-  
+
   return triangleData;
 }
 
@@ -438,7 +438,7 @@ static void import_usd_mesh(Scene &scene,
     const std::string &basePath)
 {
   pxr::UsdGeomMesh mesh(prim);
-  
+
   // Get vertex positions
   pxr::VtArray<pxr::GfVec3f> points;
   mesh.GetPointsAttr().Get(&points);
@@ -467,7 +467,8 @@ static void import_usd_mesh(Scene &scene,
     stPrimvar = primvarsAPI.GetPrimvar(pxr::TfToken("UVMap"));
   }
   if (stPrimvar) {
-    // USD primvars can be indexed - need to use ComputeFlattened to expand indices
+    // USD primvars can be indexed - need to use ComputeFlattened to expand
+    // indices
     stPrimvar.ComputeFlattened(&uvs);
     if (!uvs.empty()) {
       uvsInterpolation = stPrimvar.GetInterpolation();
@@ -496,7 +497,7 @@ static void import_usd_mesh(Scene &scene,
   }
 
   // Generate triangle indices from polygon faces
-  std::vector<uint32_t> indices = 
+  std::vector<uint32_t> indices =
       generate_triangle_indices(faceVertexIndices, faceVertexCounts);
 
   logStatus(
@@ -507,15 +508,16 @@ static void import_usd_mesh(Scene &scene,
 
   // Create ANARI indexed triangle geometry
   auto meshObj = scene.createObject<Geometry>(tokens::geometry::triangle);
-  
+
   // Set vertex positions
-  auto vertexPositionArray = scene.createArray(ANARI_FLOAT32_VEC3, positions.size());
+  auto vertexPositionArray =
+      scene.createArray(ANARI_FLOAT32_VEC3, positions.size());
   vertexPositionArray->setData(positions.data(), positions.size());
   meshObj->setParameterObject("vertex.position", *vertexPositionArray);
 
   // Set triangle indices
   auto indexArray = scene.createArray(ANARI_UINT32_VEC3, indices.size() / 3);
-  indexArray->setData((uint3*)indices.data(), indices.size() / 3);
+  indexArray->setData((uint3 *)indices.data(), indices.size() / 3);
   meshObj->setParameterObject("primitive.index", *indexArray);
 
   // Handle normals based on USD interpolation
@@ -528,53 +530,56 @@ static void import_usd_mesh(Scene &scene,
       for (const auto &n : normals) {
         normalData.push_back(float3(n[0], n[1], n[2]));
       }
-      
-      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+
+      auto normalsArray =
+          scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
       normalsArray->setData(normalData.data(), normalData.size());
       meshObj->setParameterObject("vertex.normal", *normalsArray);
-      
-      logStatus(
-          "[import_USD] Mesh '%s': Set %zu normals on vertex.normal\n",
+
+      logStatus("[import_USD] Mesh '%s': Set %zu normals on vertex.normal\n",
           prim.GetName().GetString().c_str(),
           normalData.size());
-      
+
     } else if (normalsInterpolation == pxr::UsdGeomTokens->faceVarying) {
       // FaceVarying interpolation: normals are per face-vertex (corner)
       // Need to tessellate from polygon corners to triangle corners
-      auto tessellatedNormals = tessellate_facevarying_data(normals, faceVertexCounts);
-      
+      auto tessellatedNormals =
+          tessellate_facevarying_data(normals, faceVertexCounts);
+
       std::vector<float3> normalData;
       normalData.reserve(tessellatedNormals.size());
       for (const auto &n : tessellatedNormals) {
         normalData.push_back(float3(n[0], n[1], n[2]));
       }
-      
-      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+
+      auto normalsArray =
+          scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
       normalsArray->setData(normalData.data(), normalData.size());
       meshObj->setParameterObject("faceVarying.normal", *normalsArray);
-      
+
       logStatus(
           "[import_USD] Mesh '%s': Set %zu normals on faceVarying.normal\n",
           prim.GetName().GetString().c_str(),
           normalData.size());
-      
+
     } else if (normalsInterpolation == pxr::UsdGeomTokens->uniform) {
       // Uniform interpolation: one normal per face
       // Need to replicate for each triangle generated from that face
-      auto tessellatedNormals = tessellate_uniform_data(normals, faceVertexCounts);
-      
+      auto tessellatedNormals =
+          tessellate_uniform_data(normals, faceVertexCounts);
+
       std::vector<float3> normalData;
       normalData.reserve(tessellatedNormals.size());
       for (const auto &n : tessellatedNormals) {
         normalData.push_back(float3(n[0], n[1], n[2]));
       }
-      
-      auto normalsArray = scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
+
+      auto normalsArray =
+          scene.createArray(ANARI_FLOAT32_VEC3, normalData.size());
       normalsArray->setData(normalData.data(), normalData.size());
       meshObj->setParameterObject("primitive.normal", *normalsArray);
-      
-      logStatus(
-          "[import_USD] Mesh '%s': Set %zu normals on primitive.normal\n",
+
+      logStatus("[import_USD] Mesh '%s': Set %zu normals on primitive.normal\n",
           prim.GetName().GetString().c_str(),
           normalData.size());
     }
@@ -591,55 +596,53 @@ static void import_usd_mesh(Scene &scene,
         // USD is bottom-up, ANARI is top-down
         uvData.push_back(float2(uv[0], 1.0f - uv[1]));
       }
-      
+
       auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
       uvsArray->setData(uvData.data(), uvData.size());
       meshObj->setParameterObject("vertex.attribute0", *uvsArray);
-      
-      logStatus(
-          "[import_USD] Mesh '%s': Set %zu UVs on vertex.attribute0\n",
+
+      logStatus("[import_USD] Mesh '%s': Set %zu UVs on vertex.attribute0\n",
           prim.GetName().GetString().c_str(),
           uvData.size());
-      
+
     } else if (uvsInterpolation == pxr::UsdGeomTokens->faceVarying) {
       // FaceVarying interpolation: UVs are per face-vertex (corner)
       // Need to tessellate from polygon corners to triangle corners
       auto tessellatedUVs = tessellate_facevarying_data(uvs, faceVertexCounts);
-      
+
       std::vector<float2> uvData;
       uvData.reserve(tessellatedUVs.size());
       for (const auto &uv : tessellatedUVs) {
         // USD is bottom-up, ANARI is top-down
         uvData.push_back(float2(uv[0], 1.0f - uv[1]));
       }
-      
+
       auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
       uvsArray->setData(uvData.data(), uvData.size());
       meshObj->setParameterObject("faceVarying.attribute0", *uvsArray);
-      
+
       logStatus(
           "[import_USD] Mesh '%s': Set %zu UVs on faceVarying.attribute0\n",
           prim.GetName().GetString().c_str(),
           uvData.size());
-      
+
     } else if (uvsInterpolation == pxr::UsdGeomTokens->uniform) {
       // Uniform interpolation: one UV per face
       // Need to replicate for each triangle generated from that face
       auto tessellatedUVs = tessellate_uniform_data(uvs, faceVertexCounts);
-      
+
       std::vector<float2> uvData;
       uvData.reserve(tessellatedUVs.size());
       for (const auto &uv : tessellatedUVs) {
         // USD is bottom-up, ANARI is top-down
         uvData.push_back(float2(uv[0], 1.0f - uv[1]));
       }
-      
+
       auto uvsArray = scene.createArray(ANARI_FLOAT32_VEC2, uvData.size());
       uvsArray->setData(uvData.data(), uvData.size());
       meshObj->setParameterObject("primitive.attribute0", *uvsArray);
-      
-      logStatus(
-          "[import_USD] Mesh '%s': Set %zu UVs on primitive.attribute0\n",
+
+      logStatus("[import_USD] Mesh '%s': Set %zu UVs on primitive.attribute0\n",
           prim.GetName().GetString().c_str(),
           uvData.size());
     }
@@ -1207,12 +1210,8 @@ static void import_usd_prim_recursive(Scene &scene,
       auto xformNode =
           scene.insertChildTransformNode(parent, tsdXform, primName.c_str());
       // Recursively import the prototype under this transform node
-      import_usd_prim_recursive(scene,
-          prototype,
-          xformNode,
-          xformCache,
-          basePath,
-          thisWorldXform);
+      import_usd_prim_recursive(
+          scene, prototype, xformNode, xformCache, basePath, thisWorldXform);
     } else {
       tsd::core::logStatus("[import_USD] Instance has no prototype: %s\n",
           prim.GetName().GetString().c_str());
@@ -1268,19 +1267,15 @@ static void import_usd_prim_recursive(Scene &scene,
 
   // Import geometry for this prim (if any)
   if (prim.IsA<pxr::UsdGeomMesh>()) {
-    import_usd_mesh(
-        scene, prim, thisNode, thisWorldXform, basePath);
+    import_usd_mesh(scene, prim, thisNode, thisWorldXform, basePath);
   } else if (prim.IsA<pxr::UsdGeomPoints>()) {
-    import_usd_points(
-        scene, prim, thisNode, thisWorldXform);
+    import_usd_points(scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomSphere>()) {
-    import_usd_sphere(
-        scene, prim, thisNode, thisWorldXform);
+    import_usd_sphere(scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomCone>()) {
     import_usd_cone(scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdGeomCylinder>()) {
-    import_usd_cylinder(
-        scene, prim, thisNode, thisWorldXform);
+    import_usd_cylinder(scene, prim, thisNode, thisWorldXform);
   } else if (prim.IsA<pxr::UsdLuxDistantLight>()) {
     import_usd_distant_light(scene, prim, thisNode);
   } else if (prim.IsA<pxr::UsdLuxRectLight>()) {
@@ -1292,17 +1287,12 @@ static void import_usd_prim_recursive(Scene &scene,
   } else if (prim.IsA<pxr::UsdLuxDomeLight>()) {
     import_usd_dome_light(scene, prim, thisNode, basePath, thisWorldXform);
   } else if (prim.IsA<pxr::UsdVolVolume>()) {
-    import_usd_volume(
-        scene, prim, thisNode, thisWorldXform);
+    import_usd_volume(scene, prim, thisNode, thisWorldXform);
   }
   // Recurse into children
   for (const auto &child : prim.GetChildren()) {
-    import_usd_prim_recursive(scene,
-        child,
-        thisNode,
-        xformCache,
-        basePath,
-        thisWorldXform);
+    import_usd_prim_recursive(
+        scene, child, thisNode, xformCache, basePath, thisWorldXform);
   }
 }
 
@@ -1340,8 +1330,7 @@ void import_USD(Scene &scene,
   for (pxr::UsdPrim const &prim : stage->Traverse()) {
     // if (prim.IsPrototype()) continue;
     if (prim.GetParent() && prim.GetParent().IsPseudoRoot()) {
-      import_usd_prim_recursive(
-          scene, prim, usd_root, xformCache, basePath);
+      import_usd_prim_recursive(scene, prim, usd_root, xformCache, basePath);
     }
   }
 }
@@ -1351,7 +1340,7 @@ void import_USD(Scene &scene,
     LayerNodeRef location,
     bool useDefaultMaterial)
 {
-  tsd::core::logStatus("[import_USD] USD not enabled in TSD build.");
+  tsd::core::logError("[import_USD] USD not enabled in TSD build.");
 }
 #endif
 

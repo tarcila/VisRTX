@@ -8,35 +8,39 @@
 #include <tsd/core/Logging.hpp>
 // tsd_io
 #include <tsd/io/importers/detail/importer_common.hpp>
+#if TSD_USE_USD
 // pxr
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/primRange.h>
-#include <pxr/usd/usdGeom/camera.h>
-#include <pxr/usd/usdGeom/xformCache.h>
-#include <pxr/usd/usdShade/material.h>
-#include <pxr/usd/usdShade/materialBindingAPI.h>
-#include <pxr/usd/usdShade/shader.h>
-#include <pxr/usd/usdShade/output.h>
-#include <pxr/usd/usdShade/input.h>
+#include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/base/gf/vec2f.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/path.h>
-
+#include <pxr/usd/usd/primRange.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/camera.h>
+#include <pxr/usd/usdGeom/xformCache.h>
+#include <pxr/usd/usdShade/input.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
+#include <pxr/usd/usdShade/output.h>
+#include <pxr/usd/usdShade/shader.h>
+#endif
 // std
 #include <string>
-#include <vector>
 #include <unordered_map>
-
-using namespace pxr;
+#include <vector>
 
 namespace tsd::io {
 
 using namespace tsd::core;
 
-bool isTimeStepValuesAnimated(const TimeStepValues &values) {
+#if TSD_USE_USD
+
+using namespace pxr;
+
+bool isTimeStepValuesAnimated(const TimeStepValues &values)
+{
   if (values.size() < 2) {
     return false;
   }
@@ -50,8 +54,7 @@ bool isTimeStepValuesAnimated(const TimeStepValues &values) {
   return false;
 }
 
-static void importUsdGeomCamera(Scene &scene,
-  const pxr::UsdPrim &prim)
+static void importUsdGeomCamera(Scene &scene, const pxr::UsdPrim &prim)
 {
   // Import default camera parameters
   std::string primName = prim.GetName().GetString();
@@ -76,7 +79,8 @@ static void importUsdGeomCamera(Scene &scene,
 
   // Calculate field of view from focal length and aperture
   // FOV = 2 * atan(aperture / (2 * focal_length))
-  float fovHorizontal = 2.0f * std::atan(horizontalAperture / (2.0f * focalLength));
+  float fovHorizontal =
+      2.0f * std::atan(horizontalAperture / (2.0f * focalLength));
   float fovVertical = 2.0f * std::atan(verticalAperture / (2.0f * focalLength));
 
   // Get f-stop for depth of field
@@ -102,11 +106,13 @@ static void importUsdGeomCamera(Scene &scene,
     // No animation, just set static transform
     xformCache.SetTime(pxr::UsdTimeCode::Default());
     auto xfm = xformCache.GetLocalToWorldTransform(prim);
-    auto gfPos = xfm.Transform(pxr::GfVec3d(0,0,0));
-    camera->setParameter("position", tsd::math::float3(gfPos[0], gfPos[1], gfPos[2]));
+    auto gfPos = xfm.Transform(pxr::GfVec3d(0, 0, 0));
+    camera->setParameter(
+        "position", tsd::math::float3(gfPos[0], gfPos[1], gfPos[2]));
 
     auto gfDir = xfm.TransformDir(pxr::GfVec3d(0, 0, -1));
-    camera->setParameter("direction", tsd::math::float3(gfDir[0], gfDir[1], gfDir[2]));
+    camera->setParameter(
+        "direction", tsd::math::float3(gfDir[0], gfDir[1], gfDir[2]));
 
     auto gfUp = xfm.TransformDir(pxr::GfVec3d(0, 1, 0));
     camera->setParameter("up", tsd::math::float3(gfUp[0], gfUp[1], gfUp[2]));
@@ -125,7 +131,7 @@ static void importUsdGeomCamera(Scene &scene,
     xformCache.SetTime(tc);
 
     auto xfm = xformCache.GetLocalToWorldTransform(prim);
-    auto gfPos = xfm.Transform(pxr::GfVec3d(0,0,0));
+    auto gfPos = xfm.Transform(pxr::GfVec3d(0, 0, 0));
     positions.push_back(tsd::math::float3(gfPos[0], gfPos[1], gfPos[2]));
 
     auto gfDir = xfm.TransformDir(pxr::GfVec3d(0, 0, -1));
@@ -142,12 +148,14 @@ static void importUsdGeomCamera(Scene &scene,
 
     // Calculate field of view from focal length and aperture
     // FOV = 2 * atan(aperture / (2 * focal_length))
-    float fovVertical = 2.0f * std::atan(verticalAperture / (2.0f * focalLength));
+    float fovVertical =
+        2.0f * std::atan(verticalAperture / (2.0f * focalLength));
 
     fovs.push_back(fovVertical);
   }
 
-  // Before actually creating the animation object, check if we have varying time samples
+  // Before actually creating the animation object, check if we have varying
+  // time samples
   auto isPositionsAnimated = isTimeStepValuesAnimated(positions);
   auto isDirectionsAnimated = isTimeStepValuesAnimated(directions);
   auto isUpsAnimated = isTimeStepValuesAnimated(ups);
@@ -166,12 +174,12 @@ static void importUsdGeomCamera(Scene &scene,
     camera->setParameter("fovy", fovs.front());
   }
 
-  if (!isPositionsAnimated && !isDirectionsAnimated && !isUpsAnimated && !isFovsAnimated) {
+  if (!isPositionsAnimated && !isDirectionsAnimated && !isUpsAnimated
+      && !isFovsAnimated) {
     logStatus("[import_USD] Created static camera '%s'\n", primName.c_str());
     return;
   }
 
-  
   auto cameraAnimation = scene.addAnimation(primName.c_str());
   std::vector<Token> animatedParams;
   std::vector<TimeStepValues> animatedValues;
@@ -193,16 +201,16 @@ static void importUsdGeomCamera(Scene &scene,
     animatedValues.push_back(fovs);
   }
 
-  cameraAnimation->setAsTimeSteps(
-      *camera,
-      animatedParams,
-      animatedValues
-    );
+  cameraAnimation->setAsTimeSteps(*camera, animatedParams, animatedValues);
 
   logStatus("[import_USD] Created camera '%s'\n", primName.c_str());
 }
 
-void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool useDefaultMaterial) {
+void import_USD2(Scene &scene,
+    const char *filename,
+    LayerNodeRef location,
+    bool useDefaultMaterial)
+{
   // Open the USD stage
   pxr::UsdStageRefPtr stage = pxr::UsdStage::Open(filename);
   if (!stage) {
@@ -233,7 +241,7 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
     // Check if this prim is a camera
     if (prim.IsA<pxr::UsdGeomCamera>()) {
       logStatus("[import_USD2] Found camera: %s\n",
-                prim.GetPath().GetString().c_str());
+          prim.GetPath().GetString().c_str());
 
       // Import the camera with time-sampled animation
       importUsdGeomCamera(scene, prim);
@@ -251,13 +259,14 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
 
       MaterialRef mat;
 
-      for (auto& connectionSourceInfo : surfaceOutput.GetConnectedSources()) {
+      for (auto &connectionSourceInfo : surfaceOutput.GetConnectedSources()) {
         UsdShadeShader shader(connectionSourceInfo.source);
         TfToken subIdentifier;
         shader.GetSourceAssetSubIdentifier(&subIdentifier, TfToken("mdl"));
 
         if (subIdentifier == TfToken("OmniPBR")) {
-          mat = materials::importOmniPBRMaterial(scene, usdMaterial, shader,basePath, textureCache);
+          mat = materials::importOmniPBRMaterial(
+              scene, usdMaterial, shader, basePath, textureCache);
           break;
         } else {
           logStatus("Don't know how to process %s\n", subIdentifier.GetText());
@@ -275,8 +284,11 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
     }
   }
 
-  logStatus("[import_USD2] Traversed %zu prims, imported %zu cameras and %zu materials\n",
-            totalPrims, cameraCount, materialCount);
+  logStatus(
+      "[import_USD2] Traversed %zu prims, imported %zu cameras and %zu materials\n",
+      totalPrims,
+      cameraCount,
+      materialCount);
   logStatus("[import_USD2] Loaded %zu unique textures\n", textureCache.size());
 
   // Report imported materials
@@ -284,8 +296,8 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
     logStatus("[import_USD2] Material summary:\n");
     for (const auto &entry : materialCache) {
       logStatus("[import_USD2]   %s -> '%s'\n",
-                entry.first.c_str(),
-                entry.second->name().c_str());
+          entry.first.c_str(),
+          entry.second->name().c_str());
     }
   }
 
@@ -317,7 +329,7 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
 
     if (!prim.IsValid()) {
       logStatus("[import_USD2]   Surface '%s': Could not find USD prim\n",
-                primPath.GetText());
+          primPath.GetText());
       continue;
     }
 
@@ -344,14 +356,24 @@ void import_USD2(Scene &scene, const char *filename, LayerNodeRef location, bool
       surfacesUpdated++;
 
       logStatus("[import_USD2]   Surface '%s': Assigned material '%s'\n",
-                primPath.GetText(),
-                matIt->second->name().c_str());
+          primPath.GetText(),
+          matIt->second->name().c_str());
     }
   }
 
-  logStatus("[import_USD2] Material wiring complete: %zu/%zu surfaces updated\n",
-            surfacesUpdated, surfacesProcessed);
+  logStatus(
+      "[import_USD2] Material wiring complete: %zu/%zu surfaces updated\n",
+      surfacesUpdated,
+      surfacesProcessed);
 }
+#else
+void import_USD2(Scene &scene,
+    const char *filename,
+    LayerNodeRef location,
+    bool useDefaultMaterial)
+{
+  tsd::core::logError("[import_USD2] USD not enabled in TSD build.");
+}
+#endif
 
 } // namespace tsd::io
-

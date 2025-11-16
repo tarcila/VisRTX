@@ -3,6 +3,8 @@
 
 #pragma once
 
+#if TSD_USE_USD
+
 #include "MaterialCommon.h"
 
 namespace tsd::io::materials {
@@ -21,3 +23,5 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
     TextureCache &textureCache);
 
 } // namespace tsd::io::materials
+
+#endif

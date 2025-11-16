@@ -3,6 +3,8 @@
 
 #pragma once
 
+#if TSD_USE_USD
+
 #include "tsd/core/scene/Scene.hpp"
 #include "tsd/io/importers/detail/importer_common.hpp"
 
@@ -42,3 +44,5 @@ bool getShaderTextureInput(const pxr::UsdShadeShader &shader,
     std::string &outFilePath);
 
 } // namespace tsd::io::materials
+
+#endif
