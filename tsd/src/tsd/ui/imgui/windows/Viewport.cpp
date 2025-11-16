@@ -706,21 +706,8 @@ void Viewport::applyCameraParameters(tsd::core::Camera *cam)
 
   auto d = m_device;
   auto c = m_currentCamera; // ANARI camera
-  // Let's make sure we recompute the camera aspect ratio before
-  // handing off the parameters to the ANARI camera.
-  // Note that we don't want this to be accounted as a user change
-  // as it is only about automatic viewport adaptation.
-  // Not doing so creates an infinite invalidate->restart accumulation
-  // loop.
-  m_cameraDelegate->pushIgnoreChangeScope();
-  if (cam->subtype() == tsd::core::tokens::camera::perspective
-      || cam->subtype() == tsd::core::tokens::camera::orthographic) {
-    // Let's not check for cam->parameter("aspect")
-    // and always recompute an aspect ratio based on viewport size.
-    float aspect = m_viewportSize.x / float(m_viewportSize.y);
-    cam->setParameter("aspect", aspect);
-  }
-  m_cameraDelegate->popIgnoreChangeScope();
+  anari::setParameter(
+      d, m_currentCamera, "aspect", m_viewportSize.x / float(m_viewportSize.y));
   cam->updateAllANARIParameters(d, m_currentCamera);
   anari::commitParameters(d, c);
 }
