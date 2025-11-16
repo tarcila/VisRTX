@@ -643,6 +643,7 @@ void OfflineRenderSequenceConfig::saveSettings(tsd::core::DataNode &root)
   frameRoot["colorFormat"] = frame.colorFormat;
   frameRoot["samples"] = frame.samples;
   frameRoot["numFrames"] = frame.numFrames;
+  frameRoot["renderSubset"] = frame.renderSubset;
   frameRoot["startFrame"] = frame.startFrame;
   frameRoot["endFrame"] = frame.endFrame;
   frameRoot["frameIncrement"] = frame.frameIncrement;
@@ -673,6 +674,7 @@ void OfflineRenderSequenceConfig::loadSettings(tsd::core::DataNode &root)
   frameRoot["colorFormat"].getValue(ANARI_DATA_TYPE, &frame.colorFormat);
   frameRoot["samples"].getValue(ANARI_UINT32, &frame.samples);
   frameRoot["numFrames"].getValue(ANARI_INT32, &frame.numFrames);
+  frameRoot["renderSubset"].getValue(ANARI_BOOL, &frame.renderSubset);
   frameRoot["startFrame"].getValue(ANARI_INT32, &frame.startFrame);
   frameRoot["endFrame"].getValue(ANARI_INT32, &frame.endFrame);
   frameRoot["frameIncrement"].getValue(ANARI_INT32, &frame.frameIncrement);
