@@ -55,6 +55,7 @@ enum class ImporterType
   XYZDP,
   VOLUME,
   TSD,
+  BLANK, // Must be last import type before 'NONE'
   NONE
 };
 

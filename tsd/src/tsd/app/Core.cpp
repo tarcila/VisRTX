@@ -105,7 +105,7 @@ void Core::parseCommandLine(int argc, const char **argv)
     return;
   }
 
-  auto importerType = ImporterType::NONE;
+  auto &importerType = this->commandLine.importerType;
 
   for (int i = 1; i < argc; i++) {
     if (!argv[i])
@@ -175,6 +175,8 @@ void Core::parseCommandLine(int argc, const char **argv)
       importerType = ImporterType::XYZDP;
     else if (arg == "-volume")
       importerType = ImporterType::VOLUME;
+    else if (arg == "-blank")
+      importerType = ImporterType::BLANK;
     else if (arg == "-xf" || arg == "--transferFunction")
       this->commandLine.transferFunctionFile = argv[++i];
     else if (arg == "-camera" || arg == "--camera")
@@ -220,14 +222,18 @@ void Core::setupSceneFromCommandLine(bool hdriOnly)
     return;
   }
 
-  const bool generateOrb = !commandLine.loadingScene
-      && !commandLine.loadedFromStateFile && commandLine.filenames.size() == 0
-      && commandLine.animationFilenames.size() == 0;
+  const bool haveFiles = commandLine.filenames.size() > 0
+      || commandLine.animationFilenames.size() > 0;
+  const bool blankImport =
+      !haveFiles && commandLine.importerType == ImporterType::BLANK;
+  const bool loadFromState = commandLine.loadedFromStateFile;
+
+  const bool generateOrb = !(blankImport || haveFiles || loadFromState);
 
   if (generateOrb) {
     tsd::core::logStatus("...generating material_orb from embedded data");
     tsd::io::generate_material_orb(tsd.scene);
-  } else if (!commandLine.loadedFromStateFile) {
+  } else if (!loadFromState) {
     importFiles(commandLine.filenames);
     importAnimations(commandLine.animationFilenames);
   }
@@ -300,7 +306,9 @@ void Core::importFile(const ImportFile &f, tsd::core::LayerNodeRef root)
     tsd::io::import_XYZDP(tsd.scene, file.c_str(), root);
   else if (f.first == ImporterType::VOLUME)
     tsd::io::import_volume(tsd.scene, file.c_str(), root);
-  else {
+  else if (f.first == ImporterType::BLANK) {
+    // no-op
+  } else {
     tsd::core::logWarning(
         "...skipping unknown file type for '%s'", file.c_str());
   }
@@ -338,7 +346,8 @@ void Core::applyTransferFunctionToAllVolumes(const std::string &filepath)
   // Load transfer function file
   std::ifstream file(filepath);
   if (!file.is_open()) {
-    logError("[Core] Failed to open transfer function file: %s", filepath.c_str());
+    logError(
+        "[Core] Failed to open transfer function file: %s", filepath.c_str());
     return;
   }
 
@@ -368,7 +377,8 @@ void Core::applyTransferFunctionToAllVolumes(const std::string &filepath)
   }
 
   logStatus("[Core] Loaded transfer function with %zu color points from %s",
-      colorData.size(), filepath.c_str());
+      colorData.size(),
+      filepath.c_str());
 
   // Create color array
   auto colorArray = tsd.scene.createArray(ANARI_FLOAT32_VEC4, colorData.size());
