@@ -46,6 +46,7 @@ void ImportFileDialog::buildUI()
       "USD2",
       "XYZDP",
       "VOLUME",
+      "TSD",
   };
 
   ImGui::Combo(
