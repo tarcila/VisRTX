@@ -123,6 +123,7 @@ PUBLIC
 target_link_libraries(${PROJECT_NAME} PUBLIC
   anari::anari_headers
   anari::anari_backend
+  anari::anari ## required because the device uses the C API internally
   Threads::Threads
 )
 
