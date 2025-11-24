@@ -17,10 +17,8 @@ static size_t calculateIndexForTime(
     float time, size_t numSteps, bool cellCentered)
 {
   time = std::clamp(time, 0.f, 1.f);
-  if (cellCentered)
-    return std::min(static_cast<size_t>(time * numSteps), numSteps - 1);
-  else
-    return static_cast<size_t>(time * (numSteps - 1));
+  // TODO: centeredness should be used when value interpolation is implemented
+  return static_cast<size_t>(std::round(time * (numSteps - 1)));
 }
 
 // Animation definitions //////////////////////////////////////////////////////
