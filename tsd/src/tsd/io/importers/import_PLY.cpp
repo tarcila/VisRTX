@@ -153,10 +153,10 @@ void import_PLY(Scene &scene, const char *filename, LayerNodeRef location)
     // Material //
 
     auto mat = scene.createObject<Material>(tokens::material::matte);
-    mat->setParameter("color"_t, float3(0.8f));
-    mat->setParameter("opacity"_t, 1.f);
-    mat->setParameter("alphaMode"_t, "opaque");
-    mat->parameter("alphaMode"_t)->setStringSelection(0);
+    mat->setParameter("color", float3(0.8f));
+    mat->setParameter("opacity", 1.f);
+    mat->setParameter("alphaMode", "opaque");
+    mat->parameter("alphaMode")->setStringSelection(0);
     mat->setName((objectName + " material").c_str());
 
     // Mesh //
@@ -175,28 +175,28 @@ void import_PLY(Scene &scene, const char *filename, LayerNodeRef location)
       mesh->setParameterObject(parameterName, *arr);
     };
 
-    makeArray1DForMesh("vertex.position"_t,
+    makeArray1DForMesh("vertex.position",
         ANARI_FLOAT32_VEC3,
         vertices->buffer.get(),
         vertices->count);
 
     if (normals && normals->t == tinyply::Type::FLOAT32) {
-      makeArray1DForMesh("vertex.normal"_t,
+      makeArray1DForMesh("vertex.normal",
           ANARI_FLOAT32_VEC3,
           normals->buffer.get(),
           normals->count);
     }
 
     if (colors && colors->t == tinyply::Type::UINT8) {
-      makeArray1DForMesh("vertex.color"_t,
+      makeArray1DForMesh("vertex.color",
           ANARI_UFIXED8_VEC4,
           colors->buffer.get(),
           colors->count);
-      mat->setParameter("color"_t, "color");
+      mat->setParameter("color", "color");
     }
 
     if (faces) {
-      makeArray1DForMesh("primitive.index"_t,
+      makeArray1DForMesh("primitive.index",
           ANARI_UINT32_VEC3,
           faces->buffer.get(),
           faces->count);

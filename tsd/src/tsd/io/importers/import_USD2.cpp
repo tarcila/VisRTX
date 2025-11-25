@@ -70,8 +70,8 @@ static void importUsdGeomCamera(Scene &scene, const pxr::UsdPrim &prim)
   pxr::GfCamera gfCamera = usdCamera.GetCamera(pxr::UsdTimeCode::Default());
 
   auto cameraType = gfCamera.GetProjection() == pxr::GfCamera::Perspective
-      ? "perspective"_t
-      : "orthographic"_t;
+      ? "perspective"
+      : "orthographic";
 
   auto camera = scene.createObject<Camera>(cameraType);
   camera->setName(primName.c_str());
@@ -91,12 +91,12 @@ static void importUsdGeomCamera(Scene &scene, const pxr::UsdPrim &prim)
   float fStop = gfCamera.GetFStop();
 
   // Set ANARI camera parameters
-  if (cameraType == "perspective"_t) {
+  if (cameraType == "perspective") {
     camera->setParameter("fovy", fovVertical);
     camera->setParameter("aspect", horizontalAperture / verticalAperture);
   }
   // For orthographic camera, set height based on vertical aperture
-  else if (cameraType == "orthographic"_t) {
+  else if (cameraType == "orthographic") {
     camera->setParameter("height", verticalAperture);
     camera->setParameter("aspect", horizontalAperture / verticalAperture);
   }
@@ -189,19 +189,19 @@ static void importUsdGeomCamera(Scene &scene, const pxr::UsdPrim &prim)
   std::vector<std::vector<Any>> animatedValues;
 
   if (isPositionsAnimated) {
-    animatedParams.push_back("position"_t);
+    animatedParams.push_back("position");
     animatedValues.push_back(positions);
   }
   if (isDirectionsAnimated) {
-    animatedParams.push_back("direction"_t);
+    animatedParams.push_back("direction");
     animatedValues.push_back(directions);
   }
   if (isUpsAnimated) {
-    animatedParams.push_back("up"_t);
+    animatedParams.push_back("up");
     animatedValues.push_back(ups);
   }
   if (isFovsAnimated) {
-    animatedParams.push_back("fovy"_t);
+    animatedParams.push_back("fovy");
     animatedValues.push_back(fovs);
   }
 

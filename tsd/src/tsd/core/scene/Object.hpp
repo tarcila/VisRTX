@@ -18,7 +18,6 @@
 
 namespace tsd::core {
 
-using namespace literals;
 struct Scene;
 struct AnariObjectCache;
 

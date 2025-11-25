@@ -196,8 +196,8 @@ static SamplerRef importGLTFTexture(Scene &scene,
   }
 
   auto sampler = scene.createObject<Sampler>(tokens::sampler::image2D);
-  sampler->setParameterObject("image"_t, *dataArray);
-  sampler->setParameter("inAttribute"_t, "attribute0");
+  sampler->setParameterObject("image", *dataArray);
+  sampler->setParameter("inAttribute", "attribute0");
 
   // Apply sampler settings if available
   if (texture.sampler >= 0 && texture.sampler < model.samplers.size()) {
@@ -231,8 +231,8 @@ static SamplerRef importGLTFTexture(Scene &scene,
       break;
     }
 
-    sampler->setParameter("wrapMode1"_t, wrapS);
-    sampler->setParameter("wrapMode2"_t, wrapT);
+    sampler->setParameter("wrapMode1", wrapS);
+    sampler->setParameter("wrapMode2", wrapT);
 
     // Filter mode
     const char *filter = "linear";
@@ -240,11 +240,11 @@ static SamplerRef importGLTFTexture(Scene &scene,
         || gltfSampler.minFilter == TINYGLTF_TEXTURE_FILTER_NEAREST) {
       filter = "nearest";
     }
-    sampler->setParameter("filter"_t, filter);
+    sampler->setParameter("filter", filter);
   } else {
-    sampler->setParameter("wrapMode1"_t, "repeat");
-    sampler->setParameter("wrapMode2"_t, "repeat");
-    sampler->setParameter("filter"_t, "linear");
+    sampler->setParameter("wrapMode1", "repeat");
+    sampler->setParameter("wrapMode2", "repeat");
+    sampler->setParameter("filter", "linear");
   }
 
   // Set sampler name to reflect the input type if provided
@@ -293,15 +293,15 @@ static std::vector<MaterialRef> importGLTFMaterials(
             false,
             "baseColor")) {
       // Make this an opaque color. Opacity is handled below.
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({baseColorFactor.x, 0, 0, 0},
               {0, baseColorFactor.y, 0, 0},
               {0, 0, baseColorFactor.z, 0},
               {0, 0, 0, 0}));
-      sampler->setParameter("outOffset"_t, float4(0, 0, 0, 1));
-      material->setParameterObject("baseColor"_t, *sampler);
+      sampler->setParameter("outOffset", float4(0, 0, 0, 1));
+      material->setParameterObject("baseColor", *sampler);
     } else {
-      material->setParameter("baseColor"_t,
+      material->setParameter("baseColor",
           float3(baseColorFactor[0], baseColorFactor[1], baseColorFactor[2]));
     }
 
@@ -312,14 +312,14 @@ static std::vector<MaterialRef> importGLTFMaterials(
             true,
             false,
             "opacity")) {
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({0, 0, 0, 0},
               {0, 0, 0, 0},
               {0, 0, 0, 0},
               {baseColorFactor.w, 0, 0, 1}));
-      material->setParameterObject("opacity"_t, *sampler);
+      material->setParameterObject("opacity", *sampler);
     } else {
-      material->setParameter("opacity"_t, baseColorFactor.w);
+      material->setParameter("opacity", baseColorFactor.w);
     }
 
     // Metallic factor
@@ -332,14 +332,14 @@ static std::vector<MaterialRef> importGLTFMaterials(
             false,
             "metallic")) {
       // Metallic is in the blue channel for glTF
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({0, 0, 0, 0},
               {0, 0, 0, 0},
               {metallicFactor, 0, 0, 0},
               {0, 0, 0, 1}));
-      material->setParameterObject("metallic"_t, *sampler);
+      material->setParameterObject("metallic", *sampler);
     } else {
-      material->setParameter("metallic"_t, metallicFactor);
+      material->setParameter("metallic", metallicFactor);
     }
 
     // Roughness factor
@@ -352,14 +352,14 @@ static std::vector<MaterialRef> importGLTFMaterials(
             false,
             "roughness")) {
       // Roughness is in the green channel for glTF
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({0, 0, 0, 0},
               {roughnessFactor, 0, 0, 0},
               {0, 0, 0, 0},
               {0, 0, 0, 1}));
-      material->setParameterObject("roughness"_t, *sampler);
+      material->setParameterObject("roughness", *sampler);
     } else {
-      material->setParameter("roughness"_t, roughnessFactor);
+      material->setParameter("roughness", roughnessFactor);
     }
 
     // Normal map
@@ -371,12 +371,12 @@ static std::vector<MaterialRef> importGLTFMaterials(
             false,
             "normal")) {
       float normalScale = gltfMaterial.normalTexture.scale;
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({normalScale, 0, 0, 0},
               {0, normalScale, 0, 0},
               {0, 0, 1, 0}, // Don't scale Z (blue) channel
               {0, 0, 0, 1}));
-      material->setParameterObject("normal"_t, *sampler);
+      material->setParameterObject("normal", *sampler);
     }
 
     // Occlusion map
@@ -387,7 +387,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
             true,
             false,
             "occlusion")) {
-      material->setParameterObject("occlusion"_t, *sampler);
+      material->setParameterObject("occlusion", *sampler);
     }
 
     // Emissive
@@ -411,29 +411,29 @@ static std::vector<MaterialRef> importGLTFMaterials(
             false,
             false,
             "emissive")) {
-      sampler->setParameter("outTransform"_t,
+      sampler->setParameter("outTransform",
           mat4({emissiveFactor.x, 0, 0, 0},
               {0, emissiveFactor.y, 0, 0},
               {0, 0, emissiveFactor.z, 0},
               {0, 0, 0, 1}));
-      material->setParameterObject("emissive"_t, *sampler);
+      material->setParameterObject("emissive", *sampler);
 
     } else {
-      material->setParameter("emissive"_t, ANARI_FLOAT32_VEC3, &emissiveFactor);
+      material->setParameter("emissive", ANARI_FLOAT32_VEC3, &emissiveFactor);
     }
 
     // Alpha mode and alpha cutoff
     if (gltfMaterial.alphaMode == "OPAQUE") {
-      material->setParameter("alphaMode"_t, "opaque");
+      material->setParameter("alphaMode", "opaque");
     } else if (gltfMaterial.alphaMode == "MASK") {
-      material->setParameter("alphaMode"_t, "mask");
+      material->setParameter("alphaMode", "mask");
     } else if (gltfMaterial.alphaMode == "BLEND") {
-      material->setParameter("alphaMode"_t, "blend");
+      material->setParameter("alphaMode", "blend");
     } else {
       logWarning("[import_GLTF] unknown alpha mode: %s",
           gltfMaterial.alphaMode.c_str());
     }
-    material->setParameter("alphaCutoff"_t, float(gltfMaterial.alphaCutoff));
+    material->setParameter("alphaCutoff", float(gltfMaterial.alphaCutoff));
 
     // KHR_materials_transmission extension
     if (auto transmissionIt =
@@ -455,18 +455,18 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "transmission")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({transmissionFactor, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("transmission"_t, *sampler);
+        material->setParameterObject("transmission", *sampler);
       } else {
-        material->setParameter("transmission"_t, transmissionFactor);
+        material->setParameter("transmission", transmissionFactor);
       }
     } else {
       // Default values
-      material->setParameter("transmission"_t, 0.0f);
+      material->setParameter("transmission", 0.0f);
     }
 
     // KHR_materials_ior extension
@@ -474,10 +474,10 @@ static std::vector<MaterialRef> importGLTFMaterials(
         iorIt != gltfMaterial.extensions.end()) {
       const auto &iorExt = iorIt->second;
       float ior = GetValueOrDefault(iorExt, 1.5f, "ior");
-      material->setParameter("ior"_t, ior);
+      material->setParameter("ior", ior);
     } else {
       // Default values
-      material->setParameter("ior"_t, 1.5f);
+      material->setParameter("ior", 1.5f);
     }
 
     // KHR_materials_volume extension
@@ -499,31 +499,31 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "thickness")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({0, thicknessFactor, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("thickness"_t, *sampler);
+        material->setParameterObject("thickness", *sampler);
       } else {
-        material->setParameter("thickness"_t, thicknessFactor);
+        material->setParameter("thickness", thicknessFactor);
       }
 
       // Attenuation distance
       float attenuationDistance =
           GetValueOrDefault(volumeExt, 0.0f, "attenuationDistance");
-      material->setParameter("attenuationDistance"_t, attenuationDistance);
+      material->setParameter("attenuationDistance", attenuationDistance);
 
       // Attenuation color
       float3 attenuationColor = GetValueOrDefault(
           volumeExt, float3(1.0f, 1.0f, 1.0f), "attenuationColor");
-      material->setParameter("attenuationColor"_t, attenuationColor);
+      material->setParameter("attenuationColor", attenuationColor);
     } else {
       // Default values
-      material->setParameter("thickness"_t, 0.0f);
+      material->setParameter("thickness", 0.0f);
       material->setParameter(
-          "attenuationDistance"_t, std::numeric_limits<float>::max());
-      material->setParameter("attenuationColor"_t, float3(1.0f, 1.0f, 1.0f));
+          "attenuationDistance", std::numeric_limits<float>::max());
+      material->setParameter("attenuationColor", float3(1.0f, 1.0f, 1.0f));
     }
 
     // KHR_materials_clearcoat extension
@@ -546,14 +546,14 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "clearcoat")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({clearcoatFactor, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("clearcoat"_t, *sampler);
+        material->setParameterObject("clearcoat", *sampler);
       } else {
-        material->setParameter("clearcoat"_t, clearcoatFactor);
+        material->setParameter("clearcoat", clearcoatFactor);
       }
 
       // Clearcoat roughness factor
@@ -570,15 +570,15 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "clearcoatRoughness")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({0, 0, 0, 0},
                 {clearcoatRoughnessFactor, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("clearcoatRoughness"_t, *sampler);
+        material->setParameterObject("clearcoatRoughness", *sampler);
       } else {
         material->setParameter(
-            "clearcoatRoughness"_t, clearcoatRoughnessFactor);
+            "clearcoatRoughness", clearcoatRoughnessFactor);
       }
 
       // Clearcoat normal texture
@@ -591,13 +591,13 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "clearcoatNormal")) {
-        material->setParameterObject("clearcoatNormal"_t, *sampler);
+        material->setParameterObject("clearcoatNormal", *sampler);
       }
     } else {
       // Default values
-      material->setParameter("clearcoat"_t, 0.0f);
-      material->setParameter("clearcoatRoughness"_t, 0.0f);
-      material->removeParameter("clearcoatNormal"_t);
+      material->setParameter("clearcoat", 0.0f);
+      material->setParameter("clearcoatRoughness", 0.0f);
+      material->removeParameter("clearcoatNormal");
     }
 
     // KHR_materials_specular extension
@@ -613,15 +613,15 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(specularExt, -1, "specularTexture", "index");
       if (auto sampler = importGLTFTexture(
               scene, model, specularTextureIndex, cache, true)) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {specularFactor, 0, 0, 0}));
 
-        material->setParameterObject("specular"_t, *sampler);
+        material->setParameterObject("specular", *sampler);
       } else {
-        material->setParameter("specular"_t, specularFactor);
+        material->setParameter("specular", specularFactor);
       }
 
       // Handle specular color (factor and texture)
@@ -637,20 +637,20 @@ static std::vector<MaterialRef> importGLTFMaterials(
               false,
               false,
               "specularColor")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({specularColorFactor.x, 0, 0, 0},
                 {0, specularColorFactor.y, 0, 0},
                 {0, 0, specularColorFactor.z, 0},
                 {0, 0, 0, 1}));
 
-        material->setParameterObject("specularColor"_t, *sampler);
+        material->setParameterObject("specularColor", *sampler);
       } else {
-        material->setParameter("specularColor"_t, specularColorFactor);
+        material->setParameter("specularColor", specularColorFactor);
       }
     } else {
       // Default values
-      material->setParameter("specular"_t, 1.0f);
-      material->setParameter("specularColor"_t, float3(1.0f, 1.0f, 1.0f));
+      material->setParameter("specular", 1.0f);
+      material->setParameter("specularColor", float3(1.0f, 1.0f, 1.0f));
     }
 
     // KHR_materials_sheen extension
@@ -672,14 +672,14 @@ static std::vector<MaterialRef> importGLTFMaterials(
               false,
               false,
               "sheenColor")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({sheenColorFactor.x, 0, 0, 0},
                 {0, sheenColorFactor.y, 0, 0},
                 {0, 0, sheenColorFactor.z, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("sheenColor"_t, *sampler);
+        material->setParameterObject("sheenColor", *sampler);
       } else {
-        material->setParameter("sheenColor"_t, sheenColorFactor);
+        material->setParameter("sheenColor", sheenColorFactor);
       }
 
       // Sheen roughness factor
@@ -696,19 +696,19 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "sheenRoughness")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {sheenRoughnessFactor, 0, 0, 1}));
-        material->setParameterObject("sheenRoughness"_t, *sampler);
+        material->setParameterObject("sheenRoughness", *sampler);
       } else {
-        material->setParameter("sheenRoughness"_t, sheenRoughnessFactor);
+        material->setParameter("sheenRoughness", sheenRoughnessFactor);
       }
     } else {
       // Default values
-      material->setParameter("sheenColor"_t, float3(0.0f, 0.0f, 0.0f));
-      material->setParameter("sheenRoughness"_t, 0.0f);
+      material->setParameter("sheenColor", float3(0.0f, 0.0f, 0.0f));
+      material->setParameter("sheenRoughness", 0.0f);
     }
 
     // KHR_materials_iridescence extension
@@ -731,20 +731,20 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "iridescence")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({iridescenceFactor, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        material->setParameterObject("iridescence"_t, *sampler);
+        material->setParameterObject("iridescence", *sampler);
       } else {
-        material->setParameter("iridescence"_t, iridescenceFactor);
+        material->setParameter("iridescence", iridescenceFactor);
       }
 
       // Iridescence IOR
       float iridescenceIor =
           GetValueOrDefault(iridescenceExt, 1.3f, "iridescenceIor");
-      material->setParameter("iridescenceIor"_t, iridescenceIor);
+      material->setParameter("iridescenceIor", iridescenceIor);
 
       // Iridescence thickness minimum
       float iridescenceThicknessMinimum = GetValueOrDefault(
@@ -764,7 +764,7 @@ static std::vector<MaterialRef> importGLTFMaterials(
               true,
               false,
               "iridescenceThickness")) {
-        sampler->setParameter("outTransform"_t,
+        sampler->setParameter("outTransform",
             mat4({iridescenceThicknessMaximum - iridescenceThicknessMinimum,
                      0,
                      0,
@@ -772,18 +772,18 @@ static std::vector<MaterialRef> importGLTFMaterials(
                 {0, 0, 0, 0},
                 {0, 0, 0, 0},
                 {0, 0, 0, 1}));
-        sampler->setParameter("outOffset"_t,
+        sampler->setParameter("outOffset",
             float4(iridescenceThicknessMinimum, 0.0f, 0.0f, 0.0f));
-        material->setParameterObject("iridescenceThickness"_t, *sampler);
+        material->setParameterObject("iridescenceThickness", *sampler);
       } else {
-        material->setParameter("iridescenceThickness"_t,
+        material->setParameter("iridescenceThickness",
             iridescenceThicknessMaximum - iridescenceThicknessMinimum);
       }
     } else {
       // Default values
-      material->setParameter("iridescence"_t, 0.0f);
-      material->setParameter("iridescenceIor"_t, 1.3f);
-      material->setParameter("iridescenceThickness"_t, 0.0f);
+      material->setParameter("iridescence", 0.0f);
+      material->setParameter("iridescenceIor", 1.3f);
+      material->setParameter("iridescenceThickness", 0.0f);
     }
 
     material->setName(gltfMaterial.name.c_str());
@@ -878,7 +878,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
       auto *posDataOut = vertexPositionArray->mapAs<float3>();
       copyStridedData(model, posIt->second, posDataOut);
       vertexPositionArray->unmap();
-      geometry->setParameterObject("vertex.position"_t, *vertexPositionArray);
+      geometry->setParameterObject("vertex.position", *vertexPositionArray);
 
       // Normal data
       auto normalIt = primitive.attributes.find("NORMAL");
@@ -891,7 +891,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
           auto *normalDataOut = vertexNormalArray->mapAs<float3>();
           copyStridedData(model, normalIt->second, normalDataOut);
           vertexNormalArray->unmap();
-          geometry->setParameterObject("vertex.normal"_t, *vertexNormalArray);
+          geometry->setParameterObject("vertex.normal", *vertexNormalArray);
         }
       }
 
@@ -908,7 +908,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
           copyStridedData(model, texCoordIt->second, texCoordDataOut);
           vertexTexCoordArray->unmap();
           geometry->setParameterObject(
-              "vertex.attribute0"_t, *vertexTexCoordArray);
+              "vertex.attribute0", *vertexTexCoordArray);
         }
       }
 
@@ -923,7 +923,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
           auto *tangentDataOut = vertexTangentArray->mapAs<float4>();
           copyStridedData(model, tangentIt->second, tangentDataOut);
           vertexTangentArray->unmap();
-          geometry->setParameterObject("vertex.tangent"_t, *vertexTangentArray);
+          geometry->setParameterObject("vertex.tangent", *vertexTangentArray);
         }
       }
 
@@ -946,7 +946,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
               copyStridedData(model, colorIt->second, colorDataOut);
             }
             vertexColorArray->unmap();
-            geometry->setParameterObject("vertex.color"_t, *vertexColorArray);
+            geometry->setParameterObject("vertex.color", *vertexColorArray);
           }
         }
       }
@@ -986,7 +986,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
           }
 
           indexArray->unmap();
-          geometry->setParameterObject("primitive.index"_t, *indexArray);
+          geometry->setParameterObject("primitive.index", *indexArray);
         } else if (indexAccessor.componentType
             == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
           auto indexArray =
@@ -1017,7 +1017,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
                 outIndices, indexData, indexAccessor.count * sizeof(uint32_t));
             indexArray->unmap();
           }
-          geometry->setParameterObject("primitive.index"_t, *indexArray);
+          geometry->setParameterObject("primitive.index", *indexArray);
         } else {
           logWarning("[import_GLTF] unsupported index data type");
           continue;
@@ -1115,7 +1115,7 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
 
               if (success) {
                 geometry->setParameterObject(
-                    "vertex.tangent"_t, *vertexTangentArray);
+                    "vertex.tangent", *vertexTangentArray);
                 logInfo(
                     "[import_GLTF] Computed tangents for geometry '%s' with %zu vertices and %zu triangles",
                     geometryName.c_str(),
@@ -1186,18 +1186,18 @@ static std::vector<LightRef> importGLTFLights(
 
     if (type == "directional") {
       light = scene.createObject<Light>(tokens::light::directional);
-      light->setParameter("direction"_t, float3(0, 0, -1)); // Default direction
+      light->setParameter("direction", float3(0, 0, -1)); // Default direction
     } else if (type == "point") {
       light = scene.createObject<Light>(tokens::light::point);
     } else if (type == "spot") {
       light = scene.createObject<Light>(tokens::light::spot);
-      light->setParameter("direction"_t, float3(0, 0, -1)); // Default direction
+      light->setParameter("direction", float3(0, 0, -1)); // Default direction
 
       if (lightValue.Has("spot")) {
         const auto &spot = lightValue.Get("spot");
         if (spot.Has("outerConeAngle")) {
           double outerCone = spot.Get("outerConeAngle").GetNumberAsDouble();
-          light->setParameter("openingAngle"_t, float(outerCone));
+          light->setParameter("openingAngle", float(outerCone));
         }
         if (spot.Has("innerConeAngle")) {
           double innerCone = spot.Get("innerConeAngle").GetNumberAsDouble();
@@ -1205,7 +1205,7 @@ static std::vector<LightRef> importGLTFLights(
               ? spot.Get("outerConeAngle").GetNumberAsDouble()
               : M_PI / 4.0;
           light->setParameter(
-              "falloffAngle"_t, float((outerCone - innerCone) / 2.0));
+              "falloffAngle", float((outerCone - innerCone) / 2.0));
         }
       }
     }
@@ -1217,17 +1217,17 @@ static std::vector<LightRef> importGLTFLights(
         float3 lightColor(color.Get(0).GetNumberAsDouble(),
             color.Get(1).GetNumberAsDouble(),
             color.Get(2).GetNumberAsDouble());
-        light->setParameter("color"_t, lightColor);
+        light->setParameter("color", lightColor);
       } else {
-        light->setParameter("color"_t, float3(1, 1, 1));
+        light->setParameter("color", float3(1, 1, 1));
       }
 
       // Set intensity
       if (lightValue.Has("intensity")) {
         double intensity = lightValue.Get("intensity").GetNumberAsDouble();
-        light->setParameter("intensity"_t, float(intensity));
+        light->setParameter("intensity", float(intensity));
       } else {
-        light->setParameter("intensity"_t, 1.0f);
+        light->setParameter("intensity", 1.0f);
       }
 
       // Set name

@@ -44,7 +44,7 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
     auto sampler = importTexture(scene, resolvedPath, textureCache, false);
     if (sampler) {
-      mat->setParameterObject("baseColor"_t, *sampler);
+      mat->setParameterObject("baseColor", *sampler);
     } else {
       logWarning("[import_USD2] Failed to load diffuse texture: %s\n", resolvedPath.c_str());
     }
@@ -52,7 +52,7 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
     // Use constant color
     pxr::GfVec3f diffuseColor;
     if (getShaderColorInput(usdShader, "diffuse_color_constant", diffuseColor)) {
-      mat->setParameter("baseColor"_t,
+      mat->setParameter("baseColor",
                        tsd::math::float3(diffuseColor[0], diffuseColor[1], diffuseColor[2]));
     }
   }
@@ -73,7 +73,7 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
         emissiveColor[1] * emissiveIntensity,
         emissiveColor[2] * emissiveIntensity
     );
-    mat->setParameter("emissive"_t, finalEmissive);
+    mat->setParameter("emissive", finalEmissive);
   }
 
   // Metallic - try texture first, then constant
@@ -86,16 +86,16 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
     auto sampler = importTexture(scene, resolvedPath, textureCache, true);
     if (sampler) {
-      mat->setParameterObject("metallic"_t, *sampler);
+      mat->setParameterObject("metallic", *sampler);
     } else {
       logWarning("[import_USD2] Failed to load metallic texture: %s\n", resolvedPath.c_str());
     }
   } else {
     float metallic = 0.0f;
     if (getShaderFloatInput(usdShader, "metallic_constant", metallic)) {
-      mat->setParameter("metallic"_t, metallic);
+      mat->setParameter("metallic", metallic);
     } else {
-      mat->setParameter("metallic"_t, 0.0f);
+      mat->setParameter("metallic", 0.0f);
     }
   }
 
@@ -109,16 +109,16 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
     auto sampler = importTexture(scene, resolvedPath, textureCache, true);
     if (sampler) {
-      mat->setParameterObject("roughness"_t, *sampler);
+      mat->setParameterObject("roughness", *sampler);
     } else {
       logWarning("[import_USD2] Failed to load roughness texture: %s\n", resolvedPath.c_str());
     }
   } else {
     float roughness = 0.5f;  // Default to mid-range roughness
     if (getShaderFloatInput(usdShader, "reflection_roughness_constant", roughness)) {
-      mat->setParameter("roughness"_t, roughness);
+      mat->setParameter("roughness", roughness);
     } else {
-      mat->setParameter("roughness"_t, 0.5f);
+      mat->setParameter("roughness", 0.5f);
     }
   }
 
@@ -132,7 +132,7 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
     auto sampler = importTexture(scene, resolvedPath, textureCache, true);
     if (sampler) {
-      mat->setParameterObject("normal"_t, *sampler);
+      mat->setParameterObject("normal", *sampler);
     } else {
       logWarning("[import_USD2] Failed to load normal texture: %s\n", resolvedPath.c_str());
     }
@@ -148,7 +148,7 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
     auto sampler = importTexture(scene, resolvedPath, textureCache, true);
     if (sampler) {
-      mat->setParameterObject("occlusion"_t, *sampler);
+      mat->setParameterObject("occlusion", *sampler);
     } else {
       logWarning("[import_USD2] Failed to load occlusion texture: %s\n", resolvedPath.c_str());
     }
@@ -168,14 +168,14 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
 
       auto sampler = importTexture(scene, resolvedPath, textureCache, true);
       if (sampler) {
-        mat->setParameterObject("opacity"_t, *sampler);
+        mat->setParameterObject("opacity", *sampler);
       } else {
         logWarning("[import_USD2] Failed to load opacity texture: %s\n", resolvedPath.c_str());
       }
     } else {
       float opacityConstant = 1.0f;
       if (getShaderFloatInput(usdShader, "opacity_constant", opacityConstant)) {
-        mat->setParameter("opacity"_t, opacityConstant);
+        mat->setParameter("opacity", opacityConstant);
       }
     }
 
@@ -183,30 +183,30 @@ MaterialRef importOmniPBRMaterial(Scene &scene,
     float opacityThreshold = 0.0f;
     if (getShaderFloatInput(usdShader, "opacity_threshold", opacityThreshold)) {
       if (opacityThreshold > 0.0f) {
-        mat->setParameter("alphaMode"_t, "mask");
-        mat->setParameter("alphaCutoff"_t, opacityThreshold);
+        mat->setParameter("alphaMode", "mask");
+        mat->setParameter("alphaCutoff", opacityThreshold);
       } else {
-        mat->setParameter("alphaMode"_t, "blend");
+        mat->setParameter("alphaMode", "blend");
       }
     } else {
       // Default to blend mode when opacity is enabled
-      mat->setParameter("alphaMode"_t, "blend");
+      mat->setParameter("alphaMode", "blend");
     }
   } else {
     // Fully opaque
-    mat->setParameter("alphaMode"_t, "opaque");
+    mat->setParameter("alphaMode", "opaque");
   }
 
   // IOR (index of refraction)
   float ior = 1.5f;
   if (getShaderFloatInput(usdShader, "ior_constant", ior)) {
-    mat->setParameter("ior"_t, ior);
+    mat->setParameter("ior", ior);
   }
 
   // Specular level
   float specularLevel = 0.5f;
   if (getShaderFloatInput(usdShader, "specular_level", specularLevel)) {
-    mat->setParameter("specular"_t, specularLevel);
+    mat->setParameter("specular", specularLevel);
   }
 
   logStatus("[import_USD2] Created OmniPBR material: '%s'\n", matName.c_str());

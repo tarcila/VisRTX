@@ -34,9 +34,4 @@ struct Token
 bool operator==(const Token &t1, const Token &t2);
 bool operator!=(const Token &t1, const Token &t2);
 
-namespace literals {
-
-Token operator""_t(const char *, size_t);
-
-} // namespace literals
 } // namespace tsd::core

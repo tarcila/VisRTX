@@ -111,7 +111,7 @@ SpatialFieldRef import_MHD(Scene &scene, const char *filepath)
   fclose(fileHandle);
   voxelArray->unmap();
 
-  field->setParameterObject("data"_t, *voxelArray);
+  field->setParameterObject("data", *voxelArray);
 
   return field;
 }

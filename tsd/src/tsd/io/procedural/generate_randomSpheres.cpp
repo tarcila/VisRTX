@@ -22,7 +22,7 @@ void generate_randomSpheres(
   const uint32_t numSpheres = 10000;
   const float radius = .01f;
 
-  spheres->setParameter("radius"_t, radius);
+  spheres->setParameter("radius", radius);
 
   std::mt19937 rng;
   rng.seed(0);
@@ -46,8 +46,8 @@ void generate_randomSpheres(
   positionArray->unmap();
   distanceArray->unmap();
 
-  spheres->setParameterObject("vertex.position"_t, *positionArray);
-  spheres->setParameterObject("vertex.attribute0"_t, *distanceArray);
+  spheres->setParameterObject("vertex.position", *positionArray);
+  spheres->setParameterObject("vertex.attribute0", *distanceArray);
 
   // Populate material with sampler for colormapping //
 
@@ -61,13 +61,13 @@ void generate_randomSpheres(
     colors[1] = float3(.8f, .8f, .1f);
     colorArray->unmap();
 
-    sampler->setParameterObject("image"_t, *colorArray);
+    sampler->setParameterObject("image", *colorArray);
     auto scale = math::scaling_matrix(float3(1.f / maxDist));
-    sampler->setParameter("inTransform"_t, scale);
+    sampler->setParameter("inTransform", scale);
     sampler->setName("random_spheres_colormap");
 
     material = scene.createObject<Material>(tokens::material::matte);
-    material->setParameterObject("color"_t, *sampler);
+    material->setParameterObject("color", *sampler);
     material->setName("random_spheres_material");
   }
 

@@ -35,8 +35,8 @@ inline SurfaceRef makeSphere(Scene &scene, float3 pos, float radius, int ID)
 
   auto name = std::string("sphere_") + std::to_string(ID);
 
-  sphere->setParameterObject("vertex.position"_t, *positionArray);
-  sphere->setParameterObject("vertex.radius"_t, *radiusArray);
+  sphere->setParameterObject("vertex.position", *positionArray);
+  sphere->setParameterObject("vertex.radius", *radiusArray);
   sphere->setName((name + "_geometry").c_str());
 
   return scene.createSurface(name.c_str(), sphere);
@@ -45,8 +45,8 @@ inline SurfaceRef makeSphere(Scene &scene, float3 pos, float radius, int ID)
 inline MaterialRef makeDielectric(Scene &scene, float ior, int ID)
 {
   auto material = scene.createObject<Material>(tokens::material::physicallyBased);
-  material->setParameter("baseColor"_t, float3(1.0f, 1.0f, 1.0f));
-  material->setParameter("ior"_t, ior);
+  material->setParameter("baseColor", float3(1.0f, 1.0f, 1.0f));
+  material->setParameter("ior", ior);
   material->setName((std::string("dielectric") + std::to_string(ID)).c_str());
   return material;
 }
@@ -54,7 +54,7 @@ inline MaterialRef makeDielectric(Scene &scene, float ior, int ID)
 inline MaterialRef makeLambertian(Scene &scene, float3 color, int ID)
 {
   auto material = scene.createObject<Material>(tokens::material::matte);
-  material->setParameter("color"_t, color);
+  material->setParameter("color", color);
   material->setName((std::string("matte_") + std::to_string(ID)).c_str());
   return material;
 }
@@ -62,10 +62,10 @@ inline MaterialRef makeLambertian(Scene &scene, float3 color, int ID)
 inline MaterialRef makeMetal(Scene &scene, float3 refl, int ID)
 {
   auto material = scene.createObject<Material>(tokens::material::physicallyBased);
-  material->setParameter("baseColor"_t, refl);
-  material->setParameter("metallic"_t, 0.9f);
-  material->setParameter("roughness"_t, 0.4f);
-  material->setParameter("ior"_t, 0.5f);
+  material->setParameter("baseColor", refl);
+  material->setParameter("metallic", 0.9f);
+  material->setParameter("roughness", 0.4f);
+  material->setParameter("ior", 0.5f);
   material->setName((std::string("metal") + std::to_string(ID)).c_str());
   return material;
 }

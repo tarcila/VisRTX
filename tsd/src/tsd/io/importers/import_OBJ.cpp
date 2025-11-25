@@ -62,14 +62,14 @@ void import_OBJ(Scene &scene,
       auto &mat = objdata.materials[i];
 
       m = scene.createObject<Material>(tokens::material::matte);
-      m->setParameter("color"_t, ANARI_FLOAT32_VEC3, mat.diffuse);
-      m->setParameter("opacity"_t, mat.dissolve);
+      m->setParameter("color", ANARI_FLOAT32_VEC3, mat.diffuse);
+      m->setParameter("opacity", mat.dissolve);
       m->setName(mat.name.c_str());
 
       if (!mat.diffuse_texname.empty()) {
         auto tex = importTexture(scene, basePath + mat.diffuse_texname, cache);
         if (tex)
-          m->setParameterObject("color"_t, *tex);
+          m->setParameterObject("color", *tex);
       }
     }
 

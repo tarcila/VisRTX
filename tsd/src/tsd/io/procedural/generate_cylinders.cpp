@@ -22,7 +22,7 @@ void generate_cylinders(
   const uint32_t numCylinders = 20;
   const float radius = 0.025f;
 
-  cylinders->setParameter("radius"_t, radius);
+  cylinders->setParameter("radius", radius);
 
   std::mt19937 rng;
   rng.seed(0);
@@ -51,15 +51,15 @@ void generate_cylinders(
   positionArray->setData(positions);
   colorArray->setData(colors);
 
-  cylinders->setParameterObject("vertex.position"_t, *positionArray);
-  cylinders->setParameterObject("vertex.color"_t, *colorArray);
+  cylinders->setParameterObject("vertex.position", *positionArray);
+  cylinders->setParameterObject("vertex.color", *colorArray);
 
   // Populate material with sampler for colormapping //
 
   auto material = scene.defaultMaterial();
   if (!useDefaultMaterial) {
     material = scene.createObject<Material>(tokens::material::matte);
-    material->setParameter("color"_t, "color");
+    material->setParameter("color", "color");
     material->setName("random_cylinders_material");
   }
 

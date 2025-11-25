@@ -17,7 +17,7 @@ void generate_hdri_dome(Scene &scene, LayerNodeRef location)
   auto [inst, hdri] = scene.insertNewChildObjectNode<Light>(
       location, tokens::light::hdri);
   hdri->setName("hdri_dome");
-  hdri->setParameterObject("radiance"_t, *arr);
+  hdri->setParameterObject("radiance", *arr);
 }
 
 } // namespace tsd

@@ -105,8 +105,8 @@ void readSWCFile(
   sphereRadiusArray->setData(sphereRadii);
 
   // Set the positions and radii of the spheres
-  spheres->setParameterObject("vertex.position"_t, *spherePositionArray);
-  spheres->setParameterObject("vertex.radius"_t, *sphereRadiusArray);
+  spheres->setParameterObject("vertex.position", *spherePositionArray);
+  spheres->setParameterObject("vertex.radius", *sphereRadiusArray);
 
   // Generate cones to connect the points
   auto cones = scene.createObject<Geometry>(tokens::geometry::cone);
@@ -139,8 +139,8 @@ void readSWCFile(
   radiiArray->setData(coneRadii);
 
   // Set the positions and radii of the cones
-  cones->setParameterObject("vertex.position"_t, *positionArray);
-  cones->setParameterObject("vertex.radius"_t, *radiiArray);
+  cones->setParameterObject("vertex.position", *positionArray);
+  cones->setParameterObject("vertex.radius", *radiiArray);
 
   // Material properties
   auto m = scene.createObject<Material>(tokens::material::physicallyBased);
@@ -155,9 +155,9 @@ void readSWCFile(
   const float roughness = DEFAULT_ROUGHNESS;
 
   // Set the material properties
-  m->setParameter("baseColor"_t, ANARI_FLOAT32_VEC3, &baseColor);
-  m->setParameter("metallic"_t, ANARI_FLOAT32, &metallic);
-  m->setParameter("roughness"_t, ANARI_FLOAT32, &roughness);
+  m->setParameter("baseColor", ANARI_FLOAT32_VEC3, &baseColor);
+  m->setParameter("metallic", ANARI_FLOAT32, &metallic);
+  m->setParameter("roughness", ANARI_FLOAT32, &roughness);
 
   const auto swcLocation = location->insert_first_child({});
 

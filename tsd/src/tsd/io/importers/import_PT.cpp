@@ -145,9 +145,9 @@ void import_PT(Scene &scene, const char *filename, LayerNodeRef location)
     float3 baseColor(1.f, 1.f, 1.f);
     const float metallic = DEFAULT_METALLIC;
     const float roughness = DEFAULT_ROUGHNESS;
-    material->setParameter("baseColor"_t, ANARI_FLOAT32_VEC3, &baseColor);
-    material->setParameter("metallic"_t, ANARI_FLOAT32, &metallic);
-    material->setParameter("roughness"_t, ANARI_FLOAT32, &roughness);
+    material->setParameter("baseColor", ANARI_FLOAT32_VEC3, &baseColor);
+    material->setParameter("metallic", ANARI_FLOAT32, &metallic);
+    material->setParameter("roughness", ANARI_FLOAT32, &roughness);
 
     const auto neuralLocation = scene.defaultLayer()->insert_first_child(
         location, tsd::core::Any(ANARI_GEOMETRY, 1));

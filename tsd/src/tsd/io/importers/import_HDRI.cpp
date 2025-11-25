@@ -30,7 +30,7 @@ void import_HDRI(Scene &scene, const char *filepath, LayerNodeRef location)
     auto [inst, hdri] = scene.insertNewChildObjectNode<Light>(
         location ? location : scene.defaultLayer()->root(), tokens::light::hdri);
     hdri->setName(fileOf(filepath).c_str());
-    hdri->setParameterObject("radiance"_t, *arr);
+    hdri->setParameterObject("radiance", *arr);
   }
 }
 

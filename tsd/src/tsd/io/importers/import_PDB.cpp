@@ -394,12 +394,12 @@ void readPDBFile(Scene &scene, const char *filename, LayerNodeRef location)
   sphereColorsArray->setData(sphereColors);
 
   // Set the positions and radii of the spheres
-  spheres->setParameterObject("vertex.position"_t, *spherePositionArray);
-  spheres->setParameterObject("vertex.radius"_t, *sphereRadiusArray);
-  spheres->setParameterObject("vertex.color"_t, *sphereColorsArray);
+  spheres->setParameterObject("vertex.position", *spherePositionArray);
+  spheres->setParameterObject("vertex.radius", *sphereRadiusArray);
+  spheres->setParameterObject("vertex.color", *sphereColorsArray);
 
   auto material = scene.createObject<Material>(tokens::material::matte);
-  material->setParameter("color"_t, "color");
+  material->setParameter("color", "color");
   material->setName("atoms_material");
 
   auto sphereSurface = scene.createSurface(basename.c_str(), spheres, material);

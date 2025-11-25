@@ -121,72 +121,72 @@ SamplerRef importDdsTexture(
     switch (dds::getDxgiFormat(dds)) {
     case dds::DXGI_FORMAT_BC1_UNORM: {
       // BC1: RGB/RGBA, 1bit alpha
-      compressedFormat = alpha ? "BC1_RGBA"_t : "BC1_RGB"_t;
+      compressedFormat = alpha ? "BC1_RGBA" : "BC1_RGB";
       break;
     }
     case dds::DXGI_FORMAT_BC1_UNORM_SRGB: {
       // BC1: RGB/RGBA, 1bit alpha
-      compressedFormat = alpha ? "BC1_RGBA_SRGB"_t : "BC1_RGB_SRGB"_t;
+      compressedFormat = alpha ? "BC1_RGBA_SRGB" : "BC1_RGB_SRGB";
       break;
     }
     case dds::DXGI_FORMAT_BC2_UNORM: {
       // BC2: RGB/RGBA, 4bit alpha
-      compressedFormat = "BC2"_t;
+      compressedFormat = "BC2";
       break;
     }
     case dds::DXGI_FORMAT_BC2_UNORM_SRGB: {
       // BC2: RGB/RGBA, 4bit alpha
-      compressedFormat = "BC2_SRGB"_t;
+      compressedFormat = "BC2_SRGB";
       break;
     }
     case dds::DXGI_FORMAT_BC3_UNORM: {
       // BC3: RGB/RGBA, 8bit alpha
-      compressedFormat = "BC3"_t;
+      compressedFormat = "BC3";
       break;
     }
     case dds::DXGI_FORMAT_BC3_UNORM_SRGB: {
       // BC3: RGB/RGBA, 8bit alpha
-      compressedFormat = "BC3_SRGB"_t;
+      compressedFormat = "BC3_SRGB";
       break;
     }
     case dds::DXGI_FORMAT_BC4_UNORM: {
       // BC4: R/RG
-      compressedFormat = "BC4"_t;
+      compressedFormat = "BC4";
       break;
     }
     case dds::DXGI_FORMAT_BC4_SNORM: {
       // BC4: R/RG
-      compressedFormat = "BC4_SNORM"_t;
+      compressedFormat = "BC4_SNORM";
       break;
     }
     case dds::DXGI_FORMAT_BC5_UNORM: {
       // BC5: RG/RGBA
-      compressedFormat = "BC5"_t;
+      compressedFormat = "BC5";
       break;
     }
     case dds::DXGI_FORMAT_BC5_SNORM: {
       // BC5: RG/RGBA
-      compressedFormat = "BC5_SNORM"_t;
+      compressedFormat = "BC5_SNORM";
       break;
     }
     case dds::DXGI_FORMAT_BC6H_UF16: {
       // BC6H: RGB
-      compressedFormat = "BC6H_UFLOAT"_t;
+      compressedFormat = "BC6H_UFLOAT";
       break;
     }
     case dds::DXGI_FORMAT_BC6H_SF16: {
       // BC6H: RGB
-      compressedFormat = "BC6H_SFLOAT"_t;
+      compressedFormat = "BC6H_SFLOAT";
       break;
     }
     case dds::DXGI_FORMAT_BC7_UNORM: {
       // BC7: RGB/RGBA
-      compressedFormat = "BC7"_t;
+      compressedFormat = "BC7";
       break;
     }
     case dds::DXGI_FORMAT_BC7_UNORM_SRGB: {
       // BC7: RGB/RGBA
-      compressedFormat = "BC7_SRGB"_t;
+      compressedFormat = "BC7_SRGB";
       break;
     }
 
@@ -231,14 +231,14 @@ SamplerRef importDdsTexture(
       dataArray->getMetadataValue("compressedFormat").getString();
 
   auto tex = scene.createObject<Sampler>(tokens::sampler::compressedImage2D);
-  tex->setParameterObject("image"_t, *dataArray);
-  tex->setParameter("format"_t, compressedFormat.c_str());
+  tex->setParameterObject("image", *dataArray);
+  tex->setParameter("format", compressedFormat.c_str());
   tex->setParameter(
-      "size"_t, dataArray->getMetadataValue("imageSize").get<U64Vec2>());
-  tex->setParameter("inAttribute"_t, "attribute0");
-  tex->setParameter("wrapMode1"_t, "repeat");
-  tex->setParameter("wrapMode2"_t, "repeat");
-  tex->setParameter("filter"_t, "linear");
+      "size", dataArray->getMetadataValue("imageSize").get<U64Vec2>());
+  tex->setParameter("inAttribute", "attribute0");
+  tex->setParameter("wrapMode1", "repeat");
+  tex->setParameter("wrapMode2", "repeat");
+  tex->setParameter("filter", "linear");
   tex->setName(fileOf(filepath).c_str());
 
   return tex;
@@ -287,11 +287,11 @@ SamplerRef importStbTexture(
 
   auto tex = scene.createObject<Sampler>(tokens::sampler::image2D);
 
-  tex->setParameterObject("image"_t, *dataArray);
-  tex->setParameter("inAttribute"_t, "attribute0");
-  tex->setParameter("wrapMode1"_t, "repeat");
-  tex->setParameter("wrapMode2"_t, "repeat");
-  tex->setParameter("filter"_t, "linear");
+  tex->setParameterObject("image", *dataArray);
+  tex->setParameter("inAttribute", "attribute0");
+  tex->setParameter("wrapMode1", "repeat");
+  tex->setParameter("wrapMode2", "repeat");
+  tex->setParameter("filter", "linear");
   tex->setName(fileOf(filepath).c_str());
 
   return tex;

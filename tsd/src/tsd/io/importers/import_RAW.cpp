@@ -81,7 +81,7 @@ SpatialFieldRef import_RAW(Scene &scene, const char *filepath)
   std::fclose(fileHandle);
   voxelArray->unmap();
 
-  field->setParameterObject("data"_t, *voxelArray);
+  field->setParameterObject("data", *voxelArray);
 
   return field;
 }

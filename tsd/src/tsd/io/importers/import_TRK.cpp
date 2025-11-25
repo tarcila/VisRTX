@@ -225,14 +225,14 @@ void readTrkFile(
   indexArray->setData(indices);
 
   // Set geometry parameters
-  curves->setParameterObject("vertex.position"_t, *positionArray);
-  curves->setParameterObject("vertex.color"_t, *colorArray);
-  curves->setParameterObject("primitive.index"_t, *indexArray);
-  curves->setParameter("radius"_t, DEFAULT_CURVE_RADIUS);
+  curves->setParameterObject("vertex.position", *positionArray);
+  curves->setParameterObject("vertex.color", *colorArray);
+  curves->setParameterObject("primitive.index", *indexArray);
+  curves->setParameter("radius", DEFAULT_CURVE_RADIUS);
 
   // Create material with vertex color support
   auto material = scene.createObject<Material>(tokens::material::matte);
-  material->setParameter("color"_t, "color");
+  material->setParameter("color", "color");
   material->setName((basename + "_material").c_str());
 
   // Create surface and add to scene
