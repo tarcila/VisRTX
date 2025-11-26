@@ -96,6 +96,10 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   bool m_nextFrameReset{true};
   bool m_frameMappedOnce{false}; // NOTE(jda) - for instrumented events
 
+  bool m_manualAccumulationRestart{false};
+  uint64_t m_lastRenderedAccumulationVersion{0};
+  uint64_t m_applicationAccumulationVersion{0};
+
   anari::DataType m_colorType{ANARI_UNKNOWN};
   anari::DataType m_depthType{ANARI_UNKNOWN};
   anari::DataType m_primIDType{ANARI_UNKNOWN};

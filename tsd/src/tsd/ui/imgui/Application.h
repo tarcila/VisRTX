@@ -26,12 +26,6 @@ class Application : public anari_viewer::Application
 
   void getFilenameFromDialog(std::string &filenameOut, bool save = false);
 
-  // Things from anari_viewer::Application to override //
-
-  virtual anari_viewer::WindowArray setupWindows() override;
-  virtual void uiFrameStart() override;
-  virtual void teardown() override;
-
   // Not movable or copyable //
   Application(const Application &) = delete;
   Application &operator=(const Application &) = delete;
@@ -40,6 +34,18 @@ class Application : public anari_viewer::Application
   /////////////////////////////
 
  protected:
+  // Things from anari_viewer::Application to override //
+
+  virtual anari_viewer::WindowArray setupWindows() override;
+  virtual void uiFrameStart() override;
+  virtual void teardown() override;
+
+  // Internal API //
+
+  virtual void uiMainMenuBar();
+
+  void doSave(const std::string &name = "");
+
   void saveApplicationState(const char *filename = "state.tsd");
   void loadApplicationState(const char *filename = "state.tsd");
 

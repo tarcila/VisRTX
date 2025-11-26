@@ -91,12 +91,23 @@ void Frame::commitParameters()
   m_instIDType = getParam<ANARIDataType>("channel.instanceId", ANARI_UNKNOWN);
   m_albedoType = getParam<ANARIDataType>("channel.albedo", ANARI_UNKNOWN);
   m_normalType = getParam<ANARIDataType>("channel.normal", ANARI_UNKNOWN);
+  m_manualAccumulationRestart = getParam(
+      "accumulationVersion", ANARI_UINT64, &m_applicationAccumulationVersion);
 }
 
 void Frame::finalize()
 {
   if (!isValid())
     return;
+
+  if (!m_manualAccumulationRestart) {
+    m_applicationAccumulationVersion = 0;
+    m_lastRenderedAccumulationVersion = 0;
+  } else {
+    reportMessage(ANARI_SEVERITY_DEBUG,
+        "Frame using manual accumulation restart with version %zu",
+        m_applicationAccumulationVersion);
+  }
 
   auto &hd = data();
 
@@ -578,13 +589,20 @@ void Frame::checkAccumulationReset()
     return;
 
   auto &state = *deviceState();
-  if (m_lastCommitFlushOccured < state.commitBuffer.lastObjectFinalization()) {
-    m_lastCommitFlushOccured = state.commitBuffer.lastObjectFinalization();
+  if (m_manualAccumulationRestart
+      && m_lastRenderedAccumulationVersion < m_applicationAccumulationVersion) {
+    m_lastRenderedAccumulationVersion = m_applicationAccumulationVersion;
     m_nextFrameReset = true;
-  }
-  if (m_lastUploadFlushOccured < state.uploadBuffer.lastUpload()) {
-    m_lastUploadFlushOccured = state.uploadBuffer.lastUpload();
-    m_nextFrameReset = true;
+  } else if (!m_manualAccumulationRestart) { // automatic accumulation restart
+    if (m_lastCommitFlushOccured
+        < state.commitBuffer.lastObjectFinalization()) {
+      m_lastCommitFlushOccured = state.commitBuffer.lastObjectFinalization();
+      m_nextFrameReset = true;
+    }
+    if (m_lastUploadFlushOccured < state.uploadBuffer.lastUpload()) {
+      m_lastUploadFlushOccured = state.uploadBuffer.lastUpload();
+      m_nextFrameReset = true;
+    }
   }
 }
 

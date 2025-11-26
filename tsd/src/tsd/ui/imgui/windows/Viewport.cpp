@@ -43,8 +43,6 @@ Viewport::Viewport(
 
 Viewport::~Viewport()
 {
-  if (m_initFuture.valid())
-    m_initFuture.get();
   teardownDevice();
 }
 
@@ -84,15 +82,14 @@ void Viewport::buildUI()
   bool didPick = ui_picking(); // Needs to happen before ui_menubar
   ui_menubar();
 
-
   if (m_anariPass && !didPick)
     m_anariPass->setEnableIDs(appCore()->objectIsSelected());
 
   if (m_rIdx && (m_rIdx->isFlat() != appCore()->anari.useFlatRenderIndex())) {
     tsd::core::logWarning("instancing setting changed: resetting viewport");
     auto lib = m_libName;
-    setLibrary("", false); // clear old library
-    setLibrary(lib, false);
+    setLibrary(""); // clear old library
+    setLibrary(lib);
   }
 }
 
@@ -242,6 +239,22 @@ void Viewport::setExternalInstances(
     m_rIdx->setExternalInstances(instances, count);
 }
 
+void Viewport::setCustomFrameParameter(
+    const char *name, const tsd::core::Any &value)
+{
+  if (!m_anariPass) {
+    tsd::core::logWarning(
+        "[viewport] cannot set custom frame parameter '%s': no frame yet",
+        name);
+    return;
+  }
+
+  auto d = m_anariPass->getDevice();
+  auto f = m_anariPass->getFrame();
+  anari::setParameter(d, f, name, value.type(), value.data());
+  anari::commitParameters(d, f);
+}
+
 void Viewport::saveSettings(tsd::core::DataNode &root)
 {
   root.reset(); // clear all previous values, if they exist
@@ -362,9 +375,7 @@ void Viewport::loadSettings(tsd::core::DataNode &root)
   if (core->commandLine.useDefaultRenderer) {
     std::string libraryName;
     root["anariLibrary"].getValue(ANARI_STRING, &libraryName);
-    setLibrary(libraryName, false);
-  } else {
-    setLibrary("", false);
+    setLibrary(libraryName);
   }
 
   // Renderer settings //
@@ -524,6 +535,9 @@ void Viewport::setupRenderPipeline()
 
 void Viewport::teardownDevice()
 {
+  if (m_initFuture.valid())
+    m_initFuture.get();
+
   if (!m_deviceReadyToUse)
     return;
 
@@ -839,12 +853,12 @@ void Viewport::ui_menubar()
       for (auto &libName : appCore()->commandLine.libraryList) {
         const bool isThisLibrary = m_libName == libName;
         if (ImGui::RadioButton(libName.c_str(), isThisLibrary))
-          setLibrary(libName, false);
+          setLibrary(libName);
       }
       ImGui::Separator();
       if (ImGui::MenuItem("reload device")) {
         auto lib = m_libName; // setLibrary() clears m_libName
-        setLibrary(lib, false);
+        setLibrary(lib);
       }
       ImGui::EndMenu();
     }
@@ -1102,21 +1116,33 @@ void Viewport::ui_menubar()
       ImGui::Separator();
 
       const char *aovItems[] = {"default", "depth", "albedo", "normal"};
-      if (int aov = int(m_visualizeAOV); ImGui::Combo("visualize AOV", &aov, aovItems, IM_ARRAYSIZE(aovItems))) {
+      if (int aov = int(m_visualizeAOV); ImGui::Combo(
+              "visualize AOV", &aov, aovItems, IM_ARRAYSIZE(aovItems))) {
         if (aov != int(m_visualizeAOV)) {
           m_visualizeAOV = static_cast<tsd::rendering::AOVType>(aov);
           m_visualizeAOVPass->setAOVType(m_visualizeAOV);
-          m_anariPass->setEnableAlbedo(m_visualizeAOV == tsd::rendering::AOVType::ALBEDO);
-          m_anariPass->setEnableNormals(m_visualizeAOV == tsd::rendering::AOVType::NORMAL);
+          m_anariPass->setEnableAlbedo(
+              m_visualizeAOV == tsd::rendering::AOVType::ALBEDO);
+          m_anariPass->setEnableNormals(
+              m_visualizeAOV == tsd::rendering::AOVType::NORMAL);
         }
       }
 
       ImGui::BeginDisabled(m_visualizeAOV != tsd::rendering::AOVType::DEPTH);
       bool depthRangeChanged = false;
-      depthRangeChanged |= ImGui::DragFloat("depth minimum", &m_depthVisualMinimum, 0.1f, 0.f, m_depthVisualMaximum);
-      depthRangeChanged |= ImGui::DragFloat("depth maximum", &m_depthVisualMaximum, 0.1f, m_depthVisualMinimum, 1e20f);
+      depthRangeChanged |= ImGui::DragFloat("depth minimum",
+          &m_depthVisualMinimum,
+          0.1f,
+          0.f,
+          m_depthVisualMaximum);
+      depthRangeChanged |= ImGui::DragFloat("depth maximum",
+          &m_depthVisualMaximum,
+          0.1f,
+          m_depthVisualMinimum,
+          1e20f);
       if (depthRangeChanged)
-        m_visualizeAOVPass->setDepthRange(m_depthVisualMinimum, m_depthVisualMaximum);
+        m_visualizeAOVPass->setDepthRange(
+            m_depthVisualMinimum, m_depthVisualMaximum);
       ImGui::EndDisabled();
 
       ImGui::Separator();
@@ -1447,7 +1473,7 @@ void Viewport::ui_gizmo()
 
     return world;
   };
-  
+
   auto selectedNodeRef = appCore()->tsd.selectedNode;
   auto parentNodeRef = selectedNodeRef->parent();
 
@@ -1478,20 +1504,24 @@ void Viewport::ui_gizmo()
   math::mat4 proj;
 
   // Try and get some legroom for ImGuizmo get precision on depth.
-  // We don't know the extent of scene, so try and estimate a good enough near plane
-  // position based on the distance to the select object
-  const auto selectedObjectPos = math::float3(worldTransform[3][0], worldTransform[3][1], worldTransform[3][2]) - eye;
-  const float distanceToSelectedObject = dot(selectedObjectPos, normalize(at - eye));
+  // We don't know the extent of scene, so try and estimate a good enough near
+  // plane position based on the distance to the select object
+  const auto selectedObjectPos =
+      math::float3(
+          worldTransform[3][0], worldTransform[3][1], worldTransform[3][2])
+      - eye;
+  const float distanceToSelectedObject =
+      dot(selectedObjectPos, normalize(at - eye));
   float near = std::max(0.01f, distanceToSelectedObject * 0.001f);
 
   if (m_currentCamera == m_perspCamera) {
     // perspective projection matrix n = 1.0f, f = inf
     float oneOverTanFov = 1.0f / tan(fovRadians / 2.0f);
     proj = math::mat4{
-      { oneOverTanFov / aspect, 0.0f, 0.0f, 0.0f},
-      { 0.0f, oneOverTanFov, 0.0f, 0.0f},
-      { 0.0f, 0.0f, -1.0f, -1.0f},
-      { 0.0f, 0.0f, -2.0f * near, 0.0f},
+        {oneOverTanFov / aspect, 0.0f, 0.0f, 0.0f},
+        {0.0f, oneOverTanFov, 0.0f, 0.0f},
+        {0.0f, 0.0f, -1.0f, -1.0f},
+        {0.0f, 0.0f, -2.0f * near, 0.0f},
     };
   } else if (m_currentCamera == m_orthoCamera) {
     // The 0.75 factor is to match updateCameraParametersOrthographic
@@ -1503,13 +1533,14 @@ void Viewport::ui_gizmo()
     const float right = halfWidth;
     const float bottom = -halfHeight;
     const float top = halfHeight;
-    
-    proj = math::mat4{
-      {2.0f/(right-left), 0.0f, 0.0f, 0.0f},
-      {0.0f, 2.0f/(top-bottom), 0.0f, 0.0f},
-      {0.0f, 0.0f, -2.0f / (far - near), 0.0f},
-      {-(right+left)/(right-left), -(top+bottom)/(top-bottom), -(far + near) / (far - near), 1.0f}
-    };
+
+    proj = math::mat4{{2.0f / (right - left), 0.0f, 0.0f, 0.0f},
+        {0.0f, 2.0f / (top - bottom), 0.0f, 0.0f},
+        {0.0f, 0.0f, -2.0f / (far - near), 0.0f},
+        {-(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            -(far + near) / (far - near),
+            1.0f}};
   } else {
     // No support for omnidirectional camera, bail out.
     return;

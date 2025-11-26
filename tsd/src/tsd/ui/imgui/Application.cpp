@@ -113,170 +113,172 @@ void Application::uiFrameStart()
     loadStateForNextFrame();
   }
 
-  // Helper functions to save state //
-
-  auto doSave = [&](const std::string &name = "") {
-    if (!name.empty())
-      m_filenameToSaveNextFrame = name;
-    else if (m_currentSessionFilename.empty())
-      this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
-    else
-      m_filenameToSaveNextFrame = m_currentSessionFilename;
-  };
-
   // Main Menu //
 
   if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("File")) {
-      if (ImGui::MenuItem("Load"))
-        this->getFilenameFromDialog(m_filenameToLoadNextFrame);
-
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Load session from a .tsd file");
-
-      ImGui::Separator();
-
-      if (ImGui::MenuItem("Save", "CTRL+S"))
-        doSave();
-
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Save session to a .tsd file");
-
-      if (ImGui::MenuItem("Save As...", "CTRL+SHIFT+S"))
-        this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
-
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Save session to a chosen file name");
-
-      if (ImGui::MenuItem("Quick Save", "CTRL+ALT+S"))
-        doSave("state.tsd");
-
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Save sesson to 'state.tsd' in the local directory");
-
-      ImGui::Separator();
-
-      if (ImGui::MenuItem("Render Animation Sequence..."))
-        m_offlineRenderModal->start();
-
-      ImGui::Separator();
-
-      if (ImGui::MenuItem("Export as USD..."))
-        io::export_SceneToUSD(m_core.tsd.scene, "scene.usda");
-
-      ImGui::Separator();
-
-      if (ImGui::MenuItem("Quit", "CTRL+Q"))
-        std::exit(0);
-
-      ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("Edit")) {
-      if (ImGui::MenuItem("Settings"))
-        m_appSettingsDialog->show();
-
-      ImGui::Separator();
-
-      if (ImGui::BeginMenu("UI Layout")) {
-        if (ImGui::MenuItem("Print"))
-          printf("%s\n", ImGui::SaveIniSettingsToMemory());
-
-        ImGui::Separator();
-
-        if (ImGui::MenuItem("Reset"))
-          ImGui::LoadIniSettingsFromMemory(getDefaultLayout());
-
-        ImGui::EndMenu();
-      }
-
-      ImGui::Separator();
-
-      if (ImGui::BeginMenu("Scene")) {
-        if (ImGui::MenuItem("Cleanup Only"))
-          m_core.tsd.scene.removeUnusedObjects();
-
-        if (ImGui::MenuItem("Defragment Only"))
-          m_core.tsd.scene.defragmentObjectStorage();
-
-        if (ImGui::MenuItem("Cleanup + Defragment")) {
-          m_core.tsd.scene.removeUnusedObjects();
-          m_core.tsd.scene.defragmentObjectStorage();
-        }
-
-        ImGui::EndMenu();
-      }
-
-      ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("View")) {
-      for (auto &w : m_windows) {
-        ImGui::PushID(&w);
-        ImGui::Checkbox(w->name(), w->visiblePtr());
-        ImGui::PopID();
-      }
-      ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("USD")) {
-      if (usdDeviceSetup()) {
-        if (ImGui::MenuItem("Disable"))
-          teardownUsdDevice();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Sync"))
-          syncUsdScene();
-      } else {
-        if (ImGui::MenuItem("Enable"))
-          setupUsdDevice();
-      }
-      ImGui::EndMenu();
-    }
-
+    uiMainMenuBar();
     ImGui::EndMainMenuBar();
-
-    // Modals //
-
-    bool modalActive = false;
-    if (m_appSettingsDialog->visible()) {
-      m_appSettingsDialog->renderUI();
-      modalActive = true;
-    }
-
-    if (m_taskModal->visible()) {
-      m_taskModal->renderUI();
-      modalActive = true;
-    }
-
-    if (m_offlineRenderModal->visible()) {
-      m_offlineRenderModal->renderUI();
-      modalActive = true;
-    }
-
-    if (m_fileDialog->visible()) {
-      m_fileDialog->renderUI();
-      modalActive = true;
-    }
-
-    // Handle app shortcuts //
-
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
-      this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
-    else if (ImGui::IsKeyChordPressed(
-                 ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_S))
-      doSave("state.tsd");
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
-      doSave();
-
-    if (!modalActive && ImGui::IsKeyChordPressed(ImGuiKey_Escape))
-      m_core.clearSelected();
   }
+
+  // Modals //
+
+  bool modalActive = false;
+  if (m_appSettingsDialog->visible()) {
+    m_appSettingsDialog->renderUI();
+    modalActive = true;
+  }
+
+  if (m_taskModal->visible()) {
+    m_taskModal->renderUI();
+    modalActive = true;
+  }
+
+  if (m_offlineRenderModal->visible()) {
+    m_offlineRenderModal->renderUI();
+    modalActive = true;
+  }
+
+  if (m_fileDialog->visible()) {
+    m_fileDialog->renderUI();
+    modalActive = true;
+  }
+
+  // Handle app shortcuts //
+
+  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
+    this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
+  else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_S))
+    doSave("state.tsd");
+  else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
+    doSave();
+
+  if (!modalActive && ImGui::IsKeyChordPressed(ImGuiKey_Escape))
+    m_core.clearSelected();
 }
 
 void Application::teardown()
 {
   teardownUsdDevice();
   anari_viewer::ui::shutdown();
+}
+
+void Application::uiMainMenuBar()
+{
+  if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("Load"))
+      this->getFilenameFromDialog(m_filenameToLoadNextFrame);
+
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Load session from a .tsd file");
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Save", "CTRL+S"))
+      doSave();
+
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Save session to a .tsd file");
+
+    if (ImGui::MenuItem("Save As...", "CTRL+SHIFT+S"))
+      this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
+
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Save session to a chosen file name");
+
+    if (ImGui::MenuItem("Quick Save", "CTRL+ALT+S"))
+      doSave("state.tsd");
+
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Save sesson to 'state.tsd' in the local directory");
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Render Animation Sequence..."))
+      m_offlineRenderModal->start();
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Export as USD..."))
+      io::export_SceneToUSD(m_core.tsd.scene, "scene.usda");
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Quit", "CTRL+Q"))
+      std::exit(0);
+
+    ImGui::EndMenu();
+  }
+
+  if (ImGui::BeginMenu("Edit")) {
+    if (ImGui::MenuItem("Settings"))
+      m_appSettingsDialog->show();
+
+    ImGui::Separator();
+
+    if (ImGui::BeginMenu("UI Layout")) {
+      if (ImGui::MenuItem("Print"))
+        printf("%s\n", ImGui::SaveIniSettingsToMemory());
+
+      ImGui::Separator();
+
+      if (ImGui::MenuItem("Reset"))
+        ImGui::LoadIniSettingsFromMemory(getDefaultLayout());
+
+      ImGui::EndMenu();
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::BeginMenu("Scene")) {
+      if (ImGui::MenuItem("Cleanup Only"))
+        m_core.tsd.scene.removeUnusedObjects();
+
+      if (ImGui::MenuItem("Defragment Only"))
+        m_core.tsd.scene.defragmentObjectStorage();
+
+      if (ImGui::MenuItem("Cleanup + Defragment")) {
+        m_core.tsd.scene.removeUnusedObjects();
+        m_core.tsd.scene.defragmentObjectStorage();
+      }
+
+      ImGui::EndMenu();
+    }
+
+    ImGui::EndMenu();
+  }
+
+  if (ImGui::BeginMenu("View")) {
+    for (auto &w : m_windows) {
+      ImGui::PushID(&w);
+      ImGui::Checkbox(w->name(), w->visiblePtr());
+      ImGui::PopID();
+    }
+    ImGui::EndMenu();
+  }
+
+  if (ImGui::BeginMenu("USD")) {
+    if (usdDeviceSetup()) {
+      if (ImGui::MenuItem("Disable"))
+        teardownUsdDevice();
+      ImGui::Separator();
+      if (ImGui::MenuItem("Sync"))
+        syncUsdScene();
+    } else {
+      if (ImGui::MenuItem("Enable"))
+        setupUsdDevice();
+    }
+    ImGui::EndMenu();
+  }
+}
+
+void Application::doSave(const std::string &name)
+{
+  if (!name.empty())
+    m_filenameToSaveNextFrame = name;
+  else if (m_currentSessionFilename.empty())
+    this->getFilenameFromDialog(m_filenameToSaveNextFrame, true);
+  else
+    m_filenameToSaveNextFrame = m_currentSessionFilename;
 }
 
 void Application::saveApplicationState(const char *_filename)

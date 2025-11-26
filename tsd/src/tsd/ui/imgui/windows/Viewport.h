@@ -49,6 +49,7 @@ struct Viewport : public Window
   void setDeviceChangeCb(ViewportDeviceChangeCb cb);
   void setExternalInstances(
       const anari::Instance *instances = nullptr, size_t count = 0);
+  void setCustomFrameParameter(const char *name, const tsd::core::Any &value);
 
   void setDatabaseCamera(tsd::core::CameraRef cam);
   void clearDatabaseCamera();
