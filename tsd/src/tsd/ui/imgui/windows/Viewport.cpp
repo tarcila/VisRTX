@@ -1029,13 +1029,13 @@ void Viewport::ui_menubar()
       ImGui::Separator();
       ImGui::Text("Operation:");
       ImGui::Indent(INDENT_AMOUNT);
-      if (ImGui::RadioButton(
-              "Translate", m_gizmoOperation == ImGuizmo::TRANSLATE))
+      const auto &gOp = m_gizmoOperation;
+      if (ImGui::RadioButton("(w) Translate", gOp == ImGuizmo::TRANSLATE))
         m_gizmoOperation = ImGuizmo::TRANSLATE;
-      if (ImGui::RadioButton("Rotate", m_gizmoOperation == ImGuizmo::ROTATE))
-        m_gizmoOperation = ImGuizmo::ROTATE;
-      if (ImGui::RadioButton("Scale", m_gizmoOperation == ImGuizmo::SCALE))
+      if (ImGui::RadioButton("(e) Scale", gOp == ImGuizmo::SCALE))
         m_gizmoOperation = ImGuizmo::SCALE;
+      if (ImGui::RadioButton("(r) Rotate", gOp == ImGuizmo::ROTATE))
+        m_gizmoOperation = ImGuizmo::ROTATE;
       ImGui::Unindent(INDENT_AMOUNT);
 
       ImGui::Separator();
