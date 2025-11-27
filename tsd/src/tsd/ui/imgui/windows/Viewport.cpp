@@ -1461,18 +1461,28 @@ void Viewport::ui_gizmo()
   const float fovRadians = math::radians(m_fov);
   math::mat4 proj;
 
-  if (m_currentCamera == m_orthoCamera) {
-    // Compute orthographic projection parameters
-    // The height is based on the camera's distance.
+  // Try and get some legroom for ImGuizmo get precision on depth.
+  // We don't know the extent of scene, so try and estimate a good enough near plane
+  // position based on the distance to the select object
+  const auto selectedObjectPos = math::float3(worldTransform[3][0], worldTransform[3][1], worldTransform[3][2]) - eye;
+  const float distanceToSelectedObject = dot(selectedObjectPos, normalize(at - eye));
+  float near = std::max(0.01f, distanceToSelectedObject * 0.001f);
+
+  if (m_currentCamera == m_perspCamera) {
+    // perspective projection matrix n = 1.0f, f = inf
+    float oneOverTanFov = 1.0f / tan(fovRadians / 2.0f);
+    proj = math::mat4{
+      { oneOverTanFov / aspect, 0.0f, 0.0f, 0.0f},
+      { 0.0f, oneOverTanFov, 0.0f, 0.0f},
+      { 0.0f, 0.0f, -1.0f, -1.0f},
+      { 0.0f, 0.0f, -2.0f * near, 0.0f},
+    };
+  } else if (m_currentCamera == m_orthoCamera) {
     // The 0.75 factor is to match updateCameraParametersOrthographic
     const float height = m_arcball->distance() * 0.75f;
     const float halfHeight = height * 0.5f;
     const float halfWidth = halfHeight * aspect;
-    
-    // Construct orthographic projection matrix manually
-    // Maps [-halfWidth, halfWidth] x [-halfHeight, halfHeight] x [near, far] to NDC
-    const float near = 0.1f;
-    const float far = 1000.0f;
+    const float far = 100000.0f; // Cannot be infinite for ortho
     const float left = -halfWidth;
     const float right = halfWidth;
     const float bottom = -halfHeight;
@@ -1481,11 +1491,12 @@ void Viewport::ui_gizmo()
     proj = math::mat4{
       {2.0f/(right-left), 0.0f, 0.0f, 0.0f},
       {0.0f, 2.0f/(top-bottom), 0.0f, 0.0f},
-      {0.0f, 0.0f, -2.0f/(far-near), 0.0f},
-      {-(right+left)/(right-left), -(top+bottom)/(top-bottom), -(far+near)/(far-near), 1.0f}
+      {0.0f, 0.0f, -2.0f / (far - near), 0.0f},
+      {-(right+left)/(right-left), -(top+bottom)/(top-bottom), -(far + near) / (far - near), 1.0f}
     };
   } else {
-    proj = linalg::perspective_matrix(fovRadians, aspect, 0.1f, 1000.0f);
+    // No support for omnidirectional camera, bail out.
+    return;
   }
 
   // Draw and manipulate the gizmo
