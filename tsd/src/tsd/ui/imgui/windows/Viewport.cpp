@@ -1501,17 +1501,13 @@ void Viewport::ui_gizmo()
 
   // Draw and manipulate the gizmo
   ImGuizmo::SetDrawlist();
-  auto deltaMatrix = math::IDENTITY_MAT4;
   if (ImGuizmo::Manipulate(&view[0].x,
           &proj[0].x,
           m_gizmoOperation,
           m_gizmoMode,
-          &worldTransform[0].x,
-          &deltaMatrix[0].x)) {
-    
+          &worldTransform[0].x)) {
     auto invParent = linalg::inverse(parentWorldTransform);
-    localTransform = mul(invParent, mul(deltaMatrix, mul(parentWorldTransform, localTransform)));
-    
+    localTransform = mul(invParent, worldTransform);
     (*selectedNodeRef)->setAsTransform(localTransform);
     appCore()->tsd.scene.signalLayerChange(selectedNodeRef->container());
   }
