@@ -13,23 +13,21 @@ DistributedSceneController::DistributedSceneController() = default;
 
 DistributedSceneController::~DistributedSceneController()
 {
-  if (m_mpi.initialized) {
-    tsd::core::logDebug(
-        "[DistributedSceneController] shutting down in dtor rank '%i'...\n",
-        rank());
-    shutdown();
-  }
+  shutdown();
 }
 
 void DistributedSceneController::initialize(int argc, const char **argv)
 {
-  MPI_Init(nullptr, nullptr);
-  MPI_Comm_rank(MPI_COMM_WORLD, &m_mpi.rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &m_mpi.numRanks);
-  m_mpi.initialized = true;
-
-  m_core = std::make_unique<tsd::app::Core>();
-  m_distributedState = std::make_unique<DistributedState>();
+  {
+    int rank = 0, numRanks = 1;
+    MPI_Init(nullptr, nullptr);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &numRanks);
+    m_core = std::make_unique<tsd::app::Core>();
+    m_core->tsd.scene.setMpiRankInfo(rank, numRanks);
+    m_distributedState = std::make_unique<DistributedState>();
+    m_mpiInitialized = true;
+  }
 
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
@@ -105,7 +103,7 @@ void DistributedSceneController::initialize(int argc, const char **argv)
 
 void DistributedSceneController::executeFrame()
 {
-  if (!m_mpi.initialized) {
+  if (!m_mpiInitialized) {
     tsd::core::logError("DistributedSceneController not initialized!\n");
     return;
   }
@@ -133,9 +131,14 @@ void DistributedSceneController::signalStop()
 
 void DistributedSceneController::shutdown()
 {
-  if (!m_mpi.initialized)
+  if (!m_mpiInitialized)
     return;
-  m_mpi.initialized = false;
+
+  tsd::core::logDebug(
+      "[DistributedSceneController] shutting down rank '%i'...\n", rank());
+
+  m_mpiInitialized = false;
+
   MPI_Barrier(MPI_COMM_WORLD);
 
   auto d = m_anari.device;
@@ -166,12 +169,12 @@ DistributedState *DistributedSceneController::distributedState()
 
 int DistributedSceneController::rank() const
 {
-  return m_mpi.rank;
+  return m_core->tsd.scene.mpiRank();
 }
 
 int DistributedSceneController::numRanks() const
 {
-  return m_mpi.numRanks;
+  return m_core->tsd.scene.mpiNumRanks();
 }
 
 bool DistributedSceneController::isMain() const

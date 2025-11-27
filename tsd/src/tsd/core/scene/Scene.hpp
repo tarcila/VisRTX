@@ -78,6 +78,10 @@ struct Scene
   MaterialRef defaultMaterial() const;
   Layer *defaultLayer();
 
+  int mpiRank() const;
+  int mpiNumRanks() const;
+  void setMpiRankInfo(int rank, int numRanks);
+
   /////////////////////////////
   // Flat object collections //
   /////////////////////////////
@@ -221,6 +225,11 @@ struct Scene
     float time{0.f};
     std::vector<std::unique_ptr<Animation>> objects;
   } m_animations;
+  struct MpiData
+  {
+    int rank{0};
+    int numRanks{1};
+  } m_mpi;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

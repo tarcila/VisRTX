@@ -125,12 +125,7 @@ struct DistributedSceneController
 
   std::unique_ptr<tsd::app::Core> m_core;
 
-  struct MPIState
-  {
-    int rank{-1};
-    int numRanks{-1};
-    bool initialized{false};
-  } m_mpi;
+  bool m_mpiInitialized{false};
 
   struct ANARIState
   {

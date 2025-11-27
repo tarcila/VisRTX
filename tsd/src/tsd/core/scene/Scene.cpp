@@ -79,6 +79,34 @@ Layer *Scene::defaultLayer()
   return layer(0);
 }
 
+int Scene::mpiRank() const
+{
+  return m_mpi.rank;
+}
+
+int Scene::mpiNumRanks() const
+{
+  return m_mpi.numRanks;
+}
+
+void Scene::setMpiRankInfo(int rank, int numRanks)
+{
+  if (rank < 0 || numRanks <= 0 || rank >= numRanks) {
+    logWarning(
+        "[Scene::setMpiRankInfo()] invalid MPI rank (%d) or number of "
+        "ranks (%d); ignoring",
+        rank,
+        numRanks);
+    return;
+  } else if (m_mpi.numRanks > 1) {
+    logError("[Scene::setMpiRankInfo()] MPI rank info already set; ignoring");
+    return;
+  }
+
+  m_mpi.rank = rank;
+  m_mpi.numRanks = numRanks;
+}
+
 ArrayRef Scene::createArray(
     anari::DataType type, size_t items0, size_t items1, size_t items2)
 {
