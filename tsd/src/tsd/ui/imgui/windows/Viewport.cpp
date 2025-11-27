@@ -1407,6 +1407,8 @@ bool Viewport::canShowGizmo() const
 {
   if (!m_enableGizmo || !m_deviceReadyToUse)
     return false;
+  if (m_selectedCamera)
+    return false; // No gizmo with database camera
 
   // Check if we have a selected node with a transform
   if (appCore()->tsd.selectedNode) {
