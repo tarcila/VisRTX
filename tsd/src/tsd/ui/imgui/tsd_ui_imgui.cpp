@@ -22,15 +22,16 @@ static void buildUI_array_info_tooltip_text(
     const tsd::core::Scene &scene, size_t idx)
 {
   const auto &a = *scene.getObject<tsd::core::Array>(idx);
-  ImGui::Text("  idx: [%zu]", idx);
+  ImGui::Text(" idx: [%zu]", idx);
+  ImGui::Text("name: '%s'", a.name().c_str());
   const auto t = a.type();
   if (t == ANARI_ARRAY3D)
-    ImGui::Text(" size: %zu x %zu x %zu", a.dim(0), a.dim(1), a.dim(2));
+    ImGui::Text("size: %zu x %zu x %zu", a.dim(0), a.dim(1), a.dim(2));
   else if (t == ANARI_ARRAY2D)
-    ImGui::Text(" size: %zu x %zu", a.dim(0), a.dim(1));
+    ImGui::Text("size: %zu x %zu", a.dim(0), a.dim(1));
   else
-    ImGui::Text(" size: %zu", a.dim(0));
-  ImGui::Text(" type: %s", anari::toString(a.elementType()));
+    ImGui::Text("size: %zu", a.dim(0));
+  ImGui::Text("type: %s", anari::toString(a.elementType()));
 }
 
 static void buildUI_parameter_contextMenu(
@@ -123,7 +124,6 @@ static void buildUI_parameter_contextMenu(
 
       if (ImGui::BeginMenu("object")) {
         if (ImGui::BeginMenu("new")) {
-
           if (ImGui::BeginMenu("array")) {
             tsd::core::ArrayRef a;
 
@@ -268,11 +268,12 @@ void buildUI_object(tsd::core::Object &o,
 
   ImGui::PushID(&o);
 
-  if (o.type() == ANARI_SURFACE) {
-    // no-subtype
-    ImGui::Text("[%zu]: '%s'", o.index(), o.name().c_str());
-  } else if (anari::isArray(o.type())) {
-    ImGui::Text("[%zu]: '%s'", o.index(), o.name().c_str());
+  ImGui::Text("[%zu]: ", o.index());
+  ImGui::SameLine();
+  ImGui::InputText("##name", &o.editableName());
+  ImGui::Separator();
+
+  if (anari::isArray(o.type())) {
     const auto &a = *(tsd::core::Array *)&o;
     const auto t = a.type();
     ImGui::Text("%s", anari::toString(t));
@@ -283,12 +284,8 @@ void buildUI_object(tsd::core::Object &o,
     else
       ImGui::Text(" size: %zu", a.dim(0));
     ImGui::Text(" type: %s", anari::toString(a.elementType()));
-  } else {
-    // is-subtyped
-    ImGui::Text("[%zu]: '%s' (subtype: '%s')",
-        o.index(),
-        o.name().c_str(),
-        o.subtype().c_str());
+  } else if (o.type() != ANARI_SURFACE) {
+    ImGui::Text("   subtype: %s", o.subtype().c_str());
   }
 
   ImGui::Text("use counts: %zu | %zu | %zu",
@@ -575,6 +572,28 @@ void buildUI_parameter(tsd::core::Object &o,
     if (isArray) {
       const auto idx = pVal.getAsObjectIndex();
       buildUI_array_info_tooltip_text(scene, idx);
+    } else if (type == ANARI_FLOAT32_MAT4) {
+      auto *value_f = (const float *)value;
+      ImGui::Text("[%.3f %.3f %.3f %.3f]",
+          value_f[0],
+          value_f[4],
+          value_f[8],
+          value_f[12]);
+      ImGui::Text("[%.3f %.3f %.3f %.3f]",
+          value_f[1],
+          value_f[5],
+          value_f[9],
+          value_f[13]);
+      ImGui::Text("[%.3f %.3f %.3f %.3f]",
+          value_f[2],
+          value_f[6],
+          value_f[10],
+          value_f[14]);
+      ImGui::Text("[%.3f %.3f %.3f %.3f]",
+          value_f[3],
+          value_f[7],
+          value_f[11],
+          value_f[15]);
     } else {
       if (p.description().empty())
         ImGui::Text("%s", anari::toString(type));

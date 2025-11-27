@@ -71,6 +71,7 @@ struct Object : public ParameterObserver
   //// Metadata ////
 
   const std::string &name() const;
+  std::string &editableName();
   void setName(const char *n);
 
   Any getMetadataValue(const std::string &name) const;

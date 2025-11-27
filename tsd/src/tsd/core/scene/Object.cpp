@@ -181,6 +181,11 @@ const std::string &Object::name() const
   return m_name;
 }
 
+std::string &Object::editableName()
+{
+  return m_name;
+}
+
 void Object::setName(const char *n)
 {
   m_name = n;
