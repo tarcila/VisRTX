@@ -22,7 +22,7 @@ With that in mind, this repository has the following components:
 - [Core scene description library](src/)
 - [Single-file examples showing off specfic concepts](apps/simple/)
 - [Interactive ImGui-based viewer](apps/interactive/viewer/)
-- [Experimental MPI distributed viewer](apps/interactive/ptc_viewer/)
+- [Experimental MPI distributed viewer](apps/interactive/mpiViewer/)
 - [Basic unit tests](tests/)
 
 Generally `libtsd` follows 1:1 with ANARI's object hierarchy, defined in the
