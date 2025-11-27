@@ -1460,10 +1460,28 @@ void Viewport::ui_gizmo()
   math::mat4 proj;
 
   if (m_currentCamera == m_orthoCamera) {
-    const float height = m_arcball->distance();
-    const float width = height * aspect;
-    proj =
-        linalg::frustum_matrix(-width, width, -height, height, 0.1f, 1000.0f);
+    // Compute orthographic projection parameters
+    // The height is based on the camera's distance.
+    // The 0.75 factor is to match updateCameraParametersOrthographic
+    const float height = m_arcball->distance() * 0.75f;
+    const float halfHeight = height * 0.5f;
+    const float halfWidth = halfHeight * aspect;
+    
+    // Construct orthographic projection matrix manually
+    // Maps [-halfWidth, halfWidth] x [-halfHeight, halfHeight] x [near, far] to NDC
+    const float near = 0.1f;
+    const float far = 1000.0f;
+    const float left = -halfWidth;
+    const float right = halfWidth;
+    const float bottom = -halfHeight;
+    const float top = halfHeight;
+    
+    proj = math::mat4{
+      {2.0f/(right-left), 0.0f, 0.0f, 0.0f},
+      {0.0f, 2.0f/(top-bottom), 0.0f, 0.0f},
+      {0.0f, 0.0f, -2.0f/(far-near), 0.0f},
+      {-(right+left)/(right-left), -(top+bottom)/(top-bottom), -(far+near)/(far-near), 1.0f}
+    };
   } else {
     proj = linalg::perspective_matrix(fovRadians, aspect, 0.1f, 1000.0f);
   }
@@ -1479,7 +1497,7 @@ void Viewport::ui_gizmo()
           &deltaMatrix[0].x)) {
     
     auto invParent = linalg::inverse(parentWorldTransform);
-    localTransform = mul(invParent, mul(deltaMatrix, worldTransform));
+    localTransform = mul(invParent, mul(deltaMatrix, mul(parentWorldTransform, localTransform)));
     
     (*selectedNodeRef)->setAsTransform(localTransform);
     appCore()->tsd.scene.signalLayerChange(selectedNodeRef->container());
