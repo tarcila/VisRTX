@@ -88,6 +88,7 @@ struct Parameter
 
  private:
   friend struct Object;
+  friend struct Scene;
 
   void setObserver(ParameterObserver *o);
 
