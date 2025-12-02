@@ -503,7 +503,7 @@ void TransferFunctionEditor::loadDefaultMaps()
   // Grayscale
   colors.clear();
 
-  colors.emplace_back(0.f, 1.f, 1.f, 1.f);
+  colors.emplace_back(0.f, 0.f, 0.f, 0.f);
   colors.emplace_back(1.f, 1.f, 1.f, 1.f);
 
   m_tfnsColorPoints.push_back(colors);
