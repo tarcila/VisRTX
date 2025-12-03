@@ -11,7 +11,10 @@
 #include "tsd/io/importers/detail/importer_common.hpp"
 
 #if TSD_USE_SILO
+// silo
 #include <silo.h>
+// std
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -385,6 +388,10 @@ static void computeHelicity(const std::vector<float> &vel1,
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
 // Helper: create a SpatialField from a Silo quadmesh + quadvar
 static SpatialFieldRef createFieldFromQuadMesh(Scene &scene,
     DBfile *dbfile,
@@ -751,6 +758,735 @@ static SpatialFieldRef createFieldFromUcdMesh(Scene &scene,
   return field;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+static SpatialFieldRef import_SILO_singleMesh(
+    Scene &scene, DBfile *dbfile, DBtoc *toc, const std::string &varName)
+{
+  // Find the variable to visualize
+  const char *targetVarName = nullptr;
+  int targetVarType = DB_INVALID_OBJECT;
+
+  if (!varName.empty()) {
+    // Try to find the requested variable
+    targetVarType = DBInqVarType(dbfile, varName.c_str());
+    if (targetVarType == DB_QUADVAR || targetVarType == DB_UCDVAR) {
+      targetVarName = varName.c_str();
+    }
+  }
+
+  // If no variable specified or not found, use first available
+  if (!targetVarName) {
+    if (toc->nqvar > 0) {
+      targetVarName = toc->qvar_names[0];
+      targetVarType = DB_QUADVAR;
+    } else if (toc->nucdvar > 0) {
+      targetVarName = toc->ucdvar_names[0];
+      targetVarType = DB_UCDVAR;
+    }
+  }
+
+  if (!targetVarName) {
+    logError("[import_SILO] no variables found in file");
+    return {};
+  }
+
+  SpatialFieldRef field;
+  if (targetVarType == DB_QUADVAR) {
+    DBquadvar *qv = DBGetQuadvar(dbfile, targetVarName);
+    if (qv && qv->meshname) {
+      field = createFieldFromQuadMesh(
+          scene, dbfile, qv->meshname, targetVarName, targetVarName);
+      DBFreeQuadvar(qv);
+    }
+  } else if (targetVarType == DB_UCDVAR) {
+    DBucdvar *uv = DBGetUcdvar(dbfile, targetVarName);
+    if (uv && uv->meshname) {
+      field = createFieldFromUcdMesh(
+          scene, dbfile, uv->meshname, targetVarName, targetVarName);
+      DBFreeUcdvar(uv);
+    }
+  }
+
+  return field;
+}
+
+static SpatialFieldRef import_SILO_multiMesh(Scene &scene,
+    const std::string &file,
+    DBfile *dbfile,
+    DBtoc *toc,
+    const std::string &varName,
+    bool isDerivedField,
+    const std::string &derivedFieldType)
+{
+  // Find the multivar to use
+  const char *multivarName = nullptr;
+  DBmultivar *mv_vel1 = nullptr, *mv_vel2 = nullptr, *mv_vel3 = nullptr;
+
+  if (isDerivedField) {
+    // For derived fields, find vel1, vel2, vel3 multivars
+    for (int i = 0; i < toc->nmultivar; i++) {
+      std::string mvName = toc->multivar_names[i];
+      if (mvName == "vel1") {
+        mv_vel1 = DBGetMultivar(dbfile, "vel1");
+        multivarName = "vel1"; // Use vel1 as reference for structure
+      } else if (mvName == "vel2") {
+        mv_vel2 = DBGetMultivar(dbfile, "vel2");
+      } else if (mvName == "vel3") {
+        mv_vel3 = DBGetMultivar(dbfile, "vel3");
+      }
+    }
+
+    if (!mv_vel1 || !mv_vel2 || !mv_vel3) {
+      logError(
+          "[import_SILO] derived field '%s' requires vel1, vel2, vel3 multivars",
+          derivedFieldType.c_str());
+      if (mv_vel1)
+        DBFreeMultivar(mv_vel1);
+      if (mv_vel2)
+        DBFreeMultivar(mv_vel2);
+      if (mv_vel3)
+        DBFreeMultivar(mv_vel3);
+      return {};
+    }
+
+    logStatus("[import_SILO] found velocity components for derived field");
+  } else if (!varName.empty() && toc->nmultivar > 0) {
+    // Search for the requested multivar
+    for (int i = 0; i < toc->nmultivar; i++) {
+      if (varName == toc->multivar_names[i]) {
+        multivarName = toc->multivar_names[i];
+        break;
+      }
+    }
+  } else if (toc->nmultivar > 0) {
+    // Use first available multivar
+    multivarName = toc->multivar_names[0];
+  }
+
+  if (!multivarName) {
+    logError(
+        "[import_SILO] no multivar found (requested: %s)", varName.c_str());
+    return {};
+  }
+
+  DBmultivar *mv = nullptr;
+  if (!isDerivedField) {
+    mv = DBGetMultivar(dbfile, multivarName);
+    if (!mv) {
+      logError("[import_SILO] failed to read multivar '%s'", multivarName);
+      return {};
+    }
+  } else {
+    // For derived fields, use vel1 as the reference structure
+    mv = mv_vel1;
+  }
+
+  // First pass: collect block metadata to determine global grid
+  struct BlockInfo
+  {
+    std::string file;
+    std::string varName;
+    float3 origin;
+    float3 spacing;
+    int3 dims;
+    int varType;
+  };
+
+  std::vector<BlockInfo> blocks;
+  float3 globalSpacing(1.f, 1.f, 1.f);
+  float3 globalMin(std::numeric_limits<float>::max());
+  float3 globalMax(std::numeric_limits<float>::lowest());
+  // Derived fields are always computed as float32
+  anari::DataType globalDataType = ANARI_FLOAT32;
+  bool firstBlock = true;
+
+  std::filesystem::path basePath = std::filesystem::path(file).parent_path();
+
+  logStatus(
+      "[import_SILO] collecting %d blocks to create unified volume", mv->nvars);
+
+  for (int i = 0; i < mv->nvars; i++) {
+    const char *varPath = mv->varnames[i];
+    if (!varPath || strlen(varPath) == 0)
+      continue;
+
+    // Parse block name (format: "../dir/file.silo:varname" or "varname")
+    std::string blockPath(varPath);
+    std::string blockFile = file;
+    std::string blockVarName;
+
+    size_t blockColon = blockPath.find(':');
+    if (blockColon != std::string::npos) {
+      std::string relPath = blockPath.substr(0, blockColon);
+      blockVarName = blockPath.substr(blockColon + 1);
+
+      // Resolve relative path
+      std::filesystem::path fullPath = basePath / relPath;
+      blockFile = fullPath.string();
+    } else {
+      blockVarName = blockPath;
+    }
+
+    // Open block file
+    DBfile *blockDbfile = nullptr;
+    if (blockFile == file) {
+      blockDbfile = dbfile; // Same file
+    } else {
+      blockDbfile = DBOpen(blockFile.c_str(), DB_UNKNOWN, DB_READ);
+      if (!blockDbfile) {
+        logWarning(
+            "[import_SILO] failed to open block file '%s'", blockFile.c_str());
+        continue;
+      }
+    }
+
+    // Determine variable type
+    int varType = DBInqVarType(blockDbfile, blockVarName.c_str());
+
+    // Get block metadata
+    BlockInfo info;
+    info.file = blockFile;
+    info.varName = blockVarName;
+    info.varType = varType;
+
+    if (varType == DB_QUADVAR) {
+      DBquadvar *qv = DBGetQuadvar(blockDbfile, blockVarName.c_str());
+      DBquadmesh *qm = nullptr;
+
+      if (qv && qv->meshname) {
+        qm = DBGetQuadmesh(blockDbfile, qv->meshname);
+
+        if (qm) {
+          // Get spacing (assume uniform)
+          if (firstBlock) {
+            if (qm->coords[0] && qm->dims[0] > 1) {
+              if (qm->datatype == DB_FLOAT) {
+                float *x = (float *)qm->coords[0];
+                globalSpacing.x = x[1] - x[0];
+              } else if (qm->datatype == DB_DOUBLE) {
+                double *x = (double *)qm->coords[0];
+                globalSpacing.x = x[1] - x[0];
+              }
+            }
+            if (qm->coords[1] && qm->dims[1] > 1) {
+              if (qm->datatype == DB_FLOAT) {
+                float *y = (float *)qm->coords[1];
+                globalSpacing.y = y[1] - y[0];
+              } else if (qm->datatype == DB_DOUBLE) {
+                double *y = (double *)qm->coords[1];
+                globalSpacing.y = y[1] - y[0];
+              }
+            }
+            if (qm->ndims > 2 && qm->coords[2] && qm->dims[2] > 1) {
+              if (qm->datatype == DB_FLOAT) {
+                float *z = (float *)qm->coords[2];
+                globalSpacing.z = z[1] - z[0];
+              } else if (qm->datatype == DB_DOUBLE) {
+                double *z = (double *)qm->coords[2];
+                globalSpacing.z = z[1] - z[0];
+              }
+            }
+            if (!isDerivedField) {
+              globalDataType = siloTypeToANARIType(qv->datatype);
+            }
+            firstBlock = false;
+          }
+
+          // Get real node bounds (accounting for ghost zones)
+          int3 realNodeFirst(0, 0, 0);
+          int3 realNodeLast(qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
+
+          if (qm->ghost_zone_labels && qm->min_index && qm->max_index) {
+            for (int j = 0; j < qm->ndims && j < 3; j++) {
+              realNodeFirst[j] = qm->min_index[j];
+              realNodeLast[j] = qm->max_index[j];
+            }
+          }
+
+          // Calculate origin and extents
+          float3 blockOrigin(0.f);
+          if (qm->coords[0]) {
+            if (qm->datatype == DB_FLOAT)
+              blockOrigin.x = ((float *)qm->coords[0])[realNodeFirst.x];
+            else if (qm->datatype == DB_DOUBLE)
+              blockOrigin.x = ((double *)qm->coords[0])[realNodeFirst.x];
+          }
+          if (qm->coords[1]) {
+            if (qm->datatype == DB_FLOAT)
+              blockOrigin.y = ((float *)qm->coords[1])[realNodeFirst.y];
+            else if (qm->datatype == DB_DOUBLE)
+              blockOrigin.y = ((double *)qm->coords[1])[realNodeFirst.y];
+          }
+          if (qm->ndims > 2 && qm->coords[2]) {
+            if (qm->datatype == DB_FLOAT)
+              blockOrigin.z = ((float *)qm->coords[2])[realNodeFirst.z];
+            else if (qm->datatype == DB_DOUBLE)
+              blockOrigin.z = ((double *)qm->coords[2])[realNodeFirst.z];
+          }
+
+          info.origin = blockOrigin;
+          info.spacing = globalSpacing;
+
+          // Dims are in zones (nodes - 1)
+          info.dims = int3(realNodeLast.x - realNodeFirst.x,
+              realNodeLast.y - realNodeFirst.y,
+              realNodeLast.z - realNodeFirst.z);
+
+          // Update global bounds
+          float3 blockMax = blockOrigin + float3(info.dims) * globalSpacing;
+          globalMin = min(globalMin, blockOrigin);
+          globalMax = max(globalMax, blockMax);
+
+          DBFreeQuadmesh(qm);
+        }
+        DBFreeQuadvar(qv);
+      }
+    }
+
+    // Close block file if it's different
+    if (blockDbfile != dbfile)
+      DBClose(blockDbfile);
+
+    if (info.dims.x > 0) {
+      blocks.push_back(info);
+    }
+  }
+
+  // Don't free multivar yet - we need it for the second pass
+  // It will be freed after the second pass completes
+
+  if (blocks.empty()) {
+    logError("[import_SILO] no valid blocks found");
+    if (isDerivedField) {
+      if (mv_vel1)
+        DBFreeMultivar(mv_vel1);
+      if (mv_vel2)
+        DBFreeMultivar(mv_vel2);
+      if (mv_vel3)
+        DBFreeMultivar(mv_vel3);
+    } else {
+      DBFreeMultivar(mv);
+    }
+    return {};
+  }
+
+  // Calculate global grid dimensions
+  float3 globalExtent = globalMax - globalMin;
+  int3 globalDims((int)std::round(globalExtent.x / globalSpacing.x),
+      (int)std::round(globalExtent.y / globalSpacing.y),
+      (int)std::round(globalExtent.z / globalSpacing.z));
+
+  if (globalDims.x < 1)
+    globalDims.x = 1;
+  if (globalDims.y < 1)
+    globalDims.y = 1;
+  if (globalDims.z < 1)
+    globalDims.z = 1;
+
+  logStatus(
+      "[import_SILO] unified volume:"
+      " origin=(%.2f,%.2f,%.2f) spacing=(%.2f,%.2f,%.2f) dims=%dx%dx%d",
+      globalMin.x,
+      globalMin.y,
+      globalMin.z,
+      globalSpacing.x,
+      globalSpacing.y,
+      globalSpacing.z,
+      globalDims.x,
+      globalDims.y,
+      globalDims.z);
+
+  // Create unified data array
+  size_t totalElements = (size_t)globalDims.x * globalDims.y * globalDims.z;
+  auto unifiedDataArray = scene.createArray(
+      globalDataType, globalDims.x, globalDims.y, globalDims.z);
+  void *unifiedData = unifiedDataArray->map();
+
+  // Initialize to zero/background value
+  std::memset(unifiedData, 0, totalElements * anari::sizeOf(globalDataType));
+
+  // Second pass: copy each block's data into the unified grid
+  for (size_t blockIdx = 0; blockIdx < blocks.size(); blockIdx++) {
+    const BlockInfo &info = blocks[blockIdx];
+
+    // Open block file
+    DBfile *blockDbfile = nullptr;
+    if (info.file == file) {
+      blockDbfile = dbfile;
+    } else {
+      blockDbfile = DBOpen(info.file.c_str(), DB_UNKNOWN, DB_READ);
+      if (!blockDbfile)
+        continue;
+    }
+
+    if (info.varType == DB_QUADVAR) {
+      // Load velocity components (either single var or vel1/vel2/vel3 for
+      // derived fields)
+      DBquadvar *qv_vel1 = nullptr, *qv_vel2 = nullptr, *qv_vel3 = nullptr;
+      DBquadmesh *qm = nullptr;
+
+      if (isDerivedField) {
+        // Load all three velocity components
+        qv_vel1 = DBGetQuadvar(blockDbfile, info.varName.c_str()); // vel1
+        if (qv_vel1 && qv_vel1->meshname) {
+          qm = DBGetQuadmesh(blockDbfile, qv_vel1->meshname);
+          // Find corresponding vel2 and vel3 blocks
+          std::string vel2Name = info.varName;
+          std::string vel3Name = info.varName;
+          size_t pos = vel2Name.find("vel1");
+          if (pos != std::string::npos) {
+            vel2Name.replace(pos, 4, "vel2");
+            vel3Name.replace(pos, 4, "vel3");
+            qv_vel2 = DBGetQuadvar(blockDbfile, vel2Name.c_str());
+            qv_vel3 = DBGetQuadvar(blockDbfile, vel3Name.c_str());
+          }
+        }
+
+        if (!qv_vel1 || !qv_vel2 || !qv_vel3 || !qm) {
+          logWarning(
+              "[import_SILO] failed to load velocity components for block %zu",
+              blockIdx);
+          if (qv_vel1)
+            DBFreeQuadvar(qv_vel1);
+          if (qv_vel2)
+            DBFreeQuadvar(qv_vel2);
+          if (qv_vel3)
+            DBFreeQuadvar(qv_vel3);
+          if (qm)
+            DBFreeQuadmesh(qm);
+          if (blockDbfile != dbfile)
+            DBClose(blockDbfile);
+          continue;
+        }
+      } else {
+        // Load single variable
+        qv_vel1 = DBGetQuadvar(blockDbfile, info.varName.c_str());
+        if (qv_vel1 && qv_vel1->meshname) {
+          qm = DBGetQuadmesh(blockDbfile, qv_vel1->meshname);
+        }
+      }
+
+      if (qv_vel1 && qm) {
+        // Calculate this block's position in the global grid
+        float3 offset = info.origin - globalMin;
+        int3 globalOffset((int)std::round(offset.x / globalSpacing.x),
+            (int)std::round(offset.y / globalSpacing.y),
+            (int)std::round(offset.z / globalSpacing.z));
+
+        // Get real node bounds for this block
+        int3 realNodeFirst(0, 0, 0);
+        int3 realNodeLast(qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
+
+        if (qm->ghost_zone_labels && qm->min_index && qm->max_index) {
+          for (int j = 0; j < qm->ndims && j < 3; j++) {
+            realNodeFirst[j] = qm->min_index[j];
+            realNodeLast[j] = qm->max_index[j];
+          }
+        }
+
+        int3 realZoneFirst = realNodeFirst;
+        int3 realZoneLast = int3(std::max(realNodeLast.x - 1, realNodeFirst.x),
+            std::max(realNodeLast.y - 1, realNodeFirst.y),
+            std::max(realNodeLast.z - 1, realNodeFirst.z));
+
+        int3 blockTotalDims(qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
+        size_t elementSize = anari::sizeOf(globalDataType);
+
+        // Prepare data for derived field computation if needed
+        std::vector<float> blockData;
+        if (isDerivedField) {
+          size_t blockElements = (realZoneLast.x - realZoneFirst.x + 1)
+              * (realZoneLast.y - realZoneFirst.y + 1)
+              * (realZoneLast.z - realZoneFirst.z + 1);
+          blockData.resize(blockElements);
+
+          // Load velocity data for all derived fields
+          // Check the actual data size from the quadvar
+          std::vector<float> vel1Data;
+          std::vector<float> vel2Data;
+          std::vector<float> vel3Data;
+
+          // Copy full block data
+          auto copyToFloat = [](DBquadvar *qv, std::vector<float> &dest) {
+            dest.resize(qv->nels);
+            if (qv->datatype == DB_FLOAT) {
+              std::copy((float *)qv->vals[0],
+                  (float *)qv->vals[0] + qv->nels,
+                  dest.begin());
+            } else if (qv->datatype == DB_DOUBLE) {
+              double *src = (double *)qv->vals[0];
+              for (size_t i = 0; i < qv->nels; ++i) {
+                dest[i] = static_cast<float>(src[i]);
+              }
+            }
+          };
+
+          copyToFloat(qv_vel1, vel1Data);
+          copyToFloat(qv_vel2, vel2Data);
+          copyToFloat(qv_vel3, vel3Data);
+
+          logStatus(
+              "[import_SILO] block %zu:"
+              " loaded velocity data, size=%zu, expected=%d",
+              blockIdx,
+              size_t(qv_vel1->nels),
+              blockTotalDims.x * blockTotalDims.y * blockTotalDims.z);
+
+          if (derivedFieldType == "vel_mag") {
+            // Compute velocity magnitude for real zones only
+            size_t idx = 0;
+            for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
+              for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
+                for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
+                  int srcIdx = k * blockTotalDims.y * blockTotalDims.x
+                      + j * blockTotalDims.x + i;
+                  float v1 = vel1Data[srcIdx];
+                  float v2 = vel2Data[srcIdx];
+                  float v3 = vel3Data[srcIdx];
+                  blockData[idx++] = std::sqrt(v1 * v1 + v2 * v2 + v3 * v3);
+                }
+              }
+            }
+          } else if (derivedFieldType == "lambda2" || derivedFieldType == "w"
+              || derivedFieldType == "qcrit" || derivedFieldType == "hel") {
+            // These derived fields all require velocity gradients
+
+            // Verify data size matches expectations
+            size_t expectedSize =
+                blockTotalDims.x * blockTotalDims.y * blockTotalDims.z;
+            size_t actualDataSize = vel1Data.size();
+            if (actualDataSize != expectedSize) {
+              logWarning(
+                  "[import_SILO] block %zu: data size mismatch %zu != %zu",
+                  blockIdx,
+                  actualDataSize,
+                  expectedSize);
+              // Skip this block
+              DBFreeQuadmesh(qm);
+              if (qv_vel1)
+                DBFreeQuadvar(qv_vel1);
+              if (qv_vel2)
+                DBFreeQuadvar(qv_vel2);
+              if (qv_vel3)
+                DBFreeQuadvar(qv_vel3);
+              if (blockDbfile != dbfile)
+                DBClose(blockDbfile);
+              continue;
+            }
+
+            // Compute velocity gradients
+            std::vector<float> dux(vel1Data.size()), duy(vel1Data.size()),
+                duz(vel1Data.size());
+            std::vector<float> dvx(vel1Data.size()), dvy(vel1Data.size()),
+                dvz(vel1Data.size());
+            std::vector<float> dwx(vel1Data.size()), dwy(vel1Data.size()),
+                dwz(vel1Data.size());
+
+            // Extract Z coordinates for non-uniform spacing
+            std::vector<float> zCoords(qm->dims[2]);
+            for (int zi = 0; zi < qm->dims[2]; ++zi) {
+              if (qm->datatype == DB_FLOAT)
+                zCoords[zi] = ((float *)qm->coords[2])[zi];
+              else if (qm->datatype == DB_DOUBLE)
+                zCoords[zi] = ((double *)qm->coords[2])[zi];
+            }
+
+            computeVelocityGradients(vel1Data,
+                vel2Data,
+                vel3Data,
+                blockTotalDims.x,
+                blockTotalDims.y,
+                blockTotalDims.z,
+                globalSpacing.x,
+                globalSpacing.y,
+                zCoords,
+                dux,
+                duy,
+                duz,
+                dvx,
+                dvy,
+                dvz,
+                dwx,
+                dwy,
+                dwz);
+
+            // Debug: check gradient magnitudes
+            float maxGrad = 0.0f;
+            for (size_t ii = 0; ii < dux.size(); ++ii) {
+              maxGrad = std::max(maxGrad, std::abs(dux[ii]));
+              maxGrad = std::max(maxGrad, std::abs(duy[ii]));
+              maxGrad = std::max(maxGrad, std::abs(duz[ii]));
+            }
+            logStatus(
+                "[import_SILO] block %zu: "
+                "max velocity gradient = %.6e, spacing=(%.3e,%.3e)",
+                blockIdx,
+                maxGrad,
+                globalSpacing.x,
+                globalSpacing.y);
+
+            // Compute the requested derived field
+            std::vector<float> derivedFull(vel1Data.size());
+
+            if (derivedFieldType == "lambda2") {
+              computeLambda2(
+                  dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
+            } else if (derivedFieldType == "w") {
+              computeVorticity(
+                  dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
+            } else if (derivedFieldType == "qcrit") {
+              computeQCriterion(
+                  dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
+            } else if (derivedFieldType == "hel") {
+              computeHelicity(vel1Data,
+                  vel2Data,
+                  vel3Data,
+                  dux,
+                  duy,
+                  duz,
+                  dvx,
+                  dvy,
+                  dvz,
+                  dwx,
+                  dwy,
+                  dwz,
+                  derivedFull);
+            }
+
+            // Debug: check for NaN or constant values
+            float minVal = derivedFull[0], maxVal = derivedFull[0];
+            int nanCount = 0;
+            for (size_t ii = 0; ii < derivedFull.size(); ++ii) {
+              if (std::isnan(derivedFull[ii]) || std::isinf(derivedFull[ii])) {
+                nanCount++;
+                derivedFull[ii] = 0.0f; // Replace NaN/Inf with 0
+              } else {
+                minVal = std::min(minVal, derivedFull[ii]);
+                maxVal = std::max(maxVal, derivedFull[ii]);
+              }
+            }
+            if (nanCount > 0) {
+              logWarning("[import_SILO] block %zu: %s had %d NaN/Inf values",
+                  blockIdx,
+                  derivedFieldType.c_str(),
+                  nanCount);
+            }
+            logStatus(
+                "[import_SILO] block %zu:"
+                " %s computed, range in full block: %.6e to %.6e",
+                blockIdx,
+                derivedFieldType.c_str(),
+                minVal,
+                maxVal);
+
+            // Extract only real zones
+            size_t idx = 0;
+            for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
+              for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
+                for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
+                  int srcIdx = k * blockTotalDims.y * blockTotalDims.x
+                      + j * blockTotalDims.x + i;
+                  blockData[idx++] = derivedFull[srcIdx];
+                }
+              }
+            }
+          }
+        }
+
+        // Copy data to unified grid
+        size_t dstIdx = 0;
+        for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
+          for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
+            for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
+              // Destination index in global array
+              int gi = globalOffset.x + (i - realZoneFirst.x);
+              int gj = globalOffset.y + (j - realZoneFirst.y);
+              int gk = globalOffset.z + (k - realZoneFirst.z);
+              int globalIdx =
+                  gk * globalDims.y * globalDims.x + gj * globalDims.x + gi;
+
+              if (isDerivedField) {
+                // Copy from computed derived field
+                ((float *)unifiedData)[globalIdx] = blockData[dstIdx];
+              } else {
+                // Copy directly from source variable
+                int srcIdx = k * blockTotalDims.y * blockTotalDims.x
+                    + j * blockTotalDims.x + i;
+                std::memcpy((char *)unifiedData + globalIdx * elementSize,
+                    (char *)qv_vel1->vals[0] + srcIdx * elementSize,
+                    elementSize);
+              }
+              dstIdx++;
+            }
+          }
+        }
+
+        logStatus(
+            "[import_SILO] block %d: "
+            "%s offset=(%d,%d,%d) dims=%dx%dx%d",
+            (int)blockIdx,
+            info.varName.c_str(),
+            globalOffset.x,
+            globalOffset.y,
+            globalOffset.z,
+            info.dims.x,
+            info.dims.y,
+            info.dims.z);
+
+        DBFreeQuadmesh(qm);
+
+        // Free velocity variables
+        if (qv_vel1)
+          DBFreeQuadvar(qv_vel1);
+        if (qv_vel2)
+          DBFreeQuadvar(qv_vel2);
+        if (qv_vel3)
+          DBFreeQuadvar(qv_vel3);
+      }
+    }
+
+    // Close block file if it's different
+    if (blockDbfile != dbfile)
+      DBClose(blockDbfile);
+  }
+
+  unifiedDataArray->unmap();
+
+  // Free multivars
+  if (isDerivedField) {
+    if (mv_vel1)
+      DBFreeMultivar(mv_vel1);
+    if (mv_vel2)
+      DBFreeMultivar(mv_vel2);
+    if (mv_vel3)
+      DBFreeMultivar(mv_vel3);
+  } else {
+    DBFreeMultivar(mv);
+  }
+
+  // Create unified spatial field
+  auto field = scene.createObject<SpatialField>(
+      tokens::spatial_field::structuredRegular);
+  std::string fieldName =
+      isDerivedField ? derivedFieldType : std::string(multivarName);
+  field->setName(fieldName.c_str());
+  field->setParameter("origin", globalMin);
+  field->setParameter("spacing", globalSpacing);
+  field->setParameterObject("data", *unifiedDataArray);
+
+  // Create single volume with unified field
+  logStatus("[import_SILO] creating unified volume");
+
+  return field;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
 // Main import function
 void import_SILO(Scene &scene, const char *filepath, LayerNodeRef location)
 {
@@ -796,76 +1532,19 @@ void import_SILO(Scene &scene, const char *filepath, LayerNodeRef location)
 
   logStatus("[import_SILO] loading '%s'", file.c_str());
 
-  // Check for multimesh (collection of meshes)
+  SpatialFieldRef field;
   if (toc->nmultimesh > 0) {
-    logStatus("[import_SILO] found %d multimeshes", toc->nmultimesh);
+    logStatus("[import_SILO] found %d meshes", toc->nmultimesh);
+    field = import_SILO_multiMesh(
+        scene, file, dbfile, toc, varName, isDerivedField, derivedFieldType);
+  } else {
+    logStatus("[import_SILO] importing single mesh");
+    field = import_SILO_singleMesh(scene, dbfile, toc, varName);
+  }
 
-    // Find the multivar to use
-    const char *multivarName = nullptr;
-    DBmultivar *mv_vel1 = nullptr, *mv_vel2 = nullptr, *mv_vel3 = nullptr;
+  DBClose(dbfile);
 
-    if (isDerivedField) {
-      // For derived fields, find vel1, vel2, vel3 multivars
-      for (int i = 0; i < toc->nmultivar; i++) {
-        std::string mvName = toc->multivar_names[i];
-        if (mvName == "vel1") {
-          mv_vel1 = DBGetMultivar(dbfile, "vel1");
-          multivarName = "vel1"; // Use vel1 as reference for structure
-        } else if (mvName == "vel2") {
-          mv_vel2 = DBGetMultivar(dbfile, "vel2");
-        } else if (mvName == "vel3") {
-          mv_vel3 = DBGetMultivar(dbfile, "vel3");
-        }
-      }
-
-      if (!mv_vel1 || !mv_vel2 || !mv_vel3) {
-        logError(
-            "[import_SILO] derived field '%s' requires vel1, vel2, vel3 multivars",
-            derivedFieldType.c_str());
-        if (mv_vel1)
-          DBFreeMultivar(mv_vel1);
-        if (mv_vel2)
-          DBFreeMultivar(mv_vel2);
-        if (mv_vel3)
-          DBFreeMultivar(mv_vel3);
-        DBClose(dbfile);
-        return;
-      }
-
-      logStatus("[import_SILO] found velocity components for derived field");
-    } else if (!varName.empty() && toc->nmultivar > 0) {
-      // Search for the requested multivar
-      for (int i = 0; i < toc->nmultivar; i++) {
-        if (varName == toc->multivar_names[i]) {
-          multivarName = toc->multivar_names[i];
-          break;
-        }
-      }
-    } else if (toc->nmultivar > 0) {
-      // Use first available multivar
-      multivarName = toc->multivar_names[0];
-    }
-
-    if (!multivarName) {
-      logError(
-          "[import_SILO] no multivar found (requested: %s)", varName.c_str());
-      DBClose(dbfile);
-      return;
-    }
-
-    DBmultivar *mv = nullptr;
-    if (!isDerivedField) {
-      mv = DBGetMultivar(dbfile, multivarName);
-      if (!mv) {
-        logError("[import_SILO] failed to read multivar '%s'", multivarName);
-        DBClose(dbfile);
-        return;
-      }
-    } else {
-      // For derived fields, use vel1 as the reference structure
-      mv = mv_vel1;
-    }
-
+  if (field) {
     // Create one transform node for the unified volume
     auto tx = scene.insertChildTransformNode(location);
 
@@ -873,722 +1552,16 @@ void import_SILO(Scene &scene, const char *filepath, LayerNodeRef location)
     auto colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 256);
     colorArray->setData(makeDefaultColorMap(colorArray->size()).data());
 
-    // First pass: collect block metadata to determine global grid
-    struct BlockInfo
-    {
-      std::string file;
-      std::string varName;
-      float3 origin;
-      float3 spacing;
-      int3 dims;
-      int varType;
-    };
-
-    std::vector<BlockInfo> blocks;
-    float3 globalSpacing(1.f, 1.f, 1.f);
-    float3 globalMin(std::numeric_limits<float>::max());
-    float3 globalMax(std::numeric_limits<float>::lowest());
-    float2 globalValueRange(std::numeric_limits<float>::max(),
-        std::numeric_limits<float>::lowest());
-    // Derived fields are always computed as float32
-    anari::DataType globalDataType = ANARI_FLOAT32;
-    bool firstBlock = true;
-
-    std::filesystem::path basePath = std::filesystem::path(file).parent_path();
-
-    logStatus("[import_SILO] collecting %d blocks to create unified volume",
-        mv->nvars);
-
-    for (int i = 0; i < mv->nvars; i++) {
-      const char *varPath = mv->varnames[i];
-      if (!varPath || strlen(varPath) == 0)
-        continue;
-
-      // Parse block name (format: "../dir/file.silo:varname" or "varname")
-      std::string blockPath(varPath);
-      std::string blockFile = file;
-      std::string blockVarName;
-
-      size_t blockColon = blockPath.find(':');
-      if (blockColon != std::string::npos) {
-        std::string relPath = blockPath.substr(0, blockColon);
-        blockVarName = blockPath.substr(blockColon + 1);
-
-        // Resolve relative path
-        std::filesystem::path fullPath = basePath / relPath;
-        blockFile = fullPath.string();
-      } else {
-        blockVarName = blockPath;
-      }
-
-      // Open block file
-      DBfile *blockDbfile = nullptr;
-      if (blockFile == file) {
-        blockDbfile = dbfile; // Same file
-      } else {
-        blockDbfile = DBOpen(blockFile.c_str(), DB_UNKNOWN, DB_READ);
-        if (!blockDbfile) {
-          logWarning("[import_SILO] failed to open block file '%s'",
-              blockFile.c_str());
-          continue;
-        }
-      }
-
-      // Determine variable type
-      int varType = DBInqVarType(blockDbfile, blockVarName.c_str());
-
-      // Get block metadata
-      BlockInfo info;
-      info.file = blockFile;
-      info.varName = blockVarName;
-      info.varType = varType;
-
-      if (varType == DB_QUADVAR) {
-        DBquadvar *qv = DBGetQuadvar(blockDbfile, blockVarName.c_str());
-        DBquadmesh *qm = nullptr;
-
-        if (qv && qv->meshname) {
-          qm = DBGetQuadmesh(blockDbfile, qv->meshname);
-
-          if (qm) {
-            // Get spacing (assume uniform)
-            if (firstBlock) {
-              if (qm->coords[0] && qm->dims[0] > 1) {
-                if (qm->datatype == DB_FLOAT) {
-                  float *x = (float *)qm->coords[0];
-                  globalSpacing.x = x[1] - x[0];
-                } else if (qm->datatype == DB_DOUBLE) {
-                  double *x = (double *)qm->coords[0];
-                  globalSpacing.x = x[1] - x[0];
-                }
-              }
-              if (qm->coords[1] && qm->dims[1] > 1) {
-                if (qm->datatype == DB_FLOAT) {
-                  float *y = (float *)qm->coords[1];
-                  globalSpacing.y = y[1] - y[0];
-                } else if (qm->datatype == DB_DOUBLE) {
-                  double *y = (double *)qm->coords[1];
-                  globalSpacing.y = y[1] - y[0];
-                }
-              }
-              if (qm->ndims > 2 && qm->coords[2] && qm->dims[2] > 1) {
-                if (qm->datatype == DB_FLOAT) {
-                  float *z = (float *)qm->coords[2];
-                  globalSpacing.z = z[1] - z[0];
-                } else if (qm->datatype == DB_DOUBLE) {
-                  double *z = (double *)qm->coords[2];
-                  globalSpacing.z = z[1] - z[0];
-                }
-              }
-              if (!isDerivedField) {
-                globalDataType = siloTypeToANARIType(qv->datatype);
-              }
-              firstBlock = false;
-            }
-
-            // Get real node bounds (accounting for ghost zones)
-            int3 realNodeFirst(0, 0, 0);
-            int3 realNodeLast(
-                qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
-
-            if (qm->ghost_zone_labels && qm->min_index && qm->max_index) {
-              for (int j = 0; j < qm->ndims && j < 3; j++) {
-                realNodeFirst[j] = qm->min_index[j];
-                realNodeLast[j] = qm->max_index[j];
-              }
-            }
-
-            // Calculate origin and extents
-            float3 blockOrigin(0.f);
-            if (qm->coords[0]) {
-              if (qm->datatype == DB_FLOAT)
-                blockOrigin.x = ((float *)qm->coords[0])[realNodeFirst.x];
-              else if (qm->datatype == DB_DOUBLE)
-                blockOrigin.x = ((double *)qm->coords[0])[realNodeFirst.x];
-            }
-            if (qm->coords[1]) {
-              if (qm->datatype == DB_FLOAT)
-                blockOrigin.y = ((float *)qm->coords[1])[realNodeFirst.y];
-              else if (qm->datatype == DB_DOUBLE)
-                blockOrigin.y = ((double *)qm->coords[1])[realNodeFirst.y];
-            }
-            if (qm->ndims > 2 && qm->coords[2]) {
-              if (qm->datatype == DB_FLOAT)
-                blockOrigin.z = ((float *)qm->coords[2])[realNodeFirst.z];
-              else if (qm->datatype == DB_DOUBLE)
-                blockOrigin.z = ((double *)qm->coords[2])[realNodeFirst.z];
-            }
-
-            info.origin = blockOrigin;
-            info.spacing = globalSpacing;
-
-            // Dims are in zones (nodes - 1)
-            info.dims = int3(realNodeLast.x - realNodeFirst.x,
-                realNodeLast.y - realNodeFirst.y,
-                realNodeLast.z - realNodeFirst.z);
-
-            // Update global bounds
-            float3 blockMax = blockOrigin + float3(info.dims) * globalSpacing;
-            globalMin = min(globalMin, blockOrigin);
-            globalMax = max(globalMax, blockMax);
-
-            DBFreeQuadmesh(qm);
-          }
-          DBFreeQuadvar(qv);
-        }
-      }
-
-      // Close block file if it's different
-      if (blockDbfile != dbfile)
-        DBClose(blockDbfile);
-
-      if (info.dims.x > 0) {
-        blocks.push_back(info);
-      }
-    }
-
-    // Don't free multivar yet - we need it for the second pass
-    // It will be freed after the second pass completes
-
-    if (blocks.empty()) {
-      logError("[import_SILO] no valid blocks found");
-      if (isDerivedField) {
-        if (mv_vel1)
-          DBFreeMultivar(mv_vel1);
-        if (mv_vel2)
-          DBFreeMultivar(mv_vel2);
-        if (mv_vel3)
-          DBFreeMultivar(mv_vel3);
-      } else {
-        DBFreeMultivar(mv);
-      }
-      DBClose(dbfile);
-      return;
-    }
-
-    // Calculate global grid dimensions
-    float3 globalExtent = globalMax - globalMin;
-    int3 globalDims((int)std::round(globalExtent.x / globalSpacing.x),
-        (int)std::round(globalExtent.y / globalSpacing.y),
-        (int)std::round(globalExtent.z / globalSpacing.z));
-
-    if (globalDims.x < 1)
-      globalDims.x = 1;
-    if (globalDims.y < 1)
-      globalDims.y = 1;
-    if (globalDims.z < 1)
-      globalDims.z = 1;
-
-    logStatus(
-        "[import_SILO] unified volume:"
-        " origin=(%.2f,%.2f,%.2f) spacing=(%.2f,%.2f,%.2f) dims=%dx%dx%d",
-        globalMin.x,
-        globalMin.y,
-        globalMin.z,
-        globalSpacing.x,
-        globalSpacing.y,
-        globalSpacing.z,
-        globalDims.x,
-        globalDims.y,
-        globalDims.z);
-
-    // Create unified data array
-    size_t totalElements = (size_t)globalDims.x * globalDims.y * globalDims.z;
-    auto unifiedDataArray = scene.createArray(
-        globalDataType, globalDims.x, globalDims.y, globalDims.z);
-    void *unifiedData = unifiedDataArray->map();
-
-    // Initialize to zero/background value
-    std::memset(unifiedData, 0, totalElements * anari::sizeOf(globalDataType));
-
-    // Second pass: copy each block's data into the unified grid
-    for (size_t blockIdx = 0; blockIdx < blocks.size(); blockIdx++) {
-      const BlockInfo &info = blocks[blockIdx];
-
-      // Open block file
-      DBfile *blockDbfile = nullptr;
-      if (info.file == file) {
-        blockDbfile = dbfile;
-      } else {
-        blockDbfile = DBOpen(info.file.c_str(), DB_UNKNOWN, DB_READ);
-        if (!blockDbfile)
-          continue;
-      }
-
-      if (info.varType == DB_QUADVAR) {
-        // Load velocity components (either single var or vel1/vel2/vel3 for
-        // derived fields)
-        DBquadvar *qv_vel1 = nullptr, *qv_vel2 = nullptr, *qv_vel3 = nullptr;
-        DBquadmesh *qm = nullptr;
-
-        if (isDerivedField) {
-          // Load all three velocity components
-          qv_vel1 = DBGetQuadvar(blockDbfile, info.varName.c_str()); // vel1
-          if (qv_vel1 && qv_vel1->meshname) {
-            qm = DBGetQuadmesh(blockDbfile, qv_vel1->meshname);
-            // Find corresponding vel2 and vel3 blocks
-            std::string vel2Name = info.varName;
-            std::string vel3Name = info.varName;
-            size_t pos = vel2Name.find("vel1");
-            if (pos != std::string::npos) {
-              vel2Name.replace(pos, 4, "vel2");
-              vel3Name.replace(pos, 4, "vel3");
-              qv_vel2 = DBGetQuadvar(blockDbfile, vel2Name.c_str());
-              qv_vel3 = DBGetQuadvar(blockDbfile, vel3Name.c_str());
-            }
-          }
-
-          if (!qv_vel1 || !qv_vel2 || !qv_vel3 || !qm) {
-            logWarning(
-                "[import_SILO] failed to load velocity components for block %zu",
-                blockIdx);
-            if (qv_vel1)
-              DBFreeQuadvar(qv_vel1);
-            if (qv_vel2)
-              DBFreeQuadvar(qv_vel2);
-            if (qv_vel3)
-              DBFreeQuadvar(qv_vel3);
-            if (qm)
-              DBFreeQuadmesh(qm);
-            if (blockDbfile != dbfile)
-              DBClose(blockDbfile);
-            continue;
-          }
-        } else {
-          // Load single variable
-          qv_vel1 = DBGetQuadvar(blockDbfile, info.varName.c_str());
-          if (qv_vel1 && qv_vel1->meshname) {
-            qm = DBGetQuadmesh(blockDbfile, qv_vel1->meshname);
-          }
-        }
-
-        if (qv_vel1 && qm) {
-          // Calculate this block's position in the global grid
-          float3 offset = info.origin - globalMin;
-          int3 globalOffset((int)std::round(offset.x / globalSpacing.x),
-              (int)std::round(offset.y / globalSpacing.y),
-              (int)std::round(offset.z / globalSpacing.z));
-
-          // Get real node bounds for this block
-          int3 realNodeFirst(0, 0, 0);
-          int3 realNodeLast(qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
-
-          if (qm->ghost_zone_labels && qm->min_index && qm->max_index) {
-            for (int j = 0; j < qm->ndims && j < 3; j++) {
-              realNodeFirst[j] = qm->min_index[j];
-              realNodeLast[j] = qm->max_index[j];
-            }
-          }
-
-          int3 realZoneFirst = realNodeFirst;
-          int3 realZoneLast =
-              int3(std::max(realNodeLast.x - 1, realNodeFirst.x),
-                  std::max(realNodeLast.y - 1, realNodeFirst.y),
-                  std::max(realNodeLast.z - 1, realNodeFirst.z));
-
-          int3 blockTotalDims(
-              qm->dims[0] - 1, qm->dims[1] - 1, qm->dims[2] - 1);
-          size_t elementSize = anari::sizeOf(globalDataType);
-
-          // Prepare data for derived field computation if needed
-          std::vector<float> blockData;
-          if (isDerivedField) {
-            size_t blockElements = (realZoneLast.x - realZoneFirst.x + 1)
-                * (realZoneLast.y - realZoneFirst.y + 1)
-                * (realZoneLast.z - realZoneFirst.z + 1);
-            blockData.resize(blockElements);
-
-            // Load velocity data for all derived fields
-            // Check the actual data size from the quadvar
-            size_t actualDataSize = qv_vel1->nels;
-            std::vector<float> vel1Data(actualDataSize);
-            std::vector<float> vel2Data(actualDataSize);
-            std::vector<float> vel3Data(actualDataSize);
-
-            // Copy full block data
-            for (size_t ii = 0; ii < actualDataSize; ++ii) {
-              if (qv_vel1->datatype == DB_FLOAT) {
-                vel1Data[ii] = ((float *)qv_vel1->vals[0])[ii];
-                vel2Data[ii] = ((float *)qv_vel2->vals[0])[ii];
-                vel3Data[ii] = ((float *)qv_vel3->vals[0])[ii];
-              } else if (qv_vel1->datatype == DB_DOUBLE) {
-                vel1Data[ii] = ((double *)qv_vel1->vals[0])[ii];
-                vel2Data[ii] = ((double *)qv_vel2->vals[0])[ii];
-                vel3Data[ii] = ((double *)qv_vel3->vals[0])[ii];
-              }
-            }
-
-            logStatus(
-                "[import_SILO] block %zu:"
-                " loaded velocity data, size=%zu, expected=%d",
-                blockIdx,
-                actualDataSize,
-                blockTotalDims.x * blockTotalDims.y * blockTotalDims.z);
-
-            if (derivedFieldType == "vel_mag") {
-              // Compute velocity magnitude for real zones only
-              size_t idx = 0;
-              for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
-                for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
-                  for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
-                    int srcIdx = k * blockTotalDims.y * blockTotalDims.x
-                        + j * blockTotalDims.x + i;
-                    float v1 = vel1Data[srcIdx];
-                    float v2 = vel2Data[srcIdx];
-                    float v3 = vel3Data[srcIdx];
-                    blockData[idx++] = std::sqrt(v1 * v1 + v2 * v2 + v3 * v3);
-                  }
-                }
-              }
-            } else if (derivedFieldType == "lambda2" || derivedFieldType == "w"
-                || derivedFieldType == "qcrit" || derivedFieldType == "hel") {
-              // These derived fields all require velocity gradients
-
-              // Verify data size matches expectations
-              size_t expectedSize =
-                  blockTotalDims.x * blockTotalDims.y * blockTotalDims.z;
-              if (actualDataSize != expectedSize) {
-                logWarning(
-                    "[import_SILO] block %zu: data size mismatch %zu != %zu",
-                    blockIdx,
-                    actualDataSize,
-                    expectedSize);
-                // Skip this block
-                DBFreeQuadmesh(qm);
-                if (qv_vel1)
-                  DBFreeQuadvar(qv_vel1);
-                if (qv_vel2)
-                  DBFreeQuadvar(qv_vel2);
-                if (qv_vel3)
-                  DBFreeQuadvar(qv_vel3);
-                if (blockDbfile != dbfile)
-                  DBClose(blockDbfile);
-                continue;
-              }
-
-              // Compute velocity gradients
-              std::vector<float> dux(vel1Data.size()), duy(vel1Data.size()),
-                  duz(vel1Data.size());
-              std::vector<float> dvx(vel1Data.size()), dvy(vel1Data.size()),
-                  dvz(vel1Data.size());
-              std::vector<float> dwx(vel1Data.size()), dwy(vel1Data.size()),
-                  dwz(vel1Data.size());
-
-              // Extract Z coordinates for non-uniform spacing
-              std::vector<float> zCoords(qm->dims[2]);
-              for (int zi = 0; zi < qm->dims[2]; ++zi) {
-                if (qm->datatype == DB_FLOAT)
-                  zCoords[zi] = ((float *)qm->coords[2])[zi];
-                else if (qm->datatype == DB_DOUBLE)
-                  zCoords[zi] = ((double *)qm->coords[2])[zi];
-              }
-
-              computeVelocityGradients(vel1Data,
-                  vel2Data,
-                  vel3Data,
-                  blockTotalDims.x,
-                  blockTotalDims.y,
-                  blockTotalDims.z,
-                  globalSpacing.x,
-                  globalSpacing.y,
-                  zCoords,
-                  dux,
-                  duy,
-                  duz,
-                  dvx,
-                  dvy,
-                  dvz,
-                  dwx,
-                  dwy,
-                  dwz);
-
-              // Debug: check gradient magnitudes
-              float maxGrad = 0.0f;
-              for (size_t ii = 0; ii < dux.size(); ++ii) {
-                maxGrad = std::max(maxGrad, std::abs(dux[ii]));
-                maxGrad = std::max(maxGrad, std::abs(duy[ii]));
-                maxGrad = std::max(maxGrad, std::abs(duz[ii]));
-              }
-              logStatus(
-                  "[import_SILO] block %zu: "
-                  "max velocity gradient = %.6e, spacing=(%.3e,%.3e)",
-                  blockIdx,
-                  maxGrad,
-                  globalSpacing.x,
-                  globalSpacing.y);
-
-              // Compute the requested derived field
-              std::vector<float> derivedFull(vel1Data.size());
-
-              if (derivedFieldType == "lambda2") {
-                computeLambda2(
-                    dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
-              } else if (derivedFieldType == "w") {
-                computeVorticity(
-                    dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
-              } else if (derivedFieldType == "qcrit") {
-                computeQCriterion(
-                    dux, duy, duz, dvx, dvy, dvz, dwx, dwy, dwz, derivedFull);
-              } else if (derivedFieldType == "hel") {
-                computeHelicity(vel1Data,
-                    vel2Data,
-                    vel3Data,
-                    dux,
-                    duy,
-                    duz,
-                    dvx,
-                    dvy,
-                    dvz,
-                    dwx,
-                    dwy,
-                    dwz,
-                    derivedFull);
-              }
-
-              // Debug: check for NaN or constant values
-              float minVal = derivedFull[0], maxVal = derivedFull[0];
-              int nanCount = 0;
-              for (size_t ii = 0; ii < derivedFull.size(); ++ii) {
-                if (std::isnan(derivedFull[ii])
-                    || std::isinf(derivedFull[ii])) {
-                  nanCount++;
-                  derivedFull[ii] = 0.0f; // Replace NaN/Inf with 0
-                } else {
-                  minVal = std::min(minVal, derivedFull[ii]);
-                  maxVal = std::max(maxVal, derivedFull[ii]);
-                }
-              }
-              if (nanCount > 0) {
-                logWarning("[import_SILO] block %zu: %s had %d NaN/Inf values",
-                    blockIdx,
-                    derivedFieldType.c_str(),
-                    nanCount);
-              }
-              logStatus(
-                  "[import_SILO] block %zu:"
-                  " %s computed, range in full block: %.6e to %.6e",
-                  blockIdx,
-                  derivedFieldType.c_str(),
-                  minVal,
-                  maxVal);
-
-              // Extract only real zones
-              size_t idx = 0;
-              for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
-                for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
-                  for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
-                    int srcIdx = k * blockTotalDims.y * blockTotalDims.x
-                        + j * blockTotalDims.x + i;
-                    blockData[idx++] = derivedFull[srcIdx];
-                  }
-                }
-              }
-            }
-          }
-
-          // Copy data to unified grid
-          size_t dstIdx = 0;
-          for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
-            for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
-              for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
-                // Destination index in global array
-                int gi = globalOffset.x + (i - realZoneFirst.x);
-                int gj = globalOffset.y + (j - realZoneFirst.y);
-                int gk = globalOffset.z + (k - realZoneFirst.z);
-                int globalIdx =
-                    gk * globalDims.y * globalDims.x + gj * globalDims.x + gi;
-
-                if (isDerivedField) {
-                  // Copy from computed derived field
-                  ((float *)unifiedData)[globalIdx] = blockData[dstIdx];
-                } else {
-                  // Copy directly from source variable
-                  int srcIdx = k * blockTotalDims.y * blockTotalDims.x
-                      + j * blockTotalDims.x + i;
-                  std::memcpy((char *)unifiedData + globalIdx * elementSize,
-                      (char *)qv_vel1->vals[0] + srcIdx * elementSize,
-                      elementSize);
-                }
-                dstIdx++;
-              }
-            }
-          }
-
-          // Update global value range
-          float2 localRange(std::numeric_limits<float>::max(),
-              std::numeric_limits<float>::lowest());
-
-          if (isDerivedField) {
-            // Range from computed derived field
-            for (size_t ii = 0; ii < blockData.size(); ++ii) {
-              localRange.x = std::min(localRange.x, blockData[ii]);
-              localRange.y = std::max(localRange.y, blockData[ii]);
-            }
-          } else {
-            // Range from source variable
-            for (int k = realZoneFirst.z; k <= realZoneLast.z; k++) {
-              for (int j = realZoneFirst.y; j <= realZoneLast.y; j++) {
-                for (int i = realZoneFirst.x; i <= realZoneLast.x; i++) {
-                  int srcIdx = k * blockTotalDims.y * blockTotalDims.x
-                      + j * blockTotalDims.x + i;
-                  float val = 0.f;
-                  if (qv_vel1->datatype == DB_FLOAT)
-                    val = ((float *)qv_vel1->vals[0])[srcIdx];
-                  else if (qv_vel1->datatype == DB_DOUBLE)
-                    val = ((double *)qv_vel1->vals[0])[srcIdx];
-
-                  localRange.x = std::min(localRange.x, val);
-                  localRange.y = std::max(localRange.y, val);
-                }
-              }
-            }
-          }
-
-          globalValueRange.x = std::min(globalValueRange.x, localRange.x);
-          globalValueRange.y = std::max(globalValueRange.y, localRange.y);
-
-          logStatus(
-              "[import_SILO] block %d: "
-              "%s offset=(%d,%d,%d) dims=%dx%dx%d range=(%.2f,%.2f)",
-              (int)blockIdx,
-              info.varName.c_str(),
-              globalOffset.x,
-              globalOffset.y,
-              globalOffset.z,
-              info.dims.x,
-              info.dims.y,
-              info.dims.z,
-              localRange.x,
-              localRange.y);
-
-          DBFreeQuadmesh(qm);
-
-          // Free velocity variables
-          if (qv_vel1)
-            DBFreeQuadvar(qv_vel1);
-          if (qv_vel2)
-            DBFreeQuadvar(qv_vel2);
-          if (qv_vel3)
-            DBFreeQuadvar(qv_vel3);
-        }
-      }
-
-      // Close block file if it's different
-      if (blockDbfile != dbfile)
-        DBClose(blockDbfile);
-    }
-
-    unifiedDataArray->unmap();
-
-    // Free multivars
-    if (isDerivedField) {
-      if (mv_vel1)
-        DBFreeMultivar(mv_vel1);
-      if (mv_vel2)
-        DBFreeMultivar(mv_vel2);
-      if (mv_vel3)
-        DBFreeMultivar(mv_vel3);
-    } else {
-      DBFreeMultivar(mv);
-    }
-
-    // Create unified spatial field
-    auto field = scene.createObject<SpatialField>(
-        tokens::spatial_field::structuredRegular);
-    std::string fieldName =
-        isDerivedField ? derivedFieldType : std::string(multivarName);
-    field->setName(fieldName.c_str());
-    field->setParameter("origin", globalMin);
-    field->setParameter("spacing", globalSpacing);
-    field->setParameterObject("data", *unifiedDataArray);
-
-    // Create single volume with unified field
-    logStatus("[import_SILO] creating unified volume with range: %.2f to %.2f",
-        globalValueRange.x,
-        globalValueRange.y);
+    auto valueRange = field->computeValueRange();
 
     auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
         tx, tokens::volume::transferFunction1D);
-    volume->setName(fieldName.c_str());
+    volume->setName(fileOf(file).c_str());
     volume->setParameterObject("value", *field);
     volume->setParameterObject("color", *colorArray);
-    volume->setParameter("valueRange", ANARI_FLOAT32_BOX1, &globalValueRange);
-  }
-  // Single mesh case
-  else {
-    // Find the variable to visualize
-    const char *targetVarName = nullptr;
-    int targetVarType = DB_INVALID_OBJECT;
-
-    if (!varName.empty()) {
-      // Try to find the requested variable
-      targetVarType = DBInqVarType(dbfile, varName.c_str());
-      if (targetVarType == DB_QUADVAR || targetVarType == DB_UCDVAR) {
-        targetVarName = varName.c_str();
-      }
-    }
-
-    // If no variable specified or not found, use first available
-    if (!targetVarName) {
-      if (toc->nqvar > 0) {
-        targetVarName = toc->qvar_names[0];
-        targetVarType = DB_QUADVAR;
-      } else if (toc->nucdvar > 0) {
-        targetVarName = toc->ucdvar_names[0];
-        targetVarType = DB_UCDVAR;
-      }
-    }
-
-    if (!targetVarName) {
-      logError("[import_SILO] no variables found in file");
-      DBClose(dbfile);
-      return;
-    }
-
-    SpatialFieldRef field;
-    if (targetVarType == DB_QUADVAR) {
-      DBquadvar *qv = DBGetQuadvar(dbfile, targetVarName);
-      if (qv && qv->meshname) {
-        field = createFieldFromQuadMesh(
-            scene, dbfile, qv->meshname, targetVarName, targetVarName);
-        DBFreeQuadvar(qv);
-      }
-    } else if (targetVarType == DB_UCDVAR) {
-      DBucdvar *uv = DBGetUcdvar(dbfile, targetVarName);
-      if (uv && uv->meshname) {
-        field = createFieldFromUcdMesh(
-            scene, dbfile, uv->meshname, targetVarName, targetVarName);
-        DBFreeUcdvar(uv);
-      }
-    }
-
-    if (field) {
-      // Create transform node
-      auto tx = scene.insertChildTransformNode(location);
-
-      // Create default color map
-      auto colorArray = scene.createArray(ANARI_FLOAT32_VEC4, 256);
-      colorArray->setData(makeDefaultColorMap(colorArray->size()).data());
-
-      // Compute value range
-      float2 valueRange = field->computeValueRange();
-
-      // Create volume
-      auto [inst, volume] = scene.insertNewChildObjectNode<Volume>(
-          tx, tokens::volume::transferFunction1D);
-      volume->setName(targetVarName);
-      volume->setParameterObject("value", *field);
-      volume->setParameterObject("color", *colorArray);
-      volume->setParameter("valueRange", ANARI_FLOAT32_BOX1, &valueRange);
-
-      logStatus("[import_SILO] loaded variable '%s' (range: %f to %f)",
-          targetVarName,
-          valueRange.x,
-          valueRange.y);
-    }
+    volume->setParameter("valueRange", ANARI_FLOAT32_BOX1, &valueRange);
   }
 
-  DBClose(dbfile);
   logStatus("[import_SILO] done!");
 }
 
