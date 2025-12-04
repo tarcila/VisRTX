@@ -32,10 +32,10 @@ Material *Surface::material() const
   return parameterValueAsObject<Material>(tokens::surface::material);
 }
 
-IndexedVectorRef<Surface> Surface::self() const
+ObjectPoolRef<Surface> Surface::self() const
 {
   return scene() ? scene()->getObject<Surface>(index())
-                 : IndexedVectorRef<Surface>{};
+                 : ObjectPoolRef<Surface>{};
 }
 
 anari::Object Surface::makeANARIObject(anari::Device d) const

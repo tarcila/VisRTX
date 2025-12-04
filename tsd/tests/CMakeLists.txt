@@ -12,7 +12,7 @@ project_add_executable(
   test_FlatMap.cpp
   test_Forest.cpp
   test_Geometry.cpp
-  test_IndexedVector.cpp
+  test_ObjectPool.cpp
   test_Material.cpp
   test_Math.cpp
   test_Object.cpp
@@ -26,7 +26,7 @@ add_test(NAME tsd::DataTree      COMMAND ${PROJECT_NAME} "[DataTree]"     )
 add_test(NAME tsd::FlatMap       COMMAND ${PROJECT_NAME} "[FlatMap]"      )
 add_test(NAME tsd::Forest        COMMAND ${PROJECT_NAME} "[Forest]"       )
 add_test(NAME tsd::Geometry      COMMAND ${PROJECT_NAME} "[Geometry]"     )
-add_test(NAME tsd::IndexedVector COMMAND ${PROJECT_NAME} "[IndexedVector]")
+add_test(NAME tsd::ObjectPool    COMMAND ${PROJECT_NAME} "[ObjectPool]"   )
 add_test(NAME tsd::Material      COMMAND ${PROJECT_NAME} "[Material]"     )
 add_test(NAME tsd::Math          COMMAND ${PROJECT_NAME} "[Math]"         )
 add_test(NAME tsd::Object        COMMAND ${PROJECT_NAME} "[Object]"       )

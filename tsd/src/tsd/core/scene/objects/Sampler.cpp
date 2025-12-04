@@ -52,10 +52,10 @@ Sampler::Sampler(Token subtype) : Object(ANARI_SAMPLER, subtype)
   }
 }
 
-IndexedVectorRef<Sampler> Sampler::self() const
+ObjectPoolRef<Sampler> Sampler::self() const
 {
   return scene() ? scene()->getObject<Sampler>(index())
-                 : IndexedVectorRef<Sampler>{};
+                 : ObjectPoolRef<Sampler>{};
 }
 
 anari::Object Sampler::makeANARIObject(anari::Device d) const

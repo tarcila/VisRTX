@@ -16,12 +16,12 @@ struct Geometry : public Object
   Geometry(Token subtype = tokens::unknown);
   virtual ~Geometry() = default;
 
-  IndexedVectorRef<Geometry> self() const;
+  ObjectPoolRef<Geometry> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 
-using GeometryRef = IndexedVectorRef<Geometry>;
+using GeometryRef = ObjectPoolRef<Geometry>;
 
 namespace tokens::geometry {
 

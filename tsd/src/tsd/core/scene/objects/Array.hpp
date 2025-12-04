@@ -61,7 +61,7 @@ struct Array : public Object
   void setData(const void *data, size_t byteOffset = 0);
   size_t setData(std::FILE *stream);
 
-  IndexedVectorRef<Array> self() const;
+  ObjectPoolRef<Array> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 
@@ -88,7 +88,7 @@ struct Array : public Object
   mutable bool m_mapped{false};
 };
 
-using ArrayRef = IndexedVectorRef<Array>;
+using ArrayRef = ObjectPoolRef<Array>;
 
 // Inlined definitions ////////////////////////////////////////////////////////
 

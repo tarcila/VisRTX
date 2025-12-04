@@ -4,15 +4,15 @@
 // catch
 #include "catch.hpp"
 // tsd
-#include "tsd/core/IndexedVector.hpp"
+#include "tsd/core/ObjectPool.hpp"
 // std
 #include <string>
 
-SCENARIO("tsd::core::IndexedVector interface tests", "[IndexedVector]")
+SCENARIO("tsd::core::ObjectPool interface tests", "[ObjectPool]")
 {
-  GIVEN("A default constructed IndexedVector")
+  GIVEN("A default constructed ObjectPool")
   {
-    tsd::core::IndexedVector<std::string> iv;
+    tsd::core::ObjectPool<std::string> iv;
 
     THEN("The map should be empty")
     {
@@ -98,11 +98,11 @@ SCENARIO("tsd::core::IndexedVector interface tests", "[IndexedVector]")
   }
 }
 
-SCENARIO("tsd::core::IndexedVector defragmentation", "[IndexedVector]")
+SCENARIO("tsd::core::ObjectPool defragmentation", "[ObjectPool]")
 {
-  GIVEN("An IndexedVector with 5 values")
+  GIVEN("An ObjectPool with 5 values")
   {
-    tsd::core::IndexedVector<int> iv;
+    tsd::core::ObjectPool<int> iv;
     for (int i = 0; i < 5; i++)
       iv.emplace(i);
 
@@ -147,7 +147,7 @@ SCENARIO("tsd::core::IndexedVector defragmentation", "[IndexedVector]")
         REQUIRE(iv.density() == 0.6f);
       }
 
-      WHEN("and the IndexedVector is defragmented")
+      WHEN("and the ObjectPool is defragmented")
       {
         iv.defragment();
 

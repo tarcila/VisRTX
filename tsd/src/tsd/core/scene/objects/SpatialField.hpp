@@ -18,14 +18,14 @@ struct SpatialField : public Object
   SpatialField(Token subtype = tokens::unknown);
   virtual ~SpatialField() = default;
 
-  IndexedVectorRef<SpatialField> self() const;
+  ObjectPoolRef<SpatialField> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 
   tsd::math::float2 computeValueRange();
 };
 
-using SpatialFieldRef = IndexedVectorRef<SpatialField>;
+using SpatialFieldRef = ObjectPoolRef<SpatialField>;
 
 namespace tokens::spatial_field {
 

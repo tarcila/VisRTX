@@ -16,12 +16,12 @@ struct Camera : public Object
   Camera(Token subtype = tokens::unknown);
   virtual ~Camera() override = default;
 
-  IndexedVectorRef<Camera> self() const;
+  ObjectPoolRef<Camera> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 
-using CameraRef = IndexedVectorRef<Camera>;
+using CameraRef = ObjectPoolRef<Camera>;
 
 namespace tokens::camera {
 

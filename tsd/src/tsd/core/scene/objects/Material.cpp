@@ -147,10 +147,10 @@ Material::Material(Token subtype) : Object(ANARI_MATERIAL, subtype)
   }
 }
 
-IndexedVectorRef<Material> Material::self() const
+ObjectPoolRef<Material> Material::self() const
 {
   return scene() ? scene()->getObject<Material>(index())
-                 : IndexedVectorRef<Material>{};
+                 : ObjectPoolRef<Material>{};
 }
 
 anari::Object Material::makeANARIObject(anari::Device d) const

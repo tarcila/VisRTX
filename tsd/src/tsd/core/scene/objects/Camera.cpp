@@ -103,10 +103,10 @@ Camera::Camera(Token subtype) : Object(ANARI_CAMERA, subtype)
   }
 }
 
-IndexedVectorRef<Camera> Camera::self() const
+ObjectPoolRef<Camera> Camera::self() const
 {
   return scene() ? scene()->getObject<Camera>(index())
-                 : IndexedVectorRef<Camera>{};
+                 : ObjectPoolRef<Camera>{};
 }
 
 anari::Object Camera::makeANARIObject(anari::Device d) const

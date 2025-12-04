@@ -5,7 +5,6 @@
 
 #include "Window.h"
 // tsd_core
-#include "tsd/core/IndexedVector.hpp"
 #include "tsd/core/Logging.hpp"
 // std
 #include <array>

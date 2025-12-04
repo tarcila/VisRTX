@@ -15,7 +15,7 @@ struct ObjectUsePtr
 
   ObjectUsePtr() = default;
   ObjectUsePtr(T *o);
-  ObjectUsePtr(IndexedVectorRef<T> o);
+  ObjectUsePtr(ObjectPoolRef<T> o);
   ObjectUsePtr(const ObjectUsePtr<T, K> &o);
   ObjectUsePtr(ObjectUsePtr<T, K> &&o);
   ~ObjectUsePtr();
@@ -24,7 +24,7 @@ struct ObjectUsePtr
   ObjectUsePtr &operator=(ObjectUsePtr<T, K> &&o);
 
   ObjectUsePtr &operator=(T *o);
-  ObjectUsePtr &operator=(IndexedVectorRef<T> o);
+  ObjectUsePtr &operator=(ObjectPoolRef<T> o);
 
   void reset();
 
@@ -38,21 +38,21 @@ struct ObjectUsePtr
   operator bool() const;
 
  private:
-  IndexedVectorRef<T> m_object;
+  ObjectPoolRef<T> m_object;
 };
 
 // Inlined definitions ////////////////////////////////////////////////////////
 
 template <typename T, Object::UseKind K>
 inline ObjectUsePtr<T, K>::ObjectUsePtr(T *o)
-    : m_object(o ? o->self() : IndexedVectorRef<T>{})
+    : m_object(o ? o->self() : ObjectPoolRef<T>{})
 {
   if (m_object)
     m_object->incUseCount(Object::UseKind::APP);
 }
 
 template <typename T, Object::UseKind K>
-inline ObjectUsePtr<T, K>::ObjectUsePtr(IndexedVectorRef<T> o) : m_object(o)
+inline ObjectUsePtr<T, K>::ObjectUsePtr(ObjectPoolRef<T> o) : m_object(o)
 {
   if (m_object)
     m_object->incUseCount(Object::UseKind::APP);
@@ -116,10 +116,10 @@ inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(T *o)
 }
 
 template <typename T, Object::UseKind K>
-inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(IndexedVectorRef<T> o)
+inline ObjectUsePtr<T, K> &ObjectUsePtr<T, K>::operator=(ObjectPoolRef<T> o)
 {
   static_assert(isObject<T>(),
-      "ObjectUsePtr can only be assigned IndexedVectorRef<T> when T is a"
+      "ObjectUsePtr can only be assigned ObjectPoolRef<T> when T is a"
       " tsd::core::Object type");
   reset();
   if (o) {

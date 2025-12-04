@@ -135,10 +135,9 @@ size_t Array::setData(std::FILE *stream)
   return r;
 }
 
-IndexedVectorRef<Array> Array::self() const
+ObjectPoolRef<Array> Array::self() const
 {
-  return scene() ? scene()->getObject<Array>(index())
-                 : IndexedVectorRef<Array>{};
+  return scene() ? scene()->getObject<Array>(index()) : ObjectPoolRef<Array>{};
 }
 
 anari::Object Array::makeANARIObject(anari::Device d) const

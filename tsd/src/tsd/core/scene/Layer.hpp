@@ -26,7 +26,7 @@ struct LayerNodeData
   LayerNodeData(const math::mat3 &m, const char *n = "");
   LayerNodeData(Array *a, const char *n = "");
   template <typename T>
-  LayerNodeData(IndexedVectorRef<T> obj, const char *n = "");
+  LayerNodeData(ObjectPoolRef<T> obj, const char *n = "");
 
   LayerNodeData(const LayerNodeData &o);
   LayerNodeData(LayerNodeData &&o);
@@ -98,7 +98,7 @@ using LayerNodeRef = LayerNode::Ref;
 // Inlined definitions ////////////////////////////////////////////////////////
 
 template <typename T>
-inline LayerNodeData::LayerNodeData(IndexedVectorRef<T> obj, const char *n)
+inline LayerNodeData::LayerNodeData(ObjectPoolRef<T> obj, const char *n)
     : LayerNodeData(obj.data(), n)
 {}
 

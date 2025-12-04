@@ -5,7 +5,7 @@
 
 #include "tsd/core/DataTree.hpp"
 #include "tsd/core/FlatMap.hpp"
-#include "tsd/core/IndexedVector.hpp"
+#include "tsd/core/ObjectPool.hpp"
 #include "tsd/core/Parameter.hpp"
 #include "tsd/core/TSDMath.hpp"
 #include "tsd/core/Token.hpp"

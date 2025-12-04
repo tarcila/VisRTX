@@ -16,12 +16,12 @@ struct Sampler : public Object
   Sampler(Token subtype = tokens::unknown);
   virtual ~Sampler() = default;
 
-  IndexedVectorRef<Sampler> self() const;
+  ObjectPoolRef<Sampler> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 
-using SamplerRef = IndexedVectorRef<Sampler>;
+using SamplerRef = ObjectPoolRef<Sampler>;
 
 namespace tokens::sampler {
 

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "tsd/core/IndexedVector.hpp"
+#include "tsd/core/ObjectPool.hpp"
 // std
 #include <functional>
 #include <utility>
@@ -16,7 +16,7 @@ struct Forest;
 template <typename T>
 struct ForestNode
 {
-  using Ref = IndexedVectorRef<ForestNode<T>>;
+  using Ref = ObjectPoolRef<ForestNode<T>>;
 
   ForestNode() = default;
   ForestNode(T initialValue, Forest<T> *f);
@@ -67,7 +67,7 @@ struct ForestNode
 };
 
 template <typename T>
-using ForestNodeRef = IndexedVectorRef<ForestNode<T>>;
+using ForestNodeRef = ObjectPoolRef<ForestNode<T>>;
 
 template <typename T>
 bool operator==(const ForestNode<T> &a, const ForestNode<T> &b);
@@ -101,7 +101,7 @@ using ForestVisitorExitFunction =
 template <typename T>
 struct Forest
 {
-  using Ref = IndexedVectorRef<Forest<T>>;
+  using Ref = ObjectPoolRef<Forest<T>>;
   using Node = ForestNode<T>;
   using NodeRef = typename ForestNode<T>::Ref;
   using Visitor = ForestVisitor<T>;
@@ -149,7 +149,7 @@ struct Forest
   void traverse_impl(NodeRef n, ForestVisitor<T> &visitor, int level);
   NodeRef make_ForestNode(T &&v);
 
-  IndexedVector<ForestNode<T>> m_nodes;
+  ObjectPool<ForestNode<T>> m_nodes;
   NodeRef m_root;
 };
 

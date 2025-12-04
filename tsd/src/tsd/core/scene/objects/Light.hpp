@@ -16,12 +16,12 @@ struct Light : public Object
   Light(Token subtype = tokens::unknown);
   virtual ~Light() = default;
 
-  IndexedVectorRef<Light> self() const;
+  ObjectPoolRef<Light> self() const;
 
   anari::Object makeANARIObject(anari::Device d) const override;
 };
 
-using LightRef = IndexedVectorRef<Light>;
+using LightRef = ObjectPoolRef<Light>;
 
 namespace tokens::light {
 

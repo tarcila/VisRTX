@@ -39,10 +39,10 @@ Volume::Volume(Token stype) : Object(ANARI_VOLUME, stype)
   }
 }
 
-IndexedVectorRef<Volume> Volume::self() const
+ObjectPoolRef<Volume> Volume::self() const
 {
   return scene() ? scene()->getObject<Volume>(index())
-                 : IndexedVectorRef<Volume>{};
+                 : ObjectPoolRef<Volume>{};
 }
 
 anari::Object Volume::makeANARIObject(anari::Device d) const

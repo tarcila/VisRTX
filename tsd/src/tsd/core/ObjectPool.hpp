@@ -14,22 +14,22 @@ constexpr size_t INVALID_INDEX = ~size_t(0);
 #define TSD_INVALID_INDEX tsd::core::INVALID_INDEX
 
 template <typename T>
-struct IndexedVectorRef;
+struct ObjectPoolRef;
 
 template <typename T>
-struct IndexedVector
+struct ObjectPool
 {
   using element_t = T;
   using storage_t = std::vector<element_t>;
   using marker_t = std::vector<bool>;
   using index_pool_t = std::stack<size_t>;
 
-  IndexedVector() = default;
-  IndexedVector(size_t reserveSize);
-  ~IndexedVector() = default;
+  ObjectPool() = default;
+  ObjectPool(size_t reserveSize);
+  ~ObjectPool() = default;
 
   T &operator[](size_t i) const; // raw access
-  IndexedVectorRef<T> at(size_t i) const; // safe access
+  ObjectPoolRef<T> at(size_t i) const; // safe access
 
   size_t size() const;
   size_t capacity() const;
@@ -38,9 +38,9 @@ struct IndexedVector
   bool slot_empty(size_t i) const;
   float density() const;
 
-  IndexedVectorRef<T> insert(T &&v);
+  ObjectPoolRef<T> insert(T &&v);
   template <typename... Args>
-  IndexedVectorRef<T> emplace(Args &&...args);
+  ObjectPoolRef<T> emplace(Args &&...args);
   bool erase(size_t i);
 
   void clear();
@@ -49,11 +49,11 @@ struct IndexedVector
   bool defragment();
 
   template <typename U>
-  void sync_slots(const IndexedVector<U> &o);
+  void sync_slots(const ObjectPool<U> &o);
 
  private:
   template <typename U>
-  friend struct IndexedVector;
+  friend struct ObjectPool;
 
   mutable storage_t m_values;
   marker_t m_slots;
@@ -61,14 +61,14 @@ struct IndexedVector
 };
 
 template <typename T>
-struct IndexedVectorRef
+struct ObjectPoolRef
 {
-  IndexedVectorRef() = default;
-  IndexedVectorRef(const IndexedVector<T> &iv, size_t idx);
+  ObjectPoolRef() = default;
+  ObjectPoolRef(const ObjectPool<T> &iv, size_t idx);
 
   size_t index() const;
 
-  const IndexedVector<T> &storage() const;
+  const ObjectPool<T> &storage() const;
 
   T value_or(T alt) const;
 
@@ -83,51 +83,50 @@ struct IndexedVectorRef
   bool valid() const;
   operator bool() const;
 
-  IndexedVectorRef(const IndexedVectorRef &) = default;
-  IndexedVectorRef &operator=(const IndexedVectorRef &) = default;
-  IndexedVectorRef(IndexedVectorRef &&) = default;
-  IndexedVectorRef &operator=(IndexedVectorRef &&) = default;
+  ObjectPoolRef(const ObjectPoolRef &) = default;
+  ObjectPoolRef &operator=(const ObjectPoolRef &) = default;
+  ObjectPoolRef(ObjectPoolRef &&) = default;
+  ObjectPoolRef &operator=(ObjectPoolRef &&) = default;
 
  private:
   template <typename U>
-  friend bool operator==(
-      const IndexedVectorRef<U> &a, const IndexedVectorRef<U> &b);
+  friend bool operator==(const ObjectPoolRef<U> &a, const ObjectPoolRef<U> &b);
 
   size_t m_idx{INVALID_INDEX};
-  const IndexedVector<T> *m_iv{nullptr};
+  const ObjectPool<T> *m_iv{nullptr};
 };
 
 template <typename T>
-bool operator==(const IndexedVectorRef<T> &a, const IndexedVectorRef<T> &b);
+bool operator==(const ObjectPoolRef<T> &a, const ObjectPoolRef<T> &b);
 template <typename T>
-bool operator!=(const IndexedVectorRef<T> &a, const IndexedVectorRef<T> &b);
+bool operator!=(const ObjectPoolRef<T> &a, const ObjectPoolRef<T> &b);
 
 template <typename T, typename FCN_T>
-inline void foreach_item_ref(IndexedVector<T> &iv, FCN_T &&fcn)
+inline void foreach_item_ref(ObjectPool<T> &iv, FCN_T &&fcn)
 {
   for (size_t i = 0; i < iv.capacity(); i++)
     fcn(iv.at(i));
 }
 
 template <typename T, typename FCN_T>
-inline void foreach_item(IndexedVector<T> &iv, FCN_T &&fcn)
+inline void foreach_item(ObjectPool<T> &iv, FCN_T &&fcn)
 {
   for (size_t i = 0; i < iv.capacity(); i++)
     fcn(iv.slot_empty(i) ? nullptr : &iv[i]);
 }
 
 template <typename T, typename FCN_T>
-inline void foreach_item_const(const IndexedVector<T> &iv, FCN_T &&fcn)
+inline void foreach_item_const(const ObjectPool<T> &iv, FCN_T &&fcn)
 {
   for (size_t i = 0; i < iv.capacity(); i++)
     fcn(iv.slot_empty(i) ? nullptr : &iv[i]);
 }
 
 template <typename T, typename FCN_T>
-inline IndexedVectorRef<T> find_item_if(const IndexedVector<T> &iv, FCN_T &&fcn)
+inline ObjectPoolRef<T> find_item_if(const ObjectPool<T> &iv, FCN_T &&fcn)
 {
   for (size_t i = 0; i < iv.capacity(); i++) {
-    if(fcn(iv.slot_empty(i) ? nullptr : &iv[i]))
+    if (fcn(iv.slot_empty(i) ? nullptr : &iv[i]))
       return iv.at(i);
   }
   return {};
@@ -135,59 +134,59 @@ inline IndexedVectorRef<T> find_item_if(const IndexedVector<T> &iv, FCN_T &&fcn)
 
 // Inlined definitions ////////////////////////////////////////////////////////
 
-// IndexedVector //
+// ObjectPool //
 
 template <typename T>
-inline IndexedVector<T>::IndexedVector(size_t reserveSize)
+inline ObjectPool<T>::ObjectPool(size_t reserveSize)
 {
   reserve(reserveSize);
 }
 
 template <typename T>
-inline T &IndexedVector<T>::operator[](size_t i) const
+inline T &ObjectPool<T>::operator[](size_t i) const
 {
   return m_values[i];
 }
 
 template <typename T>
-inline IndexedVectorRef<T> IndexedVector<T>::at(size_t i) const
+inline ObjectPoolRef<T> ObjectPool<T>::at(size_t i) const
 {
-  return i >= capacity() || slot_empty(i) ? IndexedVectorRef<T>{}
-                                          : IndexedVectorRef<T>(*this, i);
+  return i >= capacity() || slot_empty(i) ? ObjectPoolRef<T>{}
+                                          : ObjectPoolRef<T>(*this, i);
 }
 
 template <typename T>
-inline size_t IndexedVector<T>::size() const
+inline size_t ObjectPool<T>::size() const
 {
   return m_values.size() - m_freeIndices.size();
 }
 
 template <typename T>
-inline size_t IndexedVector<T>::capacity() const
+inline size_t ObjectPool<T>::capacity() const
 {
   return m_values.size();
 }
 
 template <typename T>
-inline bool IndexedVector<T>::empty() const
+inline bool ObjectPool<T>::empty() const
 {
   return size() == 0;
 }
 
 template <typename T>
-inline bool IndexedVector<T>::slot_empty(size_t i) const
+inline bool ObjectPool<T>::slot_empty(size_t i) const
 {
   return !m_slots[i];
 }
 
 template <typename T>
-inline float IndexedVector<T>::density() const
+inline float ObjectPool<T>::density() const
 {
   return capacity() == 0 ? 1.f : 1.f - float(m_freeIndices.size()) / capacity();
 }
 
 template <typename T>
-inline IndexedVectorRef<T> IndexedVector<T>::insert(T &&v)
+inline ObjectPoolRef<T> ObjectPool<T>::insert(T &&v)
 {
   if (m_freeIndices.empty()) {
     m_values.emplace_back(std::move(v));
@@ -204,13 +203,13 @@ inline IndexedVectorRef<T> IndexedVector<T>::insert(T &&v)
 
 template <typename T>
 template <typename... Args>
-IndexedVectorRef<T> IndexedVector<T>::emplace(Args &&...args)
+ObjectPoolRef<T> ObjectPool<T>::emplace(Args &&...args)
 {
   return insert(std::move(T(std::forward<Args>(args)...)));
 }
 
 template <typename T>
-inline bool IndexedVector<T>::erase(size_t i)
+inline bool ObjectPool<T>::erase(size_t i)
 {
   if (slot_empty(i))
     return false;
@@ -223,7 +222,7 @@ inline bool IndexedVector<T>::erase(size_t i)
 }
 
 template <typename T>
-inline void IndexedVector<T>::clear()
+inline void ObjectPool<T>::clear()
 {
   m_values.clear();
   m_slots.clear();
@@ -231,14 +230,14 @@ inline void IndexedVector<T>::clear()
 }
 
 template <typename T>
-inline void IndexedVector<T>::reserve(size_t size)
+inline void ObjectPool<T>::reserve(size_t size)
 {
   m_values.reserve(size);
   m_slots.reserve(size);
 }
 
 template <typename T>
-inline bool IndexedVector<T>::defragment()
+inline bool ObjectPool<T>::defragment()
 {
   if (density() == 1.f)
     return false;
@@ -259,98 +258,95 @@ inline bool IndexedVector<T>::defragment()
 
 template <typename T>
 template <typename U>
-inline void IndexedVector<T>::sync_slots(const IndexedVector<U> &o)
+inline void ObjectPool<T>::sync_slots(const ObjectPool<U> &o)
 {
   m_slots = o.m_slots;
   m_freeIndices = o.m_freeIndices;
 }
 
-// IndexedVectorRef //
+// ObjectPoolRef //
 
 template <typename T>
-inline IndexedVectorRef<T>::IndexedVectorRef(
-    const IndexedVector<T> &iv, size_t idx)
+inline ObjectPoolRef<T>::ObjectPoolRef(const ObjectPool<T> &iv, size_t idx)
     : m_iv(&iv), m_idx(idx)
 {}
 
 template <typename T>
-inline size_t IndexedVectorRef<T>::index() const
+inline size_t ObjectPoolRef<T>::index() const
 {
   return m_idx;
 }
 
 template <typename T>
-inline const IndexedVector<T> &IndexedVectorRef<T>::storage() const
+inline const ObjectPool<T> &ObjectPoolRef<T>::storage() const
 {
   return *m_iv;
 }
 
 template <typename T>
-inline T IndexedVectorRef<T>::value_or(T alt) const
+inline T ObjectPoolRef<T>::value_or(T alt) const
 {
   return valid() ? *data() : alt;
 }
 
 template <typename T>
-inline T *IndexedVectorRef<T>::data()
+inline T *ObjectPoolRef<T>::data()
 {
   return valid() ? &storage()[index()] : nullptr;
 }
 
 template <typename T>
-inline const T *IndexedVectorRef<T>::data() const
+inline const T *ObjectPoolRef<T>::data() const
 {
   return valid() ? &storage()[index()] : nullptr;
 }
 
 template <typename T>
-inline T &IndexedVectorRef<T>::operator*()
+inline T &ObjectPoolRef<T>::operator*()
 {
   return *data();
 }
 
 template <typename T>
-inline const T &IndexedVectorRef<T>::operator*() const
+inline const T &ObjectPoolRef<T>::operator*() const
 {
   return *data();
 }
 
 template <typename T>
-inline T *IndexedVectorRef<T>::operator->()
+inline T *ObjectPoolRef<T>::operator->()
 {
   return &storage()[index()];
 }
 
 template <typename T>
-inline const T *IndexedVectorRef<T>::operator->() const
+inline const T *ObjectPoolRef<T>::operator->() const
 {
   return &storage()[index()];
 }
 
 template <typename T>
-inline bool IndexedVectorRef<T>::valid() const
+inline bool ObjectPoolRef<T>::valid() const
 {
   return m_idx != INVALID_INDEX && m_iv;
 }
 
 template <typename T>
-inline IndexedVectorRef<T>::operator bool() const
+inline ObjectPoolRef<T>::operator bool() const
 {
   return valid();
 }
 
 template <typename T>
-inline bool operator==(
-    const IndexedVectorRef<T> &a, const IndexedVectorRef<T> &b)
+inline bool operator==(const ObjectPoolRef<T> &a, const ObjectPoolRef<T> &b)
 {
   return a.m_iv == b.m_iv && a.m_idx == b.m_idx;
 }
 
 template <typename T>
-inline bool operator!=(
-    const IndexedVectorRef<T> &a, const IndexedVectorRef<T> &b)
+inline bool operator!=(const ObjectPoolRef<T> &a, const ObjectPoolRef<T> &b)
 {
   return !(a == b);
 }
 
-} // namespace tsd
+} // namespace tsd::core

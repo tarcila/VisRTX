@@ -69,7 +69,7 @@ using MultiRenderIndex = tsd::core::MultiUpdateDelegate;
 
 template <typename T>
 inline void setIndexedArrayObjectsAsAnariObjectArray(
-    anari::Device d, anari::Object o, const char *p, const IndexedVector<T> &iv)
+    anari::Device d, anari::Object o, const char *p, const ObjectPool<T> &iv)
 {
   if (iv.empty()) {
     anari::unsetParameter(d, o, p);

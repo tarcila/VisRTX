@@ -126,10 +126,10 @@ Light::Light(Token subtype) : Object(ANARI_LIGHT, subtype)
   }
 }
 
-IndexedVectorRef<Light> Light::self() const
+ObjectPoolRef<Light> Light::self() const
 {
   return scene() ? scene()->getObject<Light>(index())
-                 : IndexedVectorRef<Light>{};
+                 : ObjectPoolRef<Light>{};
 }
 
 anari::Object Light::makeANARIObject(anari::Device d) const

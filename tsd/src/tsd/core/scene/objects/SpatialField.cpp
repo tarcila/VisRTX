@@ -62,10 +62,10 @@ SpatialField::SpatialField(Token stype) : Object(ANARI_SPATIAL_FIELD, stype)
   }
 }
 
-IndexedVectorRef<SpatialField> SpatialField::self() const
+ObjectPoolRef<SpatialField> SpatialField::self() const
 {
   return scene() ? scene()->getObject<SpatialField>(index())
-                 : IndexedVectorRef<SpatialField>{};
+                 : ObjectPoolRef<SpatialField>{};
 }
 
 anari::Object SpatialField::makeANARIObject(anari::Device d) const

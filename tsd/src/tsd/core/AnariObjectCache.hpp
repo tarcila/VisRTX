@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "tsd/core/IndexedVector.hpp"
+#include "tsd/core/ObjectPool.hpp"
 // anari
 #include <anari/anari_cpp.hpp>
 
@@ -29,14 +29,14 @@ struct AnariObjectCache
   bool supportsCUDA() const;
   void updateObjectArrayData(const Array *a); // for arrays-of-arrays
 
-  IndexedVector<anari::Surface> surface;
-  IndexedVector<anari::Geometry> geometry;
-  IndexedVector<anari::Material> material;
-  IndexedVector<anari::Sampler> sampler;
-  IndexedVector<anari::Volume> volume;
-  IndexedVector<anari::SpatialField> field;
-  IndexedVector<anari::Light> light;
-  IndexedVector<anari::Array> array;
+  ObjectPool<anari::Surface> surface;
+  ObjectPool<anari::Geometry> geometry;
+  ObjectPool<anari::Material> material;
+  ObjectPool<anari::Sampler> sampler;
+  ObjectPool<anari::Volume> volume;
+  ObjectPool<anari::SpatialField> field;
+  ObjectPool<anari::Light> light;
+  ObjectPool<anari::Array> array;
 
   anari::Device device{nullptr};
 
