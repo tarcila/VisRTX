@@ -22,7 +22,7 @@ With that in mind, this repository has the following components:
 - [Core scene description library](src/)
 - [Single-file examples showing off specfic concepts](apps/simple/)
 - [Interactive ImGui-based viewer](apps/interactive/viewer/)
-- [Experimental MPI distributed viewer](apps/interactive/ptc_viewer/)
+- [Experimental MPI distributed viewer](apps/interactive/mpiViewer/)
 - [Basic unit tests](tests/)
 
 Generally `libtsd` follows 1:1 with ANARI's object hierarchy, defined in the
@@ -33,7 +33,7 @@ TSD is tested on Linux, but should work on other platforms (macOS + Windows).
 
 ## Notes on using tsdViewer
 
-The main [`tsdViewer`](apps/interactive/viewer) application is largely
+The main [`tsdViewer`](apps/interactive/viewer/) application is largely
 self-explanitory, but has a few usage tips worth noting.
 
 The list of available devices in the UI is controlled by a comma-separated list
@@ -49,5 +49,10 @@ Files can be loaded on the command line using a pattern of:
 ```
 
 When a loader type is selected, all filenames after it will use that same loader
-until the next loader type is encountered. Available loader types are `assimp`,
-`dlaf`, `hdri`, `nbody`, `obj`, `ply`, and (if enabled) `tsd`.
+until the next loader type is encountered. Common loader types are `assimp`,
+`dlaf`, `hdri` (environment light), `obj`, and `ply`. See [tsd_io](src/tsd/io/)
+for more, as well as [tsd::app::Core::parseCommandLine()](src/tsd/app/Core.cpp)
+for the definitive list of available options. Note that some importers may only
+work when explicitly enabled in CMake -- this is for when the importer incurs
+an additional build dependency. Use `ccmake` or `cmake-gui` to discover what
+additional options may need to be enabled.

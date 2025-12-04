@@ -3,38 +3,49 @@
 
 #pragma once
 
-#include "tsd/containers/IndexedVector.hpp"
+#include "tsd/core/ObjectPool.hpp"
 // anari
 #include <anari/anari_cpp.hpp>
 
-namespace tsd {
+namespace tsd::core {
 
+struct Array;
 struct Object;
+struct Scene;
 
 struct AnariObjectCache
 {
-  AnariObjectCache(anari::Device d);
+  AnariObjectCache(Scene &scene, anari::Device d);
   ~AnariObjectCache();
-  anari::Object getHandle(anari::DataType type, size_t index) const;
-  anari::Object getHandle(const Object *o) const;
+  anari::Object getHandle(
+      anari::DataType type, size_t index, bool createIfNotPresent);
+  anari::Object getHandle(const Object *o, bool createIfNotPresent);
+  void insertEmptyHandle(anari::DataType type);
+  void releaseHandle(anari::DataType type, size_t index);
+  void releaseHandle(const Object *o);
   void removeHandle(anari::DataType type, size_t index);
   void removeHandle(const Object *o);
   void clear();
   bool supportsCUDA() const;
+  void updateObjectArrayData(const Array *a); // for arrays-of-arrays
 
-  IndexedVector<anari::Surface> surface;
-  IndexedVector<anari::Geometry> geometry;
-  IndexedVector<anari::Material> material;
-  IndexedVector<anari::Sampler> sampler;
-  IndexedVector<anari::Volume> volume;
-  IndexedVector<anari::SpatialField> field;
-  IndexedVector<anari::Light> light;
-  IndexedVector<anari::Array> array;
+  ObjectPool<anari::Surface> surface;
+  ObjectPool<anari::Geometry> geometry;
+  ObjectPool<anari::Material> material;
+  ObjectPool<anari::Sampler> sampler;
+  ObjectPool<anari::Volume> volume;
+  ObjectPool<anari::SpatialField> field;
+  ObjectPool<anari::Light> light;
+  ObjectPool<anari::Array> array;
 
   anari::Device device{nullptr};
 
-private:
+ private:
+  void replaceHandle(anari::Object o, anari::DataType type, size_t i);
+  anari::Object readHandle(anari::DataType type, size_t i) const;
+
+  Scene *m_ctx{nullptr};
   bool m_supportsCUDA{false};
 };
 
-} // namespace tsd
+} // namespace tsd::core

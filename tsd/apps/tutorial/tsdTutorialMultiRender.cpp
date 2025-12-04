@@ -1,18 +1,20 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-// tsd
-#include "tsd/TSD.hpp"
+// tsd_core
+#include <tsd/core/scene/Scene.hpp>
+// tsd_io
+#include <tsd/io/procedural.hpp>
+// tsd_rendering
+#include <tsd/rendering/index/RenderIndexFlatRegistry.hpp>
 // std
 #include <cstdio>
 // stb_image
 #include "stb_image_write.h"
 
-using float3 = anari::math::float3;
-using float4 = anari::math::float4;
-using uint2 = anari::math::uint2;
-
-using namespace tsd::literals;
+using float3 = tsd::math::float3;
+using float4 = tsd::math::float4;
+using uint2 = tsd::math::uint2;
 
 void statusFunc(const void *,
     ANARIDevice,
@@ -56,11 +58,11 @@ int main()
 {
   // Create context //
 
-  tsd::Context ctx;
+  tsd::core::Scene scene;
 
   // Populate spheres //
 
-  tsd::generate_randomSpheres(ctx, ctx.defaultLayer()->root(), true);
+  tsd::io::generate_randomSpheres(scene, scene.defaultLayer()->root(), true);
 
   // Setup ANARI device //
 
@@ -69,15 +71,17 @@ int main()
 
   // Setup render indexes //
 
-  tsd::MultiUpdateDelegate ud;
+  tsd::rendering::MultiUpdateDelegate ud;
 
-  auto *rIdx1 = ud.emplace<tsd::RenderIndexFlatRegistry>(device);
-  auto *rIdx2 = ud.emplace<tsd::RenderIndexFlatRegistry>(device);
+  auto *rIdx1 =
+      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(scene, device);
+  auto *rIdx2 =
+      ud.emplace<tsd::rendering::RenderIndexFlatRegistry>(scene, device);
 
-  rIdx1->populate(ctx, false);
-  rIdx2->populate(ctx, false);
+  rIdx1->populate(false);
+  rIdx2->populate(false);
 
-  ctx.setUpdateDelegate(&ud);
+  scene.setUpdateDelegate(&ud);
 
   // Create camera //
 
@@ -126,8 +130,8 @@ int main()
   renderSingleFrame(device, frame, "test2_1.png");
 
   // Mutate material
-  ctx.getObject<tsd::Material>(0)->setParameter(
-      "color"_t, float3(0.f, 1.f, 0.f));
+  scene.getObject<tsd::core::Material>(0)->setParameter(
+      "color", float3(0.f, 1.f, 0.f));
 
   // Render updated frames //
 

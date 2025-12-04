@@ -1,0 +1,77 @@
+name: Build VisRTX
+on:
+  push:
+    branches: [ next_release ]
+  pull_request:
+    branches: [ main, next_release ]
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        cudaversion: ['12.4.1', '13.0.2']
+        config: [release, debug]
+        include:
+          - runs-on: ubuntu-22.04
+            os: linux
+            generator: Ninja
+          - runs-on: windows-2022
+            os: windows
+            generator: Visual Studio 17 2022
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Setup CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.29
+        with:
+          cuda: ${{ matrix.cudaversion }}
+          method: 'network'
+          sub-packages: ${{ matrix.os == 'linux' && '["nvcc", "cudart", "nvml-dev", "thrust"]' || '[]' }}
+          non-cuda-sub-packages: ${{ matrix.os == 'linux' && '["libcurand", "libcurand-dev"]' || '[]' }}
+      - name: Configure dependencies
+        run: >
+          cmake -LA -G "${{ matrix.generator }}" -B ${{github.workspace}}/deps_build
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/deps
+          ${{github.workspace}}/devices/rtx/cmake/build_deps
+      - name: Install dependencies
+        run: >
+          cmake --build ${{ github.workspace }}/deps_build --config ${{ matrix.config }}
+      - name: Configure VisRTX
+        run: >
+          cmake -LA -G "${{ matrix.generator }}" -B ${{github.workspace}}/build-visrtx
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps
+          -DVISRTX_BUILD_RTX_DEVICE=ON
+          -DVISRTX_PRECOMPILE_SHADERS=OFF
+          -DVISRTX_BUILD_GL_DEVICE=OFF
+          -DVISRTX_BUILD_TSD=OFF
+      - name: Install VisRTX
+        run: >
+          cmake --build ${{ github.workspace }}/build-visrtx --config ${{ matrix.config }} --target install --parallel
+      - name: Archive VisRTX build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: visrtx-build-${{ matrix.runs-on }}-${{ matrix.cudaversion }}-${{ matrix.config }}
+          path: install
+      - name: Configure TSD CMake (CUDA)
+        run: >
+          cmake -LA -B ${{github.workspace}}/build-tsd
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/deps
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DTSD_BUILD_APPS=ON
+          -DTSD_BUILD_INTERACTIVE_APPS=OFF
+          -DTSD_BUILD_UI_LIBRARY=OFF
+          -DTSD_USE_ASSIMP=OFF
+          -DTSD_USE_CUDA=ON
+          -DTSD_USE_HDF5=OFF
+          -DTSD_USE_SDL3=OFF
+          -DTSD_USE_TBB=OFF
+          -DTSD_USE_USD=OFF
+          -DTSD_ENABLE_SERIALIZATION=OFF
+          ${{ github.workspace }}/tsd
+      - name: Build TSD (CUDA)
+        run: cmake --build ${{ github.workspace }}/build-tsd --config ${{ matrix.config }} --parallel

@@ -3,7 +3,7 @@
 
 #include "tsd/core/Parameter.hpp"
 
-namespace tsd {
+namespace tsd::core {
 
 Parameter::Parameter(ParameterObserver *object, Token name)
     : m_observer(object), m_name(name)
@@ -38,9 +38,10 @@ Parameter &Parameter::setDescription(const char *d)
 
 Parameter &Parameter::setValue(const Any &newValue)
 {
+  auto oldValue = m_value;
   m_value = newValue;
   if (m_observer)
-    m_observer->parameterChanged(this);
+    m_observer->parameterChanged(this, oldValue);
   return *this;
 }
 
@@ -78,7 +79,7 @@ Parameter &Parameter::setEnabled(bool enabled)
 {
   m_enabled = enabled;
   if (m_observer)
-    m_observer->parameterChanged(this);
+    m_observer->parameterChanged(this, m_value);
   return *this;
 }
 
@@ -122,9 +123,24 @@ int Parameter::stringSelection() const
   return m_stringSelection;
 }
 
+void Parameter::setToAttribute()
+{
+  setStringValues({"attribute0",
+      "attribute1",
+      "attribute2",
+      "attribute3",
+      "color",
+      "worldPosition",
+      "worldNormal",
+      "objectPosition",
+      "objectNormal"});
+  setStringSelection(0);
+  setValue("attribute0");
+}
+
 void Parameter::setObserver(ParameterObserver *o)
 {
   m_observer = o;
 }
 
-} // namespace tsd
+} // namespace tsd::core

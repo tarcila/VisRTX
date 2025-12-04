@@ -8,14 +8,15 @@
 
 namespace {
 
-struct MockObject : public tsd::ParameterObserver
+struct MockObject : public tsd::core::ParameterObserver
 {
-  void parameterChanged(const tsd::Parameter *) override
+  void parameterChanged(
+      const tsd::core::Parameter *, const tsd::core::Any &) override
   {
     notified = true;
   }
 
-  void removeParameter(const tsd::Parameter *) override
+  void removeParameter(const tsd::core::Parameter *) override
   {
     // no-op
   }
@@ -27,12 +28,12 @@ struct MockObject : public tsd::ParameterObserver
 
 ///////////////////////////////////////////////////////////////////////////////
 
-SCENARIO("tsd::Parameter interface", "[Parameter]")
+SCENARIO("tsd::core::Parameter interface", "[Parameter]")
 {
   GIVEN("A constructed Parameter with a value")
   {
     MockObject obj;
-    tsd::Parameter prop(&obj, "test_parameter");
+    tsd::core::Parameter prop(&obj, "test_parameter");
     prop.setValue(5);
 
     THEN("The Parameter name is correct")
@@ -81,10 +82,10 @@ SCENARIO("tsd::Parameter interface", "[Parameter]")
     }
   }
 
-  GIVEN("A constructed Parameter with a value and min/max")
+  GIVEN("A constructed tsd::core::Parameter with a value and min/max")
   {
     MockObject obj;
-    tsd::Parameter prop(&obj, "test_parameter");
+    tsd::core::Parameter prop(&obj, "test_parameter");
     prop.setValue(5)
         .setDescription("this is a test parameter")
         .setMin(0)

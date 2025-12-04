@@ -1,29 +1,39 @@
 // Copyright 2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-// tsd
-#include "tsd/TSD.hpp"
-// render pipeline
-#include "render_pipeline/RenderPipeline.h"
+// tsd_core
+#include <tsd/core/Timer.hpp>
+#include <tsd/core/scene/Scene.hpp>
+// tsd_rendering
+#include <tsd/rendering/pipeline/RenderPipeline.h>
+#include <tsd/rendering/index/RenderIndexAllLayers.hpp>
+#include <tsd/rendering/view/ManipulatorToAnari.hpp>
+// tsd_app
+#include <tsd/app/Core.h>
+// tsd_io
+#include <tsd/io/serialization.hpp>
+// stb_image
+#include "stb_image_write.h"
 // std
 #include <chrono>
 #include <cstdio>
 #include <memory>
-// stb_image
-#include "stb_image_write.h"
+#include <vector>
 
 // Application state //////////////////////////////////////////////////////////
 
-static std::unique_ptr<tsd::serialization::DataTree> g_stateFile;
-static std::unique_ptr<tsd::Context> g_ctx;
-static std::unique_ptr<tsd::RenderIndexAllLayers> g_renderIndex;
-static std::unique_ptr<tsd::RenderPipeline> g_renderPipeline;
-static tsd::uint2 g_imageSize = {1200, 800};
-static tsd::Timer g_timer;
-static tsd::manipulators::Orbit g_manipulator;
+static std::unique_ptr<tsd::core::DataTree> g_stateFile;
+static std::unique_ptr<tsd::core::Scene> g_ctx;
+static std::unique_ptr<tsd::rendering::RenderIndexAllLayers> g_renderIndex;
+static std::unique_ptr<tsd::rendering::RenderPipeline> g_renderPipeline;
+static tsd::core::Timer g_timer;
+static tsd::rendering::Manipulator g_manipulator;
+static std::vector<tsd::rendering::CameraPose> g_cameraPoses;
+static std::unique_ptr<tsd::app::Core> g_core;
 
 static anari::Library g_library{nullptr};
 static anari::Device g_device{nullptr};
+static anari::Camera g_camera{nullptr};
 
 // Helper functions ///////////////////////////////////////////////////////////
 
@@ -55,11 +65,13 @@ static void loadANARIDevice()
 #endif
   };
 
-  printf("Loading ANARI device from 'environment' library...");
+  auto library = g_core->offline.renderer.libraryName;
+
+  printf("Loading ANARI device from '%s' library...", library.c_str());
   fflush(stdout);
 
   g_timer.start();
-  g_library = anari::loadLibrary("environment", statusFunc);
+  g_library = anari::loadLibrary(library.c_str(), statusFunc);
   g_device = anari::newDevice(g_library, "default");
   g_timer.end();
 
@@ -72,19 +84,19 @@ static void initTSDDataTree()
   fflush(stdout);
 
   g_timer.start();
-  g_stateFile = std::make_unique<tsd::serialization::DataTree>();
+  g_stateFile = std::make_unique<tsd::core::DataTree>();
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
 }
 
-static void initTSDContext()
+static void initTSDScene()
 {
   printf("Initializing TSD context...");
   fflush(stdout);
 
   g_timer.start();
-  g_ctx = std::make_unique<tsd::Context>();
+  g_ctx = std::make_unique<tsd::core::Scene>();
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -96,7 +108,8 @@ static void initTSDRenderIndex()
   fflush(stdout);
 
   g_timer.start();
-  g_renderIndex = std::make_unique<tsd::RenderIndexAllLayers>(g_device);
+  g_renderIndex =
+      std::make_unique<tsd::rendering::RenderIndexAllLayers>(*g_ctx, g_device);
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -114,7 +127,21 @@ static void loadState(const char *filename)
   printf("done (%.2f ms)\n", g_timer.milliseconds());
 }
 
-static void populateTSDContext()
+static void loadSettings()
+{
+  printf("Loading render settings...");
+  fflush(stdout);
+
+  g_timer.start();
+  auto &root = g_stateFile->root();
+  auto &offlineSettings = root["offlineRendering"];
+  g_core->offline.loadSettings(offlineSettings);
+  g_timer.end();
+
+  printf("done (%.2f ms)\n", g_timer.milliseconds());
+}
+
+static void populateTSDScene()
 {
   printf("Populating TSD context...");
   fflush(stdout);
@@ -122,9 +149,9 @@ static void populateTSDContext()
   g_timer.start();
   auto &root = g_stateFile->root();
   if (auto *c = root.child("context"); c != nullptr)
-    tsd::load_Context(*g_ctx, *c);
+    tsd::io::load_Scene(*g_ctx, *c);
   else
-    tsd::load_Context(*g_ctx, root);
+    tsd::io::load_Scene(*g_ctx, root);
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -136,7 +163,7 @@ static void populateRenderIndex()
   fflush(stdout);
 
   g_timer.start();
-  g_renderIndex->populate(*g_ctx);
+  g_renderIndex->populate();
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
@@ -150,11 +177,13 @@ static void setupCameraManipulator()
   g_timer.start();
   auto &root = g_stateFile->root();
   if (auto *c = root.child("cameraPoses"); c != nullptr && !c->isLeaf()) {
-    tsd::manipulators::CameraPose pose;
-    tsd::nodeToCameraPose(*c->child(0), pose);
-    printf("using camera pose '%s'...", pose.name.c_str());
+    c->foreach_child([&](tsd::core::DataNode &n) {
+      tsd::rendering::CameraPose pose;
+      tsd::io::nodeToCameraPose(n, pose);
+      g_cameraPoses.push_back(std::move(pose));
+    });
+    printf("using %zu camera poses from file...", g_cameraPoses.size());
     fflush(stdout);
-    g_manipulator.setConfig(pose);
   } else {
     printf("from world bounds...");
     fflush(stdout);
@@ -170,8 +199,14 @@ static void setupCameraManipulator()
 
     auto center = 0.5f * (bounds[0] + bounds[1]);
     auto diag = bounds[1] - bounds[0];
-    g_manipulator.setConfig(
-        center, 0.5f * tsd::math::length(diag), {0.f, 20.f});
+
+    tsd::rendering::CameraPose pose;
+    pose.fixedDist = 2.f * tsd::math::length(diag);
+    pose.lookat = center;
+    pose.azeldist = {0.f, 20.f, pose.fixedDist};
+    pose.upAxis = static_cast<int>(tsd::rendering::UpAxis::POS_Y);
+
+    g_cameraPoses.push_back(std::move(pose));
   }
   g_timer.end();
 
@@ -180,57 +215,99 @@ static void setupCameraManipulator()
 
 static void setupRenderPipeline()
 {
-  printf("Setting up render pipeline...");
+  const auto frameWidth = g_core->offline.frame.width;
+  const auto frameHeight = g_core->offline.frame.height;
+
+  printf("Setting up render pipeline (%u x %u)...", frameWidth, frameHeight);
   fflush(stdout);
 
   g_timer.start();
   g_renderPipeline =
-      std::make_unique<tsd::RenderPipeline>(g_imageSize.x, g_imageSize.y);
+      std::make_unique<tsd::rendering::RenderPipeline>(frameWidth, frameHeight);
 
-  auto camera = anari::newObject<anari::Camera>(g_device, "perspective");
-  anari::setParameter(g_device, camera, "position", g_manipulator.eye());
-  anari::setParameter(g_device, camera, "direction", g_manipulator.dir());
-  anari::setParameter(g_device, camera, "up", g_manipulator.up());
+  g_camera = anari::newObject<anari::Camera>(g_device, "perspective");
   anari::setParameter(
-      g_device, camera, "aspect", g_imageSize.x / float(g_imageSize.y));
-  anari::setParameter(g_device, camera, "fovy", anari::radians(40.f));
-  anari::commitParameters(g_device, camera);
+      g_device, g_camera, "aspect", frameWidth / float(frameHeight));
+  anari::setParameter(g_device, g_camera, "fovy", anari::radians(40.f));
+  anari::setParameter(g_device,
+      g_camera,
+      "apertureRadius",
+      g_core->offline.camera.apertureRadius);
+  anari::setParameter(g_device,
+      g_camera,
+      "focusDistance",
+      g_core->offline.camera.focusDistance);
+  anari::commitParameters(g_device, g_camera);
 
-  auto renderer = anari::newObject<anari::Renderer>(g_device, "default");
-  anari::setParameter(g_device, renderer, "ambientRadiance", 0.25f);
-  anari::commitParameters(g_device, renderer);
+  auto activeRenderer = g_core->offline.renderer.activeRenderer;
+  auto &ro = g_core->offline.renderer.rendererObjects[activeRenderer];
+  auto r = anari::newObject<anari::Renderer>(g_device, ro.name().c_str());
+  ro.updateAllANARIParameters(g_device, r);
+  anari::commitParameters(g_device, r);
 
-  auto *arp = g_renderPipeline->emplace_back<tsd::AnariRenderPass>(g_device);
+  auto *arp =
+      g_renderPipeline->emplace_back<tsd::rendering::AnariSceneRenderPass>(
+          g_device);
   arp->setWorld(g_renderIndex->world());
-  arp->setRenderer(renderer);
-  arp->setCamera(camera);
+  arp->setRenderer(r);
+  arp->setCamera(g_camera);
+  arp->setRunAsync(false);
 
-  anari::release(g_device, camera);
-  anari::release(g_device, renderer);
+  anari::release(g_device, r);
 
   g_timer.end();
 
   printf("done (%.2f ms)\n", g_timer.milliseconds());
 }
 
-static void renderFrame()
+static void renderFrames()
 {
-  printf("Rendering frame (64 spp)...");
+  const auto frameWidth = g_core->offline.frame.width;
+  const auto frameHeight = g_core->offline.frame.height;
+  const auto frameSamples = g_core->offline.frame.samples;
+
+  printf("Rendering frames (%u spp)...\n", frameSamples);
   fflush(stdout);
 
-  g_timer.start();
-  for (int i = 0; i < 64; i++)
-    g_renderPipeline->render();
   stbi_flip_vertically_on_write(1);
-  stbi_write_png("tsdRender.png",
-      g_imageSize.x,
-      g_imageSize.y,
-      4,
-      g_renderPipeline->getColorBuffer(),
-      4 * g_imageSize.x);
+
+  g_timer.start();
+
+  for (size_t i = 0; i < g_cameraPoses.size(); i++) {
+    const auto &pose = g_cameraPoses[i];
+
+    g_manipulator.setConfig(pose);
+    tsd::rendering::updateCameraParametersPerspective(
+        g_device, g_camera, g_manipulator);
+    anari::commitParameters(g_device, g_camera);
+
+    printf("...frame %zu...\n", i);
+    fflush(stdout);
+
+    for (int i = 0; i < frameSamples; i++)
+      g_renderPipeline->render();
+
+    std::string filename = "tsdRender_";
+    if (i < 10)
+      filename += "000" + std::to_string(i) + ".png";
+    else if (i < 100)
+      filename += "00" + std::to_string(i) + ".png";
+    else if (i < 1000)
+      filename += "0" + std::to_string(i) + ".png";
+    else
+      filename += std::to_string(i) + ".png";
+
+    stbi_write_png(filename.c_str(),
+        frameWidth,
+        frameHeight,
+        4,
+        g_renderPipeline->getColorBuffer(),
+        4 * frameWidth);
+  }
+
   g_timer.end();
 
-  printf("done (%.2f ms)\n", g_timer.milliseconds());
+  printf("...done (%.2f ms)\n", g_timer.milliseconds());
 }
 
 static void cleanup()
@@ -243,6 +320,7 @@ static void cleanup()
   g_renderIndex.reset();
   g_ctx.reset();
   g_stateFile.reset();
+  anari::release(g_device, g_camera);
   anari::release(g_device, g_device);
   anari::unloadLibrary(g_library);
   g_timer.end();
@@ -261,17 +339,22 @@ int main(int argc, const char *argv[])
     return 1;
   }
 
-  loadANARIDevice();
+  g_core = std::make_unique<tsd::app::Core>();
+
   initTSDDataTree();
-  initTSDContext();
-  initTSDRenderIndex();
+  initTSDScene();
   loadState(argv[1]);
-  populateTSDContext();
+  loadSettings();
+  loadANARIDevice();
+  initTSDRenderIndex();
+  populateTSDScene();
   populateRenderIndex();
   setupCameraManipulator();
   setupRenderPipeline();
-  renderFrame();
+  renderFrames();
   cleanup();
+
+  g_core.reset();
 
   return 0;
 }

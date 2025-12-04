@@ -10,9 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace tsd {
-
-using Any = tsd::utility::Any;
+namespace tsd::core {
 
 enum ParameterUsageHint
 {
@@ -26,7 +24,7 @@ enum ParameterUsageHint
 struct Parameter;
 struct ParameterObserver
 {
-  virtual void parameterChanged(const Parameter *p) = 0;
+  virtual void parameterChanged(const Parameter *p, const Any &oldValue) = 0;
   virtual void removeParameter(const Parameter *p) = 0;
 };
 
@@ -73,6 +71,10 @@ struct Parameter
   const std::vector<std::string> &stringValues() const;
   int stringSelection() const;
 
+  // Convenience methods for setting to a particular kind of parameter //
+
+  void setToAttribute();
+
   ////////////////////////////////////////
 
   Parameter() = default;
@@ -86,6 +88,7 @@ struct Parameter
 
  private:
   friend struct Object;
+  friend struct Scene;
 
   void setObserver(ParameterObserver *o);
 
@@ -115,4 +118,4 @@ inline void Parameter::operator=(T newValue)
   setValue(newValue);
 }
 
-} // namespace tsd
+} // namespace tsd::core

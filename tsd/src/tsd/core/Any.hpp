@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace tsd::utility {
+namespace tsd::core {
 
 struct Any
 {
@@ -24,6 +24,7 @@ struct Any
   template <typename T>
   Any(T value);
   Any(bool value);
+  explicit Any(size_t value);
 
   Any(ANARIDataType type, const void *v);
   Any(ANARIDataType type, size_t v = INVALID_INDEX); // only use for objects
@@ -117,6 +118,12 @@ inline Any::Any(bool value)
 {
   uint32_t v = value;
   *this = Any(ANARI_BOOL, &v);
+}
+
+inline Any::Any(size_t value)
+{
+  uint64_t v = value;
+  *this = Any(ANARI_UINT64, &v);
 }
 
 inline Any::Any(ANARIDataType type, const void *v) : Any()
@@ -309,4 +316,4 @@ inline void Any::resizeString(size_t size)
   m_string.resize(size);
 }
 
-} // namespace tsd::utility
+} // namespace tsd::core

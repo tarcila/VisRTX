@@ -1,19 +1,26 @@
 // Copyright 2024-2025 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TSDApplication.h"
-#include "windows/CameraPoses.h"
-#include "windows/DatabaseEditor.h"
-#include "windows/IsosurfaceEditor.h"
-#include "windows/LayerTree.h"
-#include "windows/Log.h"
-#include "windows/ObjectEditor.h"
-#include "windows/TransferFunctionEditor.h"
-#include "windows/Viewport.h"
+// tsd_io
+#include <tsd/io/procedural.hpp>
+// tsd_ui_imgui
+#include <tsd/ui/imgui/Application.h>
+#include <tsd/ui/imgui/windows/Animations.h>
+#include <tsd/ui/imgui/windows/CameraPoses.h>
+#include <tsd/ui/imgui/windows/DatabaseEditor.h>
+#include <tsd/ui/imgui/windows/IsosurfaceEditor.h>
+#include <tsd/ui/imgui/windows/LayerTree.h>
+#include <tsd/ui/imgui/windows/Log.h>
+#include <tsd/ui/imgui/windows/ObjectEditor.h>
+#include <tsd/ui/imgui/windows/TransferFunctionEditor.h>
+#include <tsd/ui/imgui/windows/Viewport.h>
 // std
 #include <chrono>
 
 namespace tsd_viewer {
+
+using TSDApplication = tsd::ui::imgui::Application;
+namespace tsd_ui = tsd::ui::imgui;
 
 class Application : public TSDApplication
 {
@@ -27,17 +34,20 @@ class Application : public TSDApplication
 
     auto *core = appCore();
 
-    auto *cameras = new CameraPoses(core);
-    auto *log = new Log(core);
-    auto *viewport = new Viewport(core, &core->view.manipulator, "Viewport");
+    auto *animations = new tsd_ui::Animations(this);
+    auto *cameras = new tsd_ui::CameraPoses(this);
+    auto *log = new tsd_ui::Log(this);
+    auto *viewport =
+        new tsd_ui::Viewport(this, &core->view.manipulator, "Viewport");
     auto *viewport2 =
-        new Viewport(core, &core->view.manipulator, "Secondary View");
-    auto *dbeditor = new DatabaseEditor(core);
-    auto *oeditor = new ObjectEditor(core);
-    auto *otree = new LayerTree(core);
-    auto *tfeditor = new TransferFunctionEditor(core);
-    auto *isoeditor = new IsosurfaceEditor(core);
+        new tsd_ui::Viewport(this, &core->view.manipulator, "Secondary View");
+    auto *dbeditor = new tsd_ui::DatabaseEditor(this);
+    auto *oeditor = new tsd_ui::ObjectEditor(this);
+    auto *otree = new tsd_ui::LayerTree(this);
+    auto *tfeditor = new tsd_ui::TransferFunctionEditor(this);
+    auto *isoeditor = new tsd_ui::IsosurfaceEditor(this);
 
+    windows.emplace_back(animations);
     windows.emplace_back(cameras);
     windows.emplace_back(viewport);
     windows.emplace_back(viewport2);
@@ -64,24 +74,18 @@ class Application : public TSDApplication
       auto loadSeconds =
           std::chrono::duration<float>(loadEnd - loadStart).count();
 
-      auto &ctx = core->tsd.ctx;
+      auto &scene = core->tsd.scene;
 
       const bool setupDefaultLight = !core->commandLine.loadedFromStateFile
-          && ctx.numberOfObjects(ANARI_LIGHT) == 0;
+          && scene.numberOfObjects(ANARI_LIGHT) == 0;
       if (setupDefaultLight) {
-        tsd::logStatus("...setting up default light");
-
-        auto light =
-            ctx.createObject<tsd::Light>(tsd::tokens::light::directional);
-        light->setName("mainLight");
-        light->setParameter("direction", tsd::float2(0.f, 240.f));
-
-        ctx.defaultLayer()->root()->insert_first_child(
-            tsd::utility::Any(ANARI_LIGHT, light.index()));
+        tsd::core::logStatus("...setting up default light");
+        tsd::io::generate_default_lights(scene);
       }
 
-      tsd::logStatus("...scene load complete! (%.3fs)", loadSeconds);
-      tsd::logStatus("%s", tsd::objectDBInfo(ctx.objectDB()).c_str());
+      tsd::core::logStatus("...scene load complete! (%.3fs)", loadSeconds);
+      tsd::core::logStatus(
+          "%s", tsd::core::objectDBInfo(scene.objectDB()).c_str());
       core->tsd.sceneLoadComplete = true;
 
       if (!core->commandLine.loadedFromStateFile) {
@@ -93,8 +97,6 @@ class Application : public TSDApplication
 
 #if 1
     m_taskModal->activate(populateScene, "Please Wait: Loading Scene...");
-#elif 1
-    m_sceneLoadFuture = std::async(populateScene);
 #else
     populateScene();
 #endif
@@ -174,7 +176,18 @@ DockId=0x0000000B,0
 Pos=0,26
 Size=547,575
 Collapsed=0
+DockId=0x00000008,2
+
+[Window][Animations]
+Pos=0,26
+Size=547,575
+Collapsed=0
 DockId=0x00000008,1
+
+[Window][##]
+Pos=792,507
+Size=336,116
+Collapsed=0
 
 [Table][0x44C159D3,2]
 Column 0  Weight=1.0000

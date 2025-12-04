@@ -7,7 +7,7 @@
 // std
 #include <vector>
 
-namespace tsd {
+namespace tsd::core {
 
 using ColorPoint = float4;
 using OpacityPoint = float2;
@@ -17,64 +17,30 @@ std::vector<math::float4> makeDefaultColorMap(size_t size = 256);
 template <typename T>
 std::vector<T> resampleArray(const std::vector<T> &input, size_t newSize);
 
+namespace detail {
+
+tsd::math::float3 interpolateColor(
+    const std::vector<ColorPoint> &controlPoints, float x);
+
+float interpolateOpacity(
+    const std::vector<OpacityPoint> &controlPoints, float x);
+} // namespace detail
+
+namespace colormap {
+
+extern std::vector<float3> jet;
+extern std::vector<float3> cool_to_warm;
+extern std::vector<float3> viridis;
+extern std::vector<float3> black_body;
+extern std::vector<float3> inferno;
+extern std::vector<float3> ice_fire;
+extern std::vector<float3> grayscale;
+
+} // namespace colormap
+
 ///////////////////////////////////////////////////////////////////////////////
 // Inlined definitions ////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-
-namespace detail {
-
-inline tsd::float3 interpolateColor(
-    const std::vector<ColorPoint> &controlPoints, float x)
-{
-  auto first = controlPoints.front();
-  if (x <= first.x)
-    return tsd::float3(first.y, first.z, first.w);
-
-  for (uint32_t i = 1; i < controlPoints.size(); i++) {
-    auto current = controlPoints[i];
-    auto previous = controlPoints[i - 1];
-    if (x <= current.x) {
-      const float t = (x - previous.x) / (current.x - previous.x);
-      return (1.0f - t) * tsd::float3(previous.y, previous.z, previous.w)
-          + t * tsd::float3(current.y, current.z, current.w);
-    }
-  }
-
-  auto last = controlPoints.back();
-  return tsd::float3(last.x, last.y, last.z);
-}
-
-inline float interpolateOpacity(
-    const std::vector<OpacityPoint> &controlPoints, float x)
-
-{
-  auto first = controlPoints.front();
-  if (x <= first.x)
-    return first.y;
-
-  for (uint32_t i = 1; i < controlPoints.size(); i++) {
-    auto current = controlPoints[i];
-    auto previous = controlPoints[i - 1];
-    if (x <= current.x) {
-      const float t = (x - previous.x) / (current.x - previous.x);
-      return (1.0 - t) * previous.y + t * current.y;
-    }
-  }
-
-  auto last = controlPoints.back();
-  return last.y;
-}
-
-} // namespace detail
-
-inline std::vector<math::float4> makeDefaultColorMap(size_t size)
-{
-  std::vector<math::float4> colors;
-  colors.emplace_back(1.f, 0.f, 0.f, 0.0f);
-  colors.emplace_back(0.f, 1.f, 0.f, 0.5f);
-  colors.emplace_back(0.f, 0.f, 1.f, 1.0f);
-  return resampleArray(colors, size);
-}
 
 template <typename T>
 inline std::vector<T> resampleArray(const std::vector<T> &input, size_t newSize)
@@ -94,4 +60,4 @@ inline std::vector<T> resampleArray(const std::vector<T> &input, size_t newSize)
   return output;
 }
 
-} // namespace tsd
+} // namespace tsd::core

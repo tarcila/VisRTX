@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace tsd {
+namespace tsd::core {
 
 struct Token
 {
@@ -17,6 +17,7 @@ struct Token
 
   const char *c_str() const;
   const char *value() const;
+  std::string str() const;
 
   bool empty() const;
   operator bool() const;
@@ -33,9 +34,4 @@ struct Token
 bool operator==(const Token &t1, const Token &t2);
 bool operator!=(const Token &t1, const Token &t2);
 
-namespace literals {
-
-Token operator""_t(const char *, size_t);
-
-} // namespace literals
-} // namespace tsd
+} // namespace tsd::core
