@@ -56,9 +56,10 @@ class Application : public TSDApplication
 
   void uiMainMenuBar() override
   {
-    auto incrementVersion = [&]() {
-      m_viewport->setCustomFrameParameter("accumulationVersion",
-          tsd::core::Any(uint64_t{++m_accumulationVersion}));
+    auto incrementVersion = [&](bool resetToZero = false) {
+      m_accumulationVersion = resetToZero ? 0 : m_accumulationVersion + 1;
+      m_viewport->setCustomFrameParameter(
+          "accumulationVersion", tsd::core::Any(m_accumulationVersion));
     };
 
     // Menu //
@@ -66,6 +67,8 @@ class Application : public TSDApplication
     if (ImGui::BeginMenu("Accumulation Controls")) {
       if (ImGui::MenuItem("Reset", "a"))
         incrementVersion();
+      if (ImGui::MenuItem("Use Automatic Reset", ""))
+        incrementVersion(true);
       ImGui::Separator();
       ImGui::Text("accumulationVersion: %zu", m_accumulationVersion);
       ImGui::EndMenu();

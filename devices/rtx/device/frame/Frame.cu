@@ -91,8 +91,9 @@ void Frame::commitParameters()
   m_instIDType = getParam<ANARIDataType>("channel.instanceId", ANARI_UNKNOWN);
   m_albedoType = getParam<ANARIDataType>("channel.albedo", ANARI_UNKNOWN);
   m_normalType = getParam<ANARIDataType>("channel.normal", ANARI_UNKNOWN);
-  m_manualAccumulationRestart = getParam(
-      "accumulationVersion", ANARI_UINT64, &m_applicationAccumulationVersion);
+  m_manualAccumulationRestart = getParam("accumulationVersion",
+                                    ANARI_UINT64,
+                                    &m_applicationAccumulationVersion);
 }
 
 void Frame::finalize()
@@ -100,9 +101,10 @@ void Frame::finalize()
   if (!isValid())
     return;
 
-  if (!m_manualAccumulationRestart) {
+  if (!m_manualAccumulationRestart || m_applicationAccumulationVersion == 0) {
     m_applicationAccumulationVersion = 0;
     m_lastRenderedAccumulationVersion = 0;
+    m_manualAccumulationRestart = false;
   } else {
     reportMessage(ANARI_SEVERITY_DEBUG,
         "Frame using manual accumulation restart with version %zu",
@@ -126,7 +128,6 @@ void Frame::finalize()
   const bool channelInstID = m_instIDType == ANARI_UINT32;
   const bool channelAlbedo = m_albedoType == ANARI_FLOAT32_VEC3;
   const bool channelNormal = m_normalType == ANARI_FLOAT32_VEC3;
-
 
   const bool channelDepth = m_depthType == ANARI_FLOAT32 || channelPrimID
       || channelObjID || channelInstID;
