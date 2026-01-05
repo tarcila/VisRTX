@@ -4,8 +4,8 @@
 #pragma once
 
 // tsd_core
-#include "tsd/core/scene/Scene.hpp"
 #include "tsd/core/ColorMapUtil.hpp"
+#include "tsd/core/scene/Scene.hpp"
 // tsd_rendering
 #include "tsd/rendering/index/RenderIndex.hpp"
 #include "tsd/rendering/view/Manipulator.hpp"
@@ -58,7 +58,8 @@ enum class ImporterType
   VOLUME,
   TSD,
   XF, // Special case for transfer function files
-      // Not an actual scene importer, but used to set transfer function from CLI
+      // Not an actual scene importer, but used to set transfer function from
+      // CLI
   BLANK, // Must be last import type before 'NONE'
   NONE
 };
@@ -87,7 +88,8 @@ struct CommandLineOptions
 
 struct TSDState
 {
-  struct StashedSelection {
+  struct StashedSelection
+  {
     std::vector<tsd::core::LayerNodeRef> nodes;
     bool shouldDeleteAfterPaste{false};
   };
@@ -154,7 +156,8 @@ struct CameraState
   tsd::rendering::Manipulator manipulator;
 };
 
-struct ImporterState {
+struct ImporterState
+{
   core::TransferFunction transferFunction;
 };
 
@@ -245,17 +248,18 @@ struct Core
 
   // Selection //
 
-  tsd::core::LayerNodeRef getSelected() const; // Returns first selected or invalid
-  const std::vector<tsd::core::LayerNodeRef>& getSelectedNodes() const;
+  tsd::core::LayerNodeRef getFirstSelected() const;
+  const std::vector<tsd::core::LayerNodeRef> &getSelectedNodes() const;
   void setSelected(tsd::core::LayerNodeRef node);
-  void setSelected(const std::vector<tsd::core::LayerNodeRef>& nodes);
+  void setSelected(const std::vector<tsd::core::LayerNodeRef> &nodes);
   void setSelected(const tsd::core::Object *obj);
   void addToSelection(tsd::core::LayerNodeRef node);
   void removeFromSelection(tsd::core::LayerNodeRef node);
   bool isSelected(tsd::core::LayerNodeRef node) const;
   void clearSelected();
-  
-  // Returns only parent nodes from selection (filters out children of selected nodes)
+
+  // Returns only parent nodes from selection (filters out children of selected
+  // nodes)
   std::vector<tsd::core::LayerNodeRef> getParentOnlySelectedNodes() const;
 
   // Camera poses //

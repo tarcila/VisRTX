@@ -21,8 +21,9 @@ void IsosurfaceEditor::buildUI()
 
   tsd::core::Object *selectedIsosurface = nullptr;
   tsd::core::Object *selectedVolume = nullptr;
-  auto selectedNode = appCore()->getSelected();
-  tsd::core::Object *selectedObject = selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
+  auto selectedNode = appCore()->getFirstSelected();
+  tsd::core::Object *selectedObject =
+      selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
 
   if (selectedObject != nullptr) {
     if (selectedObject->type() == ANARI_VOLUME)
@@ -95,8 +96,9 @@ void IsosurfaceEditor::buildUI()
 
 void IsosurfaceEditor::addIsosurfaceGeometryFromSelected()
 {
-  auto selectedNode = appCore()->getSelected();
-  tsd::core::Object *selectedObject = selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
+  auto selectedNode = appCore()->getFirstSelected();
+  tsd::core::Object *selectedObject =
+      selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
   auto &scene = appCore()->tsd.scene;
   auto *layer = scene.defaultLayer();
 

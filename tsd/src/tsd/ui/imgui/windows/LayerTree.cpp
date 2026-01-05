@@ -198,7 +198,7 @@ void LayerTree::buildUI_tree()
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.3f, 0.3f, 1.f));
       }
 
-      auto selectedNodeRef = appCore()->getSelected();
+      auto selectedNodeRef = appCore()->getFirstSelected();
       auto currentNodeRef = layer.at(node.index());
 
       // Check if this node is in the selection set
@@ -559,7 +559,7 @@ void LayerTree::buildUI_handleSelection()
     if (scene.numberOfLayers() > 0) {
       auto &layer = *scene.layer(m_layerIdx);
       std::vector<tsd::core::LayerNodeRef> allNodes;
-      
+
       // Traverse the layer and collect all nodes (except root)
       layer.traverse(layer.root(), [&](auto &node, int level) {
         if (level > 0) { // Skip root node (level 0)
@@ -567,7 +567,7 @@ void LayerTree::buildUI_handleSelection()
         }
         return true;
       });
-      
+
       // Select all collected nodes
       if (!allNodes.empty()) {
         appCore()->setSelected(allNodes);

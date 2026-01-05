@@ -15,7 +15,7 @@ ObjectEditor::ObjectEditor(Application *app, const char *name)
 
 void ObjectEditor::buildUI()
 {
-  auto selectedNode = appCore()->getSelected();
+  auto selectedNode = appCore()->getFirstSelected();
   if (!selectedNode.valid()) {
     ImGui::Text("{no object selected}");
     return;
@@ -63,8 +63,7 @@ void ObjectEditor::buildUI()
       scene->signalLayerChange(layer);
     }
   } else if (!node->isEmpty()) {
-    ImGui::Text(
-        "{unhandled '%s' node}", anari::toString(node->type()));
+    ImGui::Text("{unhandled '%s' node}", anari::toString(node->type()));
   } else {
     ImGui::Text("TODO: empty node");
   }

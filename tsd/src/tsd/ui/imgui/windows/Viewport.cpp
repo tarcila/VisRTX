@@ -83,7 +83,7 @@ void Viewport::buildUI()
   ui_menubar();
 
   if (m_anariPass && !didPick)
-    m_anariPass->setEnableIDs(appCore()->getSelected().valid());
+    m_anariPass->setEnableIDs(appCore()->getFirstSelected().valid());
 
   if (m_rIdx && (m_rIdx->isFlat() != appCore()->anari.useFlatRenderIndex())) {
     tsd::core::logWarning("instancing setting changed: resetting viewport");
@@ -510,7 +510,8 @@ void Viewport::setupRenderPipeline()
         id &= 0x7FFFFFFF;
       }
 
-      auto *obj = (id == ~0u) ? nullptr : appCore()->tsd.scene.getObject(objectType, id);
+      auto *obj = (id == ~0u) ? nullptr
+                              : appCore()->tsd.scene.getObject(objectType, id);
       appCore()->setSelected(obj);
     }
 
@@ -597,7 +598,7 @@ void Viewport::setSelectionVisibilityFilterEnabled(bool enabled)
     m_rIdx->setFilterFunction({});
   else {
     m_rIdx->setFilterFunction([this](const tsd::core::Object *obj) {
-      auto selectedNode = appCore()->getSelected();
+      auto selectedNode = appCore()->getFirstSelected();
       if (!selectedNode.valid())
         return true;
       auto *selectedObject = (*selectedNode)->getObject();
@@ -703,8 +704,9 @@ void Viewport::updateImage()
   anari::getProperty(
       m_device, frame, "numSamples", m_frameSamples, ANARI_NO_WAIT);
 
-  auto selectedNode = appCore()->getSelected();
-  const auto *selectedObject = selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
+  auto selectedNode = appCore()->getFirstSelected();
+  const auto *selectedObject =
+      selectedNode.valid() ? (*selectedNode)->getObject() : nullptr;
   const bool doHighlight = !m_showOnlySelected && m_highlightSelection
       && selectedObject
       && (selectedObject->type() == ANARI_SURFACE
@@ -1456,7 +1458,7 @@ bool Viewport::canShowGizmo() const
     return false; // No gizmo with database camera
 
   // Check if we have a selected node with a transform
-  auto selectedNode = appCore()->getSelected();
+  auto selectedNode = appCore()->getFirstSelected();
   if (selectedNode.valid()) {
     return (*selectedNode)->isTransform();
   }
@@ -1477,7 +1479,7 @@ void Viewport::ui_gizmo()
     return world;
   };
 
-  auto selectedNodeRef = appCore()->getSelected();
+  auto selectedNodeRef = appCore()->getFirstSelected();
   auto parentNodeRef = selectedNodeRef->parent();
 
   auto localTransform = (*selectedNodeRef)->getTransform();
@@ -1522,10 +1524,10 @@ void Viewport::ui_gizmo()
   if (m_currentCamera == m_perspCamera) {
     float oneOverTanFov = 1.0f / tan(fovRadians / 2.0f);
     proj = math::mat4{
-      {oneOverTanFov / aspect, 0.0f, 0.0f, 0.0f},
-      {0.0f, oneOverTanFov, 0.0f, 0.0f},
-      {0.0f, 0.0f, -(far + near) / (far - near), -1.0f},
-      {0.0f, 0.0f, -2.0f * far * near / (far - near), 0.0f},
+        {oneOverTanFov / aspect, 0.0f, 0.0f, 0.0f},
+        {0.0f, oneOverTanFov, 0.0f, 0.0f},
+        {0.0f, 0.0f, -(far + near) / (far - near), -1.0f},
+        {0.0f, 0.0f, -2.0f * far * near / (far - near), 0.0f},
     };
   } else if (m_currentCamera == m_orthoCamera) {
     // The 0.75 factor is to match updateCameraParametersOrthographic

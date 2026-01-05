@@ -90,17 +90,16 @@ Core::Core() : anari(this)
   tsd.scene.setUpdateDelegate(&anari.getUpdateDelegate());
 
   // Initialize default transfer function
-  for (const auto& c : core::colormap::viridis) {
-    importer.transferFunction.colorPoints.push_back({
-      float(importer.transferFunction.colorPoints.size()) / float(core::colormap::viridis.size() - 1), 
-      c.x, c.y, c.z
-    });
+  for (const auto &c : core::colormap::viridis) {
+    importer.transferFunction.colorPoints.push_back(
+        {float(importer.transferFunction.colorPoints.size())
+                / float(core::colormap::viridis.size() - 1),
+            c.x,
+            c.y,
+            c.z});
   }
-  
-  importer.transferFunction.opacityPoints = {
-    {0.0f, 0.0f},
-    {1.0f, 1.0f}
-  };
+
+  importer.transferFunction.opacityPoints = {{0.0f, 0.0f}, {1.0f, 1.0f}};
   importer.transferFunction.range = {};
 }
 
@@ -321,11 +320,11 @@ void Core::importFile(const ImportFile &f, tsd::core::LayerNodeRef root)
   } else if (f.first == ImporterType::XYZDP)
     tsd::io::import_XYZDP(tsd.scene, file.c_str(), root);
   else if (f.first == ImporterType::VOLUME)
-    tsd::io::import_volume(tsd.scene, file.c_str(), importer.transferFunction, root);
+    tsd::io::import_volume(
+        tsd.scene, file.c_str(), importer.transferFunction, root);
   else if (f.first == ImporterType::XF) {
     importer.transferFunction = tsd::io::importTransferFunction(file);
-  }
-  else if (f.first == ImporterType::BLANK) {
+  } else if (f.first == ImporterType::BLANK) {
     // no-op
   } else {
     tsd::core::logWarning(
@@ -499,7 +498,7 @@ void Core::setOfflineRenderingLibrary(const std::string &libName)
   anari::release(d, d);
 }
 
-tsd::core::LayerNodeRef Core::getSelected() const
+tsd::core::LayerNodeRef Core::getFirstSelected() const
 {
   return tsd.selectedNodes.empty() ? tsd::core::LayerNodeRef{}
                                    : tsd.selectedNodes[0];
@@ -512,10 +511,8 @@ const std::vector<tsd::core::LayerNodeRef> &Core::getSelectedNodes() const
 
 void Core::setSelected(tsd::core::LayerNodeRef node)
 {
-  tsd.selectedNodes.clear();
-  if (node.valid())
-    tsd.selectedNodes.push_back(node);
-  anari.getUpdateDelegate().signalObjectFilteringChanged();
+  setSelected(std::vector<tsd::core::LayerNodeRef>{
+      node.valid() ? node : tsd::core::LayerNodeRef{}});
 }
 
 void Core::setSelected(const std::vector<tsd::core::LayerNodeRef> &nodes)
