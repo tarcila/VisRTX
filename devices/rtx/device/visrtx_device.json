@@ -84,6 +84,13 @@
           "description": "enable internal tonemapping during sample accumulation"
         },
         {
+          "name": "premultiplyBackground",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "pre-multiply alpha channel with background color"
+        },
+        {
           "name": "cullTriangleBackfaces",
           "types": ["ANARI_BOOL"],
           "tags": [],
@@ -183,6 +190,13 @@
           "tags": [],
           "default": true,
           "description": "enable internal tonemapping during sample accumulation"
+        },
+        {
+          "name": "premultiplyBackground",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "pre-multiply alpha channel with background color"
         },
         {
           "name": "cullTriangleBackfaces",
@@ -300,6 +314,13 @@
           "tags": [],
           "default": true,
           "description": "enable internal tonemapping during sample accumulation"
+        },
+        {
+          "name": "premultiplyBackground",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "pre-multiply alpha channel with background color"
         },
         {
           "name": "volumeSamplingRate",
