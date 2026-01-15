@@ -54,6 +54,7 @@ struct Viewport : public Window
   void setDatabaseCamera(tsd::core::CameraRef cam);
   void clearDatabaseCamera();
   void createCameraFromCurrentView();
+  void addCameraObjectFromCurrentView();
 
  private:
   void saveSettings(tsd::core::DataNode &thisWindowRoot) override;
