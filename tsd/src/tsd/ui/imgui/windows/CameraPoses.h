@@ -19,8 +19,9 @@ struct Viewport;
 
 struct CameraPoses : public Window
 {
-  CameraPoses(
-      Application *app, Viewport *viewport, const char *name = "Camera Poses");
+  CameraPoses(Application *app,
+      Viewport *viewport = nullptr,
+      const char *name = "Camera Poses");
   void buildUI() override;
 
  private:
