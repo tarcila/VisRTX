@@ -35,8 +35,7 @@ void CameraPoses::buildUI()
     m_hasNewPose.store(false);
   }
 
-  ImGui::Text("Add:");
-  ImGui::SameLine();
+  ImGui::Text("Add/Remove:");
 
   if (ImGui::Button("current view"))
     appCore()->addCurrentViewToCameraPoses();
@@ -47,20 +46,23 @@ void CameraPoses::buildUI()
   if (ImGui::Button("turntable views"))
     ImGui::OpenPopup("CameraPoses_turntablePopupMenu");
 
-  ImGui::SameLine();
-  if (ImGui::Button("camera")) {
-    if (m_viewport)
-      m_viewport->addCameraObjectFromCurrentView();
-    else
-      tsd::core::logWarning("Viewport window not found");
-  }
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("add a series of turntable camera poses");
 
   ImGui::SameLine();
-  ImGui::Text(" | ");
-  ImGui::SameLine();
+  ImGui::BeginDisabled(!m_viewport);
+  if (ImGui::Button("camera"))
+    m_viewport->addCameraObjectFromCurrentView();
+  ImGui::EndDisabled();
+
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("add new camera object from current view");
 
   if (ImGui::Button("clear"))
     ImGui::OpenPopup("CameraPoses_confirmPopupMenu");
+
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("clear all camera poses");
 
   ImGui::Separator();
 
@@ -69,6 +71,8 @@ void CameraPoses::buildUI()
 
   const ImGuiTableFlags flags = ImGuiTableFlags_RowBg
       | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV;
+
+  ImGui::Text("Saved Camera Poses:");
 
   if (ImGui::BeginTable("camera poses", 4, flags)) {
     for (auto &p : appCore()->view.poses) {
