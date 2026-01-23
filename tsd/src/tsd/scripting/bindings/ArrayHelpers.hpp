@@ -1,0 +1,32 @@
+// Copyright 2026 NVIDIA Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include "tsd/core/scene/Object.hpp"
+#include "tsd/core/scene/objects/Array.hpp"
+
+#include <sol/sol.hpp>
+
+namespace tsd::scripting {
+
+ANARIDataType arrayTypeFromString(const std::string &typeStr);
+
+void arraySetDataFromLua(core::Array &arr, sol::table data, sol::this_state s);
+
+core::ArrayRef setParameterArrayFromLua(core::Object &obj,
+    const std::string &name,
+    const std::string &typeStr,
+    sol::table data,
+    sol::this_state s);
+
+core::ArrayRef setParameterArrayFromLua(core::Object &obj,
+    const std::string &name,
+    const std::string &typeStr,
+    size_t items0,
+    size_t items1,
+    size_t items2,
+    sol::table data,
+    sol::this_state s);
+
+} // namespace tsd::scripting
