@@ -16,6 +16,11 @@ if(TSD_BUILD_UI_LIBRARY)
   add_subdirectory(tsd_imguizmo)
 endif()
 
+if(TSD_USE_LUA)
+  add_subdirectory(tsd_lua)
+  add_subdirectory(tsd_sol2)
+endif()
+
 if (NOT TARGET fmt::fmt)
   add_subdirectory(
     ${CMAKE_CURRENT_LIST_DIR}/../../devices/rtx/external/fmtlib
