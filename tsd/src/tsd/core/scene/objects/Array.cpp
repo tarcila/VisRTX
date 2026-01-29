@@ -91,6 +91,11 @@ anari::DataType Array::elementType() const
 
 void *Array::map()
 {
+  if (kind() == MemoryKind::PROXY) {
+    logError("Array::map() - cannot map PROXY arrays");
+    return nullptr;
+  }
+
   m_mapped = true;
   if (auto *ud = updateDelegate(); ud != nullptr)
     ud->signalArrayMapped(this);
@@ -104,7 +109,10 @@ const void *Array::data() const
 
 const void *Array::elementAt(size_t i) const
 {
-  if (i >= size()) {
+  if (kind() == MemoryKind::PROXY) {
+    logError("Array::elementAt() - cannot access PROXY arrays locally");
+    return nullptr;
+  } else if (i >= size()) {
     logWarning("Array::elementAt() - index out of bounds");
     return nullptr;
   }
@@ -114,6 +122,11 @@ const void *Array::elementAt(size_t i) const
 
 void Array::unmap()
 {
+  if (kind() == MemoryKind::PROXY) {
+    logError("Array::unmap() - cannot unmap PROXY arrays");
+    return;
+  }
+
   m_mapped = false;
   if (auto *ud = updateDelegate(); ud != nullptr)
     ud->signalArrayUnmapped(this);
@@ -121,6 +134,11 @@ void Array::unmap()
 
 void Array::setData(const void *data, size_t byteOffset)
 {
+  if (kind() == MemoryKind::PROXY) {
+    logError("Array::setData() - cannot set data on PROXY arrays");
+    return;
+  }
+
   auto *bytes = (const uint8_t *)data;
   std::memcpy(map(), bytes + byteOffset, size() * elementSize());
   unmap();
@@ -128,8 +146,13 @@ void Array::setData(const void *data, size_t byteOffset)
 
 size_t Array::setData(std::FILE *stream)
 {
-  if (!stream)
+  if (kind() == MemoryKind::PROXY) {
+    logError("Array::setData() - cannot set data on PROXY arrays");
     return 0;
+  } else if (!stream) {
+    return 0;
+  }
+
   auto r = std::fread(map(), elementSize(), size(), stream);
   unmap();
   return r;
@@ -142,8 +165,17 @@ ObjectPoolRef<Array> Array::self() const
 
 anari::Object Array::makeANARIObject(anari::Device d) const
 {
-  if (elementType() == ANARI_UNKNOWN || isEmpty())
+  if (elementType() == ANARI_UNKNOWN || isEmpty()) {
+    logError(
+        "Array::makeANARIObject() - cannot create ANARI object for empty or"
+        " unknown element type array");
     return nullptr;
+  } else if (kind() == MemoryKind::PROXY) {
+    logError(
+        "Array::makeANARIObject() - cannot create ANARI object"
+        " for PROXY array");
+    return nullptr;
+  }
 
   anari::Object retval = nullptr;
 
@@ -226,14 +258,17 @@ Array::Array(anari::DataType arrayType,
     return;
   }
 
-  if (kind == MemoryKind::CUDA) {
+  if (kind == MemoryKind::PROXY) {
+    m_data = nullptr;
+  } else if (kind == MemoryKind::CUDA) {
 #if TSD_USE_CUDA
     cudaMalloc(&m_data, size() * elementSize());
 #else
     throw std::runtime_error("CUDA support not enabled!");
 #endif
-  } else
+  } else { // MemoryKind::HOST
     m_data = std::malloc(size() * elementSize());
+  }
 }
 
 } // namespace tsd::core

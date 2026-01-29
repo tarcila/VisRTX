@@ -16,7 +16,7 @@ struct Array : public Object
 {
   static constexpr anari::DataType ANARI_TYPE = ANARI_ARRAY;
   // clang-format off
-  enum class MemoryKind { HOST, CUDA };
+  enum class MemoryKind { HOST, CUDA, PROXY };
   // clang-format on
 
   Array(
