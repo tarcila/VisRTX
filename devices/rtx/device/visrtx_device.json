@@ -77,18 +77,12 @@
           "description": "enable the OptiX denoiser"
         },
         {
-          "name": "denoiseAlbedo",
-          "types": ["ANARI_BOOL"],
+          "name": "denoiseMode",
+          "types": ["ANARI_STRING"],
           "tags": [],
-          "default": false,
-          "description": "enable albedo use by the OptiX denoiser"
-        },
-        {
-          "name": "denoiseNormal",
-          "types": ["ANARI_BOOL"],
-          "tags": [],
-          "default": false,
-          "description": "enable normal use by the OptiX denoiser"
+          "default": "color",
+          "values": ["color", "colorAlbedo", "colorAlbedoNormal"],
+          "description": "mode controlling buffers given to the denoiser"
         },
         {
           "name": "tonemap",

@@ -260,7 +260,8 @@ void Frame::renderFrame()
   m_denoise = m_renderer->denoise();
   m_denoiseUsingAlbedo = m_renderer->denoiseUsingAlbedo();
   m_denoiseUsingNormal = m_renderer->denoiseUsingNormal();
-  if (m_denoise != wasDenoising || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
+  if (m_denoise != wasDenoising
+      || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
       || m_denoiseUsingNormal != wasDenoisingUsingNormal)
     this->finalize();
 
