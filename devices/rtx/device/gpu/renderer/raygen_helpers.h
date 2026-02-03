@@ -130,7 +130,8 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
           volInstID);
 
       // Accumulate volume contribution if any
-      if (volumeDepth < depth) {
+      bool volumeHit = volumeDepth < hitDist;
+      if (volumeHit) {
         accumulateValue(outputColor, volumeColor, outputOpacity);
         accumulateValue(outputAlbedo, volumeColor, outputOpacity);
         accumulateNormal(outputNormal, -ray.dir, outputOpacity);
@@ -163,7 +164,7 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         accumulateValue(outputOpacity, surfaceColor.a, outputOpacity);
 
         // Track first hit from surface
-        if (surfaceHit.t < depth) {
+        if (!volumeHit) {
           depth = surfaceHit.t;
           primID = surfaceHit.primID;
           objID = surfaceHit.objID;
