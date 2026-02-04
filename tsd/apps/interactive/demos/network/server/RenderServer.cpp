@@ -45,7 +45,8 @@ void RenderServer::run(short port)
     if (!m_server->isConnected() || m_mode == ServerMode::DISCONNECTED) {
       if (m_previousMode != ServerMode::DISCONNECTED) {
         tsd::core::logStatus("[Server] Listening on port %i...", int(port));
-        m_lastSentFrame = {};
+        if (m_lastSentFrame.valid())
+          m_lastSentFrame.get();
         m_mode = ServerMode::DISCONNECTED;
       }
       m_wasRenderingBeforeSendScene = false;
@@ -74,7 +75,8 @@ void RenderServer::run(short port)
       if (m_previousMode != ServerMode::PAUSED)
         tsd::core::logStatus("[Server] Rendering paused...");
       m_wasRenderingBeforeSendScene = false;
-      m_lastSentFrame = {};
+      if (m_lastSentFrame.valid())
+        m_lastSentFrame.get();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
@@ -201,7 +203,8 @@ void RenderServer::setup_Messaging()
         tsd::core::logStatus(
             "[Server] Stopping rendering as requested by client.");
         set_Mode(ServerMode::PAUSED);
-        m_lastSentFrame.get();
+        if (m_lastSentFrame.valid())
+          m_lastSentFrame.get();
       });
 
   m_server->registerHandler(
