@@ -86,6 +86,7 @@ struct Array : public Object
       size_t items1,
       size_t items2,
       MemoryKind kind);
+  void freeMemory();
 
   void *m_data{nullptr};
   MemoryKind m_kind{MemoryKind::HOST};
