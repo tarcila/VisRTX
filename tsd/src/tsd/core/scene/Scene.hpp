@@ -320,6 +320,12 @@ inline ObjectPoolRef<T> Scene::getObject(size_t i) const
 }
 
 template <>
+inline SurfaceRef Scene::getObject(size_t i) const
+{
+  return m_db.surface.at(i);
+}
+
+template <>
 inline ArrayRef Scene::getObject(size_t i) const
 {
   return m_db.array.at(i);
