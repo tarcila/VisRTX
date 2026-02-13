@@ -515,6 +515,15 @@ LayerNodeRef Scene::insertChildTransformNode(
   return inst;
 }
 
+LayerNodeRef Scene::insertChildTransformArrayNode(
+    LayerNodeRef parent, Array *a, const char *name)
+{
+  auto inst = parent->insert_last_child({a});
+  (*inst)->name() = name;
+  signalLayerChange(parent->container());
+  return inst;
+}
+
 LayerNodeRef Scene::insertChildObjectNode(
     LayerNodeRef parent, anari::DataType type, size_t idx, const char *name)
 {

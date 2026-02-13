@@ -153,6 +153,8 @@ struct Scene
   LayerNodeRef insertChildTransformNode(LayerNodeRef parent,
       mat4 xfm = mat4(tsd::math::identity),
       const char *name = "");
+  LayerNodeRef insertChildTransformArrayNode(
+      LayerNodeRef parent, Array *a, const char *name = "");
   template <typename T>
   LayerNodeRef insertChildObjectNode(
       LayerNodeRef parent, ObjectPoolRef<T> obj, const char *name = "");
