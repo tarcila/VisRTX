@@ -466,7 +466,7 @@ void LayerTree::buildUI_activateObjectSceneMenu()
       if (!parentOnlyNodes.empty()) {
         for (const auto &node : parentOnlyNodes) {
           if (node.valid()) {
-            scene.removeInstancedObject(node);
+            scene.removeNode(node);
           }
         }
         appCore()->clearSelected();
@@ -790,14 +790,14 @@ void LayerTree::buildUI_objectSceneMenu()
         if (!parentOnlyNodes.empty()) {
           for (const auto &node : parentOnlyNodes) {
             if (node.valid()) {
-              scene.removeInstancedObject(node);
+              scene.removeNode(node);
             }
           }
           m_menuNode = TSD_INVALID_INDEX;
           appCore()->clearSelected();
         } else if (m_menuNode != TSD_INVALID_INDEX) {
           // Fallback: delete the menu node if nothing is selected
-          scene.removeInstancedObject(layer.at(m_menuNode));
+          scene.removeNode(layer.at(m_menuNode));
           m_menuNode = TSD_INVALID_INDEX;
           appCore()->clearSelected();
         }
@@ -915,7 +915,7 @@ std::vector<tsd::core::LayerNodeRef> LayerTree::copyNodesTo(
   if (cutOperation) {
     for (const auto &node : validNodes) {
       if (node.valid()) {
-        scene.removeInstancedObject(node);
+        scene.removeNode(node);
       }
     }
   }
