@@ -524,18 +524,17 @@ LayerNodeRef Scene::insertChildObjectNode(
   return inst;
 }
 
-void Scene::removeInstancedObject(
-    LayerNodeRef obj, bool deleteReferencedObjects)
+void Scene::removeNode(LayerNodeRef node, bool deleteReferencedObjects)
 {
-  if (obj->isRoot())
+  if (!node.valid() || node->isRoot())
     return;
 
-  auto *layer = obj->container();
+  auto *layer = node->container();
 
   if (deleteReferencedObjects) {
     std::vector<LayerNodeRef> objects;
 
-    layer->traverse(obj, [&](auto &node, int level) {
+    layer->traverse(node, [&](auto &node, int level) {
       if (node.isLeaf())
         objects.push_back(layer->at(node.index()));
       return true;
@@ -545,7 +544,7 @@ void Scene::removeInstancedObject(
       removeObject(o->value().getObject());
   }
 
-  layer->erase(obj);
+  layer->erase(node);
   signalLayerChange(layer);
 }
 
@@ -616,7 +615,7 @@ void Scene::setAnimationTime(float time)
   // Signal delegates that animation time changed
   if (m_updateDelegate)
     m_updateDelegate->signalAnimationTimeChanged(time);
-  
+
   // Signal delegates that animation time changed
   if (m_updateDelegate)
     m_updateDelegate->signalAnimationTimeChanged(time);

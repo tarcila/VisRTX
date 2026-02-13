@@ -170,7 +170,7 @@ struct Scene
 
   // Remove nodes //
 
-  void removeInstancedObject(
+  void removeNode(
       LayerNodeRef obj, bool deleteReferencedObjects = false);
 
   // Indicate changes occurred //
