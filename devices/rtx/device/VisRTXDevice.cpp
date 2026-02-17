@@ -33,8 +33,10 @@
 
 // std
 #include <cstdlib>
+#ifdef USE_NVML
 // nvml
 #include <nvml.h>
+#endif
 
 #include <anari/frontend/anari_enums.h>
 #include <optix_types.h>
@@ -55,8 +57,8 @@
 // PTX //
 
 // renderers
-#include "renderer/Fast.h"
 #include "renderer/Debug.h"
+#include "renderer/Fast.h"
 #include "renderer/Interactive.h"
 #include "renderer/Quality.h"
 #include "renderer/Test.h"
@@ -611,6 +613,7 @@ DeviceInitStatus VisRTXDevice::initOptix()
         ANARI_SEVERITY_DEBUG, "VisRTX using CUDA %i.%i", major, minor);
   }
 
+#ifdef USE_NVML
   {
     char driverVersion[80]; // Buffer to store driver version
 
@@ -647,6 +650,7 @@ DeviceInitStatus VisRTXDevice::initOptix()
     }
     nvmlShutdown();
   }
+#endif
 
   OPTIX_CHECK_RETURN_VALUE(optixInit(), DeviceInitStatus::FAILURE);
   setCUDADevice();
@@ -762,8 +766,7 @@ DeviceInitStatus VisRTXDevice::initOptix()
   auto compileTasks = std::array{
       init_module(
           &state.rendererModules.debug, Debug::ptx(), "'debug' renderer"),
-      init_module(
-          &state.rendererModules.fast, Fast::ptx(), "'fast' renderer"),
+      init_module(&state.rendererModules.fast, Fast::ptx(), "'fast' renderer"),
       init_module(
           &state.rendererModules.quality, Quality::ptx(), "'quality' renderer"),
       init_module(&state.rendererModules.interactive,

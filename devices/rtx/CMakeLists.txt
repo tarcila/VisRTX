@@ -58,6 +58,8 @@ option(
 option(VISRTX_ENABLE_NEURAL "Enable Neural Graphics Primitives" OFF)
 option(VISRTX_ENABLE_NVTX "Enable NVTX profiling instrumentation" OFF)
 mark_as_advanced(VISRTX_ENABLE_NVTX)
+option(VISRTX_ENABLE_NVML "Enable NVML for runtime driver checks" ON)
+mark_as_advanced(VISRTX_ENABLE_NVML)
 
 option(VISRTX_USE_MDL_FOR_PHYSICALLY_BASED "Use MDL for physically based materials" OFF)
 

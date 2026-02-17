@@ -260,7 +260,6 @@ PRIVATE
   OptiX::OptiX
   CUDA::cuda_driver
   CUDA::curand
-  CUDA::nvml
   visrtx::glm
   visrtx::fmt
   visrtx::nanovdb
@@ -291,6 +290,11 @@ if(NOT WIN32)
 endif()
 
 project_compile_definitions(PRIVATE anari_library_visrtx_EXPORTS)
+
+if (VISRTX_ENABLE_NVML)
+  project_link_libraries(PRIVATE CUDA::nvml)
+  project_compile_definitions(PRIVATE USE_NVML)
+endif()
 
 #### Generate OptiX programs as embedded PTX ####
 
