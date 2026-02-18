@@ -123,7 +123,7 @@ void registerObjectMethodsOn(sol::usertype<UserType> &ut, Accessor access)
                             sol::this_state s) -> sol::object {
     auto *obj = access(u);
     if (!obj)
-      return sol::nil;
+      return sol::lua_nil;
     return getParameterAsLua(sol::state_view(s), obj, name);
   };
 
@@ -169,7 +169,7 @@ void registerObjectMethodsOn(sol::usertype<UserType> &ut, Accessor access)
                           sol::this_state s) -> sol::object {
     auto *obj = access(u);
     if (!obj)
-      return sol::nil;
+      return sol::lua_nil;
     return getMetadataAsLua(sol::state_view(s), obj, key);
   };
 

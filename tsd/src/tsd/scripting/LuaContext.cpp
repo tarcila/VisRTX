@@ -52,7 +52,7 @@ LuaContext::LuaContext() : m_impl(std::make_unique<Impl>())
         auto s = obj.as<bool>() ? std::string_view("true")
                                 : std::string_view("false");
         buf.append(s.data(), s.data() + s.size());
-      } else if (obj.is<sol::nil_t>()) {
+      } else if (obj.is<sol::lua_nil_t>()) {
         constexpr std::string_view nil = "nil";
         buf.append(nil.data(), nil.data() + nil.size());
       } else {
@@ -162,7 +162,7 @@ void LuaContext::bindScene(core::Scene *scene, const std::string &varName)
   if (scene) {
     m_impl->lua[varName] = scene;
   } else {
-    m_impl->lua[varName] = sol::nil;
+    m_impl->lua[varName] = sol::lua_nil;
   }
 }
 
