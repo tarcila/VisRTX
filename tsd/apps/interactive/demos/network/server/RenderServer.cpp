@@ -15,6 +15,8 @@
 #include "tsd/network/messages/TransferArrayData.hpp"
 #include "tsd/network/messages/TransferLayer.hpp"
 #include "tsd/network/messages/TransferScene.hpp"
+// std
+#include <cstdlib>
 
 namespace tsd::network {
 
@@ -86,7 +88,6 @@ void RenderServer::run(short port)
   m_server->removeAllHandlers();
 
   anari::release(m_device, m_camera);
-  anari::release(m_device, m_renderer);
   m_core.anari.releaseRenderIndex(m_device);
   m_core.anari.releaseAllDevices();
 }
@@ -103,21 +104,32 @@ void RenderServer::setup_Scene()
 void RenderServer::setup_ANARIDevice()
 {
   tsd::core::logStatus("[Server] Loading 'environment' device...");
-  auto device = m_core.anari.loadDevice("environment");
+  const char *libNameEnv = std::getenv("ANARI_LIBRARY");
+  if (!libNameEnv) {
+    tsd::core::logWarning(
+        "[Server] ANARI_LIBRARY environment variable not set,"
+        " defaulting to 'helide'");
+    libNameEnv = "helide"; // default to helide if env var not set
+  }
+
+  m_libName = libNameEnv;
+
+  auto device = m_core.anari.loadDevice(m_libName);
   if (!device) {
-    tsd::core::logError("[Server] Failed to load 'environment' ANARI device.");
+    tsd::core::logError(
+        "[Server] Failed to load '%s' ANARI device.", m_libName.c_str());
     std::exit(EXIT_FAILURE);
   }
 
   auto &scene = m_core.tsd.scene;
 
   m_device = device;
-  m_renderIndex = m_core.anari.acquireRenderIndex(scene, "environment", device);
+  m_renderIndex = m_core.anari.acquireRenderIndex(scene, m_libName, device);
   m_camera = anari::newObject<anari::Camera>(device, "perspective");
-  m_renderer = anari::newObject<anari::Renderer>(device, "default");
-
-  anari::setParameter(device, m_renderer, "ambientRadiance", 1.f);
-  anari::commitParameters(device, m_renderer);
+  auto renderers = scene.createStandardRenderers(m_libName, device);
+  m_renderers.reserve(renderers.size());
+  for (auto &r : renderers)
+    m_renderers.emplace_back(r);
 }
 
 void RenderServer::setup_Manipulator()
@@ -160,7 +172,7 @@ void RenderServer::setup_RenderPipeline()
       m_renderPipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(
           m_device);
   arp->setWorld(m_renderIndex->world());
-  arp->setRenderer(m_renderer);
+  arp->setRenderer(m_renderIndex->renderer(m_renderers[0]->index()));
   arp->setCamera(m_camera);
   arp->setEnableIDs(false);
 
