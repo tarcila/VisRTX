@@ -58,7 +58,7 @@ struct RenderServer
   std::string m_libName;
   anari::Device m_device{nullptr};
   anari::Camera m_camera{nullptr};
-  std::vector<tsd::core::ObjectUsePtr<tsd::core::Renderer>> m_renderers;
+  std::vector<tsd::core::RendererAppRef> m_renderers;
   tsd::rendering::Manipulator m_manipulator;
   tsd::rendering::RenderIndex *m_renderIndex{nullptr};
   tsd::rendering::RenderPipeline m_renderPipeline;

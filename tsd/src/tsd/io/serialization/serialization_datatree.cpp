@@ -260,7 +260,7 @@ void nodeToNewObject(Scene &scene, core::DataNode &node)
     if (auto *c = node.child("rendererDeviceName"); c != nullptr)
       rendererDeviceName = c->getValueAs<std::string>();
     if (!rendererDeviceName.empty())
-      obj = scene.createRenderer(rendererDeviceName, subtype).data();
+      obj = scene.createRenderer(rendererDeviceName, subtype).get();
   } break;
   default:
     break;

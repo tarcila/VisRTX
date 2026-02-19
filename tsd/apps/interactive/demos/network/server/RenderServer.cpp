@@ -126,10 +126,7 @@ void RenderServer::setup_ANARIDevice()
   m_device = device;
   m_renderIndex = m_core.anari.acquireRenderIndex(scene, m_libName, device);
   m_camera = anari::newObject<anari::Camera>(device, "perspective");
-  auto renderers = scene.createStandardRenderers(m_libName, device);
-  m_renderers.reserve(renderers.size());
-  for (auto &r : renderers)
-    m_renderers.emplace_back(r);
+  m_renderers = scene.createStandardRenderers(m_libName, device);
 }
 
 void RenderServer::setup_Manipulator()

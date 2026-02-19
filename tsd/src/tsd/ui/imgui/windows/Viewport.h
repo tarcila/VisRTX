@@ -132,8 +132,8 @@ struct Viewport : public Window
   anari::Camera m_orthoCamera{nullptr};
   anari::Camera m_omniCamera{nullptr};
 
-  std::vector<tsd::core::RendererRef> m_rendererObjects;
-  tsd::core::RendererRef m_currentRenderer;
+  std::vector<tsd::core::RendererAppRef> m_rendererObjects;
+  tsd::core::RendererAppRef m_currentRenderer;
 
   // Camera manipulator //
 

@@ -120,11 +120,11 @@ struct Scene
 
   // Renderers (specially handled per-device) //
 
-  RendererRef createRenderer(
+  RendererAppRef createRenderer(
       Token deviceName, Token subtype = tokens::defaultToken);
-  std::vector<RendererRef> createStandardRenderers(
+  std::vector<RendererAppRef> createStandardRenderers(
       Token deviceName, anari::Device device);
-  std::vector<RendererRef> renderersOfDevice(Token deviceName) const;
+  std::vector<RendererAppRef> renderersOfDevice(Token deviceName) const;
   void removeRenderersForDevice(Token deviceName);
 
   BaseUpdateDelegate *updateDelegate() const;
@@ -214,7 +214,7 @@ struct Scene
   // Cleanup operations //
   ////////////////////////
 
-  void removeUnusedObjects();
+  void removeUnusedObjects(bool includeRenderers = false);
   void defragmentObjectStorage();
   void cleanupScene(); // remove unused + defragment
 

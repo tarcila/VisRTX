@@ -348,19 +348,19 @@ void Scene::removeAllObjects()
   m_db.renderer.clear();
 }
 
-RendererRef Scene::createRenderer(Token device, Token subtype)
+RendererAppRef Scene::createRenderer(Token device, Token subtype)
 {
   return createObjectImpl(m_db.renderer, device, subtype);
 }
 
-std::vector<RendererRef> Scene::createStandardRenderers(
+std::vector<RendererAppRef> Scene::createStandardRenderers(
     Token deviceName, anari::Device d)
 {
   if (!d)
     return {};
 
   auto subtypes = tsd::core::getANARIObjectSubtypes(d, ANARI_RENDERER);
-  std::vector<RendererRef> retval;
+  std::vector<RendererAppRef> retval;
   retval.reserve(subtypes.size());
 
   for (auto &subtype : subtypes) {
@@ -372,9 +372,9 @@ std::vector<RendererRef> Scene::createStandardRenderers(
   return retval;
 }
 
-std::vector<RendererRef> Scene::renderersOfDevice(Token deviceName) const
+std::vector<RendererAppRef> Scene::renderersOfDevice(Token deviceName) const
 {
-  std::vector<RendererRef> renderers;
+  std::vector<RendererAppRef> renderers;
   renderers.reserve(5);
   foreach_item_const(m_db.renderer, [&](auto *r) {
     if (r && r->rendererDeviceName() == deviceName)
@@ -387,7 +387,7 @@ void Scene::removeRenderersForDevice(Token deviceName)
 {
   auto renderers = renderersOfDevice(deviceName);
   for (auto &r : renderers)
-    removeObject(r.data());
+    removeObject(r.get());
 }
 
 BaseUpdateDelegate *Scene::updateDelegate() const
@@ -710,7 +710,7 @@ void Scene::incrementAnimationTime()
   setAnimationTime(newTime);
 }
 
-void Scene::removeUnusedObjects()
+void Scene::removeUnusedObjects(bool includeRenderers)
 {
   tsd::core::logStatus("Removing unused context objects");
 
@@ -735,7 +735,9 @@ void Scene::removeUnusedObjects()
   removeUnused(m_db.sampler);
   removeUnused(m_db.array);
   removeUnused(m_db.camera);
-  removeUnused(m_db.renderer);
+
+  if (includeRenderers)
+    removeUnused(m_db.renderer);
 }
 
 void Scene::defragmentObjectStorage()

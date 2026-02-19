@@ -88,7 +88,7 @@ TSDObject::TSDObject(
     name = "light" + std::to_string(s->lightCount++);
     break;
   case ANARI_RENDERER:
-    obj = s->scene.createRenderer(s->deviceName, subtype).data();
+    obj = s->scene.createRenderer(s->deviceName, subtype).get();
     name = "renderer" + std::to_string(s->rendererCount++);
     break;
   default:

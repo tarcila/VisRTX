@@ -275,14 +275,22 @@ void Application::uiMainMenuBar()
     ImGui::Separator();
 
     if (ImGui::BeginMenu("Scene")) {
-      if (ImGui::MenuItem("Cleanup Only"))
-        m_core.tsd.scene.removeUnusedObjects();
+      if (ImGui::MenuItem("Cleanup Unused Objects"))
+        m_core.tsd.scene.removeUnusedObjects(false);
 
-      if (ImGui::MenuItem("Defragment Only"))
+      if (ImGui::MenuItem("Cleanup Unused Objects + Renderers"))
+        m_core.tsd.scene.removeUnusedObjects(true);
+
+      if (ImGui::MenuItem("Defragment Scene Storage"))
         m_core.tsd.scene.defragmentObjectStorage();
 
-      if (ImGui::MenuItem("Cleanup + Defragment")) {
-        m_core.tsd.scene.removeUnusedObjects();
+      if (ImGui::MenuItem("Cleanup Unused Objects + Defragment")) {
+        m_core.tsd.scene.removeUnusedObjects(false);
+        m_core.tsd.scene.defragmentObjectStorage();
+      }
+
+      if (ImGui::MenuItem("Cleanup Unused + Defragment All")) {
+        m_core.tsd.scene.removeUnusedObjects(true);
         m_core.tsd.scene.defragmentObjectStorage();
       }
 

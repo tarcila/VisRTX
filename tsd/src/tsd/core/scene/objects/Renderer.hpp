@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "tsd/core/scene/Object.hpp"
+#include "tsd/core/scene/ObjectUsePtr.hpp"
 
 namespace tsd::core {
 
@@ -21,5 +21,6 @@ struct Renderer : public Object
 };
 
 using RendererRef = ObjectPoolRef<Renderer>;
+using RendererAppRef = ObjectUsePtr<Renderer, Object::UseKind::APP>;
 
 } // namespace tsd::core
