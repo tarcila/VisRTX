@@ -127,6 +127,7 @@ void RenderServer::setup_ANARIDevice()
   m_renderIndex = m_core.anari.acquireRenderIndex(scene, m_libName, device);
   m_camera = anari::newObject<anari::Camera>(device, "perspective");
   m_renderers = scene.createStandardRenderers(m_libName, device);
+  m_currentRenderer = m_renderers[0];
 }
 
 void RenderServer::setup_Manipulator()
@@ -169,9 +170,10 @@ void RenderServer::setup_RenderPipeline()
       m_renderPipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(
           m_device);
   arp->setWorld(m_renderIndex->world());
-  arp->setRenderer(m_renderIndex->renderer(m_renderers[0]->index()));
+  arp->setRenderer(m_renderIndex->renderer(m_currentRenderer->index()));
   arp->setCamera(m_camera);
   arp->setEnableIDs(false);
+  m_sceneRenderPass = arp;
 
   auto *ccbp =
       m_renderPipeline.emplace_back<tsd::rendering::CopyFromColorBufferPass>();
@@ -277,6 +279,30 @@ void RenderServer::setup_Messaging()
         paramRemove.execute();
       });
 
+  m_server->registerHandler(MessageType::SERVER_SET_CURRENT_RENDERER,
+      [this](const tsd::network::Message &msg) {
+        size_t idx = 0;
+        uint32_t pos = 0;
+        if (tsd::network::payloadRead(msg, pos, &idx)) {
+          if (idx < m_renderers.size()) {
+            auto renderer = m_renderers[idx];
+            tsd::core::logDebug(
+                "[Server] Setting current renderer to index %u (subtype '%s')",
+                idx,
+                renderer->subtype().c_str());
+            m_currentRenderer = renderer;
+            m_sceneRenderPass->setRenderer(m_renderIndex->renderer(idx));
+          } else {
+            tsd::core::logError(
+                "[Server] Invalid renderer index %u in SERVER_SET_CURRENT_RENDERER",
+                idx);
+          }
+        } else {
+          tsd::core::logError(
+              "[Server] Invalid payload for SERVER_SET_CURRENT_RENDERER");
+        }
+      });
+
   m_server->registerHandler(MessageType::SERVER_SET_ARRAY_DATA,
       [this](const tsd::network::Message &msg) {
         tsd::network::messages::TransferArrayData arrayData(
@@ -312,6 +338,13 @@ void RenderServer::setup_Messaging()
         tsd::core::logDebug("[Server] Client requested frame config.");
         s->send(
             MessageType::CLIENT_RECEIVE_FRAME_CONFIG, &session->frame.config);
+      });
+
+  m_server->registerHandler(MessageType::SERVER_REQUEST_CURRENT_RENDERER,
+      [this, s = m_server](const tsd::network::Message &msg) {
+        tsd::core::logDebug("[Server] Client requested current renderer.");
+        auto idx = m_currentRenderer->index();
+        s->send(MessageType::CLIENT_RECEIVE_CURRENT_RENDERER, &idx);
       });
 
   m_server->registerHandler(MessageType::SERVER_REQUEST_VIEW,
