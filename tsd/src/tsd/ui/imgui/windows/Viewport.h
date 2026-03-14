@@ -119,6 +119,7 @@ struct Viewport : public BaseViewport
   // Measure tool //
 
   bool m_measureModeActive{false};
+  bool m_showMeasurements{false};
   std::unique_ptr<MeasureTool> m_measureTool;
 
   // Picking state //

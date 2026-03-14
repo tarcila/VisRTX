@@ -120,13 +120,11 @@ void Viewport::buildUI()
   ImGui::EndDisabled();
 
   // Measurements list window
-  if (m_measureModeActive && m_measureTool) {
+  if (m_showMeasurements && m_measureTool) {
     ImGui::SetNextWindowSize(ImVec2(300.f, 200.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Measurements", &m_measureModeActive))
+    if (ImGui::Begin("Measurements", &m_showMeasurements))
       m_measureTool->buildUI();
     ImGui::End();
-    if (!m_measureModeActive)
-      m_measureTool->cancelPick();
   }
 
   if (m_anariPass && !didPick) {
@@ -538,6 +536,7 @@ void Viewport::teardownDevice()
 
   m_measureTool.reset();
   m_measureModeActive = false;
+  m_showMeasurements = false;
 
   m_anariPass = nullptr;
   m_pickPass = nullptr;
@@ -781,7 +780,9 @@ void Viewport::ui_menubar()
               ImVec2(ImGui::CalcTextSize(
                   m_measureModeActive ? "[Measure ON]" : "Measure").x + 8.f, 0))) {
         m_measureModeActive = !m_measureModeActive;
-        if (!m_measureModeActive)
+        if (m_measureModeActive)
+          m_showMeasurements = true;
+        else
           m_measureTool->cancelPick();
       }
     }
@@ -1023,6 +1024,8 @@ void Viewport::ui_menubar_Viewport()
       ImGui::Checkbox("Axes", &m_showOrientationWidget);
       ImGui::Checkbox("Animation Time Slider", &m_showAnimationSlider);
       ImGui::Checkbox("Info Window", &m_showOverlay);
+      if (m_measureTool)
+        ImGui::Checkbox("Measurements", &m_showMeasurements);
       if (ImGui::MenuItem("Reset Timing Stats")) {
         m_minFL.reset();
         m_maxFL.reset();
