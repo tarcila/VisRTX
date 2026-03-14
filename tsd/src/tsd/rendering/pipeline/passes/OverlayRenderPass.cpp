@@ -3,11 +3,53 @@
 
 #include "OverlayRenderPass.h"
 #include "tsd/core/Logging.hpp"
+// helium
+#include <helium/helium_math.h>
 // std
-#include <algorithm>
-#include <cstring>
+#include <string>
 
 namespace tsd::rendering {
+
+static bool supportsCUDAFbData(anari::Device d)
+{
+#ifdef ENABLE_CUDA
+  auto list = (const char *const *)anariGetObjectInfo(
+      d, ANARI_DEVICE, "default", "extension", ANARI_STRING_LIST);
+
+  if (!list)
+    return false;
+
+  for (const char *const *i = list; *i != nullptr; ++i) {
+    if (std::string(*i) == "ANARI_NV_FRAME_BUFFERS_CUDA")
+      return true;
+  }
+
+  return false;
+#else
+  return false;
+#endif
+}
+
+static void compositeOverlay(ImageBuffers &b,
+    const tsd::math::float4 *overlayColor,
+    uint32_t totalPixels)
+{
+  for (uint32_t i = 0; i < totalPixels; i++) {
+    auto oc = overlayColor[i];
+    if (oc.w <= 0.f)
+      continue;
+
+    auto sc = helium::cvt_color_to_float4(b.color[i]);
+    float invA = 1.f - oc.w;
+    tsd::math::float4 blended(
+        oc.x + sc.x * invA,
+        oc.y + sc.y * invA,
+        oc.z + sc.z * invA,
+        oc.w + sc.w * invA);
+
+    b.color[i] = helium::cvt_color_to_uint32(blended);
+  }
+}
 
 static void statusFunc(
     const void *, ANARIDevice, ANARIObject, ANARIDataType, ANARIStatusSeverity,
@@ -52,7 +94,12 @@ OverlayRenderPass::OverlayRenderPass()
   anari::setParameter(m_device, m_frame, "world", m_world);
   anari::commitParameters(m_device, m_frame);
 
-  tsd::core::logStatus("[OverlayRenderPass] vector2d device loaded");
+  m_deviceSupportsCUDAFrames = supportsCUDAFbData(m_device);
+
+  if (m_deviceSupportsCUDAFrames)
+    tsd::core::logStatus("[OverlayRenderPass] using CUDA-mapped fb channels");
+  else
+    tsd::core::logStatus("[OverlayRenderPass] using host-mapped fb channels");
 }
 
 OverlayRenderPass::~OverlayRenderPass()
@@ -120,10 +167,23 @@ void OverlayRenderPass::render(ImageBuffers &b, int stageId)
   anari::render(m_device, m_frame);
   anari::wait(m_device, m_frame);
 
-  auto color = anari::map<tsd::math::float4>(m_device, m_frame, "channel.color");
-
   auto size = getDimensions();
-  const size_t totalPixels = size_t(size.x) * size_t(size.y);
+  const auto totalPixels = uint32_t(size.x) * uint32_t(size.y);
+
+  if (m_deviceSupportsCUDAFrames) {
+    uint32_t w = 0, h = 0;
+    ANARIDataType pixelType = ANARI_UNKNOWN;
+    auto *overlayColor = (const tsd::math::float4 *)anariMapFrame(
+        m_device, m_frame, "channel.colorCUDA", &w, &h, &pixelType);
+
+    if (overlayColor && totalPixels > 0 && w == size.x && h == size.y)
+      compositeOverlay(b, overlayColor, totalPixels);
+
+    anariUnmapFrame(m_device, m_frame, "channel.colorCUDA");
+    return;
+  }
+
+  auto color = anari::map<tsd::math::float4>(m_device, m_frame, "channel.color");
 
   if (color.data && totalPixels > 0
       && size.x == color.width && size.y == color.height) {

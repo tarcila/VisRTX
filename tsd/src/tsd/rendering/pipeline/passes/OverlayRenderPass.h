@@ -36,6 +36,7 @@ struct OverlayRenderPass : public ImagePass
   anari::Frame m_frame{nullptr};
 
   bool m_firstFrame{true};
+  bool m_deviceSupportsCUDAFrames{false};
 };
 
 } // namespace tsd::rendering

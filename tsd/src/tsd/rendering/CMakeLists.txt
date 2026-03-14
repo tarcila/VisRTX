@@ -51,6 +51,7 @@ if (TSD_USE_CUDA)
     pipeline/passes/OutlineRenderPass.cpp
     pipeline/passes/PrimitiveOutlineRenderPass.cpp
     pipeline/passes/OutputTransformPass.cpp
+    pipeline/passes/OverlayRenderPass.cpp
     pipeline/passes/ToneMapPass.cpp
     pipeline/passes/VisualizeAOVPass.cpp
     PROPERTIES
