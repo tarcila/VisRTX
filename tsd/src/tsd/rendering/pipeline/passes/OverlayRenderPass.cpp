@@ -47,7 +47,6 @@ OverlayRenderPass::OverlayRenderPass()
 
   m_frame = anari::newObject<anari::Frame>(m_device);
   anari::setParameter(m_device, m_frame, "channel.color", ANARI_FLOAT32_VEC4);
-  anari::setParameter(m_device, m_frame, "channel.depth", ANARI_FLOAT32);
   anari::setParameter(m_device, m_frame, "camera", m_camera);
   anari::setParameter(m_device, m_frame, "renderer", m_renderer);
   anari::setParameter(m_device, m_frame, "world", m_world);
@@ -121,26 +120,19 @@ void OverlayRenderPass::render(ImageBuffers &b, int stageId)
   anari::render(m_device, m_frame);
   anari::wait(m_device, m_frame);
 
-  // Map overlay frame buffers
   auto color = anari::map<tsd::math::float4>(m_device, m_frame, "channel.color");
-  auto depth = anari::map<float>(m_device, m_frame, "channel.depth");
 
   auto size = getDimensions();
   const size_t totalPixels = size_t(size.x) * size_t(size.y);
 
-  if (color.data && depth.data && totalPixels > 0
+  if (color.data && totalPixels > 0
       && size.x == color.width && size.y == color.height) {
     for (size_t i = 0; i < totalPixels; i++) {
       auto oc = color.data[i];
       if (oc.w <= 0.f)
         continue;
-      if (depth.data[i] > b.depth[i])
-        continue;
 
-      // Unpack scene color (RGBA8 packed as uint32)
       auto sc = helium::cvt_color_to_float4(b.color[i]);
-
-      // Alpha-over composite (overlay color is straight alpha from vector2d)
       float invA = 1.f - oc.w;
       tsd::math::float4 blended(
           oc.x + sc.x * invA,
@@ -149,12 +141,10 @@ void OverlayRenderPass::render(ImageBuffers &b, int stageId)
           oc.w + sc.w * invA);
 
       b.color[i] = helium::cvt_color_to_uint32(blended);
-      b.depth[i] = depth.data[i];
     }
   }
 
   anari::unmap(m_device, m_frame, "channel.color");
-  anari::unmap(m_device, m_frame, "channel.depth");
 }
 
 } // namespace tsd::rendering
