@@ -4,6 +4,7 @@
 #pragma once
 
 #include "BaseViewport.h"
+#include "tsd/ui/imgui/tools/MeasureTool.h"
 
 // tsd_core
 #include "tsd/scene/objects/Camera.hpp"
@@ -65,6 +66,9 @@ struct Viewport : public BaseViewport
 
   void teardownDevice();
   void pick(tsd::math::int2 location, bool selectObject);
+  void pickForMeasure(tsd::math::int2 location);
+  tsd::math::float3 reconstructWorldPos(
+      tsd::math::int2 pixel, float depth) const;
   void setSelectionVisibilityFilterEnabled(bool enabled);
 
   void updateFrame();
@@ -112,9 +116,15 @@ struct Viewport : public BaseViewport
   float m_toneMapGamma{2.2f};
   float m_currentAutoExposure{0.f};
 
+  // Measure tool //
+
+  bool m_measureModeActive{false};
+  std::unique_ptr<MeasureTool> m_measureTool;
+
   // Picking state //
 
-  bool m_selectObjectNextPick{false};
+  enum class PickMode { CENTER, SELECT_OBJECT, MEASURE };
+  PickMode m_pickMode{PickMode::CENTER};
   tsd::math::int2 m_pickCoord{0, 0};
   float m_pickedDepth{0.f};
 
