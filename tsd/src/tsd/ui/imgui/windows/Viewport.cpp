@@ -103,11 +103,12 @@ void Viewport::buildUI()
     BaseViewport::ui_handleInput();
   bool didPick = ui_picking(); // Needs to happen before ui_menubar
 
-  // Escape clears measure mode
+  // Escape cancels in-progress pick or deactivates measure mode
   if (m_measureModeActive && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-    m_measureModeActive = false;
-    if (m_measureTool)
-      m_measureTool->clear();
+    if (m_measureTool && m_measureTool->state() == MeasureTool::State::PICKED_A)
+      m_measureTool->cancelPick();
+    else
+      m_measureModeActive = false;
   }
 
   // Render the overlay after input handling so it does not interfere.
@@ -117,6 +118,16 @@ void Viewport::buildUI()
   BaseViewport::ui_animationSlider();
 
   ImGui::EndDisabled();
+
+  // Measurements list window
+  if (m_measureModeActive && m_measureTool) {
+    ImGui::SetNextWindowSize(ImVec2(300.f, 200.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Measurements", &m_measureModeActive))
+      m_measureTool->buildUI();
+    ImGui::End();
+    if (!m_measureModeActive)
+      m_measureTool->cancelPick();
+  }
 
   if (m_anariPass && !didPick) {
     const bool doPrimitiveOutline = m_outlinePrimitives
@@ -422,12 +433,10 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
       auto worldPos = reconstructWorldPos(m_pickWindowPixel, m_pickedDepth);
 
       if (m_measureTool) {
-        if (m_measureTool->state() == MeasureTool::State::IDLE
-            || m_measureTool->state() == MeasureTool::State::MEASURED) {
+        if (m_measureTool->state() == MeasureTool::State::IDLE)
           m_measureTool->setPointA(worldPos);
-        } else if (m_measureTool->state() == MeasureTool::State::PICKED_A) {
+        else if (m_measureTool->state() == MeasureTool::State::PICKED_A)
           m_measureTool->setPointB(worldPos);
-        }
         m_overlayPass->setWorld(m_measureTool->world());
       }
     }
@@ -773,7 +782,7 @@ void Viewport::ui_menubar()
                   m_measureModeActive ? "[Measure ON]" : "Measure").x + 8.f, 0))) {
         m_measureModeActive = !m_measureModeActive;
         if (!m_measureModeActive)
-          m_measureTool->clear();
+          m_measureTool->cancelPick();
       }
     }
 
@@ -1187,30 +1196,13 @@ void Viewport::ui_overlay()
         ImGui::Text("  %s: %.2fms", timing.name, timing.milliseconds);
     }
 
-    // Measurement info
+    // Measurement pick hint
     if (m_measureTool && m_measureModeActive) {
       ImGui::Separator();
-      auto state = m_measureTool->state();
-      if (state == MeasureTool::State::IDLE) {
-        ImGui::TextColored(
-            ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click point A");
-      } else if (state == MeasureTool::State::PICKED_A) {
-        auto a = m_measureTool->pointA();
-        ImGui::TextColored(
-            ImVec4(0.f, 1.f, 1.f, 1.f), "A: (%.3f, %.3f, %.3f)", a.x, a.y, a.z);
-        ImGui::TextColored(
-            ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click point B");
-      } else if (state == MeasureTool::State::MEASURED) {
-        auto a = m_measureTool->pointA();
-        auto b = m_measureTool->pointB();
-        ImGui::TextColored(
-            ImVec4(0.f, 1.f, 1.f, 1.f), "A: (%.3f, %.3f, %.3f)", a.x, a.y, a.z);
-        ImGui::TextColored(
-            ImVec4(0.f, 1.f, 1.f, 1.f), "B: (%.3f, %.3f, %.3f)", b.x, b.y, b.z);
-        ImGui::TextColored(ImVec4(1.f, 1.f, 0.f, 1.f),
-            "Distance: %.4f",
-            m_measureTool->distance());
-      }
+      if (m_measureTool->state() == MeasureTool::State::IDLE)
+        ImGui::TextColored(ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click A");
+      else if (m_measureTool->state() == MeasureTool::State::PICKED_A)
+        ImGui::TextColored(ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click B");
     }
   }
   ImGui::EndChild();

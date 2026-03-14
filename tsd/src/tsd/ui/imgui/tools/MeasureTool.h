@@ -7,33 +7,49 @@
 #include "tsd/core/TSDMath.hpp"
 // anari
 #include <anari/anari_cpp.hpp>
+// std
+#include <string>
+#include <vector>
 
 namespace tsd::ui::imgui {
 
+struct Measurement
+{
+  std::string name;
+  tsd::math::float3 pointA{0.f};
+  tsd::math::float3 pointB{0.f};
+  float distance{0.f};
+};
+
 struct MeasureTool
 {
-  enum class State { IDLE, PICKED_A, MEASURED };
+  enum class State { IDLE, PICKED_A };
 
   MeasureTool(anari::Device overlayDevice);
   ~MeasureTool();
 
   void setPointA(tsd::math::float3 pos);
   void setPointB(tsd::math::float3 pos);
-  void clear();
+  void cancelPick();
+
+  void remove(size_t index);
+  void removeAll();
 
   State state() const;
-  float distance() const;
-  tsd::math::float3 pointA() const;
-  tsd::math::float3 pointB() const;
+  tsd::math::float3 pendingPointA() const;
+  const std::vector<Measurement> &measurements() const;
   anari::World world() const;
 
+  void buildUI();
+
  private:
-  void rebuildGeometry();
+  void rebuildWorld();
 
   State m_state{State::IDLE};
-  tsd::math::float3 m_pointA{0.f};
-  tsd::math::float3 m_pointB{0.f};
-  float m_distance{0.f};
+  tsd::math::float3 m_pendingA{0.f};
+  int m_nextId{1};
+
+  std::vector<Measurement> m_measurements;
 
   anari::Device m_device{nullptr};
   anari::World m_world{nullptr};
