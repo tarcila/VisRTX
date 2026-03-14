@@ -103,6 +103,13 @@ void Viewport::buildUI()
     BaseViewport::ui_handleInput();
   bool didPick = ui_picking(); // Needs to happen before ui_menubar
 
+  // Escape clears measure mode
+  if (m_measureModeActive && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    m_measureModeActive = false;
+    if (m_measureTool)
+      m_measureTool->clear();
+  }
+
   // Render the overlay after input handling so it does not interfere.
   if (m_showOverlay)
     ui_overlay();
@@ -766,6 +773,22 @@ void Viewport::ui_menubar()
     BaseViewport::ui_menubar_TransformManipulator();
     ui_menubar_Viewport();
     ui_menubar_World();
+
+    // Measure tool toggle
+    if (m_measureTool) {
+      ImGui::Separator();
+      if (ImGui::Selectable(
+              m_measureModeActive ? "[Measure ON]" : "Measure",
+              m_measureModeActive,
+              0,
+              ImVec2(ImGui::CalcTextSize(
+                  m_measureModeActive ? "[Measure ON]" : "Measure").x + 8.f, 0))) {
+        m_measureModeActive = !m_measureModeActive;
+        if (!m_measureModeActive)
+          m_measureTool->clear();
+      }
+    }
+
     ImGui::EndDisabled();
     ImGui::EndMenuBar();
   }
@@ -1170,6 +1193,32 @@ void Viewport::ui_overlay()
       ImGui::Text("passes:");
       for (const auto &timing : passTimings)
         ImGui::Text("  %s: %.2fms", timing.name, timing.milliseconds);
+    }
+
+    // Measurement info
+    if (m_measureTool && m_measureModeActive) {
+      ImGui::Separator();
+      auto state = m_measureTool->state();
+      if (state == MeasureTool::State::IDLE) {
+        ImGui::TextColored(
+            ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click point A");
+      } else if (state == MeasureTool::State::PICKED_A) {
+        auto a = m_measureTool->pointA();
+        ImGui::TextColored(
+            ImVec4(0.f, 1.f, 1.f, 1.f), "A: (%.3f, %.3f, %.3f)", a.x, a.y, a.z);
+        ImGui::TextColored(
+            ImVec4(0.f, 1.f, 1.f, 1.f), "Measure: click point B");
+      } else if (state == MeasureTool::State::MEASURED) {
+        auto a = m_measureTool->pointA();
+        auto b = m_measureTool->pointB();
+        ImGui::TextColored(
+            ImVec4(0.f, 1.f, 1.f, 1.f), "A: (%.3f, %.3f, %.3f)", a.x, a.y, a.z);
+        ImGui::TextColored(
+            ImVec4(0.f, 1.f, 1.f, 1.f), "B: (%.3f, %.3f, %.3f)", b.x, b.y, b.z);
+        ImGui::TextColored(ImVec4(1.f, 1.f, 0.f, 1.f),
+            "Distance: %.4f",
+            m_measureTool->distance());
+      }
     }
   }
   ImGui::EndChild();
