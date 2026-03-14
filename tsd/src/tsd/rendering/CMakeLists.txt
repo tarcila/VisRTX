@@ -21,6 +21,7 @@ PRIVATE
   pipeline/passes/OutlineRenderPass.cpp
   pipeline/passes/PrimitiveOutlineRenderPass.cpp
   pipeline/passes/OutputTransformPass.cpp
+  pipeline/passes/OverlayRenderPass.cpp
   pipeline/passes/PickPass.cpp
   pipeline/passes/ImagePass.cpp
   pipeline/passes/SaveToFilePass.cpp
