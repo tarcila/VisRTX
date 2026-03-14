@@ -367,7 +367,8 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
 
   m_overlayPass = p.emplace_back<tsd::rendering::OverlayRenderPass>();
   if (m_overlayPass->device()) {
-    m_measureTool = std::make_unique<MeasureTool>(m_overlayPass->device());
+    if (!m_measureTool)
+      m_measureTool = std::make_unique<MeasureTool>(m_overlayPass->device());
     m_overlayPass->setWorld(m_measureTool->world());
   }
 
@@ -533,10 +534,6 @@ void Viewport::teardownDevice()
   BaseViewport::viewport_setActive(false);
   BaseViewport::imagePipeline_teardown();
   BaseViewport::viewport_reshape(tsd::math::int2(1, 1));
-
-  m_measureTool.reset();
-  m_measureModeActive = false;
-  m_showMeasurements = false;
 
   m_anariPass = nullptr;
   m_pickPass = nullptr;
