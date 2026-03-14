@@ -384,13 +384,7 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
 
     if (m_pickMode == PickMode::CENTER) {
       // Recenter arcball at picked 3D point //
-      auto mPos = ImGui::GetMousePos();
-      auto wMin = ImGui::GetItemRectMin();
-      auto pixel = m_pickCoord;
-      pixel.x = int(mPos[0] - wMin[0]);
-      pixel.y = m_viewport.size.y - int(mPos[1] - wMin[1]);
-
-      auto c = reconstructWorldPos(pixel, m_pickedDepth);
+      auto c = reconstructWorldPos(m_pickWindowPixel, m_pickedDepth);
 
       tsd::core::logStatus(
           "[viewport] pick depth %f | {%f, %f, %f}",
@@ -425,13 +419,7 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
       appContext()->setSelected(obj);
     } else if (m_pickMode == PickMode::MEASURE) {
       // Route to measure tool //
-      auto mPos = ImGui::GetMousePos();
-      auto wMin = ImGui::GetItemRectMin();
-      auto pixel = m_pickCoord;
-      pixel.x = int(mPos[0] - wMin[0]);
-      pixel.y = m_viewport.size.y - int(mPos[1] - wMin[1]);
-
-      auto worldPos = reconstructWorldPos(pixel, m_pickedDepth);
+      auto worldPos = reconstructWorldPos(m_pickWindowPixel, m_pickedDepth);
 
       if (m_measureTool) {
         if (m_measureTool->state() == MeasureTool::State::IDLE
@@ -1102,6 +1090,8 @@ bool Viewport::ui_picking()
       && ImGui::IsWindowHovered()) {
     auto mPos = ImGui::GetMousePos();
     auto wMin = ImGui::GetItemRectMin();
+    m_pickWindowPixel = tsd::math::int2(
+        int(mPos[0] - wMin[0]), m_viewport.size.y - int(mPos[1] - wMin[1]));
     auto pixel = tsd::math::int2(
         tsd::math::float2(
             m_viewport.size.x - (mPos[0] - wMin[0]), mPos[1] - wMin[1])
@@ -1119,6 +1109,8 @@ bool Viewport::ui_picking()
   if (shouldPickCenter && ImGui::IsWindowHovered()) {
     auto mPos = ImGui::GetMousePos();
     auto wMin = ImGui::GetItemRectMin();
+    m_pickWindowPixel = tsd::math::int2(
+        int(mPos[0] - wMin[0]), m_viewport.size.y - int(mPos[1] - wMin[1]));
     auto pixel = tsd::math::int2(
         tsd::math::float2(
             m_viewport.size.x - (mPos[0] - wMin[0]), mPos[1] - wMin[1])

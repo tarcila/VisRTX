@@ -126,6 +126,7 @@ struct Viewport : public BaseViewport
   enum class PickMode { CENTER, SELECT_OBJECT, MEASURE };
   PickMode m_pickMode{PickMode::CENTER};
   tsd::math::int2 m_pickCoord{0, 0};
+  tsd::math::int2 m_pickWindowPixel{0, 0};
   float m_pickedDepth{0.f};
 
   // ANARI objects //
