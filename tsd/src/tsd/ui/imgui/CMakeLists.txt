@@ -30,6 +30,7 @@ project_sources(PRIVATE
   windows/TransferFunctionEditor.cpp
   windows/Viewport.cpp
   windows/Window.cpp
+  tools/MeasureTool.cpp
   Application.cpp
   ExtensionManager.cpp
   tsd_ui_imgui.cpp
