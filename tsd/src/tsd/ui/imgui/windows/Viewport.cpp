@@ -74,6 +74,18 @@ void Viewport::buildUI()
     BaseViewport::camera_update();
   }
 
+  if (m_overlayPass && m_overlayPass->isEnabled() && m_camera.arcball) {
+    auto pos = tsd::math::float3(m_camera.arcball->eye());
+    auto dir = tsd::math::float3(m_camera.arcball->dir());
+    auto up = tsd::math::float3(m_camera.arcball->up());
+    float fov = m_camera.current
+        ? m_camera.current->parameterValueAs<float>("fovy").value_or(
+              tsd::math::radians(40.f))
+        : tsd::math::radians(40.f);
+    float aspect = m_viewport.renderSize.x / float(m_viewport.renderSize.y);
+    m_overlayPass->setCamera(pos, dir, up, fov, aspect);
+  }
+
   ui_menubar();
 
   ImGui::BeginDisabled(!BaseViewport::viewport_isActive());
@@ -337,6 +349,8 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
   m_anariPass = p.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
   m_anariPass->setUseImplicitAspectRatio(m_camera.useImplicitAspectRatio);
 
+  m_overlayPass = p.emplace_back<tsd::rendering::OverlayRenderPass>();
+
   m_saveToFilePass = p.emplace_back<tsd::rendering::SaveToFilePass>();
   m_saveToFilePass->setEnabled(false);
   m_saveToFilePass->setSingleShotMode(true);
@@ -531,6 +545,7 @@ void Viewport::teardownDevice()
   m_outputTransformPass = nullptr;
   m_primitiveOutlinePass = nullptr;
   m_outlinePass = nullptr;
+  m_overlayPass = nullptr;
   m_outputPass = nullptr;
   m_saveToFilePass = nullptr;
 
