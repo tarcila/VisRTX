@@ -4,6 +4,7 @@
 #pragma once
 
 #include "BaseViewport.h"
+#include "Measurements.h"
 #include "tsd/ui/imgui/tools/MeasureTool.h"
 
 // tsd_core
@@ -48,6 +49,7 @@ struct Viewport : public BaseViewport
   void setExternalInstances(
       const anari::Instance *instances = nullptr, size_t count = 0);
   void setCustomFrameParameter(const char *name, const tsd::core::Any &value);
+  void setMeasurementsWindow(Measurements *w);
 
  private:
   void refreshCurrentDevice();
@@ -119,7 +121,7 @@ struct Viewport : public BaseViewport
   // Measure tool //
 
   bool m_measureModeActive{false};
-  bool m_showMeasurements{false};
+  Measurements *m_measurementsWindow{nullptr};
   std::unique_ptr<MeasureTool> m_measureTool;
 
   // Picking state //

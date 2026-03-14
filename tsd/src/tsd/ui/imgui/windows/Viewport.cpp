@@ -119,14 +119,6 @@ void Viewport::buildUI()
 
   ImGui::EndDisabled();
 
-  // Measurements list window
-  if (m_showMeasurements && m_measureTool) {
-    ImGui::SetNextWindowSize(ImVec2(300.f, 200.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Measurements", &m_showMeasurements))
-      m_measureTool->buildUI();
-    ImGui::End();
-  }
-
   if (m_anariPass && !didPick) {
     const bool doPrimitiveOutline = m_outlinePrimitives
         && m_deviceSupportsPrimitiveId
@@ -284,6 +276,14 @@ void Viewport::refreshCurrentDevice()
   }
 }
 
+void Viewport::setMeasurementsWindow(Measurements *w)
+{
+  m_measurementsWindow = w;
+  if (w && m_measureTool)
+    w->setMeasureTool(m_measureTool.get());
+}
+
+
 void Viewport::saveSettings(tsd::core::DataNode &root)
 {
   root["anariLibrary"] = m_libName;
@@ -370,6 +370,8 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
     if (!m_measureTool)
       m_measureTool = std::make_unique<MeasureTool>(m_overlayPass->device());
     m_overlayPass->setWorld(m_measureTool->world());
+    if (m_measurementsWindow)
+      m_measurementsWindow->setMeasureTool(m_measureTool.get());
   }
 
   m_saveToFilePass = p.emplace_back<tsd::rendering::SaveToFilePass>();
@@ -777,8 +779,8 @@ void Viewport::ui_menubar()
               ImVec2(ImGui::CalcTextSize(
                   m_measureModeActive ? "[Measure ON]" : "Measure").x + 8.f, 0))) {
         m_measureModeActive = !m_measureModeActive;
-        if (m_measureModeActive)
-          m_showMeasurements = true;
+        if (m_measureModeActive && m_measurementsWindow)
+          m_measurementsWindow->show();
         else
           m_measureTool->cancelPick();
       }
@@ -1021,8 +1023,6 @@ void Viewport::ui_menubar_Viewport()
       ImGui::Checkbox("Axes", &m_showOrientationWidget);
       ImGui::Checkbox("Animation Time Slider", &m_showAnimationSlider);
       ImGui::Checkbox("Info Window", &m_showOverlay);
-      if (m_measureTool)
-        ImGui::Checkbox("Measurements", &m_showMeasurements);
       if (ImGui::MenuItem("Reset Timing Stats")) {
         m_minFL.reset();
         m_maxFL.reset();

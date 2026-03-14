@@ -24,6 +24,7 @@ project_sources(PRIVATE
   windows/IsosurfaceEditor.cpp
   windows/LayerTree.cpp
   windows/Log.cpp
+  windows/Measurements.cpp
   windows/MultiDeviceViewport.cpp
   windows/ObjectEditor.cpp
   windows/Terminal.cpp

@@ -11,6 +11,7 @@
 #include <tsd/ui/imgui/windows/IsosurfaceEditor.h>
 #include <tsd/ui/imgui/windows/LayerTree.h>
 #include <tsd/ui/imgui/windows/Log.h>
+#include <tsd/ui/imgui/windows/Measurements.h>
 #include <tsd/ui/imgui/windows/ObjectEditor.h>
 #include <tsd/ui/imgui/windows/Terminal.h>
 #include <tsd/ui/imgui/windows/Timeline.h>
@@ -51,6 +52,9 @@ class Application : public TSDApplication
     auto *tfeditor = new tsd_ui::TransferFunctionEditor(this);
     auto *isoeditor = new tsd_ui::IsosurfaceEditor(this);
     auto *terminal = new tsd_ui::Terminal(this);
+    auto *measurements = new tsd_ui::Measurements(this);
+
+    viewport->setMeasurementsWindow(measurements);
 
     windows.emplace_back(animations);
     windows.emplace_back(timeline);
@@ -63,6 +67,7 @@ class Application : public TSDApplication
     windows.emplace_back(tfeditor);
     windows.emplace_back(isoeditor);
     windows.emplace_back(terminal);
+    windows.emplace_back(measurements);
     windows.emplace_back(log);
 
     setWindowArray(windows);
@@ -71,6 +76,7 @@ class Application : public TSDApplication
       viewport2->hide();
     tfeditor->hide();
     isoeditor->hide();
+    measurements->hide();
 
     // Populate scene //
 
@@ -140,6 +146,12 @@ Pos=0,1207
 Size=899,1055
 Collapsed=0
 DockId=0x00000009,1
+
+[Window][Measurements]
+Pos=0,576
+Size=547,504
+Collapsed=0
+DockId=0x00000009,2
 
 [Window][Layers]
 Pos=0,56
