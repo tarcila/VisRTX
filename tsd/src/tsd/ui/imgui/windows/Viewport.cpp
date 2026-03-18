@@ -1097,6 +1097,11 @@ bool Viewport::ui_picking()
   if (m_measureModeActive && m_measureTool
       && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
       && ImGui::IsWindowHovered()) {
+    if (m_camera.current->subtype() != scene::tokens::camera::perspective) {
+      tsd::core::logWarning(
+          "[viewport] measure tool requires a perspective camera");
+      return false;
+    }
     auto mPos = ImGui::GetMousePos();
     auto wMin = ImGui::GetItemRectMin();
     m_pickWindowPixel = tsd::math::int2(
