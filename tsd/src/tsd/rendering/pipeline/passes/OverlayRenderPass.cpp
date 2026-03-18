@@ -135,13 +135,12 @@ void OverlayRenderPass::setWorld(anari::World w)
 {
   if (!m_device)
     return;
-  anari::setParameter(m_device, m_frame, "world", w);
-  anari::commitParameters(m_device, m_frame);
-  anari::release(m_device, m_world);
-  m_world = w;
   if (w)
     anari::retain(m_device, w);
-  m_firstFrame = true;
+  anari::release(m_device, m_world);
+  m_world = w;
+  anari::setParameter(m_device, m_frame, "world", w);
+  anari::commitParameters(m_device, m_frame);
 }
 
 anari::Device OverlayRenderPass::device() const
