@@ -532,6 +532,9 @@ void Viewport::teardownDevice()
     return;
 
   BaseViewport::viewport_setActive(false);
+  if (m_measurementsWindow)
+    m_measurementsWindow->setMeasureTool(nullptr);
+
   BaseViewport::imagePipeline_teardown();
   BaseViewport::viewport_reshape(tsd::math::int2(1, 1));
 
