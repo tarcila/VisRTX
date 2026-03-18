@@ -14,6 +14,9 @@ struct OverlayRenderPass : public ImagePass
   OverlayRenderPass();
   ~OverlayRenderPass() override;
 
+  OverlayRenderPass(const OverlayRenderPass &) = delete;
+  OverlayRenderPass &operator=(const OverlayRenderPass &) = delete;
+
   void setCamera(tsd::math::float3 pos,
       tsd::math::float3 dir,
       tsd::math::float3 up,

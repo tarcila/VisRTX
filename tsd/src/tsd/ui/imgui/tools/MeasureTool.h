@@ -28,6 +28,9 @@ struct MeasureTool
   MeasureTool(anari::Device overlayDevice);
   ~MeasureTool();
 
+  MeasureTool(const MeasureTool &) = delete;
+  MeasureTool &operator=(const MeasureTool &) = delete;
+
   void setPointA(tsd::math::float3 pos);
   void setPointB(tsd::math::float3 pos);
   void cancelPick();
