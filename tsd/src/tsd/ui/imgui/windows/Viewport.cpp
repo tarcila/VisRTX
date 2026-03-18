@@ -291,7 +291,6 @@ void Viewport::saveSettings(tsd::core::DataNode &root)
   // Viewport settings //
 
   root["showOverlay"] = m_showOverlay;
-  root["showOnlySelected"] = m_showOnlySelected;
   root["highlightSelection"] = m_highlightSelection;
   root["outlinePrimitives"] = m_outlinePrimitives;
   root["visualizeAOV"] = static_cast<int>(m_visualizeAOV);
@@ -320,7 +319,6 @@ void Viewport::loadSettings(tsd::core::DataNode &root)
   // Viewport settings //
 
   root["showOverlay"].getValue(ANARI_BOOL, &m_showOverlay);
-  root["showOnlySelected"].getValue(ANARI_BOOL, &m_showOnlySelected);
   root["highlightSelection"].getValue(ANARI_BOOL, &m_highlightSelection);
   root["outlinePrimitives"].getValue(ANARI_BOOL, &m_outlinePrimitives);
   int aovType = static_cast<int>(m_visualizeAOV);
