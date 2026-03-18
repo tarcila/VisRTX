@@ -35,7 +35,7 @@ struct OverlayRenderPass : public ImagePass
   anari::World m_world{nullptr};
   anari::Frame m_frame{nullptr};
 
-  bool m_firstFrame{true};
+  bool m_dirty{true};
   bool m_deviceSupportsCUDAFrames{false};
 };
 

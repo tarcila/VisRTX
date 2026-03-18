@@ -129,6 +129,7 @@ void OverlayRenderPass::setCamera(tsd::math::float3 pos,
   anari::setParameter(m_device, m_camera, "fovy", fovy);
   anari::setParameter(m_device, m_camera, "aspect", aspect);
   anari::commitParameters(m_device, m_camera);
+  m_dirty = true;
 }
 
 void OverlayRenderPass::setWorld(anari::World w)
@@ -141,6 +142,7 @@ void OverlayRenderPass::setWorld(anari::World w)
   m_world = w;
   anari::setParameter(m_device, m_frame, "world", w);
   anari::commitParameters(m_device, m_frame);
+  m_dirty = true;
 }
 
 anari::Device OverlayRenderPass::device() const
@@ -155,7 +157,7 @@ void OverlayRenderPass::updateSize()
   auto size = getDimensions();
   anari::setParameter(m_device, m_frame, "size", size);
   anari::commitParameters(m_device, m_frame);
-  m_firstFrame = true;
+  m_dirty = true;
 }
 
 void OverlayRenderPass::render(ImageBuffers &b, int stageId)
@@ -163,8 +165,11 @@ void OverlayRenderPass::render(ImageBuffers &b, int stageId)
   if (!m_device)
     return;
 
-  anari::render(m_device, m_frame);
-  anari::wait(m_device, m_frame);
+  if (m_dirty) {
+    anari::render(m_device, m_frame);
+    anari::wait(m_device, m_frame);
+    m_dirty = false;
+  }
 
   auto size = getDimensions();
   const auto totalPixels = uint32_t(size.x) * uint32_t(size.y);
