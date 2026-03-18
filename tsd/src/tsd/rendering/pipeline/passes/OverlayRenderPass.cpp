@@ -185,23 +185,8 @@ void OverlayRenderPass::render(ImageBuffers &b, int stageId)
   auto color = anari::map<tsd::math::float4>(m_device, m_frame, "channel.color");
 
   if (color.data && totalPixels > 0
-      && size.x == color.width && size.y == color.height) {
-    for (size_t i = 0; i < totalPixels; i++) {
-      auto oc = color.data[i];
-      if (oc.w <= 0.f)
-        continue;
-
-      auto sc = helium::cvt_color_to_float4(b.color[i]);
-      float invA = 1.f - oc.w;
-      tsd::math::float4 blended(
-          oc.x + sc.x * invA,
-          oc.y + sc.y * invA,
-          oc.z + sc.z * invA,
-          oc.w + sc.w * invA);
-
-      b.color[i] = helium::cvt_color_to_uint32(blended);
-    }
-  }
+      && size.x == color.width && size.y == color.height)
+    compositeOverlay(b, color.data, totalPixels);
 
   anari::unmap(m_device, m_frame, "channel.color");
 }
