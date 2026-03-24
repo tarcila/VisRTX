@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ImagePass.h"
+#include "tsd/core/TypeMacros.hpp"
 // anari
 #include <anari/anari_cpp.hpp>
 
@@ -14,8 +15,7 @@ struct OverlayRenderPass : public ImagePass
   OverlayRenderPass();
   ~OverlayRenderPass() override;
 
-  OverlayRenderPass(const OverlayRenderPass &) = delete;
-  OverlayRenderPass &operator=(const OverlayRenderPass &) = delete;
+  TSD_NOT_COPYABLE(OverlayRenderPass);
 
   void setCamera(tsd::math::float3 pos,
       tsd::math::float3 dir,
@@ -26,6 +26,11 @@ struct OverlayRenderPass : public ImagePass
   void setWorld(anari::World w);
 
   anari::Device device() const;
+
+  const char *name() const override
+  {
+    return "Raster Overlay";
+  }
 
  private:
   void updateSize() override;
