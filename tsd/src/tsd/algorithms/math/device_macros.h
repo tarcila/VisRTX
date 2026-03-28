@@ -3,10 +3,14 @@
 
 #pragma once
 
-#ifdef __CUDACC__
+#if defined(__CUDACC__)
 #define TSD_DEVICE_FCN __device__
 #define TSD_DEVICE_FCN_INLINE __forceinline__ __device__
 #define TSD_HOST_DEVICE_FCN __host__ __device__
+#elif defined(__METAL_VERSION__)
+#define TSD_DEVICE_FCN
+#define TSD_DEVICE_FCN_INLINE inline
+#define TSD_HOST_DEVICE_FCN
 #else
 #define TSD_DEVICE_FCN
 #define TSD_DEVICE_FCN_INLINE inline

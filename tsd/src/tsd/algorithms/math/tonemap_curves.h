@@ -4,24 +4,22 @@
 #pragma once
 
 #include "device_macros.h"
-#include "tsd/core/TSDMath.hpp"
-// std
-#include <algorithm>
-#include <cmath>
+#include "math_compat.h"
+#include "vec_types.h"
 
 namespace tsd::algorithms::math {
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 max0(tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 max0(float3 c)
 {
-  return {std::max(c.x, 0.f), std::max(c.y, 0.f), std::max(c.z, 0.f)};
+  return {max(c.x, 0.f), max(c.y, 0.f), max(c.z, 0.f)};
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapReinhard(tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 tonemapReinhard(float3 c)
 {
   return c / (c + 1.f);
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapACES(tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 tonemapACES(float3 c)
 {
   // Narkowicz 2015, "ACES Filmic Tone Mapping Curve"
   const float a = 2.51f;
@@ -32,7 +30,7 @@ TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapACES(tsd::math::float3 c)
   return (c * (a * c + b)) / (c * (cc * c + d) + e);
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 hablePartial(tsd::math::float3 x)
+TSD_DEVICE_FCN_INLINE float3 hablePartial(float3 x)
 {
   const float A = 0.15f;
   const float B = 0.50f;
@@ -43,27 +41,26 @@ TSD_DEVICE_FCN_INLINE tsd::math::float3 hablePartial(tsd::math::float3 x)
   return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapHable(tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 tonemapHable(float3 c)
 {
   const float W = 11.2f;
-  auto whiteScale = tsd::math::float3(1.f) / hablePartial(tsd::math::float3(W));
+  auto whiteScale = float3(1.f) / hablePartial(float3(W));
   return hablePartial(c * 2.f) * whiteScale;
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapKhronosPbrNeutral(
-    tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 tonemapKhronosPbrNeutral(float3 c)
 {
   // https://github.com/KhronosGroup/ToneMapping/tree/main/PBR_Neutral
   const float startCompression = 0.8f - 0.04f;
   const float desaturation = 0.15f;
 
-  float x = std::min(c.x, std::min(c.y, c.z));
+  float x = min(c.x, min(c.y, c.z));
   float offset = x < 0.08f ? x - 6.25f * x * x : 0.04f;
   c.x -= offset;
   c.y -= offset;
   c.z -= offset;
 
-  float peak = std::max(c.x, std::max(c.y, c.z));
+  float peak = max(c.x, max(c.y, c.z));
   if (peak < startCompression)
     return c;
 
@@ -81,10 +78,10 @@ TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapKhronosPbrNeutral(
   return c;
 }
 
-TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapAgX(tsd::math::float3 c)
+TSD_DEVICE_FCN_INLINE float3 tonemapAgX(float3 c)
 {
   // AgX base contrast (Troy Sobotka)
-  tsd::math::float3 agx;
+  float3 agx;
   agx.x = 0.842479062253094f * c.x + 0.0784335999999992f * c.y
       + 0.0792237451477643f * c.z;
   agx.y = 0.0423282422610123f * c.x + 0.878468636469772f * c.y
@@ -95,27 +92,24 @@ TSD_DEVICE_FCN_INLINE tsd::math::float3 tonemapAgX(tsd::math::float3 c)
   const float minEv = -12.47393f;
   const float maxEv = 4.026069f;
   const float range = maxEv - minEv;
-  agx.x = std::clamp(
-      (std::log2(std::max(agx.x, 1e-10f)) - minEv) / range, 0.f, 1.f);
-  agx.y = std::clamp(
-      (std::log2(std::max(agx.y, 1e-10f)) - minEv) / range, 0.f, 1.f);
-  agx.z = std::clamp(
-      (std::log2(std::max(agx.z, 1e-10f)) - minEv) / range, 0.f, 1.f);
+  agx.x = clamp((log2(max(agx.x, 1e-10f)) - minEv) / range, 0.f, 1.f);
+  agx.y = clamp((log2(max(agx.y, 1e-10f)) - minEv) / range, 0.f, 1.f);
+  agx.z = clamp((log2(max(agx.z, 1e-10f)) - minEv) / range, 0.f, 1.f);
 
   auto x2 = agx * agx;
   auto x4 = x2 * x2;
   agx = 15.5f * x4 * x2 - 40.14f * x4 * agx + 31.96f * x4 - 6.868f * x2 * agx
       + 0.4298f * x2 + 0.1191f * agx - 0.00232f;
 
-  return {std::clamp(1.19687900512017f * agx.x - 0.0980208811401368f * agx.y
+  return {clamp(1.19687900512017f * agx.x - 0.0980208811401368f * agx.y
                   - 0.0990434085532547f * agx.z,
               0.f,
               1.f),
-      std::clamp(-0.0528968517574562f * agx.x + 1.15190312990417f * agx.y
+      clamp(-0.0528968517574562f * agx.x + 1.15190312990417f * agx.y
               - 0.0989611768448433f * agx.z,
           0.f,
           1.f),
-      std::clamp(-0.0529716355144438f * agx.x - 0.0980434800157286f * agx.y
+      clamp(-0.0529716355144438f * agx.x - 0.0980434800157286f * agx.y
               + 1.15107367305587f * agx.z,
           0.f,
           1.f)};
