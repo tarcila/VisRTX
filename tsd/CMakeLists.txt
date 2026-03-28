@@ -65,9 +65,11 @@ option(TSD_NANOVDB_SKIP_INVALID_VOLUMES
 option(TSD_USE_LUA "Enable Lua scripting support" ON)
 
 if (APPLE)
+  option(TSD_USE_METAL "Use Metal code paths where relevant" ON)
   set(TSD_USE_CUDA OFF)
 else()
   option(TSD_USE_CUDA "Use CUDA code paths where relevant" ON)
+  set(TSD_USE_METAL OFF)
 endif()
 
 ## Establish project ##
