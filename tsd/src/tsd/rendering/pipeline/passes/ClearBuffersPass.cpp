@@ -27,6 +27,10 @@ void ClearBuffersPass::render(ImageBuffers &b, int /*stageId*/)
   const auto c = helium::cvt_color_to_uint32(m_clearColor);
   const float inf = std::numeric_limits<float>::infinity();
 
+#ifdef TSD_ALGORITHMS_HAS_METAL
+  if (b.metalHdrColor)
+    return; // Metal renderer handles its own clearing
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
   if (b.stream) {
     using tsd::algorithms::cuda::fill;

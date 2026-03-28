@@ -4,6 +4,9 @@
 #include "ToneMapPass.h"
 // tsd_algorithms
 #include "tsd/algorithms/cpu/toneMap.hpp"
+#ifdef TSD_ALGORITHMS_HAS_METAL
+#include "tsd/algorithms/metal/toneMap.hpp"
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
 #include "tsd/algorithms/cuda/toneMap.hpp"
 #endif
@@ -45,13 +48,22 @@ void ToneMapPass::render(ImageBuffers &b, int stageId)
 
   const auto size = getDimensions();
   const uint32_t totalPixels = size.x * size.y;
-  if (totalPixels == 0 || !b.hdrColor)
+  if (totalPixels == 0)
     return;
 
   const float exposure =
       (m_autoExposureEnabled ? b.exposure : 0.f) + m_exposure;
   const float exposureScale = std::exp2(exposure);
 
+#ifdef TSD_ALGORITHMS_HAS_METAL
+  if (b.metalHdrColor) {
+    tsd::algorithms::metal::toneMap(
+        b.metalHdrColor, totalPixels, exposureScale, m_operator);
+    return;
+  }
+#endif
+  if (!b.hdrColor)
+    return;
 #ifdef TSD_ALGORITHMS_HAS_CUDA
   if (b.stream) {
     tsd::algorithms::cuda::toneMap(

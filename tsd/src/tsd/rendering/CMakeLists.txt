@@ -55,6 +55,8 @@ if (TSD_USE_CUDA)
       LANGUAGE CUDA
   )
   project_compile_definitions(PRIVATE ENABLE_CUDA)
+elseif(TSD_USE_METAL)
+  project_compile_definitions(PRIVATE ENABLE_METAL)
 elseif(TSD_USE_TBB)
   find_package(TBB REQUIRED)
   project_link_libraries(PRIVATE TBB::tbb)

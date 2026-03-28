@@ -82,6 +82,13 @@ if (TSD_USE_METAL)
     math/tonemap_curves.h
     # Compute shaders
     metal/shaders/clearBuffers.metal
+    metal/shaders/toneMap.metal
+    metal/shaders/convertColorBuffer.metal
+    metal/shaders/outputTransform.metal
+    metal/shaders/autoExposure.metal
+    metal/shaders/visualizeAOV.metal
+    metal/shaders/outline.metal
+    metal/shaders/composite.metal
   )
 
   # Build absolute paths for the manifest and DEPENDS
@@ -112,6 +119,12 @@ if (TSD_USE_METAL)
     metal/MetalContext.mm
     metal/runtime.cpp
     metal/clearBuffers.cpp
+    metal/toneMap.cpp
+    metal/convertColorBuffer.cpp
+    metal/outputTransform.cpp
+    metal/autoExposure.cpp
+    metal/visualizeAOV.cpp
+    metal/outline.cpp
     ${METALLIB_C}
     metal/toneMap.cpp
     metal/convertColorBuffer.cpp

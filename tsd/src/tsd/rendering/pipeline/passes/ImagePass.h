@@ -3,6 +3,12 @@
 
 #pragma once
 
+#if defined(TSD_ALGORITHMS_HAS_METAL)
+namespace MTL {
+class Texture;
+}
+#endif
+
 // tsd_core
 #include "tsd/core/TSDMath.hpp"
 // tsd_rendering
@@ -32,6 +38,15 @@ struct ImageBuffers
   tsd::math::float3 *albedo{nullptr};
   tsd::math::float3 *normal{nullptr};
   detail::ComputeStream stream{};
+#if defined(TSD_ALGORITHMS_HAS_METAL)
+  MTL::Texture *metalHdrColor{nullptr};
+  MTL::Texture *metalDepth{nullptr};
+  MTL::Texture *metalObjectId{nullptr};
+  MTL::Texture *metalPrimitiveId{nullptr};
+  MTL::Texture *metalInstanceId{nullptr};
+  MTL::Texture *metalAlbedo{nullptr};
+  MTL::Texture *metalNormal{nullptr};
+#endif
 };
 
 /*

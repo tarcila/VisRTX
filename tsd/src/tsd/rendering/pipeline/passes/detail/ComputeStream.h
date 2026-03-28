@@ -3,15 +3,20 @@
 
 #pragma once
 
-#ifdef ENABLE_CUDA
-// cuda
+#if defined(ENABLE_CUDA)
 #include <cuda_runtime_api.h>
+#elif defined(ENABLE_METAL)
+namespace MTL {
+class CommandQueue;
+}
 #endif
 
 namespace tsd::rendering::detail {
 
-#ifdef ENABLE_CUDA
+#if defined(ENABLE_CUDA)
 using ComputeStream = cudaStream_t;
+#elif defined(ENABLE_METAL)
+using ComputeStream = MTL::CommandQueue *;
 #else
 using ComputeStream = void *;
 #endif

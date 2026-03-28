@@ -3,6 +3,12 @@
 
 #pragma once
 
+#if defined(ENABLE_METAL)
+namespace MTL {
+class CommandQueue;
+}
+#endif
+
 #include "ImagePass.h"
 // anari
 #include <anari/anari_cpp.hpp>
@@ -22,7 +28,10 @@ struct AnariSceneRenderPass : public ImagePass
 {
   AnariSceneRenderPass(anari::Device d);
   ~AnariSceneRenderPass() override;
-  const char *name() const override { return "ANARI Scene"; }
+  const char *name() const override
+  {
+    return "ANARI Scene";
+  }
 
   void setCamera(anari::Camera c);
   void setRenderer(anari::Renderer r);
@@ -64,6 +73,11 @@ struct AnariSceneRenderPass : public ImagePass
   anari::Renderer m_renderer{nullptr};
   anari::World m_world{nullptr};
   anari::Frame m_frame{nullptr};
+
+#if defined(ENABLE_METAL)
+  bool m_deviceSupportsMetalFrames{false};
+  MTL::CommandQueue *m_metalQueue{nullptr};
+#endif
 };
 
 } // namespace tsd::rendering

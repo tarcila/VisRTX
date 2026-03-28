@@ -4,6 +4,9 @@
 #include "VisualizeAOVPass.h"
 // tsd_algorithms
 #include "tsd/algorithms/cpu/visualizeAOV.hpp"
+#ifdef TSD_ALGORITHMS_HAS_METAL
+#include "tsd/algorithms/metal/visualizeAOV.hpp"
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
 #include "tsd/algorithms/cuda/visualizeAOV.hpp"
 #endif
@@ -40,6 +43,45 @@ void VisualizeAOVPass::render(ImageBuffers &b, int stageId)
 
   const auto size = getDimensions();
 
+#ifdef TSD_ALGORITHMS_HAS_METAL
+  if (b.metalHdrColor) {
+    namespace alg = tsd::algorithms::metal;
+    switch (m_aovType) {
+    case AOVType::DEPTH:
+      alg::visualizeDepth(b.metalDepth,
+          b.metalHdrColor,
+          m_minDepth,
+          m_maxDepth,
+          size.x,
+          size.y);
+      break;
+    case AOVType::ALBEDO:
+      alg::visualizeAlbedo(b.metalAlbedo, b.metalHdrColor, size.x, size.y);
+      break;
+    case AOVType::NORMAL:
+      alg::visualizeNormal(b.metalNormal, b.metalHdrColor, size.x, size.y);
+      break;
+    case AOVType::EDGES:
+      alg::visualizeEdges(
+          b.metalObjectId, b.metalHdrColor, m_edgeInvert, size.x, size.y);
+      break;
+    case AOVType::OBJECT_ID:
+      alg::visualizeObjectId(b.metalObjectId, b.metalHdrColor, size.x, size.y);
+      break;
+    case AOVType::PRIMITIVE_ID:
+      alg::visualizePrimitiveId(
+          b.metalPrimitiveId, b.metalHdrColor, size.x, size.y);
+      break;
+    case AOVType::INSTANCE_ID:
+      alg::visualizeInstanceId(
+          b.metalInstanceId, b.metalHdrColor, size.x, size.y);
+      break;
+    default:
+      break;
+    }
+    return;
+  }
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
   if (b.stream) {
     namespace alg = tsd::algorithms::cuda;

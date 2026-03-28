@@ -12,6 +12,10 @@
 #include <algorithm>
 #include <cstring>
 
+#ifdef ENABLE_METAL
+#include "tsd/algorithms/metal/runtime.hpp"
+#endif
+
 namespace tsd::rendering {
 
 // Helper functions ///////////////////////////////////////////////////////////
@@ -36,6 +40,19 @@ static bool supportsCUDAFbData(anari::Device d)
 #endif
 }
 
+static bool supportsMetalFbData(anari::Device d)
+{
+#ifdef ENABLE_METAL
+  auto list = (const char *const *)anariGetObjectInfo(
+      d, ANARI_DEVICE, "default", "extension", ANARI_STRING_LIST);
+  for (const char *const *i = list; *i != nullptr; ++i) {
+    if (std::string(*i) == "ANARI_MTL_FRAME_BUFFERS_METAL")
+      return true;
+  }
+#endif
+  return false;
+}
+
 // AnariSceneRenderPass definitions ///////////////////////////////////////////
 
 AnariSceneRenderPass::AnariSceneRenderPass(anari::Device d) : m_device(d)
@@ -50,7 +67,33 @@ AnariSceneRenderPass::AnariSceneRenderPass(anari::Device d) : m_device(d)
 
   if (m_deviceSupportsCUDAFrames)
     tsd::core::logStatus("[ImagePipeline] using CUDA-mapped fb channels");
-  else
+
+#ifdef ENABLE_METAL
+  m_deviceSupportsMetalFrames = supportsMetalFbData(d);
+  if (m_deviceSupportsMetalFrames) {
+    tsd::core::logStatus("[ImagePipeline] using Metal-mapped fb channels");
+    MTL::CommandQueue *queue = nullptr;
+    anariGetProperty(d,
+        d,
+        "mtl.commandQueue",
+        ANARI_VOID_POINTER,
+        &queue,
+        sizeof(queue),
+        ANARI_WAIT);
+    m_metalQueue = queue;
+    if (queue)
+      tsd::algorithms::metal::setSharedQueue(queue);
+
+    anari::setParameter(d, m_frame, "channel.colorMTL", ANARI_FLOAT32_VEC4);
+    anari::setParameter(d, m_frame, "channel.depthMTL", ANARI_FLOAT32);
+  }
+#endif
+
+  if (!m_deviceSupportsCUDAFrames
+#ifdef ENABLE_METAL
+      && !m_deviceSupportsMetalFrames
+#endif
+  )
     tsd::core::logStatus("[ImagePipeline] using host-mapped fb channels");
 }
 
@@ -124,6 +167,11 @@ void AnariSceneRenderPass::setEnableIDs(bool on)
     anari::wait(m_device, m_frame);
 
     anari::setParameter(m_device, m_frame, "channel.objectId", ANARI_UINT32);
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::setParameter(
+          m_device, m_frame, "channel.objectIdMTL", ANARI_UINT32);
+#endif
     anari::commitParameters(m_device, m_frame);
 
     anari::render(m_device, m_frame);
@@ -131,6 +179,10 @@ void AnariSceneRenderPass::setEnableIDs(bool on)
   } else {
     tsd::core::logInfo("[ImagePipeline] disabling objectId frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.objectId");
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::unsetParameter(m_device, m_frame, "channel.objectIdMTL");
+#endif
     anari::commitParameters(m_device, m_frame);
 
     auto size = getDimensions();
@@ -153,6 +205,11 @@ void AnariSceneRenderPass::setEnablePrimitiveId(bool on)
     anari::wait(m_device, m_frame);
 
     anari::setParameter(m_device, m_frame, "channel.primitiveId", ANARI_UINT32);
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::setParameter(
+          m_device, m_frame, "channel.primitiveIdMTL", ANARI_UINT32);
+#endif
     anari::commitParameters(m_device, m_frame);
 
     anari::render(m_device, m_frame);
@@ -160,6 +217,10 @@ void AnariSceneRenderPass::setEnablePrimitiveId(bool on)
   } else {
     tsd::core::logInfo("[ImagePipeline] disabling primitiveId frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.primitiveId");
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::unsetParameter(m_device, m_frame, "channel.primitiveIdMTL");
+#endif
     anari::commitParameters(m_device, m_frame);
 
     auto size = getDimensions();
@@ -182,6 +243,11 @@ void AnariSceneRenderPass::setEnableInstanceId(bool on)
     anari::wait(m_device, m_frame);
 
     anari::setParameter(m_device, m_frame, "channel.instanceId", ANARI_UINT32);
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::setParameter(
+          m_device, m_frame, "channel.instanceIdMTL", ANARI_UINT32);
+#endif
     anari::commitParameters(m_device, m_frame);
 
     anari::render(m_device, m_frame);
@@ -189,6 +255,10 @@ void AnariSceneRenderPass::setEnableInstanceId(bool on)
   } else {
     tsd::core::logInfo("[ImagePipeline] disabling instanceId frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.instanceId");
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::unsetParameter(m_device, m_frame, "channel.instanceIdMTL");
+#endif
     anari::commitParameters(m_device, m_frame);
 
     auto size = getDimensions();
@@ -212,6 +282,11 @@ void AnariSceneRenderPass::setEnableAlbedo(bool on)
 
     anari::setParameter(
         m_device, m_frame, "channel.albedo", ANARI_FLOAT32_VEC3);
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::setParameter(
+          m_device, m_frame, "channel.albedoMTL", ANARI_FLOAT32_VEC4);
+#endif
     anari::commitParameters(m_device, m_frame);
 
     anari::render(m_device, m_frame);
@@ -219,6 +294,10 @@ void AnariSceneRenderPass::setEnableAlbedo(bool on)
   } else {
     tsd::core::logInfo("[ImagePipeline] disabling albedo frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.albedo");
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::unsetParameter(m_device, m_frame, "channel.albedoMTL");
+#endif
     anari::commitParameters(m_device, m_frame);
   }
 }
@@ -238,6 +317,11 @@ void AnariSceneRenderPass::setEnableNormals(bool on)
 
     anari::setParameter(
         m_device, m_frame, "channel.normal", ANARI_FLOAT32_VEC3);
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::setParameter(
+          m_device, m_frame, "channel.normalMTL", ANARI_FLOAT32_VEC4);
+#endif
     anari::commitParameters(m_device, m_frame);
 
     anari::render(m_device, m_frame);
@@ -245,6 +329,10 @@ void AnariSceneRenderPass::setEnableNormals(bool on)
   } else {
     tsd::core::logInfo("[ImagePipeline] disabling normal frame channel");
     anari::unsetParameter(m_device, m_frame, "channel.normal");
+#ifdef ENABLE_METAL
+    if (m_deviceSupportsMetalFrames)
+      anari::unsetParameter(m_device, m_frame, "channel.normalMTL");
+#endif
     anari::commitParameters(m_device, m_frame);
   }
 }
@@ -304,6 +392,45 @@ void AnariSceneRenderPass::render(ImageBuffers &b, int stageId)
 
 void AnariSceneRenderPass::copyFrameData()
 {
+#ifdef ENABLE_METAL
+  if (m_deviceSupportsMetalFrames) {
+    auto color = anari::map<void>(m_device, m_frame, "channel.colorMTL");
+    m_buffers.metalHdrColor =
+        reinterpret_cast<MTL::Texture *>(const_cast<void *>(color.data));
+
+    auto depth = anari::map<void>(m_device, m_frame, "channel.depthMTL");
+    m_buffers.metalDepth =
+        reinterpret_cast<MTL::Texture *>(const_cast<void *>(depth.data));
+
+    if (m_enableIDs) {
+      auto oid = anari::map<void>(m_device, m_frame, "channel.objectIdMTL");
+      m_buffers.metalObjectId =
+          reinterpret_cast<MTL::Texture *>(const_cast<void *>(oid.data));
+    }
+    if (m_enablePrimitiveId) {
+      auto pid = anari::map<void>(m_device, m_frame, "channel.primitiveIdMTL");
+      m_buffers.metalPrimitiveId =
+          reinterpret_cast<MTL::Texture *>(const_cast<void *>(pid.data));
+    }
+    if (m_enableInstanceId) {
+      auto iid = anari::map<void>(m_device, m_frame, "channel.instanceIdMTL");
+      m_buffers.metalInstanceId =
+          reinterpret_cast<MTL::Texture *>(const_cast<void *>(iid.data));
+    }
+    if (m_enableAlbedo) {
+      auto alb = anari::map<void>(m_device, m_frame, "channel.albedoMTL");
+      m_buffers.metalAlbedo =
+          reinterpret_cast<MTL::Texture *>(const_cast<void *>(alb.data));
+    }
+    if (m_enableNormals) {
+      auto nrm = anari::map<void>(m_device, m_frame, "channel.normalMTL");
+      m_buffers.metalNormal =
+          reinterpret_cast<MTL::Texture *>(const_cast<void *>(nrm.data));
+    }
+    return;
+  }
+#endif
+
   const char *colorChannel =
       m_deviceSupportsCUDAFrames ? "channel.colorCUDA" : "channel.color";
   const char *depthChannel =
@@ -387,6 +514,27 @@ void AnariSceneRenderPass::composite(ImageBuffers &b, int stageId)
   const bool firstPass = stageId == 0;
   const tsd::math::uint2 size(getDimensions());
   const size_t totalSize = size.x * size.y;
+
+#ifdef ENABLE_METAL
+  if (m_deviceSupportsMetalFrames) {
+    if (firstPass) {
+      b.metalHdrColor = m_buffers.metalHdrColor;
+      b.metalDepth = m_buffers.metalDepth;
+      b.metalObjectId = m_buffers.metalObjectId;
+      b.metalPrimitiveId = m_buffers.metalPrimitiveId;
+      b.metalInstanceId = m_buffers.metalInstanceId;
+      b.metalAlbedo = m_buffers.metalAlbedo;
+      b.metalNormal = m_buffers.metalNormal;
+      b.stream = m_metalQueue;
+    } else if (b.metalHdrColor && m_buffers.metalHdrColor) {
+      tsd::algorithms::metal::compositeByDepth(m_buffers.metalHdrColor,
+          m_buffers.metalDepth,
+          b.metalHdrColor,
+          b.metalDepth);
+    }
+    return;
+  }
+#endif
 
   if (firstPass) {
     detail::copy(b.color, m_buffers.color, totalSize);

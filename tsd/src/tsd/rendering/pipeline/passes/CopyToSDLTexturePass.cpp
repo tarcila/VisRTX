@@ -13,6 +13,10 @@
 #include <cuda_runtime_api.h>
 #endif
 
+#ifdef ENABLE_METAL
+#include "tsd/algorithms/metal/runtime.hpp"
+#endif
+
 namespace tsd::rendering {
 
 struct CopyToSDLTexturePass::CopyToSDLTexturePassImpl
@@ -22,6 +26,9 @@ struct CopyToSDLTexturePass::CopyToSDLTexturePassImpl
   bool glInteropAvailable{false};
 #ifdef ENABLE_CUDA
   cudaGraphicsResource_t graphicsResource{nullptr};
+#endif
+#ifdef ENABLE_METAL
+  tsd::algorithms::metal::DisplaySurface *displaySurface{nullptr};
 #endif
 };
 
@@ -38,6 +45,9 @@ CopyToSDLTexturePass::~CopyToSDLTexturePass()
   if (m_impl->graphicsResource)
     cudaGraphicsUnregisterResource(m_impl->graphicsResource);
 #endif
+#ifdef ENABLE_METAL
+  tsd::algorithms::metal::destroyDisplaySurface(m_impl->displaySurface);
+#endif
   SDL_DestroyTexture(m_impl->texture);
   delete m_impl;
   m_impl = nullptr;
@@ -52,13 +62,13 @@ bool CopyToSDLTexturePass::checkGLInterop() const
 {
 #ifdef ENABLE_CUDA
   unsigned int numDevices = 0;
-  int cudaDevices[8]; // Assuming max 8 devices for simplicity
+  int cudaDevices[8];
 
   cudaError_t err =
       cudaGLGetDevices(&numDevices, cudaDevices, 8, cudaGLDeviceListAll);
   if (err != cudaSuccess) {
     tsd::core::logWarning("[ImagePipeline] failed to get CUDA GL devices");
-    cudaGetLastError(); // Clear the error so it is not captured by subsequent calls.
+    cudaGetLastError();
     return false;
   }
 
@@ -67,8 +77,7 @@ bool CopyToSDLTexturePass::checkGLInterop() const
     cudaGetDevice(&currentDevice);
     for (unsigned int i = 0; i < numDevices; ++i) {
       if (currentDevice == cudaDevices[i]) {
-        tsd::core::logStatus(
-            "[ImagePipeline] using CUDA-GL interop via SDL3");
+        tsd::core::logStatus("[ImagePipeline] using CUDA-GL interop via SDL3");
         return true;
       }
     }
@@ -83,6 +92,14 @@ bool CopyToSDLTexturePass::checkGLInterop() const
 void CopyToSDLTexturePass::render(ImageBuffers &b, int /*stageId*/)
 {
   const auto size = getDimensions();
+
+#ifdef ENABLE_METAL
+  if (m_impl->displaySurface && b.metalHdrColor) {
+    tsd::algorithms::metal::blitToDisplaySurface(
+        b.metalHdrColor, m_impl->displaySurface);
+    return;
+  }
+#endif
 
 #ifdef ENABLE_CUDA
   if (m_impl->glInteropAvailable && m_impl->graphicsResource) {
@@ -119,9 +136,53 @@ void CopyToSDLTexturePass::updateSize()
   }
 #endif
 
+#ifdef ENABLE_METAL
+  tsd::algorithms::metal::destroyDisplaySurface(m_impl->displaySurface);
+  m_impl->displaySurface = nullptr;
+#endif
+
   if (m_impl->texture)
     SDL_DestroyTexture(m_impl->texture);
+
   auto newSize = getDimensions();
+
+#ifdef ENABLE_METAL
+  {
+    namespace mtl = tsd::algorithms::metal;
+    m_impl->displaySurface = mtl::createDisplaySurface(newSize.x, newSize.y);
+    if (m_impl->displaySurface) {
+      auto *cvpb = mtl::displaySurfacePixelBuffer(m_impl->displaySurface);
+      SDL_PropertiesID props = SDL_CreateProperties();
+      SDL_SetNumberProperty(
+          props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, SDL_PIXELFORMAT_BGRA32);
+      SDL_SetNumberProperty(props,
+          SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER,
+          SDL_TEXTUREACCESS_STATIC);
+      SDL_SetNumberProperty(
+          props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, newSize.x);
+      SDL_SetNumberProperty(
+          props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, newSize.y);
+      SDL_SetPointerProperty(
+          props, SDL_PROP_TEXTURE_CREATE_METAL_PIXELBUFFER_POINTER, cvpb);
+      m_impl->texture =
+          SDL_CreateTextureWithProperties(m_impl->renderer, props);
+      SDL_DestroyProperties(props);
+
+      if (m_impl->texture) {
+        tsd::core::logStatus(
+            "[ImagePipeline] using Metal-SDL interop via IOSurface");
+        return;
+      }
+    }
+
+    // Fallback: destroy surface if SDL texture creation failed
+    mtl::destroyDisplaySurface(m_impl->displaySurface);
+    m_impl->displaySurface = nullptr;
+    tsd::core::logWarning(
+        "[ImagePipeline] Metal-SDL interop unavailable, falling back");
+  }
+#endif
+
   m_impl->texture = SDL_CreateTexture(m_impl->renderer,
       SDL_PIXELFORMAT_RGBA32,
       SDL_TEXTUREACCESS_STREAMING,
@@ -131,8 +192,8 @@ void CopyToSDLTexturePass::updateSize()
 #ifdef ENABLE_CUDA
   if (m_impl->glInteropAvailable) {
     SDL_PropertiesID propID = SDL_GetTextureProperties(m_impl->texture);
-    Sint64 texID =
-        SDL_GetNumberProperty(propID, SDL_PROP_TEXTURE_OPENGL_TEXTURE_NUMBER, -1);
+    Sint64 texID = SDL_GetNumberProperty(
+        propID, SDL_PROP_TEXTURE_OPENGL_TEXTURE_NUMBER, -1);
 
     if (texID > 0) {
       cudaGraphicsGLRegisterImage(&m_impl->graphicsResource,

@@ -4,6 +4,9 @@
 #include "OutlineRenderPass.h"
 // tsd_algorithms
 #include "tsd/algorithms/cpu/outline.hpp"
+#ifdef TSD_ALGORITHMS_HAS_METAL
+#include "tsd/algorithms/metal/outline.hpp"
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
 #include "tsd/algorithms/cuda/outline.hpp"
 #endif
@@ -23,11 +26,20 @@ void OutlineRenderPass::setOutlineId(uint32_t id)
 
 void OutlineRenderPass::render(ImageBuffers &b, int stageId)
 {
-  if (!b.objectId || stageId == 0 || m_outlineId == ~0u)
+  if (stageId == 0 || m_outlineId == ~0u)
     return;
 
   const auto size = getDimensions();
 
+#ifdef TSD_ALGORITHMS_HAS_METAL
+  if (b.metalObjectId) {
+    tsd::algorithms::metal::outline(
+        b.metalObjectId, b.metalHdrColor, m_outlineId, size.x, size.y);
+    return;
+  }
+#endif
+  if (!b.objectId)
+    return;
 #ifdef TSD_ALGORITHMS_HAS_CUDA
   if (b.stream) {
     tsd::algorithms::cuda::outline(

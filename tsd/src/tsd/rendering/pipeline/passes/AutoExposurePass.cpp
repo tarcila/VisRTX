@@ -4,6 +4,9 @@
 #include "AutoExposurePass.h"
 // tsd_algorithms
 #include "tsd/algorithms/cpu/autoExposure.hpp"
+#ifdef TSD_ALGORITHMS_HAS_METAL
+#include "tsd/algorithms/metal/autoExposure.hpp"
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
 #include "tsd/algorithms/cuda/autoExposure.hpp"
 #endif
@@ -45,7 +48,7 @@ void AutoExposurePass::render(ImageBuffers &b, int stageId)
 
   const auto size = getDimensions();
   const uint32_t totalPixels = size.x * size.y;
-  if (totalPixels == 0 || !b.hdrColor)
+  if (totalPixels == 0)
     return;
 
   const uint32_t stride = std::max(1u, totalPixels / SAMPLE_COUNT);
@@ -54,8 +57,14 @@ void AutoExposurePass::render(ImageBuffers &b, int stageId)
     return;
 
   float sumLogLum = 0.f;
+#ifdef TSD_ALGORITHMS_HAS_METAL
+  if (b.metalHdrColor) {
+    sumLogLum = tsd::algorithms::metal::sumLogLuminance(
+        b.metalHdrColor, numSamples, stride);
+  } else
+#endif
 #ifdef TSD_ALGORITHMS_HAS_CUDA
-  if (b.stream) {
+      if (b.stream) {
     sumLogLum = tsd::algorithms::cuda::sumLogLuminance(
         b.stream, b.hdrColor, numSamples, stride);
   } else
