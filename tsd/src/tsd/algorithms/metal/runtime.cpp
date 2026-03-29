@@ -213,6 +213,29 @@ void blitToBuffer(void *src, void *dst, size_t bytes)
   cmdBuf->waitUntilCompleted();
 }
 
+void *newPrivateBuffer(size_t bytes)
+{
+    auto &ctx = MetalContext::instance();
+    auto *buf = ctx.device()->newBuffer(bytes, MTL::ResourceStorageModePrivate);
+    return buf;
+}
+
+void blitToBuffer(void *src, void *dst, size_t bytes)
+{
+    if (!src || !dst || bytes == 0)
+        return;
+    auto &ctx = MetalContext::instance();
+    auto *cmdBuf = ctx.defaultQueue()->commandBuffer();
+    auto *blit = cmdBuf->blitCommandEncoder();
+    blit->copyFromBuffer(
+        static_cast<MTL::Buffer *>(src), 0,
+        static_cast<MTL::Buffer *>(dst), 0,
+        bytes);
+    blit->endEncoding();
+    cmdBuf->commit();
+    cmdBuf->waitUntilCompleted();
+}
+
 // --- Generic compute dispatch ---
 
 // Per-library pipeline state cache (keyed by kernel name)
