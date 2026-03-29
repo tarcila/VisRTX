@@ -40,6 +40,28 @@ Array::Array(anari::DataType type,
     : Array(ANARI_ARRAY3D, type, items0, items1, items2, kind)
 {}
 
+Array::Array(
+    anari::DataType type, size_t items0, void *metalBuffer, void *metalData)
+    : Array(ANARI_ARRAY1D, type, items0, 1, 1, metalBuffer, metalData)
+{}
+
+Array::Array(anari::DataType type,
+    size_t items0,
+    size_t items1,
+    void *metalBuffer,
+    void *metalData)
+    : Array(ANARI_ARRAY2D, type, items0, items1, 1, metalBuffer, metalData)
+{}
+
+Array::Array(anari::DataType type,
+    size_t items0,
+    size_t items1,
+    size_t items2,
+    void *metalBuffer,
+    void *metalData)
+    : Array(ANARI_ARRAY3D, type, items0, items1, items2, metalBuffer, metalData)
+{}
+
 Array::~Array()
 {
   freeMemory();
@@ -92,9 +114,19 @@ bool Array::isCUDA() const
   return kind() == MemoryKind::CUDA;
 }
 
+bool Array::isMetal() const
+{
+  return kind() == MemoryKind::METAL;
+}
+
 bool Array::isProxy() const
 {
   return kind() == MemoryKind::PROXY;
+}
+
+void *Array::metalBuffer() const
+{
+  return m_metalBuffer;
 }
 
 void Array::convertProxyToHost()
@@ -230,6 +262,7 @@ anari::Object Array::makeANARIObject(anari::Device d) const
 Array::Array(Array &&o) : Object(std::move(static_cast<Object &&>(o)))
 {
   m_data = o.m_data;
+  m_metalBuffer = o.m_metalBuffer;
   m_kind = o.m_kind;
   m_elementType = o.m_elementType;
   m_dim0 = o.m_dim0;
@@ -237,6 +270,7 @@ Array::Array(Array &&o) : Object(std::move(static_cast<Object &&>(o)))
   m_dim2 = o.m_dim2;
   m_mapped = o.m_mapped;
   o.m_data = nullptr;
+  o.m_metalBuffer = nullptr;
 }
 
 Array &Array::operator=(Array &&o)
@@ -245,6 +279,7 @@ Array &Array::operator=(Array &&o)
     freeMemory();
     *static_cast<Object *>(this) = std::move(*static_cast<Object *>(&o));
     m_data = o.m_data;
+    m_metalBuffer = o.m_metalBuffer;
     m_kind = o.m_kind;
     m_elementType = o.m_elementType;
     m_dim0 = o.m_dim0;
@@ -252,6 +287,7 @@ Array &Array::operator=(Array &&o)
     m_dim2 = o.m_dim2;
     m_mapped = o.m_mapped;
     o.m_data = nullptr;
+    o.m_metalBuffer = nullptr;
   }
   return *this;
 }
@@ -269,8 +305,9 @@ Array::Array(anari::DataType arrayType,
       m_dim1(items1),
       m_dim2(items2)
 {
-  if (anari::isObject(type) && kind == MemoryKind::CUDA)
-    throw std::runtime_error("cannot create CUDA arrays of objects!");
+  if (anari::isObject(type)
+      && (kind == MemoryKind::CUDA || kind == MemoryKind::METAL))
+    throw std::runtime_error("cannot create CUDA/Metal arrays of objects!");
 
   if (isEmpty()) {
     logWarning("%s of %s elements created with 0 size",
@@ -292,8 +329,44 @@ Array::Array(anari::DataType arrayType,
   }
 }
 
+Array::Array(anari::DataType arrayType,
+    anari::DataType type,
+    size_t items0,
+    size_t items1,
+    size_t items2,
+    void *metalBuffer,
+    void *metalData)
+    : Object(arrayType),
+      m_data(metalData),
+      m_metalBuffer(metalBuffer),
+      m_kind(MemoryKind::METAL),
+      m_elementType(type),
+      m_dim0(items0),
+      m_dim1(items1),
+      m_dim2(items2)
+{
+  if (anari::isObject(type))
+    throw std::runtime_error("cannot create Metal arrays of objects!");
+
+  if (!metalBuffer || !metalData)
+    throw std::runtime_error("Metal array requires non-null buffer and data!");
+
+  if (isEmpty()) {
+    logWarning("%s of %s elements created with 0 size",
+        anari::toString(this->type()),
+        anari::toString(this->elementType()));
+  }
+}
+
 void Array::freeMemory()
 {
+  if (kind() == MemoryKind::METAL) {
+    // Caller owns the Metal buffer; just clear our references
+    m_data = nullptr;
+    m_metalBuffer = nullptr;
+    return;
+  }
+
   if (m_data) {
 #if TSD_USE_CUDA
     if (kind() == MemoryKind::CUDA)

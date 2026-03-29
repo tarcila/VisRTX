@@ -121,6 +121,19 @@ struct Scene
       size_t items0,
       size_t items1 = 0,
       size_t items2 = 0);
+  ArrayRef createArrayMetal(
+      anari::DataType type, size_t items0, void *metalBuffer, void *metalData);
+  ArrayRef createArrayMetal(anari::DataType type,
+      size_t items0,
+      size_t items1,
+      void *metalBuffer,
+      void *metalData);
+  ArrayRef createArrayMetal(anari::DataType type,
+      size_t items0,
+      size_t items1,
+      size_t items2,
+      void *metalBuffer,
+      void *metalData);
   ArrayRef createArrayProxy(anari::DataType type,
       size_t items0,
       size_t items1 = 0,

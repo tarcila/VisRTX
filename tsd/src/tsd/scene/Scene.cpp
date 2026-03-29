@@ -231,6 +231,54 @@ ArrayRef Scene::createArrayCUDA(
   return createArrayImpl(type, items0, items1, items2, Array::MemoryKind::CUDA);
 }
 
+ArrayRef Scene::createArrayMetal(
+    anari::DataType type, size_t items0, void *metalBuffer, void *metalData)
+{
+  auto retval = m_db.array.emplace(type, items0, metalBuffer, metalData);
+  retval->m_scene = this;
+  retval->m_index = retval.index();
+  if (m_updateDelegate) {
+    retval->setUpdateDelegate(m_updateDelegate);
+    m_updateDelegate->signalObjectAdded(retval.data());
+  }
+  return retval;
+}
+
+ArrayRef Scene::createArrayMetal(anari::DataType type,
+    size_t items0,
+    size_t items1,
+    void *metalBuffer,
+    void *metalData)
+{
+  auto retval =
+      m_db.array.emplace(type, items0, items1, metalBuffer, metalData);
+  retval->m_scene = this;
+  retval->m_index = retval.index();
+  if (m_updateDelegate) {
+    retval->setUpdateDelegate(m_updateDelegate);
+    m_updateDelegate->signalObjectAdded(retval.data());
+  }
+  return retval;
+}
+
+ArrayRef Scene::createArrayMetal(anari::DataType type,
+    size_t items0,
+    size_t items1,
+    size_t items2,
+    void *metalBuffer,
+    void *metalData)
+{
+  auto retval =
+      m_db.array.emplace(type, items0, items1, items2, metalBuffer, metalData);
+  retval->m_scene = this;
+  retval->m_index = retval.index();
+  if (m_updateDelegate) {
+    retval->setUpdateDelegate(m_updateDelegate);
+    m_updateDelegate->signalObjectAdded(retval.data());
+  }
+  return retval;
+}
+
 ArrayRef Scene::createArrayProxy(
     anari::DataType type, size_t items0, size_t items1, size_t items2)
 {

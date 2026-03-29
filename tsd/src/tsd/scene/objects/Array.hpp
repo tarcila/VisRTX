@@ -14,7 +14,8 @@ namespace tsd::scene {
 
 /*
  * Fixed-size typed data buffer that wraps host memory, CUDA device memory, or
- * a proxy placeholder; maps to an ANARI array object and supports 1-3 dimensions.
+ * a proxy placeholder; maps to an ANARI array object and supports 1-3
+ * dimensions.
  *
  * Example:
  *   auto arr = scene.createArray(ANARI_FLOAT32_VEC3, 1024);
@@ -26,9 +27,10 @@ struct Array : public Object
 {
   // clang-format off
   enum class MemoryKind {
-    HOST, // Memory allocated on the host (main memory)
-    CUDA, // Memory allocated on the GPU (device memory)
-    PROXY // No memory allocated, only a placeholder object (not mappable)
+    HOST,  // Memory allocated on the host (main memory)
+    CUDA,  // Memory allocated on the GPU (device memory)
+    METAL, // Backed by a caller-provided MTL::Buffer (shared memory)
+    PROXY  // No memory allocated, only a placeholder object (not mappable)
   };
   // clang-format on
 
@@ -44,6 +46,21 @@ struct Array : public Object
       size_t items2,
       MemoryKind kind = MemoryKind::HOST);
 
+  // Metal: caller owns allocation; passes buffer handle + CPU-accessible ptr
+  Array(
+      anari::DataType type, size_t items0, void *metalBuffer, void *metalData);
+  Array(anari::DataType type,
+      size_t items0,
+      size_t items1,
+      void *metalBuffer,
+      void *metalData);
+  Array(anari::DataType type,
+      size_t items0,
+      size_t items1,
+      size_t items2,
+      void *metalBuffer,
+      void *metalData);
+
   Array() = default;
   ~Array() override;
 
@@ -56,7 +73,10 @@ struct Array : public Object
   MemoryKind kind() const;
   bool isHost() const;
   bool isCUDA() const;
+  bool isMetal() const;
   bool isProxy() const;
+
+  void *metalBuffer() const;
 
   void convertProxyToHost();
 
@@ -94,9 +114,17 @@ struct Array : public Object
       size_t items1,
       size_t items2,
       MemoryKind kind);
+  Array(anari::DataType arrayType,
+      anari::DataType type,
+      size_t items0,
+      size_t items1,
+      size_t items2,
+      void *metalBuffer,
+      void *metalData);
   void freeMemory();
 
   void *m_data{nullptr};
+  void *m_metalBuffer{nullptr};
   MemoryKind m_kind{MemoryKind::HOST};
   anari::DataType m_elementType{ANARI_UNKNOWN};
   size_t m_dim0{0};
