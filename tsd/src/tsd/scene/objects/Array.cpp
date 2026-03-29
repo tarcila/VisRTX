@@ -10,6 +10,7 @@
 #include "tsd/core/Logging.hpp"
 #include "tsd/scene/Scene.hpp"
 // std
+#include <dlfcn.h>
 #include <stdexcept>
 #if TSD_USE_CUDA
 // cuda
@@ -229,6 +230,17 @@ anari::Object Array::makeANARIObject(anari::Device d) const
     return nullptr;
   }
 
+  // Metal arrays: use ANARI_MTL_ARRAY_METAL extension (resolved at runtime)
+  if (kind() == MemoryKind::METAL && m_metalBuffer) {
+    using Fn1D = ANARIArray1D (*)(ANARIDevice, void *, ANARIDataType, uint64_t);
+    auto *fn = (Fn1D)dlsym(RTLD_DEFAULT, "anariNewArray1DMetalBuffer");
+    if (fn)
+      return (anari::Object)fn(
+          (ANARIDevice)d, m_metalBuffer, elementType(), dim(0));
+    logWarning(
+        "makeANARIObject: Metal array extension not available, using host fallback");
+  }
+
   anari::Object retval = nullptr;
 
   const void *ptr = anari::isObject(elementType()) ? nullptr : m_data;
@@ -348,8 +360,8 @@ Array::Array(anari::DataType arrayType,
   if (anari::isObject(type))
     throw std::runtime_error("cannot create Metal arrays of objects!");
 
-  if (!metalBuffer || !metalData)
-    throw std::runtime_error("Metal array requires non-null buffer and data!");
+  if (!metalBuffer)
+    throw std::runtime_error("Metal array requires non-null buffer!");
 
   if (isEmpty()) {
     logWarning("%s of %s elements created with 0 size",

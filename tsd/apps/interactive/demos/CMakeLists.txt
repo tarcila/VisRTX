@@ -2,6 +2,7 @@
 ## SPDX-License-Identifier: Apache-2.0
 
 add_subdirectory(animatedParticles)
+add_subdirectory(animatedParticlesMetal)
 add_subdirectory(animatedVolume)
 add_subdirectory(arrayInstancing)
 add_subdirectory(manualAccumulationReset)

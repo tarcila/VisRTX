@@ -29,7 +29,7 @@ struct Array : public Object
   enum class MemoryKind {
     HOST,  // Memory allocated on the host (main memory)
     CUDA,  // Memory allocated on the GPU (device memory)
-    METAL, // Backed by a caller-provided MTL::Buffer (shared memory)
+    METAL, // Backed by a caller-provided MTL::Buffer (any storage mode)
     PROXY  // No memory allocated, only a placeholder object (not mappable)
   };
   // clang-format on

@@ -125,13 +125,6 @@ if (TSD_USE_METAL)
     metal/autoExposure.cpp
     metal/visualizeAOV.cpp
     metal/outline.cpp
-    ${METALLIB_C}
-    metal/toneMap.cpp
-    metal/convertColorBuffer.cpp
-    metal/outputTransform.cpp
-    metal/autoExposure.cpp
-    metal/visualizeAOV.cpp
-    metal/outline.cpp
     ${GENERATED_SHADER_HEADER}
   )
 

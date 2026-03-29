@@ -8,6 +8,10 @@
 #include <IOSurface/IOSurface.h>
 #include <Metal/Metal.hpp>
 
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
 namespace tsd::algorithms::metal {
 
 struct DisplaySurface
@@ -157,6 +161,140 @@ void compositeByDepth(MTL::Texture *overlayColor,
   auto tgW = pso->threadExecutionWidth();
   auto tgH = pso->maxTotalThreadsPerThreadgroup() / tgW;
   encoder->dispatchThreads({w, h, 1}, {tgW, (NS::UInteger)tgH, 1});
+  encoder->endEncoding();
+
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+}
+
+// --- Shared-memory buffer management ---
+
+void *newSharedBuffer(size_t bytes)
+{
+  auto &ctx = MetalContext::instance();
+  auto *buf = ctx.device()->newBuffer(bytes, MTL::ResourceStorageModeShared);
+  return buf;
+}
+
+void releaseBuffer(void *buffer)
+{
+  if (buffer)
+    static_cast<MTL::Buffer *>(buffer)->release();
+}
+
+void *bufferContents(void *buffer)
+{
+  if (!buffer)
+    return nullptr;
+  return static_cast<MTL::Buffer *>(buffer)->contents();
+}
+
+void *newPrivateBuffer(size_t bytes)
+{
+  auto &ctx = MetalContext::instance();
+  auto *buf = ctx.device()->newBuffer(bytes, MTL::ResourceStorageModePrivate);
+  return buf;
+}
+
+void blitToBuffer(void *src, void *dst, size_t bytes)
+{
+  if (!src || !dst || bytes == 0)
+    return;
+  auto &ctx = MetalContext::instance();
+  auto *cmdBuf = ctx.defaultQueue()->commandBuffer();
+  auto *blit = cmdBuf->blitCommandEncoder();
+  blit->copyFromBuffer(static_cast<MTL::Buffer *>(src),
+      0,
+      static_cast<MTL::Buffer *>(dst),
+      0,
+      bytes);
+  blit->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+}
+
+// --- Generic compute dispatch ---
+
+// Per-library pipeline state cache (keyed by kernel name)
+static std::unordered_map<MTL::Library *,
+    std::unordered_map<std::string, MTL::ComputePipelineState *>>
+    g_externalPipelines;
+static std::mutex g_externalPipelinesMutex;
+
+static MTL::ComputePipelineState *cachedPipelineState(
+    MTL::Library *lib, const char *kernelName)
+{
+  std::lock_guard lock(g_externalPipelinesMutex);
+  auto &cache = g_externalPipelines[lib];
+  auto it = cache.find(kernelName);
+  if (it != cache.end())
+    return it->second;
+
+  auto *fn =
+      lib->newFunction(NS::String::string(kernelName, NS::ASCIIStringEncoding));
+  NS::Error *error = nullptr;
+  auto *pso =
+      MetalContext::instance().device()->newComputePipelineState(fn, &error);
+  fn->release();
+
+  cache[kernelName] = pso;
+  return pso;
+}
+
+void *compileShaderSource(const char *source)
+{
+  auto &ctx = MetalContext::instance();
+  auto *src = NS::String::string(source, NS::UTF8StringEncoding);
+  auto *opts = MTL::CompileOptions::alloc()->init();
+  NS::Error *error = nullptr;
+  auto *lib = ctx.device()->newLibrary(src, opts, &error);
+  opts->release();
+  return lib;
+}
+
+void releaseLibrary(void *library)
+{
+  if (!library)
+    return;
+  auto *lib = static_cast<MTL::Library *>(library);
+
+  std::lock_guard lock(g_externalPipelinesMutex);
+  auto it = g_externalPipelines.find(lib);
+  if (it != g_externalPipelines.end()) {
+    for (auto &[_, pso] : it->second)
+      pso->release();
+    g_externalPipelines.erase(it);
+  }
+  lib->release();
+}
+
+void dispatchKernel(void *library,
+    const char *kernelName,
+    void *const *buffers,
+    uint32_t numBuffers,
+    const void *constants,
+    uint32_t constantsSize,
+    uint32_t threadCount)
+{
+  auto *lib = static_cast<MTL::Library *>(library);
+  auto *pso = cachedPipelineState(lib, kernelName);
+
+  auto &ctx = MetalContext::instance();
+  auto *cmdBuf = ctx.defaultQueue()->commandBuffer();
+  auto *encoder = cmdBuf->computeCommandEncoder();
+  encoder->setComputePipelineState(pso);
+
+  for (uint32_t i = 0; i < numBuffers; i++)
+    encoder->setBuffer(static_cast<MTL::Buffer *>(buffers[i]), 0, i);
+
+  if (constants && constantsSize > 0)
+    encoder->setBytes(constants, constantsSize, numBuffers);
+
+  auto tgSize = pso->maxTotalThreadsPerThreadgroup();
+  if (tgSize > threadCount)
+    tgSize = threadCount;
+  encoder->dispatchThreads(
+      {(NS::UInteger)threadCount, 1, 1}, {(NS::UInteger)tgSize, 1, 1});
   encoder->endEncoding();
 
   cmdBuf->commit();

@@ -38,6 +38,7 @@ struct AnariHandleCache
   void removeHandle(const Object *o);
   void clear();
   bool supportsCUDA() const;
+  bool supportsMetal() const;
   void updateObjectArrayData(const Array *a); // for arrays-of-arrays
 
   tsd::core::ObjectPool<anari::Surface> surface;
@@ -63,6 +64,7 @@ struct AnariHandleCache
 
   Scene *m_scene{nullptr};
   bool m_supportsCUDA{false};
+  bool m_supportsMetal{false};
 };
 
 } // namespace tsd::scene

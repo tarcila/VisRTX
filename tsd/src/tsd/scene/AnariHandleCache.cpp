@@ -10,20 +10,15 @@ namespace tsd::scene {
 
 // Helper functions ///////////////////////////////////////////////////////////
 
-static bool supportsCUDAArrays(anari::Device d)
+static bool deviceSupportsExtension(anari::Device d, const char *extName)
 {
-  bool supportsCUDA = false;
   auto list = (const char *const *)anariGetObjectInfo(
       d, ANARI_DEVICE, "default", "extension", ANARI_STRING_LIST);
-
   for (const char *const *i = list; *i != nullptr; ++i) {
-    if (std::string(*i) == "ANARI_NV_ARRAY_CUDA") {
-      supportsCUDA = true;
-      break;
-    }
+    if (std::string(*i) == extName)
+      return true;
   }
-
-  return supportsCUDA;
+  return false;
 }
 
 // AnariHandleCache definitions ///////////////////////////////////////////////
@@ -33,9 +28,12 @@ AnariHandleCache::AnariHandleCache(
     : device(d), deviceName(name), m_scene(&scene)
 {
   anari::retain(device, device);
-  m_supportsCUDA = supportsCUDAArrays(d);
+  m_supportsCUDA = deviceSupportsExtension(d, "ANARI_NV_ARRAY_CUDA");
+  m_supportsMetal = deviceSupportsExtension(d, "ANARI_MTL_ARRAY_METAL");
   tsd::core::logStatus("[ANARI object cache] device %s CUDA arrays",
       m_supportsCUDA ? "supports" : "does NOT support");
+  if (m_supportsMetal)
+    tsd::core::logStatus("[ANARI object cache] device supports Metal arrays");
 }
 
 AnariHandleCache::~AnariHandleCache()
@@ -204,6 +202,11 @@ void AnariHandleCache::clear()
 bool AnariHandleCache::supportsCUDA() const
 {
   return m_supportsCUDA;
+}
+
+bool AnariHandleCache::supportsMetal() const
+{
+  return m_supportsMetal;
 }
 
 void AnariHandleCache::updateObjectArrayData(const Array *a)
