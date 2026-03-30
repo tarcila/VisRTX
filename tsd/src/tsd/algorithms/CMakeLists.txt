@@ -23,6 +23,9 @@ PUBLIC
 )
 
 project_link_libraries(PUBLIC tsd_core)
+if (TSD_USE_METAL)
+  project_link_libraries(PUBLIC tsd_metal)
+endif()
 
 # CPU internal: TBB or serial
 if (TSD_USE_TBB)

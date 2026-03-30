@@ -4,6 +4,9 @@
 # Always present components
 add_subdirectory(app)
 add_subdirectory(core)
+if (TSD_USE_METAL)
+  add_subdirectory(metal)
+endif()
 add_subdirectory(algorithms)
 add_subdirectory(io)
 add_subdirectory(animation)

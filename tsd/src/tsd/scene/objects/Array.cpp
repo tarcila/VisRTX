@@ -9,6 +9,9 @@
 
 #include "tsd/core/Logging.hpp"
 #include "tsd/scene/Scene.hpp"
+#if TSD_HAS_METAL
+#include "tsd/metal/interop.hpp"
+#endif
 // std
 #include <dlfcn.h>
 #include <stdexcept>
@@ -230,16 +233,20 @@ anari::Object Array::makeANARIObject(anari::Device d) const
     return nullptr;
   }
 
+#if TSD_HAS_METAL
   // Metal arrays: use ANARI_MTL_ARRAY_METAL extension (resolved at runtime)
   if (kind() == MemoryKind::METAL && m_metalBuffer) {
-    using Fn1D = ANARIArray1D (*)(ANARIDevice, void *, ANARIDataType, uint64_t);
-    auto *fn = (Fn1D)dlsym(RTLD_DEFAULT, "anariNewArray1DMetalBuffer");
-    if (fn)
-      return (anari::Object)fn(
-          (ANARIDevice)d, m_metalBuffer, elementType(), dim(0));
+    if (tsd::metal::isAvailable()) {
+      auto *handle = tsd::metal::newArray1D(
+          (void *)d, m_metalBuffer, elementType(), dim(0));
+      m_anariDevice = (void *)d;
+      m_anariHandle = handle;
+      return (anari::Object)handle;
+    }
     logWarning(
         "makeANARIObject: Metal array extension not available, using host fallback");
   }
+#endif
 
   anari::Object retval = nullptr;
 
@@ -269,6 +276,14 @@ anari::Object Array::makeANARIObject(anari::Device d) const
 
   assert(retval != nullptr);
   return retval;
+}
+
+void Array::notifyChanged() const
+{
+#if TSD_HAS_METAL
+  if (m_anariDevice && m_anariHandle)
+    tsd::metal::notifyArrayChanged(m_anariDevice, m_anariHandle);
+#endif
 }
 
 Array::Array(Array &&o) : Object(std::move(static_cast<Object &&>(o)))

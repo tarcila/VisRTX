@@ -37,6 +37,9 @@ set(TSD_CORE_CXX_SOURCES
 
 project_sources(PRIVATE ${TSD_CORE_CUDA_SOURCES} ${TSD_CORE_CXX_SOURCES})
 project_link_libraries(PUBLIC tsd_core)
+if (TSD_USE_METAL)
+  project_link_libraries(PUBLIC tsd_metal)
+endif()
 project_include_directories(
 INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../..>

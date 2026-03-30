@@ -190,6 +190,8 @@ void SimulationControls::resetSimulation()
   m_particleGeom->setParameterObject("vertex.position", *m_dataPoints);
   m_particleGeom->setParameterObject("vertex.attribute0", *m_dataDistances);
 
+  m_bhGeom->setParameterObject("vertex.position", *m_dataBhPoints);
+
   updateColorMapScale();
 }
 
@@ -236,6 +238,9 @@ void SimulationControls::iterateSimulation()
       tsd::math::float3(bh1.x, bh1.y, bh1.z),
       tsd::math::float3(bh2.x, bh2.y, bh2.z),
       m_params);
+
+  m_dataPoints->notifyChanged();
+  m_dataDistances->notifyChanged();
 }
 
 } // namespace tsd::demo

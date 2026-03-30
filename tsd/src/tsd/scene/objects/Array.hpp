@@ -102,6 +102,11 @@ struct Array : public Object
 
   anari::Object makeANARIObject(anari::Device d) const override;
 
+  // For Metal arrays: notify the ANARI device that the buffer contents were
+  // modified externally (e.g. by a compute kernel).  No-op for non-Metal
+  // arrays.
+  void notifyChanged() const;
+
   // Movable, not copyable
   TSD_NOT_COPYABLE(Array)
   Array(Array &&);
@@ -131,6 +136,8 @@ struct Array : public Object
   size_t m_dim1{0};
   size_t m_dim2{0};
   mutable bool m_mapped{false};
+  mutable void *m_anariDevice{nullptr};
+  mutable void *m_anariHandle{nullptr};
 };
 
 using ArrayRef = ObjectPoolRef<Array>;
