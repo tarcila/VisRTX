@@ -45,7 +45,7 @@ static bool isSurfaceCell(int type)
 static bool isVolumeCell(int type)
 {
   return type == VTK_TETRA || type == VTK_VOXEL || type == VTK_HEXAHEDRON
-      || type == VTK_WEDGE || type == VTK_PYRAMID;
+      || type == VTK_WEDGE || type == VTK_PYRAMID || type == VTK_POLYHEDRON;
 }
 
 // Bookkeeping arrays that are useless for visualization.
@@ -319,7 +319,6 @@ static SpatialFieldRef createFieldFromVolumeCells(Scene &scene,
     return {};
 
   vtkIdType numPoints = grid->GetNumberOfPoints();
-  vtkIdType numVolumeCells = static_cast<vtkIdType>(volumeCellIndices.size());
 
   // Build shared topology arrays
   auto vertexArray = scene.createArray(ANARI_FLOAT32_VEC3, numPoints);
@@ -333,6 +332,9 @@ static SpatialFieldRef createFieldFromVolumeCells(Scene &scene,
   std::vector<uint32_t> connectivity;
   std::vector<uint32_t> cellIndex;
   std::vector<uint8_t> cellTypes;
+  // Track which volumeCellIndices were actually emitted (polyhedra with empty
+  // face streams are skipped, so this may be shorter than volumeCellIndices).
+  std::vector<vtkIdType> emittedCellIndices;
 
   for (vtkIdType idx : volumeCellIndices) {
     vtkCell *cell = grid->GetCell(idx);
@@ -354,11 +356,29 @@ static SpatialFieldRef createFieldFromVolumeCells(Scene &scene,
       for (int j = 0; j < n; ++j)
         connectivity.push_back(static_cast<uint32_t>(pts[j]));
       cellTypes.push_back(static_cast<uint8_t>(VTK_HEXAHEDRON));
+    } else if (vtkType == VTK_POLYHEDRON) {
+      // Polyhedra use a face stream in the index array:
+      //   [numFaces, numPtsInFace0, pt0, pt1, ..., numPtsInFace1, ...]
+      auto faceList = vtkSmartPointer<vtkIdList>::New();
+      grid->GetFaceStream(idx, faceList);
+      vtkIdType streamLen = faceList->GetNumberOfIds();
+      if (streamLen == 0) {
+        logWarning(
+            "[import_VTU] empty face stream for polyhedron cell %lld, skipping",
+            static_cast<long long>(idx));
+        cellIndex.pop_back();
+        continue;
+      }
+      for (vtkIdType j = 0; j < streamLen; ++j)
+        connectivity.push_back(static_cast<uint32_t>(faceList->GetId(j)));
+      cellTypes.push_back(static_cast<uint8_t>(VTK_POLYHEDRON));
     } else {
       for (int j = 0; j < n; ++j)
         connectivity.push_back(static_cast<uint32_t>(cell->GetPointId(j)));
       cellTypes.push_back(static_cast<uint8_t>(vtkType));
     }
+
+    emittedCellIndices.push_back(idx);
   }
 
   auto indexArray = scene.createArray(ANARI_UINT32, connectivity.size());
@@ -501,11 +521,13 @@ static SpatialFieldRef createFieldFromVolumeCells(Scene &scene,
       selectedField->setParameterObject("vertex.data", *dataArr);
     } else {
       vtkDataArray *array = cellData->GetArray(selected->index);
-      auto filtered = scene.createArray(ANARI_FLOAT32, numVolumeCells);
+      vtkIdType numEmittedCells =
+          static_cast<vtkIdType>(emittedCellIndices.size());
+      auto filtered = scene.createArray(ANARI_FLOAT32, numEmittedCells);
       auto *dst = filtered->mapAs<float>();
-      for (vtkIdType j = 0; j < numVolumeCells; ++j)
+      for (vtkIdType j = 0; j < numEmittedCells; ++j)
         dst[j] =
-            static_cast<float>(array->GetComponent(volumeCellIndices[j], 0));
+            static_cast<float>(array->GetComponent(emittedCellIndices[j], 0));
       filtered->unmap();
       selectedField->setParameterObject("cell.data", *filtered);
     }
