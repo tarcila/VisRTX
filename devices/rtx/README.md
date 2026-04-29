@@ -40,9 +40,9 @@ The OptiX and ANARI-SDK dependencies can be found via placing their installation
 locations on `CMAKE_PREFIX_PATH`, either as an environment variable or a CMake
 variable.
 
-The build will result in a single `libanari_library_visrtx` library that will
-install to `${CMAKE_INSTALL_PREFIX}/lib`, and is usable with any ANARI app if
-either it is installed to the same location as the ANARI-SDK or
+A successful build results in a single `libanari_library_visrtx` library that
+will install to `${CMAKE_INSTALL_PREFIX}/lib`, and is usable with any ANARI app
+if either it is installed to the same location as the ANARI-SDK or
 `libanari_library_visrtx` is placed on `LD_LIBRARY_PATH` respectively.
 
 # RTX Device Feature Overview
@@ -77,16 +77,17 @@ to the host should instead map the ordinary `color` and `depth` channels.
 
 #### VISRTX_SPATIAL_FIELD_DATA_CENTERING
 
-The `dataCentering` parameter controls how spatial field data is interpreted relative to the grid structure. 
-This extension enables fine-grained control over whether data values represent quantities at grid vertices 
-(node-centered) or at the center of grid cells (cell-centered).
+The `dataCentering` parameter controls how spatial field data is interpreted
+relative to the grid structure.  This extension enables fine-grained control
+over whether data values represent quantities at grid vertices (node-centered)
+or at the center of grid cells (cell-centered).
 
 **Supported Values:**
 - `"node"`: Data is centered at grid vertices (node-centered). Each data value corresponds to a grid point.
 - `"cell"`: Data is centered at cell centers. Each data value corresponds to the center of a voxel/cell.
 
 > [!Note]
-> The spatial extent of a StructuredRegular volume depends on the `dataCentering` parameter. 
+> The spatial extent of a StructuredRegular volume depends on the `dataCentering` parameter.
 > When set to `"node"`, the extent is `[origin, origin + (data.size - 1) × spacing]`.
 > When set to `"cell"`, the extent is `[origin, origin + data.size × spacing]`.
 
@@ -102,9 +103,10 @@ box; omitting either leaves the bound open.
 
 #### VISRTX_SPATIAL_FIELD_STRUCTURED_RECTILINEAR
 
-The `structuredRectilinear` spatial field type provides efficient sampling of structured grids with 
-rectilinear (non-uniform) spacing. Unlike `structuredRegular` which assumes uniform spacing, this type 
-requires explicit 1D coordinate arrays for each axis.
+The `structuredRectilinear` spatial field type provides efficient sampling of
+structured grids with rectilinear (non-uniform) spacing. Unlike
+`structuredRegular` which assumes uniform spacing, this type requires explicit
+1D coordinate arrays for each axis.
 
 **Parameters:**
 - `data` (ARRAY3D): The 3D voxel data
@@ -114,13 +116,15 @@ requires explicit 1D coordinate arrays for each axis.
 - `filter`: Filtering method (same as structuredRegular)
 - `dataCentering`: Cell vs node centering (same as structuredRegular)
 
-The axis coordinate arrays define the actual position of each voxel along that axis, enabling 
-support for non-uniform grid spacing commonly found in scientific simulations.
+The axis coordinate arrays define the actual position of each voxel along that
+axis, enabling support for non-uniform grid spacing commonly found in scientific
+simulations.
 
 #### VISRTX_SPATIAL_FIELD_NANOVDB_RECTILINEAR
 
-The `nanovdbRectilinear` spatial field type extends NanoVDB support to rectilinear grids. 
-It supports all NanoVDB grid types (Fp4, Fp8, Fp16, FpN, Float) with rectilinear coordinate transforms.
+The `nanovdbRectilinear` spatial field type extends NanoVDB support to
+rectilinear grids.  It supports all NanoVDB grid types (Fp4, Fp8, Fp16, FpN,
+Float) with rectilinear coordinate transforms.
 
 **Parameters:**
 - `gridData` (ARRAY1D): Serialized NanoVDB grid data
@@ -130,8 +134,8 @@ It supports all NanoVDB grid types (Fp4, Fp8, Fp16, FpN, Float) with rectilinear
 - `filter`: Filtering method
 - `dataCentering`: Cell vs node centering
 
-This type automatically detects the grid type from the NanoVDB metadata and routes to the 
-appropriate sampler implementation.
+This type automatically detects the grid type from the NanoVDB metadata and
+routes to the appropriate sampler implementation.
 
 ## Additional ANARI Parameter and Property Extensions
 
