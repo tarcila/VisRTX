@@ -129,6 +129,9 @@ void AnariSceneRenderPass::setEnableIDs(bool on)
   }
 
   anari::commitParameters(m_device, m_frame);
+
+  if (on)
+    restartFrame();
 }
 
 void AnariSceneRenderPass::setEnablePrimitiveId(bool on)
@@ -151,6 +154,9 @@ void AnariSceneRenderPass::setEnablePrimitiveId(bool on)
   }
 
   anari::commitParameters(m_device, m_frame);
+
+  if (on)
+    restartFrame();
 }
 
 void AnariSceneRenderPass::setEnableInstanceId(bool on)
@@ -173,6 +179,9 @@ void AnariSceneRenderPass::setEnableInstanceId(bool on)
   }
 
   anari::commitParameters(m_device, m_frame);
+
+  if (on)
+    restartFrame();
 }
 
 void AnariSceneRenderPass::setEnableAlbedo(bool on)
@@ -245,20 +254,6 @@ anari::Frame AnariSceneRenderPass::getFrame() const
   return m_frame;
 }
 
-void AnariSceneRenderPass::updateCameraAspect()
-{
-  auto size = getDimensions();
-  if (!m_camera || size.y == 0)
-    return;
-
-  if (m_useImplicitAspectRatio)
-    anari::unsetParameter(m_device, m_camera, "aspect");
-  else
-    anari::setParameter(m_device, m_camera, "aspect", size.x / float(size.y));
-
-  anari::commitParameters(m_device, m_camera);
-}
-
 void AnariSceneRenderPass::updateSize()
 {
   cleanup();
@@ -277,6 +272,30 @@ void AnariSceneRenderPass::updateSize()
   m_buffers.instanceId = detail::allocate<uint32_t>(totalSize);
   m_buffers.albedo = detail::allocate<tsd::math::float3>(totalSize);
   m_buffers.normal = detail::allocate<tsd::math::float3>(totalSize);
+}
+
+void AnariSceneRenderPass::updateCameraAspect()
+{
+  auto size = getDimensions();
+  if (!m_camera || size.y == 0)
+    return;
+
+  if (m_useImplicitAspectRatio)
+    anari::unsetParameter(m_device, m_camera, "aspect");
+  else
+    anari::setParameter(m_device, m_camera, "aspect", size.x / float(size.y));
+
+  anari::commitParameters(m_device, m_camera);
+}
+
+void AnariSceneRenderPass::restartFrame()
+{
+  if (!m_device)
+    return;
+  anari::discard(m_device, m_frame);
+  anari::wait(m_device, m_frame);
+  anari::render(m_device, m_frame);
+  anari::wait(m_device, m_frame);
 }
 
 void AnariSceneRenderPass::render(ImageBuffers &b, int stageId)

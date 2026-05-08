@@ -465,12 +465,6 @@ void Frame::renderFrame()
   state.uploadBuffer.flush();
   instrument::rangePop(); // flush array uploads
 
-  instrument::rangePush("rebuild BVHs");
-  auto worldLock = m_world->scopeLockObject();
-  m_world->rebuildWorld();
-  instrument::rangePop(); // rebuild BVHs
-  instrument::rangePop(); // update scene
-
   if (!isValid()) {
     std::string problemMsg = "<unknown>";
     if (!m_renderer)
@@ -490,6 +484,12 @@ void Frame::renderFrame()
         problemMsg.c_str());
     return;
   }
+
+  instrument::rangePush("rebuild BVHs");
+  auto worldLock = m_world->scopeLockObject();
+  m_world->rebuildWorld();
+  instrument::rangePop(); // rebuild BVHs
+  instrument::rangePop(); // update scene
 
   bool wasDenoising = m_denoise;
   bool wasDenoisingUsingAlbedo = m_denoiseUsingAlbedo;

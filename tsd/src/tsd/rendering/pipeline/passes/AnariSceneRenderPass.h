@@ -45,6 +45,7 @@ struct AnariSceneRenderPass : public ImagePass
  private:
   void updateSize() override;
   void updateCameraAspect();
+  void restartFrame();
   void render(ImageBuffers &b, int stageId) override;
   void copyFrameData();
   void composite(ImageBuffers &b, int stageId);
