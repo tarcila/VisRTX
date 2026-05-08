@@ -290,7 +290,7 @@ void AnariSceneRenderPass::updateCameraAspect()
 
 void AnariSceneRenderPass::restartFrame()
 {
-  if (!m_device)
+  if (!m_device || m_firstFrame)
     return;
   anari::discard(m_device, m_frame);
   anari::wait(m_device, m_frame);
