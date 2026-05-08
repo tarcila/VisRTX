@@ -1,0 +1,166 @@
+{
+  "info" : {
+    "name" : "VISRTX_RENDERER_INTERACTIVE",
+    "type" : "extension",
+    "dependencies" : ["anari_core_1_0"],
+    "implements" : [
+      "khr_renderer_background_color",
+      "khr_renderer_background_image",
+      "khr_renderer_ambient_light"
+    ]
+  },
+  "objects" : [
+    {
+      "type" : "ANARI_RENDERER",
+      "name" : "interactive",
+      "parameters": [
+        {
+          "name": "sampleLimit",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 128,
+          "minimum": 0,
+          "description": "stop refining the frame after this number of samples"
+        },
+        {
+          "name": "denoise",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "enable the OptiX denoiser"
+        },
+        {
+          "name": "denoiseMode",
+          "types": [
+            "ANARI_STRING"
+          ],
+          "tags": [],
+          "default": "colorAlbedoNormal",
+          "values": [
+            "colorAlbedoNormal",
+            "colorAlbedo",
+            "color"
+          ],
+          "description": "mode controlling buffers given to the denoiser"
+        },
+        {
+          "name": "fireflyFilter",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": true,
+          "description": "suppress fireflies via reversible tonemapping before accumulation"
+        },
+        {
+          "name": "premultipliedAlpha",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "pre-multiply RGB by alpha in the composited output pixel"
+        },
+        {
+          "name": "cullTriangleBackfaces",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "enable triangle back face culling"
+        },
+        {
+          "name": "checkerboarding",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "use checkerboarding to lower frame latency"
+        },
+        {
+          "name": "pixelSamples",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 1,
+          "description": "samples per-pixel"
+        },
+        {
+          "name": "ambientSamples",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 0,
+          "description": "AO samples per-pixel, per-frame"
+        },
+        {
+          "name": "ambientOcclusionDistance",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1e20,
+          "minimum": 0,
+          "description": "ambient occlusion distance"
+        },
+        {
+          "name": "lightFalloff",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1.0,
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "light falloff"
+        },
+        {
+          "name": "volumeSamplingRate",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 0.125,
+          "minimum": 0.001,
+          "maximum": 10.0,
+          "description": "sampling rate of volumes when ray marching primary visibility"
+        },
+        {
+          "name": "volumeSamplingRateShadows",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 0.0125,
+          "minimum": 0.0001,
+          "maximum": 10.0,
+          "description": "sampling rate of volumes when ray marching shadows"
+        },
+        {
+          "name": "cutPlane",
+          "types": [
+            "ANARI_FLOAT32_VEC4"
+          ],
+          "tags": [],
+          "default": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "cutting plane equation (nx, ny, nz, d); disabled when all zero (vec4(0))"
+        }
+      ]
+    }
+  ]
+}

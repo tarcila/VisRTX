@@ -739,6 +739,10 @@ std::vector<std::string> getANARIObjectSubtypes(
   } else if (type == ANARI_RENDERER)
     retval.emplace_back("default");
 
+  std::stable_partition(retval.begin(), retval.end(), [](const std::string &s) {
+    return s != "default";
+  });
+
   return retval;
 }
 
