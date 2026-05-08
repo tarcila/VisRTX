@@ -40,7 +40,9 @@ struct DataNode
   ~DataNode();
 
   TSD_DEFAULT_MOVEABLE(DataNode)
-  TSD_DEFAULT_COPYABLE(DataNode)
+
+  DataNode(const DataNode &o);
+  DataNode &operator=(const DataNode &o);
 
   const std::string &name() const;
 
@@ -204,6 +206,30 @@ struct DataTree
 // DataNode //
 
 inline DataNode::~DataNode() = default;
+
+inline DataNode::DataNode(const DataNode &o) : m_data(o.m_data)
+{
+  m_data.self = {};
+}
+
+inline DataNode &DataNode::operator=(const DataNode &o)
+{
+  if (this == &o)
+    return *this;
+
+  auto selfRef = m_data.self;
+  m_data = o.m_data;
+  m_data.self = selfRef;
+  if (selfRef) {
+    selfRef->erase_subtree();
+    for (size_t i = 0; i < o.numChildren(); ++i) {
+      if (auto *child = o.child(i))
+        append(child->name()) = *child;
+    }
+  }
+
+  return *this;
+}
 
 inline const std::string &DataNode::name() const
 {

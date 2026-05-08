@@ -226,5 +226,29 @@ SCENARIO("tsd::core::DataTree interface", "[DataTree]")
         REQUIRE(std::equal(values, values + size, checkedValues));
       }
     }
+
+    WHEN("A subtree is copied between DataTrees")
+    {
+      auto &destination = root["copied"];
+      {
+        tsd::core::DataTree sourceTree;
+        auto &source = sourceTree.root()["source"];
+        source["child"]["grandchild"] = 42;
+        destination = source;
+      }
+
+      THEN("The copied node can still access copied children")
+      {
+        REQUIRE(destination.child("child") != nullptr);
+        REQUIRE(destination["child"].child("grandchild") != nullptr);
+        REQUIRE(destination["child"]["grandchild"].getValueAs<int>() == 42);
+      }
+
+      THEN("The copied node owns an independent subtree")
+      {
+        destination["child"]["grandchild"] = 50;
+        REQUIRE(destination["child"]["grandchild"].getValueAs<int>() == 50);
+      }
+    }
   }
 }
