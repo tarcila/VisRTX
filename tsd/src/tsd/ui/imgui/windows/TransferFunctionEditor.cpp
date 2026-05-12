@@ -16,7 +16,6 @@
 #include <algorithm>
 #include <fstream>
 
-
 namespace tsd::ui::imgui {
 
 // Helper functions ///////////////////////////////////////////////////////////
@@ -509,115 +508,25 @@ void TransferFunctionEditor::loadDefaultMaps()
   m_tfnsNames.push_back("{from volume}");
   m_tfnsColorPoints.push_back(colors);
 
-  // Jet
-  colors.clear();
+  auto addColorMap = [&](const std::vector<tsd::math::float3> &colormap,
+                         const std::string &name) {
+    colors.clear();
+    float spacing = 1.f / (colormap.size() - 1);
+    for (size_t i = 0; i < colormap.size(); ++i) {
+      const auto &c = colormap[i];
+      colors.emplace_back(i * spacing, c.x, c.y, c.z);
+    }
+    m_tfnsColorPoints.push_back(colors);
+    m_tfnsNames.push_back(name);
+  };
 
-  colors.emplace_back(0.0f, 0.f, 0.f, 1.f);
-  colors.emplace_back(0.3f, 0.f, 1.f, 1.f);
-  colors.emplace_back(0.6f, 1.f, 1.f, 0.f);
-  colors.emplace_back(1.0f, 1.f, 0.f, 0.f);
-
-  m_tfnsColorPoints.push_back(colors);
-  m_tfnsNames.push_back("Jet");
-
-  // Cool to warm
-  colors.clear();
-
-  colors.emplace_back(0.0f, 0.231f, 0.298f, 0.752f);
-  colors.emplace_back(0.25f, 0.552f, 0.690f, 0.996f);
-  colors.emplace_back(0.5f, 0.866f, 0.866f, 0.866f);
-  colors.emplace_back(0.75f, 0.956f, 0.603f, 0.486f);
-  colors.emplace_back(1.0f, 0.705f, 0.015f, 0.149f);
-
-  m_tfnsColorPoints.push_back(colors);
-  m_tfnsNames.push_back("Cool to Warm");
-
-  // Viridis
-  colors.clear();
-
-  float spacing = 1.f / 15;
-
-  colors.emplace_back(0 * spacing, 0.267004, 0.004874, 0.329415);
-  colors.emplace_back(1 * spacing, 0.282656, 0.100196, 0.42216);
-  colors.emplace_back(2 * spacing, 0.277134, 0.185228, 0.489898);
-  colors.emplace_back(3 * spacing, 0.253935, 0.265254, 0.529983);
-  colors.emplace_back(4 * spacing, 0.221989, 0.339161, 0.548752);
-  colors.emplace_back(5 * spacing, 0.190631, 0.407061, 0.556089);
-  colors.emplace_back(6 * spacing, 0.163625, 0.471133, 0.558148);
-  colors.emplace_back(7 * spacing, 0.139147, 0.533812, 0.555298);
-  colors.emplace_back(8 * spacing, 0.120565, 0.596422, 0.543611);
-  colors.emplace_back(9 * spacing, 0.134692, 0.658636, 0.517649);
-  colors.emplace_back(10 * spacing, 0.20803, 0.718701, 0.472873);
-  colors.emplace_back(11 * spacing, 0.327796, 0.77398, 0.40664);
-  colors.emplace_back(12 * spacing, 0.477504, 0.821444, 0.318195);
-  colors.emplace_back(13 * spacing, 0.647257, 0.8584, 0.209861);
-  colors.emplace_back(14 * spacing, 0.82494, 0.88472, 0.106217);
-  colors.emplace_back(15 * spacing, 0.993248, 0.906157, 0.143936);
-
-  m_tfnsColorPoints.push_back(colors);
-  m_tfnsNames.push_back("Viridis");
-
-  // Black body radiation
-  colors.clear();
-
-  colors.emplace_back(0.0f, 0.f, 0.f, 0.f);
-  colors.emplace_back(0.3f, 1.f, 0.f, 0.f);
-  colors.emplace_back(0.6f, 1.f, 1.f, 0.f);
-  colors.emplace_back(1.0f, 1.f, 1.f, 1.f);
-
-  m_tfnsColorPoints.push_back(colors);
-
-  m_tfnsNames.push_back("Black-Body Radiation");
-
-  // Inferno
-  colors.clear();
-
-  colors.emplace_back(0.0f, 0.f, 0.f, 0.f);
-  colors.emplace_back(0.25f, 0.25f, 0.f, 0.25f);
-  colors.emplace_back(0.5f, 1.f, 0.f, 0.f);
-  colors.emplace_back(0.75f, 1.f, 1.f, 0.f);
-  colors.emplace_back(1.0f, 1.f, 1.f, 1.f);
-
-  m_tfnsColorPoints.push_back(colors);
-
-  m_tfnsNames.push_back("Inferno");
-
-  // Ice Fire
-  colors.clear();
-
-  spacing = 1.f / 16;
-
-  colors.emplace_back(0 * spacing, 0, 0, 0);
-  colors.emplace_back(1 * spacing, 0, 0.120394, 0.302678);
-  colors.emplace_back(2 * spacing, 0, 0.216587, 0.524575);
-  colors.emplace_back(3 * spacing, 0.0552529, 0.345022, 0.659495);
-  colors.emplace_back(4 * spacing, 0.128054, 0.492592, 0.720287);
-  colors.emplace_back(5 * spacing, 0.188952, 0.641306, 0.792096);
-  colors.emplace_back(6 * spacing, 0.327672, 0.784939, 0.873426);
-  colors.emplace_back(7 * spacing, 0.60824, 0.892164, 0.935546);
-  colors.emplace_back(8 * spacing, 0.881376, 0.912184, 0.818097);
-  colors.emplace_back(9 * spacing, 0.9514, 0.835615, 0.449271);
-  colors.emplace_back(10 * spacing, 0.904479, 0.690486, 0);
-  colors.emplace_back(11 * spacing, 0.854063, 0.510857, 0);
-  colors.emplace_back(12 * spacing, 0.777096, 0.330175, 0.000885023);
-  colors.emplace_back(13 * spacing, 0.672862, 0.139086, 0.00270085);
-  colors.emplace_back(14 * spacing, 0.508812, 0, 0);
-  colors.emplace_back(15 * spacing, 0.299413, 0.000366217, 0.000549325);
-  colors.emplace_back(16 * spacing, 0.0157473, 0.00332647, 0);
-
-  m_tfnsColorPoints.push_back(colors);
-
-  m_tfnsNames.push_back("Ice Fire");
-
-  // Grayscale
-  colors.clear();
-
-  colors.emplace_back(0.f, 0.f, 0.f, 0.f);
-  colors.emplace_back(1.f, 1.f, 1.f, 1.f);
-
-  m_tfnsColorPoints.push_back(colors);
-
-  m_tfnsNames.push_back("Grayscale");
+  addColorMap(tsd::core::colormap::jet, "Jet");
+  addColorMap(tsd::core::colormap::cool_to_warm, "Cool to Warm");
+  addColorMap(tsd::core::colormap::viridis, "Viridis");
+  addColorMap(tsd::core::colormap::black_body, "Black-Body Radiation");
+  addColorMap(tsd::core::colormap::inferno, "Inferno");
+  addColorMap(tsd::core::colormap::ice_fire, "Ice Fire");
+  addColorMap(tsd::core::colormap::grayscale, "Grayscale");
 };
 
 void TransferFunctionEditor::loadColormap(
