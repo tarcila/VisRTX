@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for coding agents working in the `tsd/` subtree.
 
 ## About TSD
 
-TSD ("Testing Scene Description") is an **experimental** C++17 scene graph and testing framework for ANARI devices. It has no API stability guarantees. The parent repository is VisRTX; see `../CLAUDE.md` for the full project context.
+TSD ("Testing Scene Description") is an **experimental** C++17 scene graph and testing framework for ANARI devices. It has no API stability guarantees. The parent repository is VisRTX; see `../AGENTS.md` for the full project context.
 
 See [STYLEGUIDE.md](STYLEGUIDE.md) for TSD-specific and project-wide C++ coding conventions.
 
@@ -13,14 +13,17 @@ See [STYLEGUIDE.md](STYLEGUIDE.md) for TSD-specific and project-wide C++ coding 
 TSD can be built standalone (without the VisRTX devices) or as part of VisRTX.
 
 **Standalone:**
+
 ```bash
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 cmake --build . --parallel
 ```
+
 Requires ANARI-SDK 0.15.0+ (`find_package(anari)` must succeed).
 
 **Within VisRTX** (from the repo root):
+
 ```bash
 cmake -DVISRTX_BUILD_TSD=ON -DTSD_BUILD_APPS=ON ...
 ```
@@ -30,8 +33,8 @@ Key optional CMake flags: `TSD_USE_LUA`, `TSD_USE_ASSIMP`, `TSD_USE_HDF5`, `TSD_
 ## Tests
 
 ```bash
-ctest -C Release --output-on-failure          # all tests
-ctest -C Release -R test_Forest --output-on-failure  # single test
+ctest -C Release --output-on-failure
+ctest -C Release -R test_Forest --output-on-failure
 ```
 
 Test sources in `tests/`: `test_Array`, `test_DataTree`, `test_FlatMap`, `test_Forest`, `test_Geometry`, `test_Material`, `test_Math`, `test_Object`, `test_ObjectPool`, `test_ObjectUsePtr`, `test_Parameter`, `test_Token`.
@@ -40,18 +43,18 @@ Test sources in `tests/`: `test_Array`, `test_DataTree`, `test_FlatMap`, `test_F
 
 ### Library Dependency Layers
 
-```
-tsd_core  →  tsd_scene  →  tsd_io  →  tsd_rendering  →  tsd_app
-                                  ↘                  ↗
+```text
+tsd_core  ->  tsd_scene  ->  tsd_io  ->  tsd_rendering  ->  tsd_app
+                                  \                  /
                                (optional: tsd_ui_imgui, tsd_mpi, tsd_network, tsd_lua)
 ```
 
-- **`tsd_core`** (`src/tsd/core/`) — `Any`, `Token`, `ObjectPool`, `FlatMap`, `Forest`, `DataTree`/`DataStream` (serialization), `TaskQueue`, logging. No scene concepts.
-- **`tsd_scene`** (`src/tsd/scene/`) — `Scene`, `Object`, `Parameter`, `Layer`/`Forest` (instancing), `Animation`, `UpdateDelegate`. Mirrors ANARI's object hierarchy.
-- **`tsd_io`** (`src/tsd/io/`) — 20+ file format importers (OBJ, GLTF, PLY, USD, VTK, ASSIMP, etc.), volume importers (RAW, NanoVDB, VTI), procedural generators, and TSD scene serialization.
-- **`tsd_rendering`** (`src/tsd/rendering/`) — `RenderIndex` (TSD→ANARI sync), `ImagePipeline` (composable render passes), camera manipulators.
-- **`tsd_app`** (`src/tsd/app/`) — `ANARIDeviceManager`, `Context` (bundles scene + render index + pipeline), CLI parsing, `renderAnimationSequence`.
-- **`anari_tsd`** (`src/anari_tsd/`) — ANARI device implementation that mirrors ANARI state into a TSD scene; writes `live_capture.tsd` on each committed frame.
+- **`tsd_core`** (`src/tsd/core/`): `Any`, `Token`, `ObjectPool`, `FlatMap`, `Forest`, `DataTree`/`DataStream` (serialization), `TaskQueue`, logging. No scene concepts.
+- **`tsd_scene`** (`src/tsd/scene/`): `Scene`, `Object`, `Parameter`, `Layer`/`Forest` (instancing), `Animation`, `UpdateDelegate`. Mirrors ANARI's object hierarchy.
+- **`tsd_io`** (`src/tsd/io/`): 20+ file format importers (OBJ, GLTF, PLY, USD, VTK, ASSIMP, etc.), volume importers (RAW, NanoVDB, VTI), procedural generators, and TSD scene serialization.
+- **`tsd_rendering`** (`src/tsd/rendering/`): `RenderIndex` (TSD-to-ANARI sync), `ImagePipeline` (composable render passes), camera manipulators.
+- **`tsd_app`** (`src/tsd/app/`): `ANARIDeviceManager`, `Context` (bundles scene + render index + pipeline), CLI parsing, `renderAnimationSequence`.
+- **`anari_tsd`** (`src/anari_tsd/`): ANARI device implementation that mirrors ANARI state into a TSD scene; writes `live_capture.tsd` on each committed frame.
 
 ### Key Design Patterns
 
@@ -63,9 +66,10 @@ tsd_core  →  tsd_scene  →  tsd_io  →  tsd_rendering  →  tsd_app
 
 **RenderIndex** (`src/tsd/rendering/index/`): Translates TSD scene state to live ANARI handles. `RenderIndexAllLayers` and `RenderIndexFlatRegistry` are the two strategies. Populated via `populate()`, updated incrementally via delegate callbacks.
 
-**ImagePipeline** (`src/tsd/rendering/pipeline/`): Chain of `ImagePass` objects — the standard chain is `AnariSceneRenderPass` → `MultiDeviceSceneRenderPass` → `PickPass` → `VisualizeAOVPass`.
+**ImagePipeline** (`src/tsd/rendering/pipeline/`): Chain of `ImagePass` objects. The standard chain is `AnariSceneRenderPass` -> `MultiDeviceSceneRenderPass` -> `PickPass` -> `VisualizeAOVPass`.
 
 **anari_tsd device modes**:
+
 1. *Internal scene* (default): creates its own `Scene`, renders via a backend device (controlled by `ANARI_TSD_LIBRARY`, default `helide`), writes `live_capture.tsd`.
 2. *External scene*: caller provides a `tsd::scene::Scene*` via the `"scene"` device parameter; ANARI state is mirrored into the caller's scene.
 
@@ -77,7 +81,8 @@ tsd_core  →  tsd_scene  →  tsd_io  →  tsd_rendering  →  tsd_app
 
 `tsdLua` is a standalone interpreter; `tsdViewer` embeds a Lua terminal. Scripts have a pre-bound `scene` variable. The `scripts/init.lua` populates viewer Actions menus. See `src/tsd/scripting/README.md` for the full API and `scripts/examples/` for worked examples.
 
-Lua module search paths (lowest → highest priority):
+Lua module search paths (lowest to highest priority):
+
 1. `<source>/tsd/scripts/` (dev builds)
 2. `<install>/share/tsd/scripts/`
 3. `~/.config/tsd/scripts/`
