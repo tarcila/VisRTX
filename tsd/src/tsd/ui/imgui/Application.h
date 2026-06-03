@@ -10,16 +10,19 @@
 #include "modals/CuttingPlaneDialog.h"
 #include "modals/ExportNanoVDBFileDialog.h"
 #include "modals/ImportFileDialog.h"
+#include "modals/ObjectFileDialog.h"
 #include "modals/OfflineRenderModal.h"
 #include "modals/VorticityDialog.h"
 // tsd_app
 #include "tsd/app/Context.h"
 // tsd_core
+#include "tsd/core/DataTreeMetadata.hpp"
 #include "tsd/core/Logging.hpp"
 #include "tsd/core/TaskQueue.hpp"
 // SDL
 #include <SDL3/SDL.h>
 // std
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -43,6 +46,13 @@ struct CommandLineOptions
   std::string secondaryViewportLibrary;
 };
 
+enum class FileDialogMode
+{
+  OpenFile,
+  SaveFile,
+  OpenDirectory
+};
+
 class Application
 {
  public:
@@ -60,7 +70,10 @@ class Application
   CommandLineOptions *commandLineOptions();
 
   void getFilenameFromDialog(
-      std::string &filenameOut, bool isSaveDialog = false);
+      std::string &filenameOut,
+      FileDialogMode mode = FileDialogMode::OpenFile);
+  void getFilenameFromDialog(std::string &filenameOut, bool isSaveDialog);
+  void getFilenamesFromDialog(std::vector<std::string> &filenamesOut);
 
   // Enqueue a task to be executed on a background thread
   template <class FUNCTION>
@@ -69,8 +82,17 @@ class Application
   // Enqueue a task, then show a modal until task is complete
   template <class FUNCTION>
   void showTaskModal(FUNCTION &&f, const char *text = "Please Wait");
+
+  // Enqueue a cancellable task, then show a modal until task is complete
+  template <class FUNCTION>
+  void showTaskModalWithCancel(FUNCTION &&f, const char *text = "Please Wait");
   void showImportFileDialog();
   void showExportNanoVDBFileDialog();
+  void showImportObjectFileDialog(
+      TSDObjectFileType fileType, tsd::scene::LayerNodeRef importRoot);
+  void showExportObjectFileDialog(TSDObjectFileType fileType,
+      anari::DataType objectType,
+      size_t objectIndex);
   void saveDefaultApplicationSettings();
 
   ExtensionManager *extensionManager() const;
@@ -112,6 +134,11 @@ class Application
 
   void saveApplicationState(const char *filename = "state.tsd");
   void loadApplicationState(const char *filename = "state.tsd");
+  virtual tsd::core::DataTreeMetadata applicationStateMetadata() const;
+  virtual bool validateApplicationStateMetadata(
+      const tsd::core::DataTreeMetadataReadResult &metadata,
+      const tsd::core::DataNode &root,
+      const char *filename) const;
   void saveApplicationSettings(tsd::core::DataNode &root);
   void loadApplicationSettings(tsd::core::DataNode &root);
   void saveGlobalApplicationSettings();
@@ -141,6 +168,7 @@ class Application
   std::unique_ptr<OfflineRenderModal> m_offlineRenderModal;
   std::unique_ptr<ImportFileDialog> m_fileDialog;
   std::unique_ptr<ExportNanoVDBFileDialog> m_exportNanoVDBFileDialog;
+  std::unique_ptr<ObjectFileDialog> m_objectFileDialog;
   std::unique_ptr<VorticityDialog> m_vorticityDialog;
   std::unique_ptr<CuttingPlaneDialog> m_cuttingPlaneDialog;
 
@@ -205,6 +233,25 @@ inline void Application::showTaskModal(F &&f, const char *text)
     future.wait();
   } else {
     m_taskModal->activate(std::move(future), text);
+  }
+}
+
+template <class F>
+inline void Application::showTaskModalWithCancel(F &&f, const char *text)
+{
+  auto cancelRequested = std::make_shared<std::atomic_bool>(false);
+  auto future = enqueueTask(
+      [task = std::forward<F>(f), cancelRequested]() mutable {
+        task(*cancelRequested);
+      });
+
+  if (!m_taskModal) {
+    tsd::core::logWarning(
+        "[Application] No task modal available to show, "
+        "executing task without showing modal.");
+    future.wait();
+  } else {
+    m_taskModal->activate(std::move(future), text, cancelRequested);
   }
 }
 

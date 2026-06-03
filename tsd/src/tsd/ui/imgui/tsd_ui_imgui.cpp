@@ -359,11 +359,9 @@ void buildUI_object(tsd::scene::Object &o,
       o.useCount(tsd::scene::Object::UseKind::LAYER),
       o.useCount(tsd::scene::Object::UseKind::ANIM),
       o.useCount(tsd::scene::Object::UseKind::INTERNAL));
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "references to this object:"
-        " application | parameter | layer | animation | internal");
-  }
+  tooltipForPreviousItem(
+      "references to this object:"
+      " application | parameter | layer | animation | internal");
 
   ImGui::Separator();
 
@@ -843,6 +841,16 @@ size_t buildUI_objects_menulist(
   }
 
   return retval;
+}
+
+void tooltipForPreviousItem(const char *text, bool showWhenDisabled)
+{
+  ImGuiHoveredFlags flags = 0;
+  if (showWhenDisabled)
+    flags |= ImGuiHoveredFlags_AllowWhenDisabled;
+
+  if (ImGui::IsItemHovered(flags))
+    ImGui::SetTooltip("%s", text);
 }
 
 } // namespace tsd::ui

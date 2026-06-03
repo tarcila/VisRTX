@@ -11,6 +11,8 @@
 #include "tsd/ui/imgui/modals/ExportNanoVDBFileDialog.h"
 #include "tsd/ui/imgui/modals/ImportFileDialog.h"
 #include "tsd/ui/imgui/tsd_ui_imgui.h"
+// std
+#include <string>
 
 namespace tsd::ui::imgui {
 
@@ -73,7 +75,7 @@ void LayerTree::buildUI_layerHeader()
       layers.size());
 
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("right-click to set layer visibility");
+    tooltipForPreviousItem("right-click to set layer visibility", false);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
       ImGui::OpenPopup("LayerTree_contextMenu_setActiveLayers");
       m_activeLayerMenuTriggered = true;
@@ -280,11 +282,14 @@ void LayerTree::buildUI_tree()
       if (ImGui::IsItemHovered()) {
         m_hoveredNode = node.index();
         if (node->isObject()) {
-          ImGui::SetTooltip("object: %s[%zu]",
-              anari::toString(node->type()),
-              node->getObjectIndex());
+          std::string tooltip = "object: ";
+          tooltip += anari::toString(node->type());
+          tooltip += '[';
+          tooltip += std::to_string(node->getObjectIndex());
+          tooltip += ']';
+          tooltipForPreviousItem(tooltip.c_str(), false);
         } else if (node->isTransform())
-          ImGui::SetTooltip("transform: ANARI_FLOAT32_MAT4");
+          tooltipForPreviousItem("transform: ANARI_FLOAT32_MAT4", false);
       }
 
       if (ImGui::IsItemClicked() && m_menuNode == TSD_INVALID_INDEX) {
@@ -679,8 +684,8 @@ void LayerTree::buildUI_objectSceneMenu()
           tsd::scene::GeometryRef g;
 #define OBJECT_UI_MENU_ITEM(text, subtype)                                     \
   if (ImGui::MenuItem(text)) {                                                 \
-    g = scene.createObject<tsd::scene::Geometry>(                               \
-        tsd::scene::tokens::geometry::subtype);                                 \
+    g = scene.createObject<tsd::scene::Geometry>(                              \
+        tsd::scene::tokens::geometry::subtype);                                \
   }
           OBJECT_UI_MENU_ITEM("cone", cone);
           OBJECT_UI_MENU_ITEM("curve", curve);
@@ -766,6 +771,37 @@ void LayerTree::buildUI_objectSceneMenu()
         m_app->showImportFileDialog();
 
       ImGui::EndMenu();
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::BeginMenu("import TSD")) {
+      if (ImGui::MenuItem("volume"))
+        m_app->showImportObjectFileDialog(TSDObjectFileType::Volume, menuNode);
+
+      if (ImGui::MenuItem("surface"))
+        m_app->showImportObjectFileDialog(TSDObjectFileType::Surface, menuNode);
+
+      ImGui::EndMenu();
+    }
+
+    auto *menuObject = nodeSelected && (*menuNode)->isObject()
+        ? (*menuNode)->getObject()
+        : nullptr;
+    bool canExport = menuObject
+        && (menuObject->type() == ANARI_VOLUME
+            || menuObject->type() == ANARI_SURFACE);
+
+    if (canExport) {
+      ImGui::Separator();
+      if (ImGui::MenuItem("export TSD")) {
+        auto exportType = menuObject->type() == ANARI_VOLUME
+            ? TSDObjectFileType::Volume
+            : TSDObjectFileType::Surface;
+
+        m_app->showExportObjectFileDialog(
+            exportType, menuObject->type(), menuObject->index());
+      }
     }
 
     if (nodeSelected) {

@@ -525,6 +525,11 @@ void BaseViewport::ui_menubar_Camera()
       if (ImGui::Combo("Up", &axis, "+x\0+y\0+z\0-x\0-y\0-z\0\0"))
         m_camera.arcball->setAxis(static_cast<tsd::rendering::UpAxis>(axis));
 
+      auto mode = static_cast<int>(m_camera.arcball->mode());
+      if (ImGui::Combo("Mode", &mode, "Orbit\0Look\0\0"))
+        m_camera.arcball->setMode(
+            static_cast<tsd::rendering::ManipulatorMode>(mode));
+
       auto at = m_camera.arcball->at();
       auto azel = m_camera.arcball->azel();
       auto dist = m_camera.arcball->distance();
@@ -537,8 +542,7 @@ void BaseViewport::ui_menubar_Camera()
       ImGui::BeginDisabled(
           m_camera.current->subtype() != scene::tokens::camera::orthographic);
       update |= ImGui::DragFloat("Near", &fixedDist);
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("near plane distance for orthographic camera");
+      tooltipForPreviousItem("near plane distance for orthographic camera");
       ImGui::EndDisabled();
 
       if (update) {
@@ -653,6 +657,12 @@ int BaseViewport::windowFlags() const
   return ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar;
 }
 
+int BaseViewport::pushStyle()
+{
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f, 4.f));
+  return 1;
+}
+
 void BaseViewport::applyViewMatrixToArcball(const float *viewMat)
 {
   // Extract forward direction from column-major view matrix produced by
@@ -714,8 +724,7 @@ void BaseViewport::applyViewMatrixToArcball(const float *viewMat)
 
   const tsd::math::float2 newAzel{
       -tsd::math::degrees(az_rad), -tsd::math::degrees(el_rad)};
-  m_camera.arcball->setConfig(
-      m_camera.arcball->at(), m_camera.arcball->distance(), newAzel);
+  m_camera.arcball->setAzel(newAzel);
 }
 
 } // namespace tsd::ui::imgui

@@ -71,8 +71,14 @@ void MultiDeviceViewport::resetView(bool resetAzEl)
   getSceneBounds(bounds);
   auto center = 0.5f * (bounds[0] + bounds[1]);
   auto diag = bounds[1] - bounds[0];
+  const auto mode = m_arcball->mode();
   auto azel = resetAzEl ? tsd::math::float2(0.f, 20.f) : m_arcball->azel();
-  m_arcball->setConfig(center, 1.25f * linalg::length(diag), azel);
+  if (mode == tsd::rendering::ManipulatorMode::Look && !resetAzEl) {
+    m_arcball->setDistance(1.25f * linalg::length(diag));
+  } else {
+    m_arcball->setConfig(center, 1.25f * linalg::length(diag), azel);
+    m_arcball->setMode(mode);
+  }
   m_cameraToken = 0;
 }
 
@@ -190,18 +196,24 @@ void MultiDeviceViewport::loadSettings(tsd::core::DataNode &root)
     float distance = 0.f;
     tsd::math::float2 azel(0.f);
     int axis = 0;
+    int mode = 0;
 
     auto &camera = *c;
     camera["at"].getValue(ANARI_FLOAT32_VEC3, &at);
     camera["distance"].getValue(ANARI_FLOAT32, &distance);
     camera["azel"].getValue(ANARI_FLOAT32_VEC2, &azel);
     camera["up"].getValue(ANARI_INT32, &axis);
+    camera["mode"].getValue(ANARI_INT32, &mode);
 
     camera["apertureRadius"].getValue(ANARI_FLOAT32, &m_apertureRadius);
     camera["focusDistance"].getValue(ANARI_FLOAT32, &m_focusDistance);
 
-    m_arcball->setAxis(tsd::rendering::UpAxis(axis));
-    m_arcball->setConfig(at, distance, azel);
+    tsd::rendering::CameraPose pose;
+    pose.lookat = at;
+    pose.azeldist = {azel.x, azel.y, distance};
+    pose.upAxis = axis;
+    pose.mode = mode;
+    m_arcball->setConfig(pose);
   }
 }
 
@@ -357,6 +369,10 @@ void MultiDeviceViewport::ui_menubar()
         resetView();
       }
 
+      auto mode = static_cast<int>(m_arcball->mode());
+      if (ImGui::Combo("mode", &mode, "Orbit\0Look\0\0"))
+        m_arcball->setMode(static_cast<tsd::rendering::ManipulatorMode>(mode));
+
       ImGui::Separator();
 
       ImGui::Text("Perspective Parameters:");
@@ -509,6 +525,12 @@ void MultiDeviceViewport::ui_handleInput()
 int MultiDeviceViewport::windowFlags() const
 {
   return ImGuiWindowFlags_MenuBar;
+}
+
+int MultiDeviceViewport::pushStyle()
+{
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f, 4.f));
+  return 1;
 }
 
 void MultiDeviceViewport::RendererUpdateDelegate::signalParameterUpdated(

@@ -41,12 +41,17 @@ struct Viewport : public BaseViewport
   ~Viewport();
 
   void buildUI() override;
-  void setLibrary(const std::string &libName);
+  void setLibrary(
+      const std::string &libName, size_t rendererIndex = TSD_INVALID_INDEX);
   void setLibraryToDefault();
+  const std::string &libraryName() const;
+  size_t currentRendererObjectIndex() const;
   void setDeviceChangeCb(ViewportDeviceChangeCb cb);
   void setExternalInstances(
       const anari::Instance *instances = nullptr, size_t count = 0);
   void setCustomFrameParameter(const char *name, const tsd::core::Any &value);
+  void setRenderingEnabled(bool enabled);
+  void releaseSceneReferences();
 
  private:
   void refreshCurrentDevice();
@@ -93,6 +98,7 @@ struct Viewport : public BaseViewport
       tsd::app::RenderIndexKind::ALL_LAYERS};
 
   bool m_showOverlay{true};
+  bool m_renderingEnabled{true};
   bool m_highlightSelection{true};
   bool m_outlinePrimitives{false};
   bool m_showOnlySelected{false};

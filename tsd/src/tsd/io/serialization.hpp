@@ -9,6 +9,9 @@
 #include "tsd/rendering/view/Manipulator.hpp"
 // tsd_scene
 #include "tsd/scene/Scene.hpp"
+// std
+#include <string>
+#include <string_view>
 
 namespace tsd::animation {
 struct Animation;
@@ -29,6 +32,46 @@ enum class VDBPrecision
   FpN, // Variable bit fixed-point
   Half // IEEE 16-bit half float
 };
+
+namespace schema {
+
+inline constexpr std::string_view SCENE_FULL = "tsd.scene.full";
+inline constexpr std::string_view SCENE_CAMERAS_AND_RENDERERS =
+    "tsd.scene.cameras-and-renderers";
+inline constexpr std::string_view OBJECT_SURFACE = "tsd.object.surface";
+inline constexpr std::string_view OBJECT_VOLUME = "tsd.object.volume";
+
+} // namespace schema
+
+enum class PayloadValidationStatus
+{
+  Valid,
+  MissingMetadataAccepted,
+  UnknownSchema,
+  IncompatibleSchema,
+  UnsupportedEnvelopeVersion,
+  UnsupportedSchemaVersion,
+  MalformedMetadata,
+  MissingRequiredNode
+};
+
+struct PayloadValidationResult
+{
+  PayloadValidationStatus status{PayloadValidationStatus::Valid};
+  std::string fileType;
+  std::string schema;
+  int envelopeVersion{0};
+  int schemaVersion{0};
+  std::string message;
+
+  bool accepted() const;
+};
+
+inline bool PayloadValidationResult::accepted() const
+{
+  return status == PayloadValidationStatus::Valid
+      || status == PayloadValidationStatus::MissingMetadataAccepted;
+}
 
 // clang-format off
 
@@ -68,6 +111,21 @@ void save_Scene(Scene &scene, const char *filename);
 void save_Scene(Scene &scene, core::DataNode &root, bool forceProxyArrays, tsd::animation::AnimationManager *animMgr = nullptr);
 void load_Scene(Scene &scene, const char *filename, tsd::animation::AnimationManager *animMgr = nullptr);
 void load_Scene(Scene &scene, core::DataNode &root, tsd::animation::AnimationManager *animMgr = nullptr);
+PayloadValidationResult validate_ScenePayload(core::DataNode &root);
+bool tryLoad_Scene(Scene &scene, core::DataNode &root, PayloadValidationResult *result = nullptr, tsd::animation::AnimationManager *animMgr = nullptr);
+void save_SceneCamerasAndRenderers(Scene &scene, const char *filename);
+void save_SceneCamerasAndRenderers(Scene &scene, core::DataNode &root);
+void load_SceneCamerasAndRenderers(Scene &scene, const char *filename);
+void load_SceneCamerasAndRenderers(Scene &scene, core::DataNode &root);
+PayloadValidationResult validate_SceneCamerasAndRenderersPayload(core::DataNode &root);
+bool tryLoad_SceneCamerasAndRenderers(Scene &scene, core::DataNode &root, PayloadValidationResult *result = nullptr);
+bool export_Object(const char *filename, const Object &obj);
+Object *import_Object(Scene &scene, const char *filename);
+SurfaceRef import_Surface(Scene &scene, const char *filename);
+VolumeRef import_Volume(Scene &scene, const char *filename);
+PayloadValidationResult validate_ObjectPayload(core::DataNode &root);
+PayloadValidationResult validate_SurfacePayload(core::DataNode &root);
+PayloadValidationResult validate_VolumePayload(core::DataNode &root);
 
 void export_SceneToUSD(
     Scene &scene, const char *filename, int framesPerSecond = 30, tsd::animation::AnimationManager *animMgr = nullptr);

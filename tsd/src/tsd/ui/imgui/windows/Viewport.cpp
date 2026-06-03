@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Viewport.h"
+// tsd_app
+#include "tsd/app/ANARIDeviceManager.h"
 // tsd_ui_imgui
 #include "imgui.h"
 #include "tsd/ui/imgui/Application.h"
@@ -9,6 +11,7 @@
 // tsd_core
 #include "tsd/core/Logging.hpp"
 #include "tsd/scene/objects/Camera.hpp"
+#include "tsd/scene/objects/Renderer.hpp"
 // tsd_io
 #include "tsd/io/serialization.hpp"
 // tsd_rendering
@@ -23,6 +26,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace tsd::ui::imgui {
 
@@ -45,6 +49,16 @@ bool deviceSupportsExtension(anari::Device d, const char *extension)
   }
 
   return false;
+}
+
+std::string defaultLibraryName(const tsd::app::ANARIDeviceManager &adm)
+{
+  for (const auto &libName : adm.libraryList()) {
+    if (adm.isLoadableLibrary(libName))
+      return libName;
+  }
+
+  return {};
 }
 
 } // namespace
@@ -120,23 +134,40 @@ void Viewport::buildUI()
   }
 }
 
-void Viewport::setLibrary(const std::string &libName)
+void Viewport::setLibrary(const std::string &libName, size_t rendererIndex)
 {
   teardownDevice();
 
-  if (!libName.empty() && libName != "{none}") {
+  auto &adm = appContext()->anari;
+  if (adm.isLoadableLibrary(libName)) {
     tsd::core::logStatus(
         "[viewport] *** setting viewport to use ANARI device '%s' ***",
         libName.c_str());
   }
 
-  auto updateLibrary = [&, libName = libName]() {
-    auto &adm = appContext()->anari;
+  auto updateLibrary = [&, libName = libName, rendererIndex = rendererIndex]() {
     auto &scene = appContext()->tsd.scene;
 
     auto start = std::chrono::steady_clock::now();
-    auto d = adm.loadDevice(libName);
-    m_libName = libName;
+    auto selectedLibName = libName;
+    auto d = adm.loadDevice(selectedLibName);
+
+    if (!d && adm.isLoadableLibrary(selectedLibName)) {
+      tsd::core::logWarning(
+          "[viewport] failed to load ANARI device '%s'; falling back to a "
+          "default device",
+          selectedLibName.c_str());
+    }
+
+    if (!d) {
+      const auto fallbackLibName = defaultLibraryName(adm);
+      if (!fallbackLibName.empty() && fallbackLibName != selectedLibName) {
+        selectedLibName = fallbackLibName;
+        d = adm.loadDevice(selectedLibName);
+      }
+    }
+
+    m_libName = d ? selectedLibName : std::string{};
 
     m_latestFL = 0.f;
     m_minFL.reset();
@@ -154,14 +185,29 @@ void Viewport::setLibrary(const std::string &libName)
 
       tsd::core::logStatus("[viewport] setting up renderer objects...");
 
-      m_renderers.objects = scene.renderersOfDevice(libName);
+      m_renderers.objects = scene.renderersOfDevice(selectedLibName);
       if (m_renderers.objects.empty())
-        m_renderers.objects = scene.createStandardRenderers(libName, d);
-      m_renderers.current = m_renderers.objects[0];
+        m_renderers.objects = scene.createStandardRenderers(selectedLibName, d);
+
+      if (rendererIndex != TSD_INVALID_INDEX) {
+        auto renderer = scene.getObject<tsd::scene::Renderer>(rendererIndex);
+        if (renderer && renderer->rendererDeviceName() == selectedLibName)
+          m_renderers.current = renderer;
+        else {
+          tsd::core::logWarning(
+              "[viewport] renderer object index %zu is unavailable for ANARI "
+              "device '%s'; using the default renderer",
+              rendererIndex,
+              selectedLibName.c_str());
+        }
+      }
+
+      if (!m_renderers.current && !m_renderers.objects.empty())
+        m_renderers.current = m_renderers.objects[0];
 
       tsd::core::logStatus("[viewport] populating render index...");
 
-      m_rIdx = adm.acquireRenderIndex(scene, libName, d);
+      m_rIdx = adm.acquireRenderIndex(scene, selectedLibName, d);
       setSelectionVisibilityFilterEnabled(m_showOnlySelected);
 
       static bool firstFrame = true;
@@ -195,7 +241,8 @@ void Viewport::setLibrary(const std::string &libName)
       tsd::core::logStatus("[viewport] warming up first frame...");
 
       m_rIdx->computeDefaultView();
-      m_anariPass->startFirstFrame(true);
+      if (m_renderingEnabled)
+        m_anariPass->startFirstFrame(true);
       viewport_setActive(true);
 
       tsd::core::logStatus("[viewport] ...device load complete");
@@ -219,6 +266,16 @@ void Viewport::setLibraryToDefault()
   setLibrary(m_app->commandLineOptions()->useDefaultRenderer
           ? appContext()->anari.libraryList()[0]
           : "");
+}
+
+const std::string &Viewport::libraryName() const
+{
+  return m_libName;
+}
+
+size_t Viewport::currentRendererObjectIndex() const
+{
+  return m_renderers.current ? m_renderers.current->index() : TSD_INVALID_INDEX;
 }
 
 void Viewport::setDeviceChangeCb(ViewportDeviceChangeCb cb)
@@ -259,6 +316,8 @@ void Viewport::refreshCurrentDevice()
 void Viewport::saveSettings(tsd::core::DataNode &root)
 {
   root["anariLibrary"] = m_libName;
+  root["rendererObjectIndex"] =
+      static_cast<uint64_t>(currentRendererObjectIndex());
 
   // Viewport settings //
 
@@ -324,7 +383,9 @@ void Viewport::loadSettings(tsd::core::DataNode &root)
   if (m_app->commandLineOptions()->useDefaultRenderer) {
     std::string libraryName;
     root["anariLibrary"].getValue(ANARI_STRING, &libraryName);
-    setLibrary(libraryName);
+    auto rendererIndex =
+        root["rendererObjectIndex"].getValueOr<uint64_t>(TSD_INVALID_INDEX);
+    setLibrary(libraryName, rendererIndex);
   }
 }
 
@@ -335,6 +396,7 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
       m_timeToLoadDevice);
 
   m_anariPass = p.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
+  m_anariPass->setEnabled(m_renderingEnabled);
   m_anariPass->setUseImplicitAspectRatio(m_camera.useImplicitAspectRatio);
 
   m_saveToFilePass = p.emplace_back<tsd::rendering::SaveToFilePass>();
@@ -456,14 +518,35 @@ void Viewport::imagePipeline_populate(tsd::rendering::ImagePipeline &p)
   syncImagePassState();
 }
 
+void Viewport::setRenderingEnabled(bool enabled)
+{
+  m_renderingEnabled = enabled;
+  if (m_anariPass)
+    m_anariPass->setEnabled(enabled);
+}
+
+void Viewport::releaseSceneReferences()
+{
+  teardownDevice();
+}
+
 void Viewport::camera_resetView(bool resetAzEl)
 {
+  const auto mode = m_camera.arcball->mode();
   auto axis = m_camera.arcball->axis();
   auto azel =
       resetAzEl ? tsd::math::float2(0.f, 20.f) : m_camera.arcball->azel();
-  m_camera.arcball->setConfig(m_rIdx->computeDefaultView());
-  m_camera.arcball->setAzel(azel);
-  m_camera.arcball->setAxis(axis);
+  auto pose = m_rIdx->computeDefaultView();
+  pose.mode = static_cast<int>(mode);
+  pose.upAxis = static_cast<int>(axis);
+  if (mode == tsd::rendering::ManipulatorMode::Look && !resetAzEl) {
+    m_camera.arcball->setDistance(pose.azeldist.z);
+    m_camera.arcball->setFixedDistance(pose.fixedDist);
+  } else {
+    m_camera.arcball->setConfig(pose);
+    m_camera.arcball->setFixedDistance(pose.fixedDist);
+    m_camera.arcball->setAzel(azel);
+  }
   m_camera.arcballToken = 0;
 }
 
@@ -471,14 +554,23 @@ void Viewport::camera_centerView()
 {
   if (!BaseViewport::viewport_isActive())
     return;
+  const auto mode = m_camera.arcball->mode();
   auto axis = m_camera.arcball->axis();
   auto azel = m_camera.arcball->azel();
   auto dist = m_camera.arcball->distance();
   auto fixedDist = m_camera.arcball->fixedDistance();
-  m_camera.arcball->setConfig(m_rIdx->computeDefaultView());
-  m_camera.arcball->setAzel(azel);
-  m_camera.arcball->setDistance(dist);
-  m_camera.arcball->setFixedDistance(fixedDist);
+  auto pose = m_rIdx->computeDefaultView();
+  pose.mode = static_cast<int>(mode);
+  pose.upAxis = static_cast<int>(axis);
+  if (mode == tsd::rendering::ManipulatorMode::Look) {
+    m_camera.arcball->setCenter(pose.lookat);
+    m_camera.arcball->setFixedDistance(fixedDist);
+  } else {
+    m_camera.arcball->setConfig(pose);
+    m_camera.arcball->setAzel(azel);
+    m_camera.arcball->setDistance(dist);
+    m_camera.arcball->setFixedDistance(fixedDist);
+  }
   m_camera.arcball->setAxis(axis);
   m_camera.arcballToken = 0;
 }
@@ -516,12 +608,14 @@ void Viewport::renderer_resetParameterDefaults()
 
 void Viewport::teardownDevice()
 {
-  if (!BaseViewport::imagePipeline_isSetup())
-    return;
+  const bool pipelineSetup = BaseViewport::imagePipeline_isSetup();
 
-  BaseViewport::viewport_setActive(false);
-  BaseViewport::imagePipeline_teardown();
-  BaseViewport::viewport_reshape(tsd::math::int2(1, 1));
+  if (pipelineSetup) {
+    BaseViewport::viewport_setActive(false);
+    BaseViewport::imagePipeline_teardown();
+    BaseViewport::viewport_reshape(tsd::math::int2(1, 1));
+  } else
+    BaseViewport::viewport_setActive(false);
 
   m_anariPass = nullptr;
   m_pickPass = nullptr;
@@ -534,14 +628,16 @@ void Viewport::teardownDevice()
   m_outputPass = nullptr;
   m_saveToFilePass = nullptr;
 
-  appContext()->anari.releaseRenderIndex(appContext()->tsd.scene, m_device);
+  if (m_rIdx)
+    appContext()->anari.releaseRenderIndex(appContext()->tsd.scene, m_device);
   m_rIdx = nullptr;
   m_libName.clear();
 
   m_camera.current = {};
   m_prevCamera = {};
 
-  anari::release(m_device, m_device);
+  if (m_device)
+    anari::release(m_device, m_device);
 
   m_renderers.objects.clear();
   m_renderers.current = nullptr;
