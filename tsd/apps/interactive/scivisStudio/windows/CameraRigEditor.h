@@ -22,6 +22,7 @@ struct CameraRigEditor : public tsd::ui::imgui::Window
   bool inputText(const char *label, std::string &value, size_t capacity = 512);
   void syncSelectionToActiveShot();
   void buildUI_rigControls();
+  bool buildUI_poseEditor(const char *label, ManipulatorState &state);
   void buildUI_keyframes(CameraRig &cameraRig);
 
   ProjectContext *m_projectContext{nullptr};

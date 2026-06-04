@@ -10,6 +10,7 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -107,6 +108,22 @@ void CameraRigEditor::buildUI_rigControls()
     }
   }
 
+  ImGui::SameLine();
+  ImGui::BeginDisabled(project.cameraRigs.empty());
+  if (ImGui::Button("Clone Rig")) {
+    if (m_selectedRig >= static_cast<int>(project.cameraRigs.size()))
+      m_selectedRig = 0;
+
+    auto clone = project.cameraRigs[m_selectedRig];
+    clone.id = project::nextCameraRigId(project);
+    clone.name = clone.name.empty() ? "Camera Rig Copy" : clone.name + " Copy";
+    project.cameraRigs.push_back(clone);
+    m_selectedRig = static_cast<int>(project.cameraRigs.size()) - 1;
+    m_selectedKeyframe = -1;
+    project.markDirty();
+  }
+  ImGui::EndDisabled();
+
   if (project.cameraRigs.empty()) {
     ImGui::TextDisabled("No camera rigs");
     return;
@@ -180,6 +197,66 @@ void CameraRigEditor::buildUI_rigControls()
   }
 }
 
+bool CameraRigEditor::buildUI_poseEditor(
+    const char *label, ManipulatorState &state)
+{
+  if (!ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen))
+    return false;
+
+  bool changed = false;
+  auto &pose = state.orbit;
+
+  ImGui::PushID(label);
+
+  ImGui::SetNextItemWidth(-1.f);
+  changed |= ImGui::DragFloat3("Look At", &pose.lookat.x, 0.01f, 0.f, 0.f,
+      "%.3f");
+
+  ImGui::SetNextItemWidth(-1.f);
+  changed |=
+      ImGui::SliderFloat("Azimuth", &pose.azeldist.x, 0.f, 360.f, "%.3f");
+
+  ImGui::SetNextItemWidth(-1.f);
+  changed |=
+      ImGui::SliderFloat("Elevation", &pose.azeldist.y, 0.f, 360.f, "%.3f");
+
+  ImGui::SetNextItemWidth(-1.f);
+  changed |= ImGui::DragFloat("Distance", &pose.azeldist.z, 0.01f, 0.f, 0.f,
+      "%.3f");
+
+  bool hasFixedDistance = std::isfinite(pose.fixedDist);
+  if (ImGui::Checkbox("Fixed Distance", &hasFixedDistance)) {
+    pose.fixedDist = hasFixedDistance ? pose.azeldist.z : tsd::math::inf;
+    changed = true;
+  }
+
+  auto fixedDistance =
+      std::isfinite(pose.fixedDist) ? pose.fixedDist : pose.azeldist.z;
+  ImGui::BeginDisabled(!hasFixedDistance);
+  ImGui::SetNextItemWidth(-1.f);
+  if (ImGui::DragFloat(
+          "Fixed Distance Value", &fixedDistance, 0.01f, 0.f, 0.f, "%.3f")) {
+    pose.fixedDist = fixedDistance;
+    changed = true;
+  }
+  ImGui::EndDisabled();
+
+  auto upAxis = pose.upAxis;
+  if (ImGui::Combo("Up", &upAxis, "+x\0+y\0+z\0-x\0-y\0-z\0\0")) {
+    pose.upAxis = upAxis;
+    changed = true;
+  }
+
+  auto mode = pose.mode;
+  if (ImGui::Combo("Mode", &mode, "Orbit\0Look\0\0")) {
+    pose.mode = mode;
+    changed = true;
+  }
+
+  ImGui::PopID();
+  return changed;
+}
+
 void CameraRigEditor::buildUI_keyframes(CameraRig &cameraRig)
 {
   auto &project = m_projectContext->project();
@@ -218,7 +295,7 @@ void CameraRigEditor::buildUI_keyframes(CameraRig &cameraRig)
   if (m_selectedKeyframe >= static_cast<int>(rig.keyframes.size()))
     m_selectedKeyframe = rig.keyframes.empty() ? -1 : 0;
 
-  const bool hasSelection = m_selectedKeyframe >= 0
+  bool hasSelection = m_selectedKeyframe >= 0
       && m_selectedKeyframe < static_cast<int>(rig.keyframes.size());
 
   ImGui::BeginDisabled(!ctx || !hasSelection);
@@ -247,6 +324,7 @@ void CameraRigEditor::buildUI_keyframes(CameraRig &cameraRig)
   if (ImGui::Button("Delete")) {
     rig.keyframes.erase(rig.keyframes.begin() + m_selectedKeyframe);
     m_selectedKeyframe = -1;
+    hasSelection = false;
     project.markDirty();
   }
   tsd::ui::tooltipForPreviousItem("Delete Keyframe");
@@ -321,6 +399,16 @@ void CameraRigEditor::buildUI_keyframes(CameraRig &cameraRig)
     }
 
     ImGui::EndTable();
+  }
+
+  if (hasSelection) {
+    ImGui::Separator();
+    auto &keyframe = rig.keyframes[m_selectedKeyframe];
+    const auto label = keyframe.name.empty()
+        ? ("Selected Keyframe Pose: frame " + std::to_string(keyframe.frame))
+        : ("Selected Keyframe Pose: " + keyframe.name);
+    if (buildUI_poseEditor(label.c_str(), keyframe.manipulator))
+      project.markDirty();
   }
 
   if (hasSelection && ImGui::IsWindowHovered()
