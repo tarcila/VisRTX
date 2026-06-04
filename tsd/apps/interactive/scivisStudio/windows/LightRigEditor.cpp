@@ -71,6 +71,19 @@ std::string lightSubtype(tsd::scene::LayerNodeRef node)
   return "";
 }
 
+int selectedLightIndex(const std::vector<tsd::scene::LayerNodeRef> &nodes,
+    tsd::scene::LayerNodeRef selectedNode)
+{
+  if (!selectedNode)
+    return -1;
+
+  auto itr = std::find(nodes.begin(), nodes.end(), selectedNode);
+  if (itr == nodes.end())
+    return -1;
+
+  return static_cast<int>(std::distance(nodes.begin(), itr));
+}
+
 } // namespace
 
 LightRigEditor::LightRigEditor(
@@ -139,8 +152,9 @@ void LightRigEditor::buildUI_lightList(LightRig &rig)
 {
   auto root = m_projectContext->resolveLightRigRoot(rig);
   auto nodes = lightNodes(root);
-  if (m_selectedLight >= static_cast<int>(nodes.size()))
-    m_selectedLight = nodes.empty() ? -1 : 0;
+  auto *ctx = appContext();
+  m_selectedLight = selectedLightIndex(
+      nodes, ctx ? ctx->getFirstSelected() : tsd::scene::LayerNodeRef{});
 
   ImGui::SeparatorText("Lights");
   buildUI_addLight(rig);
@@ -202,6 +216,8 @@ void LightRigEditor::buildUI_lightList(LightRig &rig)
   }
   ImGui::SameLine();
   if (ImGui::Button("Remove Selected") && hasSelection) {
+    if (ctx)
+      ctx->removeFromSelection(selectedNode);
     m_projectContext->removeLightFromRig(rig, nodes[m_selectedLight]);
     m_selectedLight = -1;
   }
@@ -261,7 +277,7 @@ void LightRigEditor::buildUI()
       const bool selected = i == m_selectedRig;
       if (ImGui::Selectable(rigs[i].name.c_str(), selected)) {
         m_selectedRig = i;
-        m_selectedLight = 0;
+        m_selectedLight = -1;
       }
       if (selected)
         ImGui::SetItemDefaultFocus();

@@ -26,7 +26,7 @@ struct LightRigEditor : public tsd::ui::imgui::Window
 
   ProjectContext *m_projectContext{nullptr};
   int m_selectedRig{0};
-  int m_selectedLight{0};
+  int m_selectedLight{-1};
   ShotID m_lastActiveShotId;
   LightRigID m_lastActiveShotLightRigId;
   std::string m_renameLightName;
