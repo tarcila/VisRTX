@@ -8,6 +8,7 @@
 #include "tsd/scene/UpdateDelegate.hpp"
 // std
 #include <cmath>
+#include <string>
 
 namespace {
 
@@ -38,6 +39,22 @@ struct CountingDelegate : public tsd::scene::EmptyUpdateDelegate
 };
 
 } // namespace
+
+static tsd::scene::LayerNodeRef findDirectChild(
+    tsd::scene::LayerNodeRef parent, const std::string &name)
+{
+  if (!parent)
+    return {};
+
+  auto child = parent->next();
+  while (child && child != parent) {
+    if ((*child)->name() == name)
+      return child;
+    child = child->sibling();
+  }
+
+  return {};
+}
 
 SCENARIO("tsd::scene::Scene owns an intrinsic update delegate root", "[Scene]")
 {
@@ -70,6 +87,91 @@ SCENARIO("tsd::scene::Scene owns an intrinsic update delegate root", "[Scene]")
       REQUIRE(array);
       REQUIRE(countingDelegate != nullptr);
       REQUIRE(objectAddedCount == 2);
+    }
+  }
+}
+
+SCENARIO("tsd::scene::Scene deep-clones layer subtrees", "[Scene]")
+{
+  GIVEN("A scene with a layer subtree containing object references")
+  {
+    tsd::scene::Scene scene;
+    auto *layer = scene.defaultLayer();
+    REQUIRE(layer != nullptr);
+
+    auto material = scene.createObject<tsd::scene::Material>(
+        tsd::scene::tokens::material::matte);
+    material->setName("linkedMaterial");
+
+    auto light = scene.createObject<tsd::scene::Light>(
+        tsd::scene::tokens::light::directional);
+    light->setName("sourceLight");
+    light->setParameter("irradiance", 2.f);
+    light->setParameterObject("linkedMaterial", *material);
+
+    auto group = scene.insertChildTransformNode(
+        layer->root(), tsd::math::IDENTITY_MAT4, "group");
+    group->value().setInstanceParameter(
+        "linkedMaterial", {material->type(), material->index()});
+    scene.insertChildObjectNode(group, light, "mainLight");
+
+    WHEN("The subtree is cloned with default object sharing")
+    {
+      auto cloneGroup = scene.cloneLayerSubtree(group, layer->root());
+
+      THEN("The clone references the same objects")
+      {
+        REQUIRE(cloneGroup);
+        auto cloneLightNode = findDirectChild(cloneGroup, "mainLight");
+        REQUIRE(cloneLightNode);
+        REQUIRE((*cloneLightNode)->getObject() == light.data());
+
+        const auto *instanceValue =
+            cloneGroup->value().getInstanceParameters().at("linkedMaterial");
+        REQUIRE(instanceValue != nullptr);
+        REQUIRE(instanceValue->holdsObject());
+        REQUIRE(instanceValue->type() == material->type());
+        REQUIRE(instanceValue->getAsObjectIndex() == material->index());
+      }
+    }
+
+    WHEN("The subtree is cloned with object references cloned")
+    {
+      const bool cloneObjectReferences = true;
+      auto cloneGroup = scene.cloneLayerSubtree(
+          group, layer->root(), cloneObjectReferences);
+
+      THEN("The clone has distinct objects and remapped object parameters")
+      {
+        REQUIRE(cloneGroup);
+        REQUIRE(cloneGroup != group);
+
+        auto cloneLightNode = findDirectChild(cloneGroup, "mainLight");
+        REQUIRE(cloneLightNode);
+        auto *cloneLight = dynamic_cast<tsd::scene::Light *>(
+            (*cloneLightNode)->getObject());
+        REQUIRE(cloneLight != nullptr);
+        REQUIRE(cloneLight != light.data());
+        REQUIRE(cloneLight->parameterValueAs<float>("irradiance").value()
+            == Approx(2.f));
+
+        auto *cloneMaterial =
+            cloneLight->parameterValueAsObject<tsd::scene::Material>(
+                "linkedMaterial");
+        REQUIRE(cloneMaterial != nullptr);
+        REQUIRE(cloneMaterial != material.data());
+
+        const auto *instanceValue =
+            cloneGroup->value().getInstanceParameters().at("linkedMaterial");
+        REQUIRE(instanceValue != nullptr);
+        REQUIRE(instanceValue->holdsObject());
+        REQUIRE(instanceValue->type() == cloneMaterial->type());
+        REQUIRE(instanceValue->getAsObjectIndex() == cloneMaterial->index());
+
+        cloneLight->setParameter("irradiance", 7.f);
+        REQUIRE(light->parameterValueAs<float>("irradiance").value()
+            == Approx(2.f));
+      }
     }
   }
 }

@@ -208,6 +208,12 @@ struct Scene
 
   // Remove nodes //
 
+  // Clone source and descendants as a new child of parent. Object nodes share
+  // referenced objects by default; cloneObjectReferences duplicates them and
+  // remaps object-valued parameters and instance parameters within the clone.
+  LayerNodeRef cloneLayerSubtree(LayerNodeRef source,
+      LayerNodeRef parent,
+      bool cloneObjectReferences = false);
   void removeNode(LayerNodeRef obj, bool deleteReferencedObjects = false);
 
   // Indicate changes occurred //

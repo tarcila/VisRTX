@@ -3,6 +3,7 @@
 
 #include "tsd/scene/Scene.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/scene/Object.hpp"
 #include "tsd/scene/ObjectUsePtr.hpp"
 // std
 #include <algorithm>
@@ -39,6 +40,154 @@ void logRemainingDelegates(const MultiUpdateDelegate &delegate)
         child ? delegateTypeName(*child) : "<null>",
         (const void *)child);
   }
+}
+
+struct ObjectCloneRecord
+{
+  anari::DataType sourceType{ANARI_UNKNOWN};
+  size_t sourceIndex{Any::INVALID_INDEX};
+  Object *clone{nullptr};
+};
+
+using ObjectCloneRecords = std::vector<ObjectCloneRecord>;
+
+Object *findClone(const ObjectCloneRecords &records,
+    anari::DataType sourceType,
+    size_t sourceIndex)
+{
+  auto itr = std::find_if(records.begin(),
+      records.end(),
+      [&](const ObjectCloneRecord &record) {
+        return record.sourceType == sourceType
+            && record.sourceIndex == sourceIndex;
+      });
+  return itr == records.end() ? nullptr : itr->clone;
+}
+
+Any cloneObjectValue(Scene &scene,
+    const Any &value,
+    bool cloneObjectReferences,
+    ObjectCloneRecords &records);
+
+Object *cloneObjectDeep(
+    Scene &scene, Object *source, ObjectCloneRecords &records)
+{
+  if (!source)
+    return nullptr;
+
+  const auto sourceType = source->type();
+  const auto sourceIndex = source->index();
+  if (auto *cached = findClone(records, sourceType, sourceIndex))
+    return cached;
+
+  auto *clone = cloneObject(source);
+  if (!clone)
+    return nullptr;
+
+  records.push_back({sourceType, sourceIndex, clone});
+
+  for (size_t i = 0; i < clone->numParameters(); ++i) {
+    auto &parameter = clone->parameterAt(i);
+    const auto clonedValue = cloneObjectValue(scene,
+        parameter.value(),
+        true,
+        records);
+    if (clonedValue != parameter.value())
+      parameter.setValue(clonedValue);
+  }
+
+  return clone;
+}
+
+Any cloneObjectValue(Scene &scene,
+    const Any &value,
+    bool cloneObjectReferences,
+    ObjectCloneRecords &records)
+{
+  if (!cloneObjectReferences || !value.holdsObject())
+    return value;
+
+  auto *source = scene.getObject(value);
+  auto *clone = cloneObjectDeep(scene, source, records);
+  return clone ? Any(clone->type(), clone->index()) : value;
+}
+
+void copyInstanceParameters(Scene &scene,
+    const LayerNodeData &source,
+    LayerNodeData &destination,
+    bool cloneObjectReferences,
+    ObjectCloneRecords &records)
+{
+  destination.clearInstanceParameters();
+  for (const auto &parameter : source.getInstanceParameters()) {
+    destination.setInstanceParameter(parameter.first,
+        cloneObjectValue(
+            scene, parameter.second, cloneObjectReferences, records));
+  }
+}
+
+LayerNodeRef cloneLayerNode(Scene &scene,
+    LayerNodeRef source,
+    LayerNodeRef parent,
+    bool cloneObjectReferences,
+    ObjectCloneRecords &records)
+{
+  auto &sourceData = source->value();
+  const auto &name = sourceData.name();
+
+  LayerNodeRef clone;
+  if (sourceData.isTransform()) {
+    clone = scene.insertChildTransformNode(
+        parent, sourceData.getTransform(), name.c_str());
+  } else if (sourceData.isObject()) {
+    auto *object = sourceData.getObject();
+    if (cloneObjectReferences)
+      object = cloneObjectDeep(scene, object, records);
+    if (!object)
+      return {};
+
+    clone = scene.insertChildObjectNode(
+        parent, object->type(), object->index(), name.c_str());
+  } else {
+    clone = scene.insertChildNode(parent, name.c_str());
+    scene.signalLayerStructureChanged((*parent)->layer());
+  }
+
+  if (!clone)
+    return {};
+
+  auto &cloneData = clone->value();
+  cloneData.setEnabled(sourceData.isEnabled());
+  copyInstanceParameters(
+      scene, sourceData, cloneData, cloneObjectReferences, records);
+  return clone;
+}
+
+bool cloneLayerChildren(Scene &scene,
+    LayerNodeRef sourceParent,
+    LayerNodeRef cloneParent,
+    bool cloneObjectReferences,
+    ObjectCloneRecords &records)
+{
+  if (sourceParent->isLeaf())
+    return true;
+
+  auto child = sourceParent->next();
+  while (child && child != sourceParent) {
+    auto clone =
+        cloneLayerNode(
+            scene, child, cloneParent, cloneObjectReferences, records);
+    if (!clone)
+      return false;
+
+    if (!cloneLayerChildren(
+            scene, child, clone, cloneObjectReferences, records))
+      return false;
+
+    child = child->sibling();
+  }
+
+  return true;
 }
 
 } // namespace
@@ -674,6 +823,38 @@ LayerNodeRef Scene::insertChildObjectNode(
   auto inst = parent->insert_last_child({layer, obj, name});
   signalLayerStructureChanged(layer);
   return inst;
+}
+
+LayerNodeRef Scene::cloneLayerSubtree(LayerNodeRef source,
+    LayerNodeRef parent,
+    bool cloneObjectReferences)
+{
+  if (!source || !parent || source->isRoot())
+    return {};
+
+  auto *sourceLayer = (*source)->layer();
+  auto *parentLayer = (*parent)->layer();
+  if (!sourceLayer || !parentLayer || sourceLayer->scene() != this
+      || parentLayer->scene() != this)
+    return {};
+
+  if (sourceLayer == parentLayer && sourceLayer->isAncestorOf(source, parent))
+    return {};
+
+  ObjectCloneRecords records;
+  auto clone =
+      cloneLayerNode(*this, source, parent, cloneObjectReferences, records);
+  if (!clone)
+    return {};
+
+  if (cloneLayerChildren(*this, source, clone, cloneObjectReferences, records))
+    return clone;
+
+  removeNode(clone, false);
+  for (const auto &record : records)
+    removeObject(record.clone);
+
+  return {};
 }
 
 void Scene::removeNode(LayerNodeRef obj, bool deleteReferencedObjects)
