@@ -64,6 +64,7 @@ struct ProjectContext
       const DatasetSourceFile &sourceFile) const;
   bool sourceFileIsRegular(const DatasetSourceFile &sourceFile) const;
   LightRig *createLightRig(const std::string &name = "");
+  LightRig *cloneLightRig(const LightRigID &id);
   bool removeLightRig(const LightRigID &id);
   tsd::scene::LayerNodeRef addLightToRig(
       LightRig &rig, const std::string &subtype);

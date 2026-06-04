@@ -358,6 +358,53 @@ SCENARIO("SciVis Studio new shots use the default light rig", "[SciVisStudio]")
       == defaultCameraRigId);
 }
 
+SCENARIO("SciVis Studio cloning a light rig deep-copies lights",
+    "[SciVisStudio]")
+{
+  tsd::app::Context appContext;
+  ProjectContext projectContext(&appContext);
+  projectContext.createUnsavedProject();
+
+  auto &project = projectContext.project();
+  const auto sourceRigId = project.lightRigs.front().id;
+  auto *sourceRig = project::findLightRig(project, sourceRigId);
+  REQUIRE(sourceRig != nullptr);
+
+  auto sourceRoot = projectContext.resolveLightRigRoot(*sourceRig);
+  REQUIRE(sourceRoot);
+  auto sourceLightNode = findDirectChild(sourceRoot, "mainLight");
+  REQUIRE(sourceLightNode);
+  auto *sourceLight =
+      dynamic_cast<tsd::scene::Light *>((*sourceLightNode)->getObject());
+  REQUIRE(sourceLight != nullptr);
+  sourceLight->setParameter("irradiance", 2.f);
+
+  auto *cloneRig = projectContext.cloneLightRig(sourceRigId);
+  REQUIRE(cloneRig != nullptr);
+  REQUIRE(project.lightRigs.size() == 2);
+  REQUIRE(cloneRig->id != sourceRigId);
+  REQUIRE(cloneRig->name == "Default Copy");
+  REQUIRE(project.shots.front().lightRigId == sourceRigId);
+
+  auto cloneRoot = projectContext.resolveLightRigRoot(*cloneRig);
+  REQUIRE(cloneRoot);
+  auto cloneLightNode = findDirectChild(cloneRoot, "mainLight");
+  REQUIRE(cloneLightNode);
+  auto *cloneLight =
+      dynamic_cast<tsd::scene::Light *>((*cloneLightNode)->getObject());
+  REQUIRE(cloneLight != nullptr);
+  REQUIRE(cloneLight != (*sourceLightNode)->getObject());
+  REQUIRE(cloneLight->parameterValueAs<float>("irradiance").value()
+      == Approx(2.f));
+
+  cloneLight->setParameter("irradiance", 7.f);
+  sourceLight =
+      dynamic_cast<tsd::scene::Light *>((*sourceLightNode)->getObject());
+  REQUIRE(sourceLight != nullptr);
+  REQUIRE(sourceLight->parameterValueAs<float>("irradiance").value()
+      == Approx(2.f));
+}
+
 SCENARIO("SciVis Studio shot dataset bindings update scene visibility",
     "[SciVisStudio]")
 {

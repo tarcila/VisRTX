@@ -263,6 +263,20 @@ void LightRigEditor::buildUI()
       m_selectedRig = static_cast<int>(rigs.size()) - 1;
   }
 
+  ImGui::SameLine();
+  ImGui::BeginDisabled(rigs.empty());
+  if (ImGui::Button("Clone Rig")) {
+    if (m_selectedRig >= static_cast<int>(rigs.size()))
+      m_selectedRig = 0;
+
+    const auto sourceRigId = rigs[m_selectedRig].id;
+    if (m_projectContext->cloneLightRig(sourceRigId)) {
+      m_selectedRig = static_cast<int>(rigs.size()) - 1;
+      m_selectedLight = -1;
+    }
+  }
+  ImGui::EndDisabled();
+
   if (rigs.empty()) {
     ImGui::TextDisabled("No light rigs");
     return;

@@ -9,6 +9,7 @@
 #include "tsd/core/Logging.hpp"
 #include "tsd/io/serialization.hpp"
 #include "tsd/rendering/view/ManipulatorToTSD.hpp"
+#include "tsd/scene/Object.hpp"
 #include "tsd/scene/objects/Camera.hpp"
 #include "tsd/scene/objects/Light.hpp"
 
@@ -42,6 +43,143 @@ static bool hasChildNodes(tsd::scene::LayerNodeRef parent)
 
   auto child = parent->next();
   return child && child != parent;
+}
+
+struct ObjectCloneRecord
+{
+  anari::DataType sourceType{ANARI_UNKNOWN};
+  size_t sourceIndex{tsd::core::Any::INVALID_INDEX};
+  tsd::scene::Object *clone{nullptr};
+};
+
+using ObjectCloneRecords = std::vector<ObjectCloneRecord>;
+
+static tsd::scene::Object *findClone(const ObjectCloneRecords &records,
+    anari::DataType sourceType,
+    size_t sourceIndex)
+{
+  auto itr = std::find_if(records.begin(),
+      records.end(),
+      [&](const ObjectCloneRecord &record) {
+        return record.sourceType == sourceType
+            && record.sourceIndex == sourceIndex;
+      });
+  return itr == records.end() ? nullptr : itr->clone;
+}
+
+static tsd::core::Any cloneObjectValue(
+    tsd::scene::Scene &scene, const tsd::core::Any &value,
+    ObjectCloneRecords &records);
+
+static tsd::scene::Object *cloneObjectDeep(
+    tsd::scene::Scene &scene,
+    tsd::scene::Object *source,
+    ObjectCloneRecords &records)
+{
+  if (!source)
+    return nullptr;
+
+  const auto sourceType = source->type();
+  const auto sourceIndex = source->index();
+  if (auto *cached = findClone(records, sourceType, sourceIndex))
+    return cached;
+
+  auto *clone = tsd::scene::cloneObject(source);
+  if (!clone)
+    return nullptr;
+
+  records.push_back({sourceType, sourceIndex, clone});
+
+  for (size_t i = 0; i < clone->numParameters(); ++i) {
+    auto &parameter = clone->parameterAt(i);
+    const auto clonedValue =
+        cloneObjectValue(scene, parameter.value(), records);
+    if (clonedValue != parameter.value())
+      parameter.setValue(clonedValue);
+  }
+
+  return clone;
+}
+
+static tsd::core::Any cloneObjectValue(
+    tsd::scene::Scene &scene,
+    const tsd::core::Any &value,
+    ObjectCloneRecords &records)
+{
+  if (!value.holdsObject())
+    return value;
+
+  auto *source = scene.getObject(value);
+  auto *clone = cloneObjectDeep(scene, source, records);
+  return clone ? tsd::core::Any(clone->type(), clone->index()) : value;
+}
+
+static void copyInstanceParameters(tsd::scene::Scene &scene,
+    const tsd::scene::LayerNodeData &source,
+    tsd::scene::LayerNodeData &destination,
+    ObjectCloneRecords &records)
+{
+  destination.clearInstanceParameters();
+  for (const auto &parameter : source.getInstanceParameters()) {
+    destination.setInstanceParameter(
+        parameter.first, cloneObjectValue(scene, parameter.second, records));
+  }
+}
+
+static tsd::scene::LayerNodeRef cloneLayerNode(tsd::scene::Scene &scene,
+    tsd::scene::LayerNodeRef source,
+    tsd::scene::LayerNodeRef parent,
+    ObjectCloneRecords &records)
+{
+  auto &sourceData = source->value();
+  const auto &name = sourceData.name();
+
+  tsd::scene::LayerNodeRef clone;
+  if (sourceData.isTransform()) {
+    clone = scene.insertChildTransformNode(
+        parent, sourceData.getTransform(), name.c_str());
+  } else if (sourceData.isObject()) {
+    auto *objectClone =
+        cloneObjectDeep(scene, sourceData.getObject(), records);
+    if (!objectClone)
+      return {};
+
+    clone = scene.insertChildObjectNode(
+        parent, objectClone->type(), objectClone->index(), name.c_str());
+  } else {
+    clone = scene.insertChildNode(parent, name.c_str());
+  }
+
+  if (!clone)
+    return {};
+
+  auto &cloneData = clone->value();
+  cloneData.setEnabled(sourceData.isEnabled());
+  copyInstanceParameters(scene, sourceData, cloneData, records);
+  return clone;
+}
+
+static bool cloneLayerChildren(tsd::scene::Scene &scene,
+    tsd::scene::LayerNodeRef sourceParent,
+    tsd::scene::LayerNodeRef cloneParent,
+    ObjectCloneRecords &records)
+{
+  if (sourceParent->isLeaf())
+    return true;
+
+  auto child = sourceParent->next();
+  while (child && child != sourceParent) {
+    auto clone = cloneLayerNode(scene, child, cloneParent, records);
+    if (!clone)
+      return false;
+
+    if (!cloneLayerChildren(scene, child, clone, records))
+      return false;
+
+    child = child->sibling();
+  }
+
+  return true;
 }
 
 ProjectContext::ProjectContext(tsd::app::Context *ctx) : m_ctx(ctx)
@@ -225,6 +363,47 @@ LightRig *ProjectContext::createLightRig(const std::string &name)
   rig.rootNode = refFor("studio", rigRoot);
   m_project.lightRigs.push_back(std::move(rig));
   m_project.markDirty();
+  return &m_project.lightRigs.back();
+}
+
+LightRig *ProjectContext::cloneLightRig(const LightRigID &id)
+{
+  if (!m_ctx)
+    return nullptr;
+
+  auto *source = project::findLightRig(m_project, id);
+  if (!source)
+    return nullptr;
+
+  auto sourceRoot = resolveLightRigRoot(*source);
+  if (!sourceRoot)
+    return nullptr;
+
+  LightRig clone;
+  clone.id = project::nextLightRigId(m_project);
+  clone.name =
+      source->name.empty() ? "Light Rig Copy" : source->name + " Copy";
+
+  auto cloneRoot = ensureChild(ensureLightRigsRoot(), clone.id.c_str());
+  if (!cloneRoot)
+    return nullptr;
+
+  clone.rootNode = refFor("studio", cloneRoot);
+
+  ObjectCloneRecords objectClones;
+  auto &scene = m_ctx->tsd.scene;
+  scene.beginLayerEditBatch();
+  const bool cloned = cloneLayerChildren(
+      scene, sourceRoot, cloneRoot, objectClones);
+  scene.endLayerEditBatch();
+  if (!cloned) {
+    scene.removeNode(cloneRoot, true);
+    return nullptr;
+  }
+
+  m_project.lightRigs.push_back(std::move(clone));
+  m_project.markDirty();
+  applyActiveShot();
   return &m_project.lightRigs.back();
 }
 
