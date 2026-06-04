@@ -10,9 +10,11 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <vector>
 
 namespace tsd::scivis_studio {
-
 
 namespace {
 
@@ -58,29 +60,145 @@ CameraRigEditor::CameraRigEditor(
 
 CameraRigEditor::~CameraRigEditor() = default;
 
-void CameraRigEditor::buildUI()
+bool CameraRigEditor::inputText(
+    const char *label, std::string &value, size_t capacity)
 {
-  if (!m_projectContext)
-    return;
+  std::vector<char> buffer(capacity, '\0');
+  std::strncpy(buffer.data(), value.c_str(), buffer.size() - 1);
+  if (ImGui::InputText(label, buffer.data(), buffer.size())) {
+    value = buffer.data();
+    return true;
+  }
+  return false;
+}
 
+void CameraRigEditor::syncSelectionToActiveShot()
+{
   auto &project = m_projectContext->project();
   auto *shot = project::activeShot(project);
-  if (!shot) {
-    ImGui::TextDisabled("No active shot");
+  const auto activeShotId = shot ? shot->id : ShotID{};
+  if (activeShotId == m_lastActiveShotId)
+    return;
+
+  m_lastActiveShotId = activeShotId;
+  if (!shot)
+    return;
+
+  auto itr = std::find_if(project.cameraRigs.begin(),
+      project.cameraRigs.end(),
+      [&](const CameraRig &rig) { return rig.id == shot->cameraRigId; });
+  if (itr == project.cameraRigs.end())
+    return;
+
+  m_selectedRig =
+      static_cast<int>(std::distance(project.cameraRigs.begin(), itr));
+  m_selectedKeyframe = -1;
+}
+
+void CameraRigEditor::buildUI_rigControls()
+{
+  auto &project = m_projectContext->project();
+
+  if (ImGui::Button("Add Rig")) {
+    if (auto *rig = m_projectContext->createCameraRig()) {
+      (void)rig;
+      m_selectedRig = static_cast<int>(project.cameraRigs.size()) - 1;
+      m_selectedKeyframe = -1;
+    }
+  }
+
+  if (project.cameraRigs.empty()) {
+    ImGui::TextDisabled("No camera rigs");
     return;
   }
 
-  auto *ctx = m_projectContext->appContext();
-  auto &rig = shot->cameraRig;
+  if (m_selectedRig >= static_cast<int>(project.cameraRigs.size()))
+    m_selectedRig = 0;
 
+  const char *preview = project.cameraRigs[m_selectedRig].name.c_str();
+  if (ImGui::BeginCombo("Rig", preview)) {
+    for (int i = 0; i < static_cast<int>(project.cameraRigs.size()); ++i) {
+      const bool selected = i == m_selectedRig;
+      if (ImGui::Selectable(project.cameraRigs[i].name.c_str(), selected)) {
+        m_selectedRig = i;
+        m_selectedKeyframe = -1;
+      }
+      if (selected)
+        ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+
+  auto &cameraRig = project.cameraRigs[m_selectedRig];
+  if (inputText("Name", cameraRig.name))
+    project.markDirty();
+
+  auto *shot = project::activeShot(project);
+  const bool activeShotUsesRig = shot && shot->cameraRigId == cameraRig.id;
+  ImGui::BeginDisabled(!shot || activeShotUsesRig);
+  if (ImGui::Button("Use for Active Shot") && shot) {
+    shot->cameraRigId = cameraRig.id;
+    project.markDirty();
+    m_projectContext->applyActiveShot();
+  }
+  ImGui::EndDisabled();
+
+  ImGui::SameLine();
+  if (ImGui::Button("Remove Rig")) {
+    if (m_projectContext->cameraRigUseCount(cameraRig.id) > 0) {
+      m_pendingDeleteRig = cameraRig.id;
+      ImGui::OpenPopup("Delete Camera Rig?");
+    } else {
+      m_projectContext->removeCameraRig(cameraRig.id);
+      m_selectedRig = 0;
+      return;
+    }
+  }
+
+  if (ImGui::BeginPopupModal(
+          "Delete Camera Rig?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    auto *pending = project::findCameraRig(project, m_pendingDeleteRig);
+    const int useCount =
+        m_projectContext->cameraRigUseCount(m_pendingDeleteRig);
+    ImGui::Text("Delete '%s' and clear %d shot reference%s?",
+        pending ? pending->name.c_str() : m_pendingDeleteRig.c_str(),
+        useCount,
+        useCount == 1 ? "" : "s");
+    if (ImGui::Button("Delete")) {
+      m_projectContext->removeCameraRig(m_pendingDeleteRig);
+      m_pendingDeleteRig.clear();
+      m_selectedRig = 0;
+      m_selectedKeyframe = -1;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      m_pendingDeleteRig.clear();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+void CameraRigEditor::buildUI_keyframes(CameraRig &cameraRig)
+{
+  auto &project = m_projectContext->project();
+  auto *shot = project::activeShot(project);
+  auto *ctx = m_projectContext->appContext();
+  auto &rig = cameraRig.rig;
+
+  ImGui::BeginDisabled(!ctx);
   if (ImGui::Button("Set View")) {
-    rig.current = shot_camera_rig::manipulatorStateFromManipulator(ctx->view.manipulator);
+    rig.current =
+        shot_camera_rig::manipulatorStateFromManipulator(ctx->view.manipulator);
     project.markDirty();
   }
   tsd::ui::tooltipForPreviousItem("Set Rig View From Viewport");
+  ImGui::EndDisabled();
 
   ImGui::SameLine();
 
+  ImGui::BeginDisabled(!ctx || !shot);
   if (ImGui::Button("Capture")) {
     CameraKeyframe keyframe;
     keyframe.frame = shot->currentFrame;
@@ -93,6 +211,7 @@ void CameraRigEditor::buildUI()
     project.markDirty();
   }
   tsd::ui::tooltipForPreviousItem("Capture Keyframe At Current Frame");
+  ImGui::EndDisabled();
 
   ImGui::SameLine();
 
@@ -102,14 +221,17 @@ void CameraRigEditor::buildUI()
   const bool hasSelection = m_selectedKeyframe >= 0
       && m_selectedKeyframe < static_cast<int>(rig.keyframes.size());
 
-  ImGui::BeginDisabled(!hasSelection);
+  ImGui::BeginDisabled(!ctx || !hasSelection);
   if (ImGui::Button("Update")) {
     rig.keyframes[m_selectedKeyframe].manipulator =
         shot_camera_rig::manipulatorStateFromManipulator(ctx->view.manipulator);
     project.markDirty();
   }
   tsd::ui::tooltipForPreviousItem("Update Selected From Viewport");
+  ImGui::EndDisabled();
+
   ImGui::SameLine();
+  ImGui::BeginDisabled(!shot || !hasSelection);
   if (ImGui::Button("Jump")) {
     shot->currentFrame = rig.keyframes[m_selectedKeyframe].frame;
     if (ctx)
@@ -118,7 +240,10 @@ void CameraRigEditor::buildUI()
       m_projectContext->applyActiveShot();
   }
   tsd::ui::tooltipForPreviousItem("Jump Viewport To Keyframe");
+  ImGui::EndDisabled();
+
   ImGui::SameLine();
+  ImGui::BeginDisabled(!hasSelection);
   if (ImGui::Button("Delete")) {
     rig.keyframes.erase(rig.keyframes.begin() + m_selectedKeyframe);
     m_selectedKeyframe = -1;
@@ -154,11 +279,13 @@ void CameraRigEditor::buildUI()
       if (ImGui::IsItemHovered()
           && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         m_selectedKeyframe = i;
-        shot->currentFrame = keyframe.frame;
-        if (ctx)
-          ctx->tsd.animationMgr.setAnimationFrame(shot->currentFrame);
-        else
-          m_projectContext->applyActiveShot();
+        if (shot) {
+          shot->currentFrame = keyframe.frame;
+          if (ctx)
+            ctx->tsd.animationMgr.setAnimationFrame(shot->currentFrame);
+          else
+            m_projectContext->applyActiveShot();
+        }
       }
 
       ImGui::TableNextColumn();
@@ -201,6 +328,24 @@ void CameraRigEditor::buildUI()
       && !ImGui::IsAnyItemHovered()) {
     m_selectedKeyframe = -1;
   }
+}
+
+void CameraRigEditor::buildUI()
+{
+  if (!m_projectContext)
+    return;
+
+  syncSelectionToActiveShot();
+  buildUI_rigControls();
+
+  auto &project = m_projectContext->project();
+  if (project.cameraRigs.empty())
+    return;
+
+  if (m_selectedRig >= static_cast<int>(project.cameraRigs.size()))
+    m_selectedRig = 0;
+
+  buildUI_keyframes(project.cameraRigs[m_selectedRig]);
 }
 
 } // namespace tsd::scivis_studio

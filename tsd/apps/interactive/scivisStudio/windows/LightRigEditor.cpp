@@ -92,6 +92,32 @@ bool LightRigEditor::inputText(
   return false;
 }
 
+void LightRigEditor::syncSelectionToActiveShot()
+{
+  auto &project = m_projectContext->project();
+  auto *shot = project::activeShot(project);
+  const auto activeShotId = shot ? shot->id : ShotID{};
+  const auto activeLightRigId = shot ? shot->lightRigId : LightRigID{};
+  if (activeShotId == m_lastActiveShotId
+      && activeLightRigId == m_lastActiveShotLightRigId)
+    return;
+
+  m_lastActiveShotId = activeShotId;
+  m_lastActiveShotLightRigId = activeLightRigId;
+  if (!shot)
+    return;
+
+  auto itr = std::find_if(project.lightRigs.begin(),
+      project.lightRigs.end(),
+      [&](const LightRig &rig) { return rig.id == shot->lightRigId; });
+  if (itr == project.lightRigs.end())
+    return;
+
+  m_selectedRig =
+      static_cast<int>(std::distance(project.lightRigs.begin(), itr));
+  m_selectedLight = -1;
+}
+
 void LightRigEditor::buildUI_addLight(LightRig &rig)
 {
   if (ImGui::Button("Add Light"))
@@ -210,6 +236,8 @@ void LightRigEditor::buildUI()
 {
   if (!m_projectContext)
     return;
+
+  syncSelectionToActiveShot();
 
   auto &project = m_projectContext->project();
   auto &rigs = project.lightRigs;

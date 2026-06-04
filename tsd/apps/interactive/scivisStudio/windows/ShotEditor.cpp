@@ -15,7 +15,6 @@
 
 namespace tsd::scivis_studio {
 
-
 namespace {
 
 constexpr const char *NO_RENDERERS_LABEL = "<no renderers>";
@@ -194,8 +193,54 @@ void ShotEditor::buildUI_lightRigSelector(Shot &shot)
         ImGui::SetItemDefaultFocus();
     }
 
-    if (!shot.lightRigId.empty() && !project::findLightRig(project, shot.lightRigId)) {
+    if (!shot.lightRigId.empty()
+        && !project::findLightRig(project, shot.lightRigId)) {
       const auto missing = "<missing: " + shot.lightRigId + ">";
+      ImGui::TextDisabled("%s", missing.c_str());
+    }
+    ImGui::EndCombo();
+  }
+}
+
+void ShotEditor::buildUI_cameraRigSelector(Shot &shot)
+{
+  auto &project = m_projectContext->project();
+  std::string preview = "None";
+  if (!shot.cameraRigId.empty()) {
+    if (auto *rig = project::findCameraRig(project, shot.cameraRigId))
+      preview = rig->name;
+    else
+      preview = "<missing: " + shot.cameraRigId + ">";
+  }
+
+  if (ImGui::BeginCombo("Camera Rig", preview.c_str())) {
+    const bool noneSelected = shot.cameraRigId.empty();
+    if (ImGui::Selectable("None", noneSelected)) {
+      if (!shot.cameraRigId.empty()) {
+        shot.cameraRigId.clear();
+        project.markDirty();
+        m_projectContext->applyActiveShot();
+      }
+    }
+    if (noneSelected)
+      ImGui::SetItemDefaultFocus();
+
+    for (const auto &rig : project.cameraRigs) {
+      const bool selected = shot.cameraRigId == rig.id;
+      if (ImGui::Selectable(rig.name.c_str(), selected)) {
+        if (shot.cameraRigId != rig.id) {
+          shot.cameraRigId = rig.id;
+          project.markDirty();
+          m_projectContext->applyActiveShot();
+        }
+      }
+      if (selected)
+        ImGui::SetItemDefaultFocus();
+    }
+
+    if (!shot.cameraRigId.empty()
+        && !project::findCameraRig(project, shot.cameraRigId)) {
+      const auto missing = "<missing: " + shot.cameraRigId + ">";
       ImGui::TextDisabled("%s", missing.c_str());
     }
     ImGui::EndCombo();
@@ -280,6 +325,7 @@ void ShotEditor::buildUI()
   if (inputText("Output prefix", shot->renderSettings.outputFilePrefix))
     project.markDirty();
   buildUI_lightRigSelector(*shot);
+  buildUI_cameraRigSelector(*shot);
 
   ImGui::Text("Output: renders/%s/", shot->id.c_str());
   if (ImGui::Button("Render Active Shot") && m_onRender)

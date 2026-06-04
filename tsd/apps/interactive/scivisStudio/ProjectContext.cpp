@@ -19,7 +19,6 @@
 
 namespace tsd::scivis_studio {
 
-
 static tsd::scene::LayerNodeRef findDirectChild(
     tsd::scene::LayerNodeRef parent, const std::string &name)
 {
@@ -229,6 +228,22 @@ LightRig *ProjectContext::createLightRig(const std::string &name)
   return &m_project.lightRigs.back();
 }
 
+CameraRig *ProjectContext::createCameraRig(const std::string &name)
+{
+  CameraRig rig;
+  rig.id = project::nextCameraRigId(m_project);
+  rig.name = name.empty()
+      ? ("Camera Rig " + std::to_string(m_project.cameraRigs.size() + 1))
+      : name;
+  if (m_ctx)
+    rig.rig.current = shot_camera_rig::manipulatorStateFromManipulator(
+        m_ctx->view.manipulator);
+
+  m_project.cameraRigs.push_back(std::move(rig));
+  m_project.markDirty();
+  return &m_project.cameraRigs.back();
+}
+
 tsd::scene::LayerNodeRef ProjectContext::addLightToRig(
     LightRig &rig, const std::string &subtype)
 {
@@ -285,6 +300,22 @@ int ProjectContext::shotUseCount(const LightRigID &id) const
       [&](const Shot &shot) { return shot.lightRigId == id; }));
 }
 
+int ProjectContext::cameraRigUseCount(const CameraRigID &id) const
+{
+  return static_cast<int>(std::count_if(m_project.shots.begin(),
+      m_project.shots.end(),
+      [&](const Shot &shot) { return shot.cameraRigId == id; }));
+}
+
+CameraRig *ProjectContext::activeShotCameraRig()
+{
+  auto *shot = project::activeShot(m_project);
+  if (!shot || shot->cameraRigId.empty())
+    return nullptr;
+
+  return project::findCameraRig(m_project, shot->cameraRigId);
+}
+
 bool ProjectContext::removeLightRig(const LightRigID &id)
 {
   if (!m_ctx)
@@ -306,6 +337,25 @@ bool ProjectContext::removeLightRig(const LightRigID &id)
   }
 
   m_project.lightRigs.erase(itr);
+  m_project.markDirty();
+  applyActiveShot();
+  return true;
+}
+
+bool ProjectContext::removeCameraRig(const CameraRigID &id)
+{
+  auto itr = std::find_if(m_project.cameraRigs.begin(),
+      m_project.cameraRigs.end(),
+      [&](const CameraRig &rig) { return rig.id == id; });
+  if (itr == m_project.cameraRigs.end())
+    return false;
+
+  for (auto &shot : m_project.shots) {
+    if (shot.cameraRigId == id)
+      shot.cameraRigId.clear();
+  }
+
+  m_project.cameraRigs.erase(itr);
   m_project.markDirty();
   applyActiveShot();
   return true;
@@ -336,6 +386,14 @@ LightRig *ProjectContext::ensureDefaultLightRig()
   return rig;
 }
 
+CameraRig *ProjectContext::ensureDefaultCameraRig()
+{
+  if (!m_project.cameraRigs.empty())
+    return &m_project.cameraRigs.front();
+
+  return createCameraRig("Default");
+}
+
 void ProjectContext::createUnsavedProject()
 {
   resetScene();
@@ -346,6 +404,7 @@ void ProjectContext::createUnsavedProject()
   auto datasetsRoot = ensureDatasetsRoot();
   auto shotsRoot = ensureShotsRoot();
   auto *defaultRig = ensureDefaultLightRig();
+  auto *defaultCameraRig = ensureDefaultCameraRig();
   (void)datasetsRoot;
 
   Shot shot;
@@ -358,13 +417,13 @@ void ProjectContext::createUnsavedProject()
       tsd::scene::tokens::camera::perspective);
   camera->setName(shot.id + "_camera");
   shot.camera = {ANARI_CAMERA, camera.index()};
-  shot.cameraRig.current =
-      shot_camera_rig::manipulatorStateFromManipulator(m_ctx->view.manipulator);
   tsd::rendering::updateCameraObject(*camera, m_ctx->view.manipulator);
 
   ensureChild(shotsRoot, shot.id.c_str());
   if (defaultRig)
     shot.lightRigId = defaultRig->id;
+  if (defaultCameraRig)
+    shot.cameraRigId = defaultCameraRig->id;
 
   m_project.shots.push_back(std::move(shot));
   m_project.activeShotId = m_project.shots.front().id;
@@ -395,13 +454,13 @@ bool ProjectContext::addShot(const std::string &name)
       tsd::scene::tokens::camera::perspective);
   camera->setName(shot.id + "_camera");
   shot.camera = {ANARI_CAMERA, camera.index()};
-  shot.cameraRig.current =
-      shot_camera_rig::manipulatorStateFromManipulator(m_ctx->view.manipulator);
   tsd::rendering::updateCameraObject(*camera, m_ctx->view.manipulator);
 
   ensureChild(ensureShotsRoot(), shot.id.c_str());
   if (auto *defaultRig = ensureDefaultLightRig())
     shot.lightRigId = defaultRig->id;
+  if (auto *defaultCameraRig = ensureDefaultCameraRig())
+    shot.cameraRigId = defaultCameraRig->id;
 
   m_project.activeShotId = shot.id;
   m_project.shots.push_back(std::move(shot));
@@ -480,7 +539,8 @@ Dataset *ProjectContext::addStaticDataset(const std::string &name,
         datasetRoot);
     record.status = DatasetStatus::Available;
     for (auto &shot : m_project.shots)
-      shot::setDatasetBinding(shot, record.id, &shot == project::activeShot(m_project));
+      shot::setDatasetBinding(
+          shot, record.id, &shot == project::activeShot(m_project));
   } catch (const std::exception &e) {
     record.status = DatasetStatus::ImportFailed;
     tsd::core::logError("[SciVisStudio] Dataset import failed for '%s': %s",
@@ -638,8 +698,11 @@ void ProjectContext::applyActiveShot()
   for (auto *layer : changedLayers)
     m_ctx->tsd.scene.signalLayerStructureChanged(layer);
 
-  auto sampled = shot_camera_rig::sampleCameraRig(shot->cameraRig, shot->currentFrame);
-  shot_camera_rig::applyManipulatorState(m_ctx->view.manipulator, sampled);
+  if (auto *cameraRig = activeShotCameraRig()) {
+    auto sampled =
+        shot_camera_rig::sampleCameraRig(cameraRig->rig, shot->currentFrame);
+    shot_camera_rig::applyManipulatorState(m_ctx->view.manipulator, sampled);
+  }
 
   if (auto *obj = resolveShotCamera(*shot)) {
     auto *camera = static_cast<tsd::scene::Camera *>(obj);
@@ -810,6 +873,23 @@ bool ProjectContext::openProject(const std::filesystem::path &directory,
       : root["schemaVersion"].getValueOr<int>(1);
   if (loadedSchemaVersion < 2)
     migrateLegacyShotLightsToLightRigs();
+  if (!m_project.shots.empty()) {
+    CameraRig *defaultCameraRig = nullptr;
+    if (m_project.cameraRigs.empty()) {
+      CameraRig rig;
+      rig.id = project::nextCameraRigId(m_project);
+      rig.name = "Default";
+      if (m_ctx)
+        rig.rig.current = shot_camera_rig::manipulatorStateFromManipulator(
+            m_ctx->view.manipulator);
+      m_project.cameraRigs.push_back(std::move(rig));
+    }
+    defaultCameraRig = &m_project.cameraRigs.front();
+    for (auto &shot : m_project.shots) {
+      if (shot.cameraRigId.empty())
+        shot.cameraRigId = defaultCameraRig->id;
+    }
+  }
   markMissingDatasets();
   refreshRuntimeRefs();
   syncAnimationManagerToActiveShot();

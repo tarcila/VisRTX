@@ -69,6 +69,10 @@ struct ProjectContext
       LightRig &rig, const std::string &subtype);
   bool removeLightFromRig(LightRig &rig, tsd::scene::LayerNodeRef lightNode);
   int shotUseCount(const LightRigID &id) const;
+  CameraRig *createCameraRig(const std::string &name = "");
+  bool removeCameraRig(const CameraRigID &id);
+  int cameraRigUseCount(const CameraRigID &id) const;
+  CameraRig *activeShotCameraRig();
 
  private:
   tsd::scene::LayerNodeRef ensureChild(
@@ -80,6 +84,7 @@ struct ProjectContext
   void resetScene();
   void ensureRendererDefaults(Shot &shot);
   LightRig *ensureDefaultLightRig();
+  CameraRig *ensureDefaultCameraRig();
   void migrateLegacyShotLightsToLightRigs();
   void markMissingDatasets();
   void refreshRuntimeRefs();

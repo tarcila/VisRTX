@@ -17,9 +17,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 using namespace tsd::scivis_studio;
-
 
 namespace {
 
@@ -51,7 +51,7 @@ tsd::scene::LayerNodeRef findDirectChild(
 
 SCENARIO("SciVis Studio project model serialization", "[SciVisStudio]")
 {
-  GIVEN("A project with datasets, shots, light rigs, and camera keyframes")
+  GIVEN("A project with datasets, shots, light rigs, and camera rigs")
   {
     Project project;
     project.name = "RoundTrip";
@@ -73,20 +73,26 @@ SCENARIO("SciVis Studio project model serialization", "[SciVisStudio]")
     shot.name = "Shot 1";
     shot.datasetBindings.push_back({"dataset_0001", true});
     shot.lightRigId = "lightRig_0001";
+    shot.cameraRigId = "cameraRig_0001";
     shot.camera = {ANARI_CAMERA, 2};
     shot.renderSettings.rendererLibrary = "dummy_test_device";
     shot.renderSettings.rendererObjectIndex = 7;
     shot.renderSettings.rendererSubtype = "dummy_test_renderer";
+
+    CameraRig cameraRig;
+    cameraRig.id = "cameraRig_0001";
+    cameraRig.name = "Default Camera";
     CameraKeyframe keyframe;
     keyframe.frame = 12;
     keyframe.name = "mid";
     keyframe.manipulator.orbit.lookat = {1.f, 2.f, 3.f};
     keyframe.manipulator.orbit.azeldist = {10.f, 20.f, 30.f};
     keyframe.interpolationToNext = CameraInterpolation::EaseOutIn;
-    shot.cameraRig.keyframes.push_back(keyframe);
+    cameraRig.rig.keyframes.push_back(keyframe);
     project.activeShotId = shot.id;
     project.shots.push_back(shot);
     project.lightRigs.push_back({"lightRig_0001", "Default", {"studio", 5}});
+    project.cameraRigs.push_back(std::move(cameraRig));
 
     tsd::core::DataTree tree;
     projectToNode(project, tree.root()["scivisStudio"]);
@@ -95,8 +101,11 @@ SCENARIO("SciVis Studio project model serialization", "[SciVisStudio]")
     REQUIRE(serialized["datasets"].child(0)->child("rootNode") == nullptr);
     REQUIRE(serialized["datasets"].child(0)->child("sourceFiles") != nullptr);
     REQUIRE(serialized["shots"].child(0)->child("lightRigId") != nullptr);
+    REQUIRE(serialized["shots"].child(0)->child("cameraRigId") != nullptr);
+    REQUIRE(serialized["shots"].child(0)->child("cameraRig") == nullptr);
     REQUIRE(serialized["shots"].child(0)->child("camera") == nullptr);
     REQUIRE(serialized["lightRigs"].child(0)->child("rootNode") == nullptr);
+    REQUIRE(serialized["cameraRigs"].child(0)->child("rig") != nullptr);
 
     Project loaded;
     REQUIRE(nodeToProject(serialized, loaded));
@@ -111,17 +120,20 @@ SCENARIO("SciVis Studio project model serialization", "[SciVisStudio]")
       REQUIRE(loaded.shots.size() == 1);
       REQUIRE(loaded.shots.front().id == "shot_0001");
       REQUIRE(loaded.shots.front().lightRigId == "lightRig_0001");
+      REQUIRE(loaded.shots.front().cameraRigId == "cameraRig_0001");
       REQUIRE(loaded.lightRigs.size() == 1);
       REQUIRE(loaded.lightRigs.front().id == "lightRig_0001");
+      REQUIRE(loaded.cameraRigs.size() == 1);
+      REQUIRE(loaded.cameraRigs.front().id == "cameraRig_0001");
       REQUIRE(loaded.shots.front().renderSettings.rendererLibrary
           == "dummy_test_device");
       REQUIRE(loaded.shots.front().renderSettings.rendererObjectIndex == 7);
       REQUIRE(loaded.shots.front().renderSettings.rendererSubtype
           == "dummy_test_renderer");
-      REQUIRE(loaded.shots.front().cameraRig.keyframes.size() == 1);
-      REQUIRE(loaded.shots.front().cameraRig.keyframes.front().frame == 12);
+      REQUIRE(loaded.cameraRigs.front().rig.keyframes.size() == 1);
+      REQUIRE(loaded.cameraRigs.front().rig.keyframes.front().frame == 12);
       REQUIRE(
-          loaded.shots.front().cameraRig.keyframes.front().interpolationToNext
+          loaded.cameraRigs.front().rig.keyframes.front().interpolationToNext
           == CameraInterpolation::EaseOutIn);
     }
   }
@@ -193,17 +205,23 @@ SCENARIO("SciVis Studio camera interpolation modes", "[SciVisStudio]")
       rig.keyframes = {a, b};
 
       rig.keyframes.front().interpolationToNext = CameraInterpolation::EaseOut;
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x == Approx(6.25f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x
+          == Approx(6.25f));
 
       rig.keyframes.front().interpolationToNext = CameraInterpolation::EaseIn;
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x == Approx(57.8125f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x
+          == Approx(57.8125f));
 
       rig.keyframes.front().interpolationToNext =
           CameraInterpolation::EaseOutIn;
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x == Approx(10.3515625f));
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.azeldist.x == Approx(10.3515625f));
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.fixedDist == Approx(10.3515625f));
-      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 75).orbit.lookat.x == Approx(89.6484375f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.lookat.x
+          == Approx(10.3515625f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.azeldist.x
+          == Approx(10.3515625f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 25).orbit.fixedDist
+          == Approx(10.3515625f));
+      REQUIRE(shot_camera_rig::sampleCameraRig(rig, 75).orbit.lookat.x
+          == Approx(89.6484375f));
     }
   }
 }
@@ -309,6 +327,9 @@ SCENARIO("SciVis Studio default project creation", "[SciVisStudio]")
   REQUIRE(project.lightRigs.size() == 1);
   REQUIRE(project.lightRigs.front().name == "Default");
   REQUIRE(project.shots.front().lightRigId == project.lightRigs.front().id);
+  REQUIRE(project.cameraRigs.size() == 1);
+  REQUIRE(project.cameraRigs.front().name == "Default");
+  REQUIRE(project.shots.front().cameraRigId == project.cameraRigs.front().id);
   REQUIRE(project.activeShotId == project.shots.front().id);
   REQUIRE(project.dirty == false);
   REQUIRE(appContext.tsd.scene.layer("studio") != nullptr);
@@ -328,8 +349,13 @@ SCENARIO("SciVis Studio new shots use the default light rig", "[SciVisStudio]")
   projectContext.createUnsavedProject();
 
   const auto defaultRigId = projectContext.project().lightRigs.front().id;
+  const auto defaultCameraRigId =
+      projectContext.project().cameraRigs.front().id;
   REQUIRE(projectContext.addShot());
-  REQUIRE(project::activeShot(projectContext.project())->lightRigId == defaultRigId);
+  REQUIRE(project::activeShot(projectContext.project())->lightRigId
+      == defaultRigId);
+  REQUIRE(project::activeShot(projectContext.project())->cameraRigId
+      == defaultCameraRigId);
 }
 
 SCENARIO("SciVis Studio shot dataset bindings update scene visibility",
@@ -433,7 +459,8 @@ SCENARIO("SciVis Studio saved projects rebuild runtime refs from stable IDs",
         {},
         DatasetStatus::Available,
         projectContext.refFor("studio", datasetRoot)});
-    shot::setDatasetBinding(*project::activeShot(project), "dataset_0001", false);
+    shot::setDatasetBinding(
+        *project::activeShot(project), "dataset_0001", false);
 
     REQUIRE(projectContext.saveProject(root));
   }
@@ -453,14 +480,20 @@ SCENARIO("SciVis Studio saved projects rebuild runtime refs from stable IDs",
     auto &projectNode = manifest.root()["scivisStudio"];
     REQUIRE(projectNode["datasets"].child(0)->child("rootNode") == nullptr);
     REQUIRE(projectNode["shots"].child(0)->child("lightRigId") != nullptr);
+    REQUIRE(projectNode["shots"].child(0)->child("cameraRigId") != nullptr);
+    REQUIRE(projectNode["shots"].child(0)->child("cameraRig") == nullptr);
     REQUIRE(projectNode["shots"].child(0)->child("camera") == nullptr);
     REQUIRE(projectNode["lightRigs"].child(0)->child("rootNode") == nullptr);
+    REQUIRE(projectNode["cameraRigs"].child(0)->child("rig") != nullptr);
   }
 
   {
     tsd::app::Context appContext;
     ProjectContext projectContext(&appContext);
     REQUIRE(projectContext.openProject(root));
+    REQUIRE(projectContext.project().cameraRigs.size() == 1);
+    REQUIRE(projectContext.project().shots.front().cameraRigId
+        == projectContext.project().cameraRigs.front().id);
 
     auto *layer = appContext.tsd.scene.layer("studio");
     REQUIRE(layer != nullptr);
@@ -511,6 +544,46 @@ SCENARIO(
   REQUIRE_FALSE((*secondRoot)->isEnabled());
 }
 
+SCENARIO(
+    "SciVis Studio active shot samples assigned camera rig", "[SciVisStudio]")
+{
+  tsd::app::Context appContext;
+  ProjectContext projectContext(&appContext);
+  projectContext.createUnsavedProject();
+
+  auto &project = projectContext.project();
+  auto &shot = *project::activeShot(project);
+  auto *secondRig = projectContext.createCameraRig("Second Camera");
+  REQUIRE(secondRig != nullptr);
+
+  CameraKeyframe keyframe;
+  keyframe.frame = 5;
+  keyframe.manipulator.orbit.lookat = {7.f, 8.f, 9.f};
+  keyframe.manipulator.orbit.azeldist = {10.f, 20.f, 12.f};
+  keyframe.manipulator.orbit.fixedDist = 12.f;
+  secondRig->rig.keyframes.push_back(keyframe);
+
+  shot.cameraRigId = secondRig->id;
+  shot.currentFrame = 5;
+  appContext.view.manipulator.setConfig({0.f, 0.f, 0.f}, 1.f);
+  projectContext.applyActiveShot();
+
+  REQUIRE(appContext.view.manipulator.at().x == Approx(7.f));
+  REQUIRE(appContext.view.manipulator.at().y == Approx(8.f));
+  REQUIRE(appContext.view.manipulator.at().z == Approx(9.f));
+  REQUIRE(appContext.view.manipulator.azel().x == Approx(10.f));
+  REQUIRE(appContext.view.manipulator.azel().y == Approx(20.f));
+  REQUIRE(appContext.view.manipulator.distance() == Approx(12.f));
+
+  shot.cameraRigId.clear();
+  appContext.view.manipulator.setConfig({1.f, 2.f, 3.f}, 4.f);
+  projectContext.applyActiveShot();
+  REQUIRE(appContext.view.manipulator.at().x == Approx(1.f));
+  REQUIRE(appContext.view.manipulator.at().y == Approx(2.f));
+  REQUIRE(appContext.view.manipulator.at().z == Approx(3.f));
+  REQUIRE(appContext.view.manipulator.distance() == Approx(4.f));
+}
+
 SCENARIO("SciVis Studio removing a light rig clears shot references",
     "[SciVisStudio]")
 {
@@ -531,6 +604,20 @@ SCENARIO("SciVis Studio removing a light rig clears shot references",
   auto *layer = appContext.tsd.scene.layer("studio");
   auto lightRigsRoot = findDirectChild(layer->root(), "lightRigs");
   REQUIRE_FALSE(findDirectChild(lightRigsRoot, rigId));
+}
+
+SCENARIO("SciVis Studio removing a camera rig clears shot references",
+    "[SciVisStudio]")
+{
+  tsd::app::Context appContext;
+  ProjectContext projectContext(&appContext);
+  projectContext.createUnsavedProject();
+
+  auto &project = projectContext.project();
+  const auto rigId = project.cameraRigs.front().id;
+  REQUIRE(projectContext.removeCameraRig(rigId));
+  REQUIRE(project.cameraRigs.empty());
+  REQUIRE(project.shots.front().cameraRigId.empty());
 }
 
 SCENARIO("SciVis Studio v1 shot lights migrate to light rigs", "[SciVisStudio]")
@@ -585,6 +672,77 @@ SCENARIO("SciVis Studio v1 shot lights migrate to light rigs", "[SciVisStudio]")
         projectContext.resolveLightRigRoot(project.lightRigs.front());
     REQUIRE(rigRoot);
     REQUIRE(findDirectChild(rigRoot, "legacyLight"));
+  }
+
+  std::filesystem::remove_all(root);
+}
+
+SCENARIO("SciVis Studio v2 shot camera rigs migrate to camera rigs",
+    "[SciVisStudio]")
+{
+  const auto root =
+      std::filesystem::temp_directory_path() / "tsd_scivis_studio_v2_migrate";
+  std::filesystem::remove_all(root);
+
+  {
+    tsd::app::Context appContext;
+    ProjectContext projectContext(&appContext);
+    projectContext.createUnsavedProject();
+    auto &project = projectContext.project();
+    project.cameraRigs.clear();
+    project.shots.front().cameraRigId.clear();
+
+    tsd::core::DataTree tree;
+    tsd::core::writeDataTreeMetadata(tree.root(),
+        {tsd::core::DATA_TREE_METADATA_ENVELOPE_VERSION,
+            PROJECT_FILE_TYPE,
+            PROJECT_SCHEMA,
+            2});
+    projectToNode(project, tree.root()["scivisStudio"]);
+
+    auto *shotNode = tree.root()["scivisStudio"]["shots"].child(0);
+    REQUIRE(shotNode != nullptr);
+    auto &cameraRig = (*shotNode)["cameraRig"];
+
+    tsd::rendering::CameraPose currentPose;
+    currentPose.lookat = {1.f, 2.f, 3.f};
+    currentPose.azeldist = {4.f, 5.f, 6.f};
+    currentPose.fixedDist = 6.f;
+    tsd::io::cameraPoseToNode(currentPose, cameraRig["current"]["orbit"]);
+
+    tsd::rendering::CameraPose keyframePose;
+    keyframePose.lookat = {7.f, 8.f, 9.f};
+    keyframePose.azeldist = {10.f, 20.f, 30.f};
+    keyframePose.fixedDist = 30.f;
+    auto &keyframe = cameraRig["keyframes"].append();
+    keyframe["frame"] = 11;
+    keyframe["name"] = "legacy";
+    keyframe["interpolationToNext"] = "Ease Out + In";
+    tsd::io::cameraPoseToNode(keyframePose, keyframe["manipulator"]["orbit"]);
+
+    tsd::io::save_Scene(appContext.tsd.scene,
+        tree.root()["context"],
+        false,
+        &appContext.tsd.animationMgr);
+    std::filesystem::create_directories(root);
+    REQUIRE(tree.save((root / PROJECT_MANIFEST_FILENAME).string().c_str()));
+  }
+
+  {
+    tsd::app::Context appContext;
+    ProjectContext projectContext(&appContext);
+    REQUIRE(projectContext.openProject(root));
+    auto &project = projectContext.project();
+    REQUIRE(project.cameraRigs.size() == 1);
+    REQUIRE(project.shots.front().cameraRigId == project.cameraRigs.front().id);
+    REQUIRE(project.cameraRigs.front().name == "Shot 1 Camera");
+    REQUIRE(
+        project.cameraRigs.front().rig.current.orbit.lookat.x == Approx(1.f));
+    REQUIRE(project.cameraRigs.front().rig.keyframes.size() == 1);
+    REQUIRE(project.cameraRigs.front().rig.keyframes.front().frame == 11);
+    REQUIRE(project.cameraRigs.front().rig.keyframes.front().name == "legacy");
+    REQUIRE(project.cameraRigs.front().rig.keyframes.front().interpolationToNext
+        == CameraInterpolation::EaseOutIn);
   }
 
   std::filesystem::remove_all(root);

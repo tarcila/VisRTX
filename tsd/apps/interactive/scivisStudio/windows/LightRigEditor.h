@@ -20,12 +20,15 @@ struct LightRigEditor : public tsd::ui::imgui::Window
 
  private:
   bool inputText(const char *label, std::string &value, size_t capacity = 512);
+  void syncSelectionToActiveShot();
   void buildUI_lightList(LightRig &rig);
   void buildUI_addLight(LightRig &rig);
 
   ProjectContext *m_projectContext{nullptr};
   int m_selectedRig{0};
   int m_selectedLight{0};
+  ShotID m_lastActiveShotId;
+  LightRigID m_lastActiveShotLightRigId;
   std::string m_renameLightName;
   LightRigID m_pendingDeleteRig;
 };

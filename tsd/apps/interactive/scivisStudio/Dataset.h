@@ -17,6 +17,7 @@ using DatasetID = std::string;
 using ShotID = std::string;
 using ColorMapID = std::string;
 using LightRigID = std::string;
+using CameraRigID = std::string;
 
 struct SceneNodeRef
 {

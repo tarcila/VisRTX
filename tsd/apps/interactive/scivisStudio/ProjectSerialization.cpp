@@ -58,6 +58,15 @@ static void nodeToCameraRig(tsd::core::DataNode &node, ShotCameraRig &rig)
   shot_camera_rig::sortKeyframes(rig);
 }
 
+static std::string cameraRigNameForShot(const Shot &shot)
+{
+  if (!shot.name.empty())
+    return shot.name + " Camera";
+  if (!shot.id.empty())
+    return shot.id + " Camera";
+  return "Camera Rig";
+}
+
 static void sourceMetadataToNode(
     const DatasetSourceMetadata &source, tsd::core::DataNode &node)
 {
@@ -131,7 +140,7 @@ void projectToNode(const Project &project, tsd::core::DataNode &node)
     s["playing"] = shot.playing;
     s["loop"] = shot.loop;
     s["lightRigId"] = shot.lightRigId;
-    cameraRigToNode(shot.cameraRig, s["cameraRig"]);
+    s["cameraRigId"] = shot.cameraRigId;
 
     auto &render = s["renderSettings"];
     render["width"] = shot.renderSettings.width;
@@ -156,6 +165,14 @@ void projectToNode(const Project &project, tsd::core::DataNode &node)
     auto &r = lightRigs.append();
     r["id"] = rig.id;
     r["name"] = rig.name;
+  }
+
+  auto &cameraRigs = node["cameraRigs"];
+  for (const auto &rig : project.cameraRigs) {
+    auto &r = cameraRigs.append();
+    r["id"] = rig.id;
+    r["name"] = rig.name;
+    cameraRigToNode(rig.rig, r["rig"]);
   }
 
   auto &colorMaps = node["colorMaps"];
@@ -199,6 +216,17 @@ bool nodeToProject(tsd::core::DataNode &node, Project &project)
     });
   }
 
+  if (auto *cameraRigs = node.child("cameraRigs")) {
+    cameraRigs->foreach_child([&](tsd::core::DataNode &r) {
+      CameraRig rig;
+      rig.id = r["id"].getValueOr<std::string>("");
+      rig.name = r["name"].getValueOr<std::string>("");
+      if (auto *rigNode = r.child("rig"))
+        nodeToCameraRig(*rigNode, rig.rig);
+      out.cameraRigs.push_back(std::move(rig));
+    });
+  }
+
   if (auto *shots = node.child("shots")) {
     shots->foreach_child([&](tsd::core::DataNode &s) {
       Shot shot;
@@ -210,8 +238,17 @@ bool nodeToProject(tsd::core::DataNode &node, Project &project)
       shot.playing = s["playing"].getValueOr<bool>(false);
       shot.loop = s["loop"].getValueOr<bool>(true);
       shot.lightRigId = s["lightRigId"].getValueOr<std::string>("");
-      if (auto *cameraRig = s.child("cameraRig"))
-        nodeToCameraRig(*cameraRig, shot.cameraRig);
+      shot.cameraRigId = s["cameraRigId"].getValueOr<std::string>("");
+      if (shot.cameraRigId.empty()) {
+        if (auto *cameraRigNode = s.child("cameraRig")) {
+          CameraRig rig;
+          rig.id = project::nextCameraRigId(out);
+          rig.name = cameraRigNameForShot(shot);
+          nodeToCameraRig(*cameraRigNode, rig.rig);
+          shot.cameraRigId = rig.id;
+          out.cameraRigs.push_back(std::move(rig));
+        }
+      }
 
       if (auto *render = s.child("renderSettings")) {
         shot.renderSettings.width =

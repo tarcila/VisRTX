@@ -25,6 +25,7 @@ struct ShotEditor : public tsd::ui::imgui::Window
   void buildUI_deviceSelector(Shot &shot);
   void buildUI_rendererSelector(Shot &shot);
   void buildUI_lightRigSelector(Shot &shot);
+  void buildUI_cameraRigSelector(Shot &shot);
 
   ProjectContext *m_projectContext{nullptr};
   std::function<void()> m_onRender;
