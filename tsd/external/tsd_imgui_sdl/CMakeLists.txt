@@ -17,6 +17,8 @@ if(NOT TARGET SDL3::SDL3)
     URL https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.2.12.zip
     MD5 62da6ae22e546cdacdb6dfef520391bf
   )
+  set(SDL_SHARED OFF)
+  set(SDL_STATIC ON)
   add_subdirectory(
     ${tsd_ext_sdl3_LOCATION}
     ${CMAKE_CURRENT_BINARY_DIR}/tsd_ext_sdl3
