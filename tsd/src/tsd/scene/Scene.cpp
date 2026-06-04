@@ -113,13 +113,13 @@ Any cloneObjectValue(Scene &scene,
 }
 
 void copyInstanceParameters(Scene &scene,
-    const LayerNodeData &source,
+    const InstanceParameterMap &sourceParameters,
     LayerNodeData &destination,
     bool cloneObjectReferences,
     ObjectCloneRecords &records)
 {
   destination.clearInstanceParameters();
-  for (const auto &parameter : source.getInstanceParameters()) {
+  for (const auto &parameter : sourceParameters) {
     destination.setInstanceParameter(parameter.first,
         cloneObjectValue(
             scene, parameter.second, cloneObjectReferences, records));
@@ -132,13 +132,16 @@ LayerNodeRef cloneLayerNode(Scene &scene,
     bool cloneObjectReferences,
     ObjectCloneRecords &records)
 {
-  auto &sourceData = source->value();
-  const auto &name = sourceData.name();
+  const auto &sourceData = source->value();
+  const std::string name = sourceData.name();
+  const bool enabled = sourceData.isEnabled();
+  const InstanceParameterMap instanceParameters =
+      sourceData.getInstanceParameters();
 
   LayerNodeRef clone;
   if (sourceData.isTransform()) {
-    clone = scene.insertChildTransformNode(
-        parent, sourceData.getTransform(), name.c_str());
+    const auto transform = sourceData.getTransform();
+    clone = scene.insertChildTransformNode(parent, transform, name.c_str());
   } else if (sourceData.isObject()) {
     auto *object = sourceData.getObject();
     if (cloneObjectReferences)
@@ -157,9 +160,9 @@ LayerNodeRef cloneLayerNode(Scene &scene,
     return {};
 
   auto &cloneData = clone->value();
-  cloneData.setEnabled(sourceData.isEnabled());
+  cloneData.setEnabled(enabled);
   copyInstanceParameters(
-      scene, sourceData, cloneData, cloneObjectReferences, records);
+      scene, instanceParameters, cloneData, cloneObjectReferences, records);
   return clone;
 }
 

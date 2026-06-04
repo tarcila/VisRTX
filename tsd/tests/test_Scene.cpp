@@ -114,6 +114,8 @@ SCENARIO("tsd::scene::Scene deep-clones layer subtrees", "[Scene]")
     group->value().setInstanceParameter(
         "linkedMaterial", {material->type(), material->index()});
     scene.insertChildObjectNode(group, light, "mainLight");
+    scene.insertChildTransformNode(
+        layer->root(), tsd::math::IDENTITY_MAT4, "capacityFiller");
 
     WHEN("The subtree is cloned with default object sharing")
     {
