@@ -105,6 +105,8 @@ void import_file(Scene &scene,
     tsd::io::import_SMESH(scene, animMgr, file.c_str(), root, true);
   else if (f.first == ImporterType::SWC)
     tsd::io::import_SWC(scene, animMgr, file.c_str(), root);
+  else if (f.first == ImporterType::SWC_SDF)
+    tsd::io::import_SWC_SDF(scene, animMgr, file.c_str(), root);
   else if (f.first == ImporterType::TRK)
     tsd::io::import_TRK(scene, animMgr, file.c_str(), root);
   else if (f.first == ImporterType::USD)

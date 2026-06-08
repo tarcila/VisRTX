@@ -129,8 +129,53 @@ enum class GeometryType
   CURVE,
   CONE,
   SPHERE,
+  SDF,
   NEURAL,
   UNKNOWN
+};
+
+enum class SDFType : uint8_t
+{
+  SPHERE = 0,
+  PILL = 1,
+  CONE_PILL = 2,
+  CONE_PILL_SIGMOID = 3,
+  CONE = 4,
+  TORUS = 5,
+  CUT_SPHERE = 6,
+  VESICA = 7,
+  ELLIPSOID = 8
+};
+
+// Byte-exact layout shared between C++ host and CUDA device code.
+// sizeof(SDFPrimitive) == 72, verified by static_assert in SDF.cpp.
+struct SDFPrimitive
+{
+  uint64_t userData{0};
+  vec3 userParams{0.f}; // x=displacement amplitude, y=frequency, z=unused
+  vec3 p0{0.f};
+  vec3 p1{0.f};
+  float r0{-1.f};
+  float r1{-1.f};
+  uint32_t _pad{0};
+  uint64_t neighboursIndex{0};
+  uint8_t numNeighbours{0};
+  uint8_t type{0};
+  uint8_t _pad2[6]{};
+};
+
+struct SDFGeometryData
+{
+  const SDFPrimitive *geometries{nullptr};
+  const uint64_t *neighbours{nullptr};
+  uint32_t numGeometries{0};
+  float epsilon{1e-5f};
+  uint32_t nbMarchIterations{128};
+  float blendFactor{1.f};
+  float blendLerpFactor{0.5f};
+  float omega{1.f};
+  float distanceFromCamera{100.f};
+  float noiseFactor{0.f}; // [0,1]: 0=no noise, 1=max organic surface noise
 };
 
 struct AttributeData
@@ -229,6 +274,7 @@ struct GeometryGPUData
     CurveGeometryData curve;
     ConeGeometryData cone;
     SphereGeometryData sphere;
+    SDFGeometryData sdf;
 #ifdef VISRTX_USE_NEURAL
     NeuralGeometryData neural;
 #endif

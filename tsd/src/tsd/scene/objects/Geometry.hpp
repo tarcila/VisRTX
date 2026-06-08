@@ -37,6 +37,7 @@ extern const Token cylinder;
 extern const Token isosurface;
 extern const Token neural;
 extern const Token quad;
+extern const Token sdf;
 extern const Token sphere;
 extern const Token triangle;
 } // namespace tokens::geometry

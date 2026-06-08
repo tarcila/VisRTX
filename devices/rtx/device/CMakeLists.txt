@@ -144,6 +144,7 @@ set(SOURCES
   geometry/Curve.cpp
   geometry/Cylinder.cpp
   geometry/Geometry.cpp
+  geometry/SDF.cpp
   $<$<BOOL:${VISRTX_ENABLE_NEURAL}>:geometry/Neural.cpp>
   geometry/Quad.cpp
   geometry/Sphere.cu

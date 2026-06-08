@@ -1,0 +1,71 @@
+{
+    "info" : {
+        "name" : "VISRTX_GEOMETRY_SDF",
+        "type" : "extension",
+        "dependencies" : []
+    },
+
+    "objects" : [
+        {
+            "type" : "ANARI_GEOMETRY",
+            "name" : "sdf",
+            "description" : "Signed Distance Field surface geometry with smooth neighbour blending and sphere tracing",
+            "parameters" : [
+                {
+                    "name": "primitive.sdf",
+                    "types": ["ANARI_ARRAY1D"],
+                    "tags": [],
+                    "description": "Array of SDFPrimitive structs (raw UINT8 bytes, N * 72 bytes)"
+                },
+                {
+                    "name": "primitive.neighbor",
+                    "types": ["ANARI_ARRAY1D"],
+                    "tags": [],
+                    "description": "Flat UINT64 neighbour index buffer for smooth-min blending"
+                },
+                {
+                    "name": "epsilon",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Sphere-tracing convergence threshold (default 1e-5)"
+                },
+                {
+                    "name": "nbMarchIterations",
+                    "types": ["ANARI_INT32"],
+                    "tags": [],
+                    "description": "Maximum ray-march iterations (default 128)"
+                },
+                {
+                    "name": "blendFactor",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Smooth-min blend strength (default 1.0)"
+                },
+                {
+                    "name": "blendLerpFactor",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Radius interpolation factor for blend kernel size (default 0.5)"
+                },
+                {
+                    "name": "omega",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Sphere-tracing step scale, clamped to [0,1] (default 1.0)"
+                },
+                {
+                    "name": "distanceFromCamera",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Maximum camera distance for procedural displacement (default 100.0)"
+                },
+                {
+                    "name": "noiseFactor",
+                    "types": ["ANARI_FLOAT32"],
+                    "tags": [],
+                    "description": "Organic surface noise strength in [0,1]; 0=off, 1=maximum (default 0.0)"
+                }
+            ]
+        }
+    ]
+}

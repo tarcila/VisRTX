@@ -41,6 +41,7 @@
 #ifdef VISRTX_USE_NEURAL
 #include "Neural.h"
 #endif
+#include "SDF.h"
 #include "UnknownGeometry.h"
 // std
 #include <cstring>
@@ -97,6 +98,8 @@ Geometry *Geometry::createInstance(
     return new Cone(d);
   else if (subtype == "curve")
     return new Curve(d);
+  else if (subtype == "sdf")
+    return new SDF(d);
 #ifdef VISRTX_USE_NEURAL
   else if (subtype == "neural")
     return new Neural(d);

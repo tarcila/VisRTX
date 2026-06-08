@@ -97,6 +97,8 @@ void Context::parseCommandLine(std::vector<std::string> &args)
       importerType = tsd::io::ImporterType::SMESH_ANIMATION;
     else if (arg == "-swc")
       importerType = tsd::io::ImporterType::SWC;
+    else if (arg == "-swc_sdf")
+      importerType = tsd::io::ImporterType::SWC_SDF;
     else if (arg == "-trk")
       importerType = tsd::io::ImporterType::TRK;
     else if (arg == "-usd")

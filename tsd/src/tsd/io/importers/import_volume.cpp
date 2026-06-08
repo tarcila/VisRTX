@@ -150,7 +150,8 @@ VolumeRef import_volume(Scene &scene,
     LayerNodeRef location)
 {
   auto volume = import_volume(scene, filepath, location);
-  applyTransferFunction(scene, volume, transferFunction);
+  if (volume)
+    applyTransferFunction(scene, volume, transferFunction);
   return volume;
 }
 

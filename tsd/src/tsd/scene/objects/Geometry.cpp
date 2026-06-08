@@ -36,6 +36,7 @@ const Token cylinder = "cylinder";
 const Token isosurface = "isosurface";
 const Token neural = "neural";
 const Token quad = "quad";
+const Token sdf = "sdf";
 const Token sphere = "sphere";
 const Token triangle = "triangle";
 

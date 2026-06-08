@@ -82,6 +82,7 @@ void import_PT(Scene &scene, tsd::animation::AnimationManager &animMgr, const ch
 void import_SILO(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location);
 void import_SMESH(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {}, bool isAnimation = false);
 void import_SWC(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
+void import_SWC_SDF(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
 void import_TRK(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
 void import_USD(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
 void import_VTP(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filepath, LayerNodeRef location = {});
@@ -157,6 +158,7 @@ enum class ImporterType
   SMESH,
   SMESH_ANIMATION, // time series version
   SWC,
+  SWC_SDF,
   TRK,
   USD,
   VTP,

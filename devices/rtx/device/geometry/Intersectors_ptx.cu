@@ -400,6 +400,8 @@ VISRTX_DEVICE void intersectNeural(const GeometryGPUData &geometryData)
 }
 #endif
 
+#include "gpu/gpu_sdf.h"
+
 // Generic geometry dispatch //////////////////////////////////////////////////
 
 VISRTX_DEVICE void intersectGeometry()
@@ -418,6 +420,9 @@ VISRTX_DEVICE void intersectGeometry()
     break;
   case GeometryType::CONE:
     intersectCone(geometryData);
+    break;
+  case GeometryType::SDF:
+    intersectSDF(geometryData);
     break;
 #ifdef VISRTX_USE_NEURAL
   case GeometryType::NEURAL:
