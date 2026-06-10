@@ -82,6 +82,12 @@ ANARIDeviceManager::ANARIDeviceManager(const bool *verboseFlag)
   m_libraryList = parseLibraryList();
 }
 
+ANARIDeviceManager::~ANARIDeviceManager()
+{
+  releaseAllDevices();
+  unloadAllLibraries();
+}
+
 const std::vector<std::string> &ANARIDeviceManager::libraryList() const
 {
   return m_libraryList;
@@ -92,8 +98,7 @@ void ANARIDeviceManager::setLibraryList(const std::vector<std::string> &libs)
   m_libraryList = libs;
 }
 
-bool ANARIDeviceManager::isLoadableLibrary(
-    const std::string &libraryName) const
+bool ANARIDeviceManager::isLoadableLibrary(const std::string &libraryName) const
 {
   return !libraryName.empty() && libraryName != "{none}";
 }
@@ -110,17 +115,19 @@ anari::Device ANARIDeviceManager::loadDevice(const std::string &libraryName,
     return dev;
   }
 
-  auto library =
-      anari::loadLibrary(libraryName.c_str(), anariStatusFunc, m_verboseFlag);
-  if (!library)
-    return nullptr;
+  anari::Library library = m_loadedLibraries[libraryName];
+  if (!library) {
+    library =
+        anari::loadLibrary(libraryName.c_str(), anariStatusFunc, m_verboseFlag);
+    if (!library)
+      return nullptr;
+    m_loadedLibraries[libraryName] = library;
+  }
 
   dev = anari::newDevice(library, "default");
 
   m_loadedDeviceExtensions[libraryName] =
       anari::extension::getDeviceExtensionStruct(library, "default");
-
-  anari::unloadLibrary(library);
 
   anari::setParameter(dev, dev, "glAPI", "OpenGL");
 
@@ -249,6 +256,15 @@ void ANARIDeviceManager::loadSettings(tsd::core::DataNode &root)
   if (root["renderIndexKind"].getValue(ANARI_INT32, &kind)) {
     m_settings.renderIndexKind = static_cast<RenderIndexKind>(kind);
   }
+}
+
+void ANARIDeviceManager::unloadAllLibraries()
+{
+  for (auto &lib : m_loadedLibraries) {
+    if (anari::Library library = lib.second; library)
+      anari::unloadLibrary(library);
+  }
+  m_loadedLibraries.clear();
 }
 
 } // namespace tsd::app
