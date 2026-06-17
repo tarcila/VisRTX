@@ -8,6 +8,7 @@ project_sources(PRIVATE
   Graph.cpp
   NodeRegistry.cpp
   PortType.cpp
+  TestBackend.cpp
   TransferRegistry.cpp
   Version.cpp
 )
