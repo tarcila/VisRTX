@@ -149,21 +149,53 @@ void Graph::disconnect(ConnectionId id)
   }
 }
 
+void Graph::markDirty(NodeId id)
+{
+  auto *n = node(id);
+  if (!n)
+    return;
+  if (n->state != EvalState::Dirty) {
+    n->state = EvalState::Dirty;
+    n->cache.clear();
+  }
+  for (const auto &c : m_connections) {
+    if (c.fromNode == id)
+      markDirty(c.toNode);
+  }
+}
+
+void Graph::revalidateRequiredInputs(NodeId id)
+{
+  auto *n = node(id);
+  if (!n)
+    return;
+  auto info = n->impl->typeInfo();
+  for (const auto &port : info.inputs) {
+    if (port.required && inputConnection(id, port.name) == nullptr) {
+      n->state = EvalState::Error;
+      n->error = "missing required input: " + port.name.str();
+      return;
+    }
+  }
+}
+
 void Graph::removeNode(NodeId id)
 {
-  // Drop connections touching this node; mark former consumers dirty.
+  std::vector<NodeId> affectedConsumers;
   for (auto it = m_connections.begin(); it != m_connections.end();) {
     if (it->fromNode == id || it->toNode == id) {
-      if (it->fromNode == id) {
-        if (auto *toN = node(it->toNode))
-          toN->state = EvalState::Dirty;
-      }
+      if (it->fromNode == id)
+        affectedConsumers.push_back(it->toNode);
       it = m_connections.erase(it);
     } else {
       ++it;
     }
   }
   m_nodes.erase(id);
+  for (NodeId c : affectedConsumers) {
+    markDirty(c);
+    revalidateRequiredInputs(c);
+  }
 }
 
 } // namespace tsd::graph

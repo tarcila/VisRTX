@@ -91,7 +91,12 @@ class Graph
 
   void setConversionRegistry(const ConversionRegistry *r);
 
+  // Mark a node and all transitive downstream consumers Dirty.
+  void markDirty(NodeId id);
+
  private:
+  // After topology changes, set any node missing a required input to Error.
+  void revalidateRequiredInputs(NodeId id);
   bool wouldCreateCycle(NodeId from, NodeId to) const;
   // Search by value (typeInfo() returns a temporary, so never return a pointer
   // into it). Returns true and fills `out` if the port exists.
