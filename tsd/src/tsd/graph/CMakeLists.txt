@@ -3,6 +3,7 @@ project(tsd_graph)
 project_add_library(STATIC)
 
 project_sources(PRIVATE
+  ConversionRegistry.cpp
   PortType.cpp
   TransferRegistry.cpp
   Version.cpp
