@@ -22,6 +22,7 @@ project_add_executable(
   test_Forest.cpp
   test_Geometry.cpp
   test_graph_ConversionRegistry.cpp
+  test_graph_Parameter.cpp
   test_graph_PortType.cpp
   test_graph_Residency.cpp
   test_graph_Smoke.cpp
@@ -81,6 +82,7 @@ add_test(NAME tsd::FlatMap       COMMAND ${PROJECT_NAME} "[FlatMap]"      )
 add_test(NAME tsd::Forest        COMMAND ${PROJECT_NAME} "[Forest]"       )
 add_test(NAME tsd::Geometry      COMMAND ${PROJECT_NAME} "[Geometry]"     )
 add_test(NAME tsd::graph::ConversionRegistry COMMAND ${PROJECT_NAME} "[graph-convert]")
+add_test(NAME tsd::graph::Parameter COMMAND ${PROJECT_NAME} "[graph-param]")
 add_test(NAME tsd::graph::PortType  COMMAND ${PROJECT_NAME} "[graph-porttype]")
 add_test(NAME tsd::graph::Residency COMMAND ${PROJECT_NAME} "[graph-residency]")
 add_test(NAME tsd::graph::Smoke COMMAND ${PROJECT_NAME} "[graph-smoke]")
