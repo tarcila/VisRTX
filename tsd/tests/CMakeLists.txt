@@ -30,6 +30,7 @@ project_add_executable(
   test_graph_NodeRegistry.cpp
   test_graph_TransferRegistry.cpp
   test_graph_Value.cpp
+  test_graph_GraphLinks.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -92,6 +93,7 @@ add_test(NAME tsd::graph::TransferRegistry COMMAND ${PROJECT_NAME} "[graph-trans
 add_test(NAME tsd::graph::Node  COMMAND ${PROJECT_NAME} "[graph-node]")
 add_test(NAME tsd::graph::NodeRegistry COMMAND ${PROJECT_NAME} "[graph-noderegistry]")
 add_test(NAME tsd::graph::Value COMMAND ${PROJECT_NAME} "[graph-value]")
+add_test(NAME tsd::graph::GraphLinks COMMAND ${PROJECT_NAME} "[graph-links]")
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")

@@ -4,6 +4,7 @@ project_add_library(STATIC)
 
 project_sources(PRIVATE
   ConversionRegistry.cpp
+  Graph.cpp
   NodeRegistry.cpp
   PortType.cpp
   TransferRegistry.cpp
