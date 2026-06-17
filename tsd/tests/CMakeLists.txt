@@ -24,6 +24,7 @@ project_add_executable(
   test_graph_PortType.cpp
   test_graph_Residency.cpp
   test_graph_Smoke.cpp
+  test_graph_Value.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -80,6 +81,7 @@ add_test(NAME tsd::Geometry      COMMAND ${PROJECT_NAME} "[Geometry]"     )
 add_test(NAME tsd::graph::PortType  COMMAND ${PROJECT_NAME} "[graph-porttype]")
 add_test(NAME tsd::graph::Residency COMMAND ${PROJECT_NAME} "[graph-residency]")
 add_test(NAME tsd::graph::Smoke COMMAND ${PROJECT_NAME} "[graph-smoke]")
+add_test(NAME tsd::graph::Value COMMAND ${PROJECT_NAME} "[graph-value]")
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")
