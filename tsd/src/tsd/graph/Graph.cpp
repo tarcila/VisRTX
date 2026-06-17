@@ -152,12 +152,10 @@ void Graph::disconnect(ConnectionId id)
 void Graph::markDirty(NodeId id)
 {
   auto *n = node(id);
-  if (!n)
-    return;
-  if (n->state != EvalState::Dirty) {
-    n->state = EvalState::Dirty;
-    n->cache.clear();
-  }
+  if (!n || n->state == EvalState::Dirty)
+    return; // already dirty -> its downstream subtree is already marked
+  n->state = EvalState::Dirty;
+  n->cache.clear();
   for (const auto &c : m_connections) {
     if (c.fromNode == id)
       markDirty(c.toNode);

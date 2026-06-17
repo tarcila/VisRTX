@@ -83,3 +83,34 @@ SCENARIO("tsd::graph::Graph dirty propagation and deletion", "[graph-dirty]")
     }
   }
 }
+
+SCENARIO("tsd::graph::Graph markDirty visits a diamond subtree once",
+    "[graph-dirty]")
+{
+  GIVEN("a diamond A->B, A->C, B->D, C->D, all Clean")
+  {
+    Graph g;
+    auto a = g.addNode(std::make_unique<PassThrough>(true));
+    auto b = g.addNode(std::make_unique<PassThrough>(false));
+    auto c = g.addNode(std::make_unique<PassThrough>(false));
+    auto d = g.addNode(std::make_unique<PassThrough>(false));
+    g.connect(a, Token("out"), b, Token("in"));
+    g.connect(a, Token("out"), c, Token("in"));
+    g.connect(b, Token("out"), d, Token("in"));
+    g.connect(c, Token("out"), d, Token("in"));
+    for (auto id : {a, b, c, d})
+      g.node(id)->state = EvalState::Clean;
+
+    WHEN("A is marked dirty")
+    {
+      g.markDirty(a);
+      THEN("all four nodes are dirty")
+      {
+        REQUIRE(g.node(a)->state == EvalState::Dirty);
+        REQUIRE(g.node(b)->state == EvalState::Dirty);
+        REQUIRE(g.node(c)->state == EvalState::Dirty);
+        REQUIRE(g.node(d)->state == EvalState::Dirty);
+      }
+    }
+  }
+}
