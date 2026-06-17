@@ -35,6 +35,7 @@ project_add_executable(
   test_graph_Dirty.cpp
   test_graph_Evaluator.cpp
   test_graph_ImplicitOps.cpp
+  test_graph_NonCacheable.cpp
   test_graph_TestBackendTransfer.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
@@ -103,6 +104,7 @@ add_test(NAME tsd::graph::DeviceKeying COMMAND ${PROJECT_NAME} "[graph-devicekey
 add_test(NAME tsd::graph::Dirty COMMAND ${PROJECT_NAME} "[graph-dirty]")
 add_test(NAME tsd::graph::Evaluator COMMAND ${PROJECT_NAME} "[graph-eval]")
 add_test(NAME tsd::graph::ImplicitOps COMMAND ${PROJECT_NAME} "[graph-implicitops]")
+add_test(NAME tsd::graph::NonCacheable COMMAND ${PROJECT_NAME} "[graph-noncache]")
 add_test(NAME tsd::graph::TestBackend COMMAND ${PROJECT_NAME} "[graph-testbackend]")
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
