@@ -3,9 +3,13 @@
 
 #pragma once
 
+#include "tsd/core/TaskQueue.hpp"
 #include "tsd/graph/Graph.hpp"
 #include "tsd/graph/TransferRegistry.hpp"
 // std
+#include <atomic>
+#include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <tuple>
@@ -47,18 +51,47 @@ struct EvalReport
 // only when it recomputes; downstream consumers therefore skip when an upstream
 // value is unchanged (the "version short-circuit"). contentTag-based skip (no
 // bump when recompute yields identical content) is a Phase 2 optimization.
+
+// Opaque ticket identifying one pullAsync request.
+struct PullHandle
+{
+  uint64_t id{0};
+};
+
+// THREADING CONTRACT (Phase 2):
+//  - pullAsync/pull/waitIdle/result/lastReport/output are called only from a
+//    single owner thread (the thread that drives the evaluator). They are NOT
+//    internally synchronized against each other.
+//  - cancel() is the only method safe to call from another thread (it touches
+//    one atomic).
+//  - Results: after waitIdle() (or after isReady(h) is true for the LATEST
+//    handle h), the owner thread may read output()/lastReport(). result(h) is
+//    meaningful only for the latest handle; an older handle reports false once
+//    superseded (single shared completion scalar, by design).
+//  - The completion atomics are seq-cst on purpose: a seq-cst load of
+//    m_doneEpoch observing >= h.id publishes all of the worker's prior
+//    (sequenced-before) writes to node cache/state. Do NOT weaken them to
+//    relaxed — that would turn the isReady()-then-output() handshake into a
+//    data race.
+//  - onComplete fires on the worker thread and MUST NOT re-enter the evaluator
+//    (no pullAsync/pull/cancel/waitIdle/graph mutation from within it).
+//  - pullAsync may block briefly if the worker queue (capacity 8) is full;
+//    under single-owner one-in-flight use this never happens.
 class Evaluator
 {
  public:
   explicit Evaluator(Graph &g,
       const TransferRegistry *transfers = nullptr,
       const ConversionRegistry *conversions = nullptr);
+  ~Evaluator();
 
-  // Ensure `id`'s outputs are up to date. Returns false if the node (or an
-  // ancestor) is in Error.
+  PullHandle pullAsync(NodeId id, std::function<void(bool)> onComplete = {});
+  bool isReady(PullHandle h) const;
+  bool result(PullHandle h) const;
+  void cancel();
+  void waitIdle();
   bool pull(NodeId id);
 
-  // Look up a cached output in a desired residency (after a pull).
   const Value *output(
       NodeId id, tsd::core::Token port, const Residency &want) const;
 
@@ -67,9 +100,14 @@ class Evaluator
     return m_report;
   }
 
+  bool cancelRequested() const
+  {
+    return m_cancel.load();
+  }
+
  private:
   friend class EvalContext;
-  bool ensure(NodeId id);
+  bool ensure(NodeId id, uint64_t epoch);
   // Materialize a producer's output as `wantType` in residency `want`,
   // inserting a conversion and/or transfer and recording each in the
   // EvalReport. Transfer results are cached. Returns false on failure (no path
@@ -92,6 +130,13 @@ class Evaluator
   EvalReport m_report;
   std::map<TransferCacheKey, Value> m_transferCache;
   NodeId m_current{INVALID_NODE}; // node being evaluated (for EvalContext)
+
+  std::atomic<uint64_t> m_epoch{0}; // bumped per pullAsync
+  std::atomic<uint64_t> m_doneEpoch{0}; // highest epoch whose task has finished
+  std::atomic<bool> m_doneOk{false}; // success of the most-recent finished task
+  std::atomic<bool> m_cancel{false}; // cooperative cancel flag
+  tsd::core::Future m_lastFuture; // future of the most-recently enqueued task
+  tsd::core::TaskQueue m_worker{8}; // MUST be declared last (joins on destruct)
 };
 
 // Passed to Node::evaluate(). Bridges a node to its (already-evaluated) inputs
@@ -106,6 +151,7 @@ class EvalContext
   Value input(tsd::core::Token name, const Residency &want);
   bool hasInput(tsd::core::Token name) const;
   Value inputOr(tsd::core::Token name, const Residency &want, Value alt);
+  bool cancelled() const;
 
   template <typename T>
   T param(tsd::core::Token name) const
