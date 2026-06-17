@@ -31,6 +31,7 @@ project_add_executable(
   test_graph_TransferRegistry.cpp
   test_graph_Value.cpp
   test_graph_GraphLinks.cpp
+  test_graph_DeviceKeying.cpp
   test_graph_Dirty.cpp
   test_graph_Evaluator.cpp
   test_graph_ImplicitOps.cpp
@@ -98,6 +99,7 @@ add_test(NAME tsd::graph::Node  COMMAND ${PROJECT_NAME} "[graph-node]")
 add_test(NAME tsd::graph::NodeRegistry COMMAND ${PROJECT_NAME} "[graph-noderegistry]")
 add_test(NAME tsd::graph::Value COMMAND ${PROJECT_NAME} "[graph-value]")
 add_test(NAME tsd::graph::GraphLinks COMMAND ${PROJECT_NAME} "[graph-links]")
+add_test(NAME tsd::graph::DeviceKeying COMMAND ${PROJECT_NAME} "[graph-devicekeying]")
 add_test(NAME tsd::graph::Dirty COMMAND ${PROJECT_NAME} "[graph-dirty]")
 add_test(NAME tsd::graph::Evaluator COMMAND ${PROJECT_NAME} "[graph-eval]")
 add_test(NAME tsd::graph::ImplicitOps COMMAND ${PROJECT_NAME} "[graph-implicitops]")
