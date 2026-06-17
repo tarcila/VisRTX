@@ -4,6 +4,7 @@ project_add_library(STATIC)
 
 project_sources(PRIVATE
   PortType.cpp
+  TransferRegistry.cpp
   Version.cpp
 )
 
