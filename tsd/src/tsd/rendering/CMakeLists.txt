@@ -7,6 +7,7 @@ project_add_library(STATIC)
 
 project_sources(
 PRIVATE
+  bridge/GraphRenderBridge.cpp
   index/RenderIndex.cpp
   index/RenderIndexFlatRegistry.cpp
   index/RenderIndexAllLayers.cpp
@@ -38,7 +39,7 @@ PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../..>
 )
 
-project_link_libraries(PUBLIC tsd_scene tsd_algorithms PRIVATE $<BUILD_INTERFACE:stb_image>)
+project_link_libraries(PUBLIC tsd_scene tsd_algorithms tsd_graph PRIVATE $<BUILD_INTERFACE:stb_image>)
 
 if (TSD_USE_CUDA)
   find_package(thrust REQUIRED HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
