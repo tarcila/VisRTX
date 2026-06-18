@@ -28,6 +28,7 @@ project_sources(PRIVATE
   windows/Terminal.cpp
   windows/TransferFunctionEditor.cpp
   windows/Viewport.cpp
+  windows/GraphViewport.cpp
   windows/Window.cpp
   Application.cpp
   ArrayPreview.cpp
