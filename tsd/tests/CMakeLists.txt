@@ -49,6 +49,7 @@ project_add_executable(
   test_nodes_DisplayVolume.cpp
   test_nodes_Surface.cpp
   test_nodes_Wiring.cpp
+  test_nodes_Render.cpp
   test_bridge_Mask.cpp
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
@@ -135,6 +136,8 @@ add_test(NAME tsd::nodes::TransferFunction COMMAND ${PROJECT_NAME} "[nodes-tf]")
 add_test(NAME tsd::nodes::DisplayVolume COMMAND ${PROJECT_NAME} "[nodes-dvol]")
 add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
 add_test(NAME tsd::nodes::Wiring COMMAND ${PROJECT_NAME} "[nodes-wiring]")
+add_test(NAME tsd::nodes::Render COMMAND ${PROJECT_NAME} "[nodes-render]")
+set_tests_properties(tsd::nodes::Render PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
 set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[bridge-render-surface]")
