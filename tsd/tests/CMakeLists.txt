@@ -41,6 +41,7 @@ project_add_executable(
   test_graph_AsyncCancel.cpp
   test_graph_AsyncSupersede.cpp
   test_graph_AsyncError.cpp
+  test_graph_Renderable.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -114,6 +115,7 @@ add_test(NAME tsd::graph::Async COMMAND ${PROJECT_NAME} "[graph-async]")
 add_test(NAME tsd::graph::AsyncCancel COMMAND ${PROJECT_NAME} "[graph-asynccancel]")
 add_test(NAME tsd::graph::AsyncSupersede COMMAND ${PROJECT_NAME} "[graph-supersede]")
 add_test(NAME tsd::graph::AsyncError COMMAND ${PROJECT_NAME} "[graph-asyncerror]")
+add_test(NAME tsd::graph::Renderable COMMAND ${PROJECT_NAME} "[graph-renderable]")
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")
