@@ -47,6 +47,7 @@ project_add_executable(
   test_nodes_ScalarRange.cpp
   test_nodes_TransferFunction.cpp
   test_nodes_DisplayVolume.cpp
+  test_nodes_Surface.cpp
   test_bridge_Mask.cpp
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
@@ -131,6 +132,7 @@ add_test(NAME tsd::nodes::Noise   COMMAND ${PROJECT_NAME} "[nodes-noise]"   )
 add_test(NAME tsd::nodes::Range   COMMAND ${PROJECT_NAME} "[nodes-range]"   )
 add_test(NAME tsd::nodes::TransferFunction COMMAND ${PROJECT_NAME} "[nodes-tf]")
 add_test(NAME tsd::nodes::DisplayVolume COMMAND ${PROJECT_NAME} "[nodes-dvol]")
+add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
 add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
 set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[bridge-render-surface]")
