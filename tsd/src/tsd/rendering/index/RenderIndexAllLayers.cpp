@@ -54,7 +54,7 @@ void RenderIndexAllLayers::setIncludedLayers(
     const std::vector<const Layer *> &layers)
 {
   m_includedLayers = layers;
-  m_customIncludedLayers = !layers.empty();
+  m_customIncludedLayers = true; // always honour the caller's explicit set
   signalActiveLayersChanged();
 }
 
@@ -182,20 +182,31 @@ void RenderIndexAllLayers::updateWorld()
         for (auto &l : m_includedLayers)
           syncLayerInstances(l, false, objectMask_all());
       }
-    } else { // sync everything
+    } else if (!m_customIncludedLayers) { // sync everything
       tsd::core::logDebug(
           "[RenderIndexAllLayers] cache empty, "
           "repopulating using all layers");
       for (auto &l : m_ctx->layers())
         syncLayerInstances(l.second.ptr.get(), false, objectMask_all());
     }
+    // else: custom empty set — leave cache empty (world will be cleared below)
   }
 
   std::vector<anari::Instance> instances;
   instances.reserve(2000);
 
-  for (auto &i : m_instanceCache)
+  for (auto &i : m_instanceCache) {
+    // When a custom include list is active, skip cache entries for layers that
+    // are no longer included. The cache may hold entries for excluded layers
+    // if they were populated by signalLayerAdded before setIncludedLayers ran.
+    if (m_customIncludedLayers) {
+      auto it =
+          std::find(m_includedLayers.begin(), m_includedLayers.end(), i.first);
+      if (it == m_includedLayers.end())
+        continue;
+    }
     std::copy(i.second.begin(), i.second.end(), std::back_inserter(instances));
+  }
 
   std::copy(m_externalInstances.begin(),
       m_externalInstances.end(),
