@@ -37,9 +37,12 @@ const Value *Evaluator::output(
 PullHandle Evaluator::pullAsync(NodeId id, std::function<void(bool)> onComplete)
 {
   const uint64_t e = ++m_epoch;
-  m_cancel.store(true);
+  // Supersede any prior epoch's cancel by leaving m_cancelEpoch < e.
+  // The prior task bails via the epoch check in ensure(); no explicit signal
+  // needed. The worker must not touch m_cancelEpoch so that a concurrent
+  // cancel() call on the owner thread (which stores e into m_cancelEpoch)
+  // remains visible throughout the task's lifetime.
   m_lastFuture = m_worker.enqueue([this, id, e, onComplete]() {
-    m_cancel.store(false);
     m_report.clear();
     const bool ok = ensure(id, e);
     const bool effective = ok && (e == m_epoch.load());
@@ -63,7 +66,10 @@ bool Evaluator::result(PullHandle h) const
 
 void Evaluator::cancel()
 {
-  m_cancel.store(true);
+  // Mark the current epoch as cancelled. cancelRequested() returns true when
+  // m_cancelEpoch >= m_epoch, so this cancels only the currently-running task;
+  // a subsequent pullAsync() bumps m_epoch past this value, clearing the signal.
+  m_cancelEpoch.store(m_epoch.load());
 }
 
 void Evaluator::waitIdle()
@@ -151,7 +157,7 @@ bool Evaluator::materializeForInput(
 
 bool Evaluator::ensure(NodeId id, uint64_t epoch)
 {
-  if (m_cancel.load() || epoch != m_epoch.load())
+  if (cancelRequested() || epoch != m_epoch.load())
     return false; // cancelled or superseded
 
   GraphNode *n = m_graph.node(id);
@@ -196,7 +202,7 @@ bool Evaluator::ensure(NodeId id, uint64_t epoch)
   // A cancellation observed during evaluate() must not finalize a partial run.
   // Clear the partial output so a later pull recomputes rather than serving a
   // half-written, un-version-stamped cache entry.
-  if (m_cancel.load() || epoch != m_epoch.load()) {
+  if (cancelRequested() || epoch != m_epoch.load()) {
     n->cache.clear();
     return false;
   }

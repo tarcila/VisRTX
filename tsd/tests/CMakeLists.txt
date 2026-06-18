@@ -38,6 +38,7 @@ project_add_executable(
   test_graph_NonCacheable.cpp
   test_graph_TestBackendTransfer.cpp
   test_graph_AsyncEval.cpp
+  test_graph_AsyncCancel.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -108,6 +109,7 @@ add_test(NAME tsd::graph::ImplicitOps COMMAND ${PROJECT_NAME} "[graph-implicitop
 add_test(NAME tsd::graph::NonCacheable COMMAND ${PROJECT_NAME} "[graph-noncache]")
 add_test(NAME tsd::graph::TestBackend COMMAND ${PROJECT_NAME} "[graph-testbackend]")
 add_test(NAME tsd::graph::Async COMMAND ${PROJECT_NAME} "[graph-async]")
+add_test(NAME tsd::graph::AsyncCancel COMMAND ${PROJECT_NAME} "[graph-asynccancel]")
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")

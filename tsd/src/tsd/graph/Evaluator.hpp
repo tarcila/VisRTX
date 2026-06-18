@@ -102,7 +102,7 @@ class Evaluator
 
   bool cancelRequested() const
   {
-    return m_cancel.load();
+    return m_cancelEpoch.load() >= m_epoch.load();
   }
 
  private:
@@ -134,7 +134,12 @@ class Evaluator
   std::atomic<uint64_t> m_epoch{0}; // bumped per pullAsync
   std::atomic<uint64_t> m_doneEpoch{0}; // highest epoch whose task has finished
   std::atomic<bool> m_doneOk{false}; // success of the most-recent finished task
-  std::atomic<bool> m_cancel{false}; // cooperative cancel flag
+  // Epoch up to which cancellation has been requested. A task for epoch e is
+  // cancelled iff m_cancelEpoch >= e. cancel() sets this to the current epoch;
+  // pullAsync supersedes the prior epoch by bumping m_epoch, so no explicit
+  // "clear cancel" is needed in the worker — an old cancel only affects epochs
+  // <= the old value.
+  std::atomic<uint64_t> m_cancelEpoch{0};
   tsd::core::Future m_lastFuture; // future of the most-recently enqueued task
   tsd::core::TaskQueue m_worker{8}; // MUST be declared last (joins on destruct)
 };
