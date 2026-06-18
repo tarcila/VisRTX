@@ -54,6 +54,7 @@ project_add_executable(
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
   test_bridge_Rebuild.cpp
+  test_tsdflow_Smoke.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -146,6 +147,8 @@ add_test(NAME tsd::rendering::BridgeRenderVolume COMMAND ${PROJECT_NAME} "[bridg
 set_tests_properties(tsd::rendering::BridgeRenderVolume PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRebuild COMMAND ${PROJECT_NAME} "[bridge-rebuild]")
 set_tests_properties(tsd::rendering::BridgeRebuild PROPERTIES TIMEOUT 300)
+add_test(NAME tsd::tsdflow::Smoke COMMAND ${PROJECT_NAME} "[tsdflow-smoke]")
+set_tests_properties(tsd::tsdflow::Smoke PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")

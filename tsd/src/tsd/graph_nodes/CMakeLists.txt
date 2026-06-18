@@ -4,6 +4,7 @@ project_add_library(STATIC)
 
 project_sources(PRIVATE
   BuiltinNodes.cpp
+  DemoGraph.cpp
   GenerateNoiseVolume.cpp
   ScalarRange.cpp
   TransferFunction.cpp
