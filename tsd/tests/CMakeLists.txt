@@ -42,6 +42,7 @@ project_add_executable(
   test_graph_AsyncSupersede.cpp
   test_graph_AsyncError.cpp
   test_graph_Renderable.cpp
+  test_nodes_Scaffold.cpp
   test_bridge_Mask.cpp
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
@@ -72,6 +73,7 @@ PRIVATE
   tsd_animation
   tsd_app
   tsd_graph
+  tsd_graph_nodes
   tsd_io
   tsd_rendering
   tsd_scene
@@ -120,6 +122,7 @@ add_test(NAME tsd::graph::AsyncCancel COMMAND ${PROJECT_NAME} "[graph-asynccance
 add_test(NAME tsd::graph::AsyncSupersede COMMAND ${PROJECT_NAME} "[graph-supersede]")
 add_test(NAME tsd::graph::AsyncError COMMAND ${PROJECT_NAME} "[graph-asyncerror]")
 add_test(NAME tsd::graph::Renderable COMMAND ${PROJECT_NAME} "[graph-renderable]")
+add_test(NAME tsd::nodes::Scaffold COMMAND ${PROJECT_NAME} "[nodes-scaffold]")
 add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
 set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[bridge-render-surface]")

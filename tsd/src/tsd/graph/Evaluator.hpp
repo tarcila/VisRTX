@@ -158,6 +158,11 @@ class EvalContext
   Value inputOr(tsd::core::Token name, const Residency &want, Value alt);
   bool cancelled() const;
 
+  // Mark this node as failed (Error state) with a message; evaluate() should
+  // return immediately after calling this. The evaluator short-circuits
+  // downstream consumers.
+  void fail(const std::string &msg);
+
   template <typename T>
   T param(tsd::core::Token name) const
   {

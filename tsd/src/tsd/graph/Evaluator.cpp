@@ -68,7 +68,8 @@ void Evaluator::cancel()
 {
   // Mark the current epoch as cancelled. cancelRequested() returns true when
   // m_cancelEpoch >= m_epoch, so this cancels only the currently-running task;
-  // a subsequent pullAsync() bumps m_epoch past this value, clearing the signal.
+  // a subsequent pullAsync() bumps m_epoch past this value, clearing the
+  // signal.
   m_cancelEpoch.store(m_epoch.load());
 }
 
@@ -197,8 +198,13 @@ bool Evaluator::ensure(NodeId id, uint64_t epoch)
   n->impl->evaluate(ctx);
   m_current = prev;
 
-  if (n->state == EvalState::Error)
+  if (n->state == EvalState::Error) {
+    // A node that fail()ed must not leave a half-written, un-version-stamped
+    // output in the cache (defense-in-depth: today nodes fail() before any
+    // setOutput, but clearing keeps the invariant regardless).
+    n->cache.clear();
     return false;
+  }
   // A cancellation observed during evaluate() must not finalize a partial run.
   // Clear the partial output so a later pull recomputes rather than serving a
   // half-written, un-version-stamped cache entry.
@@ -264,6 +270,12 @@ Value EvalContext::inputOr(
 bool EvalContext::cancelled() const
 {
   return m_eval.cancelRequested();
+}
+
+void EvalContext::fail(const std::string &msg)
+{
+  m_self.state = EvalState::Error;
+  m_self.error = msg;
 }
 
 void EvalContext::setOutput(tsd::core::Token name, Value v)
