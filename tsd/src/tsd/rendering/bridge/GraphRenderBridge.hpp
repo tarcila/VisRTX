@@ -44,6 +44,9 @@ class GraphRenderBridge
     return int(m_indices.size());
   }
 
+  // Number of render-Scene objects + arrays; for tests/diagnostics.
+  size_t renderSceneObjectCount() const;
+
  private:
   struct Display
   {
@@ -55,6 +58,7 @@ class GraphRenderBridge
   };
 
   void rebuildLayer(tsd::graph::NodeId node, Display &d);
+  void clearLayerObjects(tsd::scene::Layer *layer);
   void buildSurface(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
   void buildVolume(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
   void applyParams(

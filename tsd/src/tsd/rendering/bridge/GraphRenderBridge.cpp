@@ -59,9 +59,16 @@ void GraphRenderBridge::removeDisplay(NodeId node)
   auto it = m_displays.find(node);
   if (it == m_displays.end())
     return;
-  if (it->second.layer)
+  if (it->second.layer) {
+    clearLayerObjects(it->second.layer);
     m_renderScene.removeLayer(it->second.layer->name());
+  }
   m_displays.erase(it);
+
+  // Drop the freed layer from every viewport index immediately so no index
+  // retains a dangling Layer* until the next update().
+  for (int i = 0; i < int(m_indices.size()); ++i)
+    m_indices[i]->setIncludedLayers(layersForViewport(i));
 }
 
 std::vector<const Layer *> GraphRenderBridge::layersForViewport(int i) const
@@ -88,10 +95,30 @@ void GraphRenderBridge::update()
     }
     rebuildLayer(kv.first, d);
   }
-  for (int i = 0; i < int(m_indices.size()); ++i) {
+  // setIncludedLayers() triggers the index's full rebuild (populate); calling
+  // populate() again here would redundantly tear down + rebuild the cache.
+  for (int i = 0; i < int(m_indices.size()); ++i)
     m_indices[i]->setIncludedLayers(layersForViewport(i));
-    m_indices[i]->populate();
-  }
+}
+
+void GraphRenderBridge::clearLayerObjects(Layer *layer)
+{
+  // Layer::clear() only drops the tree nodes; it leaves the referenced Scene
+  // objects (and the arrays they reference as parameters) in the pools. Remove
+  // each top-level object node with referenced-object deletion, then reclaim
+  // the now-orphaned parameter-referenced objects (geometry/material/field and
+  // their arrays) whose total use count has dropped to zero.
+  std::vector<tsd::scene::LayerNodeRef> children;
+  layer->traverse(layer->root(), [&](auto &node, int level) {
+    if (level == 1)
+      children.push_back(layer->at(node.index()));
+    return level == 0; // descend only into the root's direct children
+  });
+
+  for (auto &child : children)
+    m_renderScene.removeNode(child, /*deleteReferencedObjects=*/true);
+
+  m_renderScene.removeUnusedObjects();
 }
 
 void GraphRenderBridge::rebuildLayer(NodeId node, Display &d)
@@ -110,7 +137,7 @@ void GraphRenderBridge::rebuildLayer(NodeId node, Display &d)
   if (d.realized && out->version == d.lastVersion)
     return;
 
-  d.layer->clear();
+  clearLayerObjects(d.layer);
 
   auto r = std::static_pointer_cast<Renderable>(out->payload);
   if (r->kind == Renderable::Kind::Surface)
@@ -184,6 +211,15 @@ void GraphRenderBridge::buildVolume(Layer *layer, const Renderable &r)
 anari::World GraphRenderBridge::world(int viewport) const
 {
   return m_indices.at(viewport)->world();
+}
+
+size_t GraphRenderBridge::renderSceneObjectCount() const
+{
+  using tsd::scene::ObjectDatabase;
+  const ObjectDatabase &db = m_renderScene.objectDB();
+  return db.array.size() + db.surface.size() + db.geometry.size()
+      + db.material.size() + db.sampler.size() + db.volume.size()
+      + db.field.size() + db.light.size();
 }
 
 } // namespace tsd::rendering

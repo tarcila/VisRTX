@@ -45,6 +45,7 @@ project_add_executable(
   test_bridge_Mask.cpp
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
+  test_bridge_Rebuild.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -125,6 +126,8 @@ add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[brid
 set_tests_properties(tsd::rendering::BridgeRenderSurface PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderVolume COMMAND ${PROJECT_NAME} "[bridge-render-volume]")
 set_tests_properties(tsd::rendering::BridgeRenderVolume PROPERTIES TIMEOUT 300)
+add_test(NAME tsd::rendering::BridgeRebuild COMMAND ${PROJECT_NAME} "[bridge-rebuild]")
+set_tests_properties(tsd::rendering::BridgeRebuild PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")
