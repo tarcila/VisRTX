@@ -19,6 +19,14 @@ using float3 = tsd::core::math::float3;
 struct GenerateNoiseVolume : Node
 {
   ParameterList params;
+  // Seed editable scalars so they show in the inspector; editing either changes
+  // the param hash and re-runs the pipeline downstream (handy for testing live
+  // pipeline updates).
+  GenerateNoiseVolume()
+  {
+    params.set(Token("seed"), 0);
+    params.set(Token("frequency"), 6.f);
+  }
   NodeTypeInfo typeInfo() const override
   {
     NodeTypeInfo i;
@@ -35,6 +43,7 @@ struct GenerateNoiseVolume : Node
   {
     const uint3 dims = params.getOr<uint3>(Token("dims"), uint3(32u, 32u, 32u));
     const int seed = params.getOr<int>(Token("seed"), 0);
+    const float freq = params.getOr<float>(Token("frequency"), 6.f);
     if (dims.x == 0u || dims.y == 0u || dims.z == 0u) {
       ctx.fail("GenerateNoiseVolume: dims must be > 0 on each axis");
       return;
@@ -59,7 +68,7 @@ struct GenerateNoiseVolume : Node
               (float(z) / float(dims.z - 1 ? dims.z - 1 : 1)) * 2.f - 1.f;
           const float r = std::sqrt(px * px + py * py + pz * pz);
           float v = 1.f - r;
-          v += 0.1f * std::sin(px * 6.f + sx) * std::sin(py * 6.f + sx);
+          v += 0.1f * std::sin(px * freq + sx) * std::sin(py * freq + sx);
           f->data.get<float>(idx) = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
         }
 
