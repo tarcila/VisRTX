@@ -43,6 +43,7 @@ project_add_executable(
   test_graph_AsyncError.cpp
   test_graph_Renderable.cpp
   test_graph_EditApis.cpp
+  test_nodes_GraphEditModel.cpp
   test_nodes_Scaffold.cpp
   test_nodes_GenerateNoiseVolume.cpp
   test_nodes_ScalarRange.cpp
@@ -132,6 +133,7 @@ add_test(NAME tsd::graph::AsyncSupersede COMMAND ${PROJECT_NAME} "[graph-superse
 add_test(NAME tsd::graph::AsyncError COMMAND ${PROJECT_NAME} "[graph-asyncerror]")
 add_test(NAME tsd::graph::Renderable COMMAND ${PROJECT_NAME} "[graph-renderable]")
 add_test(NAME tsd::graph::EditApis COMMAND ${PROJECT_NAME} "[graph-editapis]")
+add_test(NAME tsd::nodes::GraphEditModel COMMAND ${PROJECT_NAME} "[edit-model]")
 add_test(NAME tsd::nodes::Scaffold COMMAND ${PROJECT_NAME} "[nodes-scaffold]")
 add_test(NAME tsd::nodes::Noise   COMMAND ${PROJECT_NAME} "[nodes-noise]"   )
 add_test(NAME tsd::nodes::Range   COMMAND ${PROJECT_NAME} "[nodes-range]"   )
