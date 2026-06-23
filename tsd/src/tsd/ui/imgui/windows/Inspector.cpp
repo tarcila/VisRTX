@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/ui/imgui/windows/Inspector.hpp"
+#include "tsd/graph_nodes/DisplayMask.hpp"
 #include "tsd/graph_nodes/TransferFunctionNode.hpp"
 #include "tsd/ui/imgui/Application.h"
 // imgui
@@ -39,7 +40,31 @@ void Inspector::drawParameters(NodeId id)
     const Token name = p.name;
     const auto t = p.value.type();
     ImGui::PushID(name.c_str());
-    if (t == ANARI_BOOL) {
+    if (name == tsd::core::Token("viewportMask")) {
+      int mask = p.value.get<int>();
+      ImGui::TextUnformatted("Viewports");
+      bool changed = false;
+      for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
+        ImGui::PushID(i);
+        if (i % 4 != 0)
+          ImGui::SameLine();
+        bool on = (mask >> i) & 1;
+        char lbl[8];
+        std::snprintf(lbl, sizeof(lbl), "%d", i + 1);
+        if (ImGui::Checkbox(lbl, &on)) {
+          if (on)
+            mask |= (1 << i);
+          else
+            mask &= ~(1 << i);
+          changed = true;
+        }
+        ImGui::PopID();
+      }
+      if (changed) {
+        params.set(name, mask);
+        *m_graphDirty = true;
+      }
+    } else if (t == ANARI_BOOL) {
       bool v = p.value.get<bool>();
       if (ImGui::Checkbox(name.c_str(), &v)) {
         params.set(name, v);
