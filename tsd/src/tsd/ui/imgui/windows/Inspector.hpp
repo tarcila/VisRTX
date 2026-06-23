@@ -4,7 +4,6 @@
 #pragma once
 
 #include "tsd/graph/Graph.hpp"
-#include "tsd/graph_nodes/TransferFunctionNode.hpp"
 #include "tsd/ui/imgui/windows/TFCurveEditor.hpp"
 #include "tsd/ui/imgui/windows/Window.h"
 // std

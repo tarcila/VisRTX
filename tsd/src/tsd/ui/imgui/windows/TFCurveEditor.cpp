@@ -136,11 +136,8 @@ void TFCurveEditor::drawOpacityCurve(
     return;
   }
 
-  // Draw filled polygons between consecutive opacity control points.
-  ImGui::SetCursorScreenPos(ImVec2(canvas_x + margin, canvas_y));
-  ImGui::InvisibleButton("##opacity_bg", ImVec2(width, height));
-  // (We draw the background interaction button first, then overlap; draw it
-  // visually as a filled rect.)
+  // Draw filled rect background (visual only — interactive button comes after
+  // the point loop so point buttons win the hover race).
   draw_list->AddRectFilled(ImVec2(canvas_x + margin, canvas_y),
       ImVec2(canvas_x + margin + width, canvas_y + height),
       0xFF303030);
@@ -163,20 +160,10 @@ void TFCurveEditor::drawOpacityCurve(
     }
   }
 
-  // double-click on background to add a new opacity point
-  if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-    const float x =
-        std::clamp((mouse_x - canvas_x - margin - scroll_x) / width, 0.f, 1.f);
-    const float y =
-        std::clamp(1.f - (mouse_y - canvas_y - scroll_y) / height, 0.f, 1.f);
-    const int idx = findIdx(tf.opacityPoints, x);
-    tf.opacityPoints.insert(tf.opacityPoints.begin() + idx, OpacityPoint(x, y));
-    changed = true;
-  }
-
   canvas_y += height + margin;
 
-  // Draw and interact with each opacity control point.
+  // Draw and interact with each opacity control point (FIRST so point buttons
+  // win the hover race against the background InvisibleButton drawn below).
   ImGui::SetCursorScreenPos(ImVec2(canvas_x, canvas_y));
   for (int i = 0; i < int(tf.opacityPoints.size()); ++i) {
     const ImVec2 pos(canvas_x + width * tf.opacityPoints[i].x + margin,
@@ -214,6 +201,23 @@ void TFCurveEditor::drawOpacityCurve(
       }
       changed = true;
     }
+  }
+
+  // Background button drawn AFTER the point loop — loses hover race to any
+  // overlapping point button, which is the intended behavior.
+  ImGui::SetCursorScreenPos(
+      ImVec2(canvas_x + margin, canvas_y - height - margin));
+  ImGui::InvisibleButton("##opacity_bg", ImVec2(width, height));
+
+  // Double left-click on background to add a new opacity point.
+  if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+    const float x =
+        std::clamp((mouse_x - canvas_x - margin - scroll_x) / width, 0.f, 1.f);
+    const float y = std::clamp(
+        1.f - (mouse_y - canvas_y + margin - scroll_y) / height, 0.f, 1.f);
+    const int idx = findIdx(tf.opacityPoints, x);
+    tf.opacityPoints.insert(tf.opacityPoints.begin() + idx, OpacityPoint(x, y));
+    changed = true;
   }
 }
 

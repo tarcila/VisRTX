@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/ui/imgui/windows/Inspector.hpp"
+#include "tsd/graph_nodes/TransferFunctionNode.hpp"
 #include "tsd/ui/imgui/Application.h"
 // imgui
 #include "imgui.h"
