@@ -5,6 +5,7 @@
 #include "tsd/graph/Evaluator.hpp"
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
 #include "tsd/graph_nodes/Descriptors.hpp"
+#include "tsd/graph_nodes/DisplayMask.hpp"
 
 namespace tsd::graph_nodes {
 namespace {
@@ -15,6 +16,10 @@ using tsd::core::Token;
 struct DisplaySurface : Node
 {
   ParameterList params;
+  DisplaySurface()
+  {
+    params.set(tsd::core::Token("viewportMask"), kDefaultViewportMask);
+  }
   NodeTypeInfo typeInfo() const override
   {
     NodeTypeInfo i;

@@ -5,6 +5,7 @@
 #include "tsd/graph/Evaluator.hpp"
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
 #include "tsd/graph_nodes/Descriptors.hpp"
+#include "tsd/graph_nodes/DisplayMask.hpp"
 
 namespace tsd::graph_nodes {
 namespace {
@@ -16,6 +17,10 @@ using float3 = tsd::core::math::float3;
 struct DisplayVolume : Node
 {
   ParameterList params;
+  DisplayVolume()
+  {
+    params.set(tsd::core::Token("viewportMask"), kDefaultViewportMask);
+  }
   NodeTypeInfo typeInfo() const override
   {
     NodeTypeInfo i;
