@@ -31,6 +31,7 @@ project_sources(PRIVATE
   windows/GraphViewport.cpp
   windows/GraphEditor.cpp
   windows/Inspector.cpp
+  windows/TFCurveEditor.cpp
   windows/Window.cpp
   Application.cpp
   ArrayPreview.cpp

@@ -33,7 +33,7 @@ void Inspector::drawParameters(NodeId id)
     return;
   auto &params = gn->impl->parameters();
 
-  // Iterate a snapshot of names+types; write back via set on change.
+  // Iterate the live items() list; write back via set on change.
   for (const auto &p : params.items()) {
     const Token name = p.name;
     const auto t = p.value.type();
@@ -93,7 +93,19 @@ void Inspector::buildUI()
   }
   ImGui::Text("%s", gn->impl->typeInfo().name.c_str());
   ImGui::Separator();
-  drawParameters(*m_selected);
+  if (auto *itf = dynamic_cast<tsd::graph_nodes::ITransferFunctionNode *>(
+          gn->impl.get())) {
+    if (!m_tfEditor)
+      m_tfEditor = std::make_unique<TFCurveEditor>(m_app);
+    bool changed = false;
+    m_tfEditor->draw(itf->tfState(), itf->samples(), changed);
+    if (changed) {
+      m_graph->markDirty(*m_selected);
+      *m_graphDirty = true;
+    }
+  } else {
+    drawParameters(*m_selected);
+  }
 }
 
 } // namespace tsd::ui::imgui
