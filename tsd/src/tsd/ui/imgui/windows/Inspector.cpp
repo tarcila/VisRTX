@@ -48,14 +48,12 @@ void Inspector::drawParameters(NodeId id)
         ImGui::PushID(i);
         if (i % 4 != 0)
           ImGui::SameLine();
-        bool on = (mask >> i) & 1;
+        const bool on = (mask >> i) & 1;
         char lbl[8];
         std::snprintf(lbl, sizeof(lbl), "%d", i + 1);
-        if (ImGui::Checkbox(lbl, &on)) {
-          if (on)
-            mask |= (1 << i);
-          else
-            mask &= ~(1 << i);
+        if (ImGui::Selectable(
+                lbl, on, ImGuiSelectableFlags_None, ImVec2(24.f, 0.f))) {
+          mask ^= (1 << i); // Selectable returns true on click → flip the bit
           changed = true;
         }
         ImGui::PopID();
