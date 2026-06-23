@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="960" height="560" fill="#1e1f24"/>
+  <text x="24" y="34" fill="#e6e6e6" font-size="20" font-weight="600">Proposal 3 — Hybrid: chips on node + a tiny viewport rail</text>
+  <text x="24" y="56" fill="#9aa0aa" font-size="13">Chips on the node do masking (P1); a slim vertical rail reveals/shows viewports (replaces the View-menu hunt).</text>
+
+  <!-- vertical viewport rail on far left -->
+  <rect x="24" y="80" width="44" height="436" rx="6" fill="#23252c" stroke="#4a4d57"/>
+  <text x="30" y="98" fill="#9aa0aa" font-size="10">VPs</text>
+  <g text-anchor="middle" font-size="13" font-weight="600">
+    <rect x="32" y="108" width="28" height="28" rx="4" fill="#2d8cff"/><text x="46" y="127" fill="#fff">1</text>
+    <rect x="32" y="142" width="28" height="28" rx="4" fill="#3a3d46"/><text x="46" y="161" fill="#c9ced8">2</text>
+    <rect x="32" y="176" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="195" fill="#6b7280">3</text>
+    <rect x="32" y="210" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="229" fill="#6b7280">4</text>
+    <rect x="32" y="244" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="263" fill="#6b7280">5</text>
+    <rect x="32" y="278" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="297" fill="#6b7280">6</text>
+    <rect x="32" y="312" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="331" fill="#6b7280">7</text>
+    <rect x="32" y="346" width="28" height="28" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="46" y="365" fill="#6b7280">8</text>
+  </g>
+  <text x="30" y="395" fill="#7fd17f" font-size="11">filled=shown</text>
+  <text x="30" y="409" fill="#7b8089" font-size="11">click=show/</text>
+  <text x="30" y="421" fill="#7b8089" font-size="11">hide window</text>
+
+  <!-- graph canvas with node + chips -->
+  <text x="84" y="98" fill="#9aa0aa" font-size="12">graph editor canvas</text>
+  <g>
+    <rect x="84" y="108" width="300" height="150" rx="6" fill="#23252c" stroke="#4a4d57"/>
+    <rect x="84" y="108" width="300" height="26" rx="6" fill="#3a2f5c"/>
+    <text x="96" y="126" fill="#e6e6e6" font-size="13" font-weight="600">DisplayVolume</text>
+    <circle cx="84" cy="154" r="5" fill="#8ab4ff"/><text x="96" y="158" fill="#c9ced8" font-size="12">field</text>
+    <circle cx="84" cy="176" r="5" fill="#8ab4ff"/><text x="96" y="180" fill="#c9ced8" font-size="12">tf</text>
+    <text x="96" y="210" fill="#9aa0aa" font-size="11">viewports</text>
+    <g font-size="11" font-weight="600" text-anchor="middle">
+      <rect x="96"  y="218" width="26" height="24" rx="4" fill="#2d8cff"/><text x="109" y="234" fill="#fff">1</text>
+      <rect x="126" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="139" y="234" fill="#7b8089">2</text>
+      <rect x="156" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="169" y="234" fill="#7b8089">3</text>
+      <rect x="186" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="199" y="234" fill="#7b8089">4</text>
+      <rect x="216" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="229" y="234" fill="#7b8089">5</text>
+      <rect x="246" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="259" y="234" fill="#7b8089">6</text>
+      <rect x="276" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="289" y="234" fill="#7b8089">7</text>
+      <rect x="306" y="218" width="26" height="24" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="319" y="234" fill="#7b8089">8</text>
+    </g>
+  </g>
+
+  <!-- viewports area -->
+  <text x="404" y="98" fill="#9aa0aa" font-size="12">viewports (only shown ones occupy space)</text>
+  <rect x="404" y="108" width="262" height="408" rx="4" fill="#15161a" stroke="#3a3d46"/>
+  <text x="416" y="128" fill="#9aa0aa" font-size="12">Viewport 1</text>
+  <circle cx="535" cy="250" r="56" fill="#7a5cff" opacity="0.5"/>
+  <rect x="486" y="200" width="100" height="100" fill="none" stroke="#5fd35f" stroke-width="2"/>
+
+  <rect x="676" y="108" width="260" height="408" rx="4" fill="#15161a" stroke="#3a3d46"/>
+  <text x="688" y="128" fill="#9aa0aa" font-size="12">Viewport 2 (revealed from rail)</text>
+  <rect x="756" y="210" width="100" height="100" fill="none" stroke="#5fd35f" stroke-width="2"/>
+
+  <text x="24" y="540" fill="#9aa0aa" font-size="12">Rail = where windows are (reveal/hide, jump-to). Chips = what each display shows. Two tiny controls, no menus, no Inspector grid.</text>
+</svg>

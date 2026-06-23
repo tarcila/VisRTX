@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="960" height="560" fill="#1e1f24"/>
+  <text x="24" y="34" fill="#e6e6e6" font-size="20" font-weight="600">Proposal 2 — Unified "Viewports" bar (one control, dual mode)</text>
+  <text x="24" y="56" fill="#9aa0aa" font-size="13">A single docked strip both reveals viewports (eye) and sets the selected display's membership (fill).</text>
+
+  <!-- The bar -->
+  <rect x="24" y="80" width="912" height="64" rx="6" fill="#23252c" stroke="#4a4d57"/>
+  <text x="40" y="104" fill="#9aa0aa" font-size="12">Viewports</text>
+  <g font-size="13" text-anchor="middle">
+    <!-- each cell: eye (window shown?) over a number; fill = selected display is in it -->
+    <rect x="40"  y="110" width="60" height="26" rx="4" fill="#2d8cff"/><text x="70"  y="128" fill="#fff" font-weight="600">👁 1</text>
+    <rect x="108" y="110" width="60" height="26" rx="4" fill="#2d8cff"/><text x="138" y="128" fill="#fff" font-weight="600">👁 2</text>
+    <rect x="176" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="206" y="128" fill="#c9ced8">▫ 3</text>
+    <rect x="244" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="274" y="128" fill="#7b8089">▫ 4</text>
+    <rect x="312" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="342" y="128" fill="#7b8089">▫ 5</text>
+    <rect x="380" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="410" y="128" fill="#7b8089">▫ 6</text>
+    <rect x="448" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="478" y="128" fill="#7b8089">▫ 7</text>
+    <rect x="516" y="110" width="60" height="26" rx="4" fill="#2a2c33" stroke="#4a4d57"/><text x="546" y="128" fill="#7b8089">▫ 8</text>
+  </g>
+  <text x="600" y="128" fill="#9aa0aa" font-size="12">selected: DisplaySurface  →  click a cell to add/remove it there</text>
+
+  <!-- legend -->
+  <g font-size="12">
+    <rect x="40" y="158" width="16" height="16" rx="3" fill="#2d8cff"/><text x="62" y="171" fill="#c9ced8">filled = selected display renders here</text>
+    <text x="300" y="171" fill="#c9ced8">👁 = viewport window is shown</text>
+    <text x="520" y="171" fill="#c9ced8">▫ = hidden window / not a member</text>
+  </g>
+
+  <!-- App frame sketch below -->
+  <rect x="24" y="196" width="220" height="320" rx="6" fill="#15161a" stroke="#3a3d46"/>
+  <text x="36" y="216" fill="#9aa0aa" font-size="12">Graph Editor</text>
+  <rect x="40" y="226" width="180" height="40" rx="4" fill="#23252c" stroke="#4a4d57"/><text x="52" y="251" fill="#c9ced8" font-size="12">DisplayVolume</text>
+  <rect x="40" y="276" width="180" height="40" rx="4" fill="#2a2440" stroke="#6a5acd"/><text x="52" y="301" fill="#e6e6e6" font-size="12">DisplaySurface  ◀ selected</text>
+
+  <rect x="256" y="196" width="440" height="320" rx="6" fill="#15161a" stroke="#3a3d46"/>
+  <text x="268" y="216" fill="#9aa0aa" font-size="12">Viewport 1</text>
+  <rect x="268" y="226" width="200" height="280" rx="4" fill="#101114"/>
+  <circle cx="368" cy="360" r="46" fill="#7a5cff" opacity="0.5"/>
+  <rect x="330" y="322" width="76" height="76" fill="none" stroke="#5fd35f" stroke-width="2"/>
+  <text x="486" y="216" fill="#9aa0aa" font-size="12">Viewport 2</text>
+  <rect x="486" y="226" width="200" height="280" rx="4" fill="#101114"/>
+  <rect x="548" y="322" width="76" height="76" fill="none" stroke="#5fd35f" stroke-width="2"/>
+
+  <rect x="708" y="196" width="228" height="320" rx="6" fill="#15161a" stroke="#3a3d46"/>
+  <text x="720" y="216" fill="#9aa0aa" font-size="12">Inspector (params only)</text>
+  <text x="720" y="244" fill="#7b8089" font-size="12">viewport masking moved</text>
+  <text x="720" y="262" fill="#7b8089" font-size="12">out to the Viewports bar</text>
+
+  <text x="24" y="540" fill="#9aa0aa" font-size="12">One strip = reveal viewports (eye) + per-display membership (fill). No 8-checkbox row; the Inspector stays params-only.</text>
+</svg>
