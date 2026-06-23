@@ -49,7 +49,6 @@ struct GraphEditor : public Window
   std::vector<PinKey> m_pins; // index+1 == imnodes pin id
   std::map<int, tsd::graph::ConnectionId>
       m_linkId; // imnodes link id -> ConnectionId
-  bool m_placedInitial{false};
 };
 
 } // namespace tsd::ui::imgui

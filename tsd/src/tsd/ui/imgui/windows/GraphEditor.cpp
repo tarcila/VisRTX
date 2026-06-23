@@ -193,6 +193,8 @@ void GraphEditor::buildUI()
     int sel = 0;
     ImNodes::GetSelectedNodes(&sel);
     *m_selected = NodeId(sel);
+  } else {
+    *m_selected = INVALID_NODE;
   }
 }
 
