@@ -30,6 +30,7 @@ project_sources(PRIVATE
   windows/Viewport.cpp
   windows/GraphViewport.cpp
   windows/GraphEditor.cpp
+  windows/Inspector.cpp
   windows/Window.cpp
   Application.cpp
   ArrayPreview.cpp
