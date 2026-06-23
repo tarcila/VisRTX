@@ -7,6 +7,7 @@
 #include "tsd/ui/imgui/windows/GraphViewport.hpp"
 #include "tsd/ui/imgui/windows/Inspector.hpp"
 #include "tsd/ui/imgui/windows/Log.h"
+#include "tsd/ui/imgui/windows/ViewportRail.hpp"
 // tsd
 #include "tsd/core/Logging.hpp"
 #include "tsd/graph/Evaluator.hpp"
@@ -122,6 +123,12 @@ Size=1498,790
 Collapsed=0
 DockId=0x00000003,7
 
+[Window][Viewports]
+Pos=0,26
+Size=44,790
+Collapsed=0
+DockId=0x00000009,0
+
 [Window][Log]
 Pos=0,818
 Size=1920,262
@@ -129,13 +136,15 @@ Collapsed=0
 DockId=0x00000002,0
 
 [Docking][Data]
-DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
-  DockNode     ID=0x00000001 Parent=0x80F5B4C5 SizeRef=1920,790 Split=X
-    DockNode   ID=0x00000007 Parent=0x00000001 SizeRef=420,790 Split=Y
-      DockNode ID=0x00000005 Parent=0x00000007 SizeRef=420,395
-      DockNode ID=0x00000006 Parent=0x00000007 SizeRef=420,395
-    DockNode   ID=0x00000003 Parent=0x00000001 SizeRef=1498,790 CentralNode=1
-  DockNode     ID=0x00000002 Parent=0x80F5B4C5 SizeRef=1920,262
+DockSpace        ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
+  DockNode       ID=0x00000001 Parent=0x80F5B4C5 SizeRef=1920,790 Split=X
+    DockNode     ID=0x00000009 Parent=0x00000001 SizeRef=44,790
+    DockNode     ID=0x0000000A Parent=0x00000001 SizeRef=1872,790 Split=X
+      DockNode   ID=0x00000007 Parent=0x0000000A SizeRef=420,790 Split=Y
+        DockNode ID=0x00000005 Parent=0x00000007 SizeRef=420,395
+        DockNode ID=0x00000006 Parent=0x00000007 SizeRef=420,395
+      DockNode   ID=0x00000003 Parent=0x0000000A SizeRef=1408,790 CentralNode=1
+  DockNode       ID=0x00000002 Parent=0x80F5B4C5 SizeRef=1920,262
 )layout";
   }
 
@@ -192,14 +201,17 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
         this, &m_graph, &m_selected, &m_graphDirty, "Inspector"));
     static_assert(tsd::graph_nodes::kMaxViewports <= 99,
         "Viewport name buffer (nm[16]) and getDefaultLayout() INI assume <= 99 viewports");
+    std::vector<ui::Window *> viewportPtrs;
     for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
       char nm[16];
       std::snprintf(nm, sizeof(nm), "Viewport %d", i + 1);
       auto *vp = new ui::GraphViewport(this, m_bridge.get(), i, m_device, nm);
       if (i > 0)
         vp->hide();
+      viewportPtrs.push_back(vp);
       windows.emplace_back(vp);
     }
+    windows.emplace_back(new ui::ViewportRail(this, viewportPtrs, "Viewports"));
     windows.emplace_back(new ui::Log(this));
 
     setWindowArray(windows);
