@@ -14,6 +14,7 @@
 #include "tsd/graph/NodeRegistry.hpp"
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
 #include "tsd/graph_nodes/DemoGraph.hpp"
+#include "tsd/graph_nodes/DisplayMask.hpp"
 #include "tsd/graph_nodes/GraphEditModel.hpp"
 #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
 // imgui
@@ -21,6 +22,7 @@
 #include "imnodes.h"
 // std
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <set>
@@ -53,8 +55,8 @@ class Application : public ui::Application
     // inside the "MainDockSpace" window (created by the Application base)
     // always hashes to 0x80F5B4C5 / 0x079D3A04. Sizes are seed ratios — ImGui
     // rescales them to the live window — so Log's 262/1054 height yields ~1/4.
-    // Layout: left column (480px) = Graph Editor (top) + Inspector (bottom);
-    // center = Volume | Surface viewports; bottom strip = Log.
+    // Layout: left column (420px) = Graph Editor (top) + Inspector (bottom);
+    // center = 8-viewport tab group; bottom strip = Log.
     return R"layout(
 [Window][MainDockSpace]
 Pos=0,26
@@ -63,27 +65,63 @@ Collapsed=0
 
 [Window][Graph Editor]
 Pos=0,26
-Size=480,528
+Size=420,528
 Collapsed=0
 DockId=0x00000005,0
 
 [Window][Inspector]
 Pos=0,556
-Size=480,526
+Size=420,526
 Collapsed=0
 DockId=0x00000006,0
 
-[Window][Volume]
-Pos=482,26
-Size=718,790
+[Window][Viewport 1]
+Pos=422,26
+Size=1498,790
 Collapsed=0
 DockId=0x00000003,0
 
-[Window][Surface]
-Pos=1202,26
-Size=718,790
+[Window][Viewport 2]
+Pos=422,26
+Size=1498,790
 Collapsed=0
-DockId=0x00000004,0
+DockId=0x00000003,1
+
+[Window][Viewport 3]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,2
+
+[Window][Viewport 4]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,3
+
+[Window][Viewport 5]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,4
+
+[Window][Viewport 6]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,5
+
+[Window][Viewport 7]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,6
+
+[Window][Viewport 8]
+Pos=422,26
+Size=1498,790
+Collapsed=0
+DockId=0x00000003,7
 
 [Window][Log]
 Pos=0,818
@@ -94,12 +132,10 @@ DockId=0x00000002,0
 [Docking][Data]
 DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
   DockNode     ID=0x00000001 Parent=0x80F5B4C5 SizeRef=1920,790 Split=X
-    DockNode   ID=0x00000007 Parent=0x00000001 SizeRef=480,790 Split=Y
-      DockNode ID=0x00000005 Parent=0x00000007 SizeRef=480,395
-      DockNode ID=0x00000006 Parent=0x00000007 SizeRef=480,395
-    DockNode   ID=0x00000008 Parent=0x00000001 SizeRef=1440,790 Split=X
-      DockNode ID=0x00000003 Parent=0x00000008 SizeRef=718,790
-      DockNode ID=0x00000004 Parent=0x00000008 SizeRef=718,790
+    DockNode   ID=0x00000007 Parent=0x00000001 SizeRef=420,790 Split=Y
+      DockNode ID=0x00000005 Parent=0x00000007 SizeRef=420,395
+      DockNode ID=0x00000006 Parent=0x00000007 SizeRef=420,395
+    DockNode   ID=0x00000003 Parent=0x00000001 SizeRef=1498,790 CentralNode=1
   DockNode     ID=0x00000002 Parent=0x80F5B4C5 SizeRef=1920,262
 )layout";
   }
@@ -128,16 +164,14 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
       std::exit(1);
     }
 
-    // 3) Bridge: 2 viewports; volume->vp0, surface->vp1.
-    m_bridge = std::make_unique<tsd::rendering::GraphRenderBridge>(
-        m_graph, *m_eval, Token(lib.c_str()), m_device, /*numViewports=*/2);
-    m_bridge->setDisplay(m_displays.volumeDisplay, 0b01, true);
-    m_bridge->setDisplay(m_displays.surfaceDisplay, 0b10, true);
+    // 3) Bridge: 8 viewports; masks come from each display node's viewportMask.
+    m_bridge = std::make_unique<tsd::rendering::GraphRenderBridge>(m_graph,
+        *m_eval,
+        Token(lib.c_str()),
+        m_device,
+        /*numViewports=*/tsd::graph_nodes::kMaxViewports);
+    syncDisplays(); // reads each display node's viewportMask → setDisplay
     m_bridge->update();
-
-    // Seed known displays so syncDisplays() doesn't re-register them.
-    m_knownDisplays.insert(m_displays.volumeDisplay);
-    m_knownDisplays.insert(m_displays.surfaceDisplay);
 
     // 4) Graph edit model.
     // No ConversionRegistry yet: no builtin node types declare convertible
@@ -148,7 +182,7 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
     m_model = std::make_unique<tsd::graph_nodes::GraphEditModel>(
         m_graph, m_registry, /*conversions=*/nullptr);
 
-    // 5) Windows: graph editor, inspector, two viewports, log.
+    // 5) Windows: graph editor, inspector, 8-viewport pool (1 visible), log.
     windows.emplace_back(new ui::GraphEditor(this,
         &m_graph,
         m_model.get(),
@@ -157,10 +191,14 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
         "Graph Editor"));
     windows.emplace_back(new ui::Inspector(
         this, &m_graph, &m_selected, &m_graphDirty, "Inspector"));
-    windows.emplace_back(
-        new ui::GraphViewport(this, m_bridge.get(), 0, m_device, "Volume"));
-    windows.emplace_back(
-        new ui::GraphViewport(this, m_bridge.get(), 1, m_device, "Surface"));
+    for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
+      char nm[16];
+      std::snprintf(nm, sizeof(nm), "Viewport %d", i + 1);
+      auto *vp = new ui::GraphViewport(this, m_bridge.get(), i, m_device, nm);
+      if (i > 0)
+        vp->hide();
+      windows.emplace_back(vp);
+    }
     windows.emplace_back(new ui::Log(this));
 
     setWindowArray(windows);
@@ -196,29 +234,16 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
 
   void syncDisplays()
   {
-    // Register any DisplayVolume/DisplaySurface node not yet known to the
-    // bridge.
-    for (auto id : m_graph.nodeIds()) {
-      auto *gn = m_graph.node(id);
-      if (!gn || !gn->impl)
-        continue;
-      const auto cat = gn->impl->typeInfo().name;
-      const bool isDisplay =
-          (cat == Token("DisplayVolume") || cat == Token("DisplaySurface"));
-      if (isDisplay && m_knownDisplays.insert(id).second)
-        m_bridge->setDisplay(id, 0b01, true);
+    const auto masks = tsd::graph_nodes::collectDisplayMasks(m_graph);
+    std::set<tsd::graph::NodeId> current;
+    for (const auto &dm : masks) {
+      m_bridge->setDisplay(dm.node, dm.mask, /*enabled=*/dm.mask != 0);
+      current.insert(dm.node);
     }
-
-    // Prune bridge displays whose node was deleted from the graph.
-    std::vector<tsd::graph::NodeId> gone;
-    auto ids = m_graph.nodeIds();
     for (auto id : m_knownDisplays)
-      if (std::find(ids.begin(), ids.end(), id) == ids.end())
-        gone.push_back(id);
-    for (auto id : gone) {
-      m_bridge->removeDisplay(id);
-      m_knownDisplays.erase(id);
-    }
+      if (!current.count(id))
+        m_bridge->removeDisplay(id);
+    m_knownDisplays = std::move(current);
   }
 
   // Member declaration order is load-bearing — DO NOT REORDER. Reverse-order
