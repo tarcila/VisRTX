@@ -46,7 +46,7 @@ void Inspector::drawParameters(NodeId id)
       bool changed = false;
       for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
         ImGui::PushID(i);
-        if (i % 4 != 0)
+        if (i != 0)
           ImGui::SameLine();
         const bool on = (mask >> i) & 1;
         char lbl[8];
