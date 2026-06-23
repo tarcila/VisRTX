@@ -6,6 +6,7 @@ project(tsd_ui_imgui)
 project_add_library(OBJECT)
 
 project_sources(PRIVATE
+  ${IMNODES_SOURCE_PATH}
   modals/AppSettingsDialog.cpp
   modals/BlockingTaskModal.cpp
   modals/ExportNanoVDBFileDialog.cpp

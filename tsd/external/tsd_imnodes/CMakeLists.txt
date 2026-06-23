@@ -11,13 +11,11 @@ anari_sdk_fetch_project(
 
 project_add_library(INTERFACE)
 
-project_sources(
-INTERFACE
-  $<BUILD_INTERFACE:${tsd_ext_imnodes_LOCATION}/imnodes.cpp>
-)
-
 project_include_directories(
 INTERFACE
   $<BUILD_INTERFACE:${tsd_ext_imnodes_LOCATION}>
 )
+
+# Expose the source path so consumers can compile imnodes.cpp exactly once.
+set(IMNODES_SOURCE_PATH ${tsd_ext_imnodes_LOCATION}/imnodes.cpp CACHE INTERNAL "")
 
