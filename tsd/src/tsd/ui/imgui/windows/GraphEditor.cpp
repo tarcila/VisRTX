@@ -192,7 +192,8 @@ void GraphEditor::buildUI()
   if (ImNodes::NumSelectedNodes() == 1) {
     int sel = 0;
     ImNodes::GetSelectedNodes(&sel);
-    *m_selected = NodeId(sel);
+    const NodeId id = NodeId(sel);
+    *m_selected = m_graph->node(id) ? id : INVALID_NODE;
   } else {
     *m_selected = INVALID_NODE;
   }

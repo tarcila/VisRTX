@@ -140,6 +140,11 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
     m_knownDisplays.insert(m_displays.surfaceDisplay);
 
     // 4) Graph edit model.
+    // No ConversionRegistry yet: no builtin node types declare convertible
+    // cross-type ports, so every cross-type link is rejected as incompatible
+    // and the amber "conversion" link feedback (implemented + unit-tested in
+    // GraphEditModel) stays dormant until conversions are registered. Passing a
+    // registry here changes nothing until then.
     m_model = std::make_unique<tsd::graph_nodes::GraphEditModel>(
         m_graph, m_registry, /*conversions=*/nullptr);
 
@@ -217,7 +222,7 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
   }
 
   // Member declaration order is load-bearing — DO NOT REORDER. Reverse-order
-  // destruction yields m_bridge -> m_model -> m_device -> m_eval -> m_graph,
+  // destruction yields m_model -> m_bridge -> m_device -> m_eval -> m_graph,
   // which is required because m_bridge holds Graph&, Evaluator&, and the
   // device, and m_eval holds Graph&. The device handle is intentionally NOT
   // hand-released (releasing it in this dtor's body would run BEFORE m_bridge
