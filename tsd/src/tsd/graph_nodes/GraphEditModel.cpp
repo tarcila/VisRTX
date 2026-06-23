@@ -111,4 +111,24 @@ const std::vector<Token> &GraphEditModel::nodeCatalog() const
   return m_catalog;
 }
 
+std::vector<tsd::core::math::float4> GraphEditModel::sampleColormap(
+    const std::vector<tsd::core::ColorPoint> &colorPoints,
+    const std::vector<tsd::core::OpacityPoint> &opacityPoints,
+    int samples)
+{
+  using tsd::core::math::float4;
+  std::vector<float4> out;
+  if (samples < 2)
+    return out;
+  out.reserve(size_t(samples));
+  const float denom = float(samples - 1);
+  for (int i = 0; i < samples; ++i) {
+    const float t = float(i) / denom;
+    const auto rgb = tsd::core::detail::interpolateColor(colorPoints, t);
+    const float a = tsd::core::detail::interpolateOpacity(opacityPoints, t);
+    out.push_back(float4(rgb.x, rgb.y, rgb.z, a));
+  }
+  return out;
+}
+
 } // namespace tsd::graph_nodes
