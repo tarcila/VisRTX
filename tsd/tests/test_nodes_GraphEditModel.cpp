@@ -93,6 +93,7 @@ SCENARIO(
     THEN("it is rejected")
     {
       REQUIRE_FALSE(chk.ok());
+      REQUIRE(chk.kind == LinkKind::Cycle);
     }
   }
 }
