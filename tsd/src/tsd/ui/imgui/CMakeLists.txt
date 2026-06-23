@@ -29,12 +29,15 @@ project_sources(PRIVATE
   windows/TransferFunctionEditor.cpp
   windows/Viewport.cpp
   windows/GraphViewport.cpp
+  windows/GraphEditor.cpp
   windows/Window.cpp
   Application.cpp
   ArrayPreview.cpp
   ExtensionManager.cpp
   tsd_ui_imgui.cpp
 )
+
+project_compile_definitions(PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 
 if(TSD_USE_LUA)
   project_link_libraries(PRIVATE tsd_lua tsd_ext_sol2)
@@ -47,6 +50,8 @@ PUBLIC
   tsd_core
   tsd_io
   tsd_rendering
+  tsd_graph_nodes
+  tsd_ext_imnodes
   tsd_ext_imguizmo
   tsd_ext_imoguizmo
   tsd_ext_imgui_sdl
