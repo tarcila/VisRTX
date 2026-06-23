@@ -21,7 +21,6 @@ void ViewportRail::buildUI()
     bool *vis = m_viewports[i]->visiblePtr();
     char lbl[8];
     std::snprintf(lbl, sizeof(lbl), "%zu", i + 1);
-    // Stacked vertically (no SameLine) → a slim vertical rail.
     if (ImGui::Selectable(
             lbl, *vis, ImGuiSelectableFlags_None, ImVec2(28.f, 28.f)))
       *vis = !*vis;

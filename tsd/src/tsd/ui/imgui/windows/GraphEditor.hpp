@@ -7,7 +7,6 @@
 // tsd
 #include "tsd/graph/Graph.hpp"
 #include "tsd/graph_nodes/GraphEditModel.hpp"
-#include "tsd/graph_nodes/GraphLayout.hpp"
 // std
 #include <map>
 #include <set>
@@ -55,9 +54,9 @@ struct GraphEditor : public Window
       m_linkId; // imnodes link id -> ConnectionId
   std::set<tsd::graph::NodeId> m_positioned; // nodes already given a position
   bool m_relayoutAll{false}; // "Clean Up Layout" request
-  // Mouse-added nodes: placed next frame (inside the editor, before drawNode) so
-  // the node is submitted that frame — calling SetNode*Pos on an un-submitted
-  // node trips an imnodes EndNodeEditor assert.
+  // Mouse-added nodes: placed next frame (inside the editor, before drawNode)
+  // so the node is submitted that frame — calling SetNode*Pos on an
+  // un-submitted node trips an imnodes EndNodeEditor assert.
   std::map<tsd::graph::NodeId, ImVec2> m_pendingScreenPos;
 };
 

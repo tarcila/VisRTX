@@ -3,6 +3,7 @@
 
 #include "tsd/ui/imgui/windows/GraphEditor.hpp"
 #include "tsd/core/Logging.hpp"
+#include "tsd/graph_nodes/GraphLayout.hpp"
 #include "tsd/ui/imgui/Application.h"
 // imnodes
 #include <imnodes.h>
@@ -151,9 +152,9 @@ void GraphEditor::contextMenu()
         const NodeId id = m_model->addNode(type);
         if (id != INVALID_NODE) {
           // Defer placement to next frame: this node is added after the
-          // drawNode loop, so it is not submitted to imnodes this frame. Calling
-          // SetNodeScreenSpacePos now flags it InUse without a submission index,
-          // which asserts in EndNodeEditor.
+          // drawNode loop, so it is not submitted to imnodes this frame.
+          // Calling SetNodeScreenSpacePos now flags it InUse without a
+          // submission index, which asserts in EndNodeEditor.
           m_pendingScreenPos[id] = clickPos;
           *m_graphDirty = true;
         }
@@ -200,11 +201,10 @@ void GraphEditor::applyAutoLayout()
 
   for (const NodeId id : targets) {
     auto it = byId.find(id);
-    if (it == byId.end())
-      continue;
-    ImNodes::SetNodeGridSpacePos(
-        nodeImId(id), ImVec2(it->second->col * kColW, it->second->row * kRowH));
-    m_positioned.insert(id);
+    if (it != byId.end())
+      ImNodes::SetNodeGridSpacePos(nodeImId(id),
+          ImVec2(it->second->col * kColW, it->second->row * kRowH));
+    m_positioned.insert(id); // always — never retry this id
   }
 }
 
@@ -216,8 +216,7 @@ void GraphEditor::buildUI()
   ImNodes::BeginNodeEditor();
 
   applyPendingPlacements();
-  applyAutoLayout(); // positions un-positioned (programmatic) nodes, or all on
-                     // request
+  applyAutoLayout();
 
   for (const NodeId id : m_graph->nodeIds())
     drawNode(id);
