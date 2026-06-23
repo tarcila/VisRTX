@@ -21,6 +21,9 @@ struct NodeRegistry
   std::unique_ptr<Node> create(tsd::core::Token name) const;
   bool isRegistered(tsd::core::Token name) const;
 
+  // All registered type names, in registration order.
+  std::vector<tsd::core::Token> types() const;
+
  private:
   struct Entry
   {

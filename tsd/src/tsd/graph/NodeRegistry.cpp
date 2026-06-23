@@ -27,6 +27,15 @@ bool NodeRegistry::isRegistered(tsd::core::Token name) const
   return false;
 }
 
+std::vector<tsd::core::Token> NodeRegistry::types() const
+{
+  std::vector<tsd::core::Token> out;
+  out.reserve(m_entries.size());
+  for (const auto &e : m_entries)
+    out.push_back(e.name);
+  return out;
+}
+
 NodeRegistry &GlobalNodeRegistry()
 {
   static NodeRegistry registry;

@@ -98,11 +98,13 @@ bool Graph::wouldCreateCycle(NodeId from, NodeId to) const
   return reaches(to);
 }
 
-LinkResult Graph::connect(
-    NodeId from, tsd::core::Token fromPort, NodeId to, tsd::core::Token toPort)
+LinkResult Graph::canConnect(NodeId from,
+    tsd::core::Token fromPort,
+    NodeId to,
+    tsd::core::Token toPort) const
 {
-  auto *fromN = node(from);
-  auto *toN = node(to);
+  const auto *fromN = node(from);
+  const auto *toN = node(to);
   if (!fromN || !toN)
     return {false, INVALID_CONNECTION, "unknown node"};
 
@@ -115,24 +117,42 @@ LinkResult Graph::connect(
   if (wouldCreateCycle(from, to))
     return {false, INVALID_CONNECTION, "connection would create a cycle"};
 
-  // Type compatibility: exact match, or a registered conversion exists.
   if (outSpec.type != inSpec.type) {
     const bool convertible = m_conversions
         && m_conversions->find(outSpec.type, inSpec.type) != nullptr;
-    if (!convertible) {
+    if (!convertible)
       return {false,
           INVALID_CONNECTION,
           "incompatible port types and no registered conversion"};
-    }
   }
 
-  ConnectionId id = m_nextConnId++;
+  return {true, INVALID_CONNECTION, ""};
+}
+
+LinkResult Graph::connect(
+    NodeId from, tsd::core::Token fromPort, NodeId to, tsd::core::Token toPort)
+{
+  const LinkResult check = canConnect(from, fromPort, to, toPort);
+  if (!check.ok)
+    return check;
+
+  const ConnectionId id = m_nextConnId++;
   m_connections.push_back(Connection{id, from, fromPort, to, toPort});
 
   // New incoming data invalidates the consumer's cached output.
+  auto *toN = node(to);
   toN->state = EvalState::Dirty;
   toN->cache.clear();
   return {true, id, ""};
+}
+
+std::vector<NodeId> Graph::nodeIds() const
+{
+  std::vector<NodeId> ids;
+  ids.reserve(m_nodes.size());
+  for (const auto &kv : m_nodes) // std::map → ascending key order
+    ids.push_back(kv.first);
+  return ids;
 }
 
 void Graph::disconnect(ConnectionId id)

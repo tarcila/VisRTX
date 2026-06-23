@@ -82,6 +82,16 @@ class Graph
       tsd::core::Token toPort);
   void disconnect(ConnectionId id);
 
+  // Non-mutating pre-flight of connect(): identical validation, no mutation.
+  // Returns {ok, INVALID_CONNECTION, reason} — id is never allocated here.
+  LinkResult canConnect(NodeId from,
+      tsd::core::Token fromPort,
+      NodeId to,
+      tsd::core::Token toPort) const;
+
+  // All node ids currently in the graph, ascending.
+  std::vector<NodeId> nodeIds() const;
+
   GraphNode *node(NodeId id);
   const GraphNode *node(NodeId id) const;
   const std::vector<Connection> &connections() const;
