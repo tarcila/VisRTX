@@ -95,22 +95,41 @@ SCENARIO("a programmatic edit keeps the demo renderable", "[edit-render]")
   bridge.setDisplay(d.surfaceDisplay, 0b10, true);
   bridge.update();
 
-  // Edit: find the TransferFunction node and flip its curve to fully opaque
-  // white.
-  for (auto id : g.nodeIds()) {
-    if (auto *itf = dynamic_cast<tsd::graph_nodes::ITransferFunctionNode *>(
-            g.node(id)->impl.get())) {
-      itf->tfState().colorPoints = {{0.f, 1.f, 1.f, 1.f}, {1.f, 1.f, 1.f, 1.f}};
-      itf->tfState().opacityPoints = {{0.f, 1.f}, {1.f, 1.f}};
-      g.markDirty(id);
-    }
-  }
-  bridge.update();
-
-  THEN("the volume viewport still renders color")
+  WHEN(
+      "the TF curve is set to opaque-white and an edge is round-tripped via "
+      "GraphEditModel")
   {
-    auto c0 = renderCounts(dev, bridge.world(0));
-    REQUIRE(c0.color > 0);
+    // TF-curve mutation via direct graph access.
+    for (auto id : g.nodeIds()) {
+      if (auto *itf = dynamic_cast<tsd::graph_nodes::ITransferFunctionNode *>(
+              g.node(id)->impl.get())) {
+        itf->tfState().colorPoints = {
+            {0.f, 1.f, 1.f, 1.f}, {1.f, 1.f, 1.f, 1.f}};
+        itf->tfState().opacityPoints = {{0.f, 1.f}, {1.f, 1.f}};
+        g.markDirty(id);
+      }
+    }
+
+    // Model-driven rewire: round-trip one existing edge through GraphEditModel.
+    REQUIRE(!g.connections().empty());
+    const auto &first = g.connections().front();
+    const auto fromNode = first.fromNode;
+    const auto fromPort = first.fromPort;
+    const auto toNode = first.toNode;
+    const auto toPort = first.toPort;
+    const auto connId = first.id;
+
+    model.disconnect(connId);
+    auto rr = model.connect(fromNode, fromPort, toNode, toPort);
+    REQUIRE(rr.ok);
+
+    bridge.update();
+
+    THEN("the volume viewport still renders color")
+    {
+      auto c0 = renderCounts(dev, bridge.world(0));
+      REQUIRE(c0.color > 0);
+    }
   }
 
   anari::release(dev, dev);
