@@ -5,6 +5,7 @@ project_add_library(STATIC)
 project_sources(PRIVATE
   BuiltinNodes.cpp
   DemoGraph.cpp
+  GraphLayout.cpp
   DisplayMask.cpp
   GraphEditModel.cpp
   GenerateNoiseVolume.cpp
