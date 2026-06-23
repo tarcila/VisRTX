@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/graph_nodes/DisplayMask.hpp"
-#include "tsd/graph/NodeRegistry.hpp" // for Node/typeInfo via Graph.hpp chain
 
 namespace tsd::graph_nodes {
 

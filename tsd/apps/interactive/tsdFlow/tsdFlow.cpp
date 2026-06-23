@@ -21,7 +21,6 @@
 #include "imgui.h"
 #include "imnodes.h"
 // std
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -191,6 +190,8 @@ DockSpace      ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
         "Graph Editor"));
     windows.emplace_back(new ui::Inspector(
         this, &m_graph, &m_selected, &m_graphDirty, "Inspector"));
+    static_assert(tsd::graph_nodes::kMaxViewports <= 99,
+        "Viewport name buffer (nm[16]) and getDefaultLayout() INI assume <= 99 viewports");
     for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
       char nm[16];
       std::snprintf(nm, sizeof(nm), "Viewport %d", i + 1);
