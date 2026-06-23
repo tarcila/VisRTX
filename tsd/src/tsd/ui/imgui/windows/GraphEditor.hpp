@@ -7,8 +7,10 @@
 // tsd
 #include "tsd/graph/Graph.hpp"
 #include "tsd/graph_nodes/GraphEditModel.hpp"
+#include "tsd/graph_nodes/GraphLayout.hpp"
 // std
 #include <map>
+#include <set>
 #include <vector>
 
 namespace tsd::ui::imgui {
@@ -37,6 +39,8 @@ struct GraphEditor : public Window
 
   int pinId(tsd::graph::NodeId, tsd::core::Token port, bool isInput);
   void drawNode(tsd::graph::NodeId);
+  void applyPendingPlacements();
+  void applyAutoLayout();
   void handleCreation();
   void handleDeletion();
   void contextMenu();
@@ -49,6 +53,12 @@ struct GraphEditor : public Window
   std::vector<PinKey> m_pins; // index+1 == imnodes pin id
   std::map<int, tsd::graph::ConnectionId>
       m_linkId; // imnodes link id -> ConnectionId
+  std::set<tsd::graph::NodeId> m_positioned; // nodes already given a position
+  bool m_relayoutAll{false}; // "Clean Up Layout" request
+  // Mouse-added nodes: placed next frame (inside the editor, before drawNode) so
+  // the node is submitted that frame — calling SetNode*Pos on an un-submitted
+  // node trips an imnodes EndNodeEditor assert.
+  std::map<tsd::graph::NodeId, ImVec2> m_pendingScreenPos;
 };
 
 } // namespace tsd::ui::imgui

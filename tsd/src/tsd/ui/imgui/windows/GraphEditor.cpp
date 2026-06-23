@@ -20,6 +20,8 @@ int nodeImId(NodeId id)
   return int(id);
 } // NodeId small in practice
 constexpr unsigned int kConversionColor = IM_COL32(204, 148, 81, 255); // amber
+constexpr float kColW = 360.f;
+constexpr float kRowH = 170.f;
 } // namespace
 
 GraphEditor::GraphEditor(Application *app,
@@ -131,6 +133,7 @@ void GraphEditor::handleDeletion()
       if (*m_selected == id)
         *m_selected = INVALID_NODE;
       m_model->removeNode(id);
+      m_positioned.erase(id);
       *m_graphDirty = true;
     }
   }
@@ -147,7 +150,11 @@ void GraphEditor::contextMenu()
       if (ImGui::MenuItem(type.c_str())) {
         const NodeId id = m_model->addNode(type);
         if (id != INVALID_NODE) {
-          ImNodes::SetNodeScreenSpacePos(nodeImId(id), clickPos);
+          // Defer placement to next frame: this node is added after the
+          // drawNode loop, so it is not submitted to imnodes this frame. Calling
+          // SetNodeScreenSpacePos now flags it InUse without a submission index,
+          // which asserts in EndNodeEditor.
+          m_pendingScreenPos[id] = clickPos;
           *m_graphDirty = true;
         }
       }
@@ -156,9 +163,61 @@ void GraphEditor::contextMenu()
   }
 }
 
+void GraphEditor::applyPendingPlacements()
+{
+  // Place mouse-added nodes from a previous frame. Runs inside the editor scope
+  // before the drawNode loop, so each placed node is submitted this frame and
+  // SetNodeScreenSpacePos never trips the EndNodeEditor submission assert.
+  if (m_pendingScreenPos.empty())
+    return;
+  for (const auto &kv : m_pendingScreenPos) {
+    if (!m_graph->node(kv.first))
+      continue; // added then deleted before it was ever placed
+    ImNodes::SetNodeScreenSpacePos(nodeImId(kv.first), kv.second);
+    m_positioned.insert(kv.first);
+  }
+  m_pendingScreenPos.clear();
+}
+
+void GraphEditor::applyAutoLayout()
+{
+  std::vector<NodeId> targets;
+  if (m_relayoutAll) {
+    targets = m_graph->nodeIds();
+    m_relayoutAll = false;
+  } else {
+    for (const NodeId id : m_graph->nodeIds())
+      if (!m_positioned.count(id))
+        targets.push_back(id);
+    if (targets.empty())
+      return; // nothing new — skip the layout work this frame
+  }
+
+  const auto placements = tsd::graph_nodes::computeLayeredLayout(*m_graph);
+  std::map<NodeId, const tsd::graph_nodes::NodePlacement *> byId;
+  for (const auto &p : placements)
+    byId[p.node] = &p;
+
+  for (const NodeId id : targets) {
+    auto it = byId.find(id);
+    if (it == byId.end())
+      continue;
+    ImNodes::SetNodeGridSpacePos(
+        nodeImId(id), ImVec2(it->second->col * kColW, it->second->row * kRowH));
+    m_positioned.insert(id);
+  }
+}
+
 void GraphEditor::buildUI()
 {
+  if (ImGui::Button("Clean Up Layout"))
+    m_relayoutAll = true;
+
   ImNodes::BeginNodeEditor();
+
+  applyPendingPlacements();
+  applyAutoLayout(); // positions un-positioned (programmatic) nodes, or all on
+                     // request
 
   for (const NodeId id : m_graph->nodeIds())
     drawNode(id);
