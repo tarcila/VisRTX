@@ -1,0 +1,256 @@
+# 4h Task 3 review package
+
+## Commits (1dfe120e..@-)
+d72fa418940f feat(rendering): GraphRenderBridge::setDisplayTransform applies to the display layer-root
+
+## Diff stat
+tsd/src/tsd/rendering/bridge/GraphRenderBridge.cpp | 10 +++
+tsd/src/tsd/rendering/bridge/GraphRenderBridge.hpp |  2 +
+tsd/tests/CMakeLists.txt                           |  3 +
+tsd/tests/test_bridge_Transform.cpp                | 63 ++++++++++++++++++++++++
+4 files changed, 78 insertions(+), 0 deletions(-)
+
+## Full diff (-U12)
+diff --git a/tsd/src/tsd/rendering/bridge/GraphRenderBridge.cpp b/tsd/src/tsd/rendering/bridge/GraphRenderBridge.cpp
+index b0eba6659e..874ce5696e 100644
+--- a/tsd/src/tsd/rendering/bridge/GraphRenderBridge.cpp
++++ b/tsd/src/tsd/rendering/bridge/GraphRenderBridge.cpp
+@@ -45,24 +45,32 @@
+ 
+ void GraphRenderBridge::setDisplay(NodeId node, uint64_t mask, bool enabled)
+ {
+   auto &d = m_displays[node];
+   d.mask = mask;
+   d.enabled = enabled;
+   if (!d.layer) {
+     const std::string name = "display_" + std::to_string(node);
+     d.layer = m_renderScene.addLayer(Token(name.c_str()));
+   }
+ }
+ 
++void GraphRenderBridge::setDisplayTransform(
++    NodeId node, const tsd::math::mat4 &xfm)
++{
++  auto it = m_displays.find(node);
++  if (it != m_displays.end())
++    it->second.transform = xfm;
++}
++
+ void GraphRenderBridge::removeDisplay(NodeId node)
+ {
+   auto it = m_displays.find(node);
+   if (it == m_displays.end())
+     return;
+   if (it->second.layer) {
+     clearLayerObjects(it->second.layer);
+     m_renderScene.removeLayer(it->second.layer->name());
+   }
+   m_displays.erase(it);
+ 
+   // Drop the freed layer from every viewport index immediately so no index
+@@ -85,24 +93,26 @@
+   return out;
+ }
+ 
+ void GraphRenderBridge::update()
+ {
+   for (auto &kv : m_displays) {
+     Display &d = kv.second;
+     if (!d.enabled) {
+       d.realized = false;
+       continue;
+     }
+     rebuildLayer(kv.first, d);
++    if (d.layer)
++      (*d.layer->root())->setAsTransform(d.transform);
+   }
+   // setIncludedLayers() triggers the index's full rebuild (populate); calling
+   // populate() again here would redundantly tear down + rebuild the cache.
+   for (int i = 0; i < int(m_indices.size()); ++i)
+     m_indices[i]->setIncludedLayers(layersForViewport(i));
+ }
+ 
+ void GraphRenderBridge::clearLayerObjects(Layer *layer)
+ {
+   // Layer::clear() only drops the tree nodes; it leaves the referenced Scene
+   // objects (and the arrays they reference as parameters) in the pools. Remove
+   // each top-level object node with referenced-object deletion, then reclaim
+diff --git a/tsd/src/tsd/rendering/bridge/GraphRenderBridge.hpp b/tsd/src/tsd/rendering/bridge/GraphRenderBridge.hpp
+index d74090bd17..c8fe74f1fa 100644
+--- a/tsd/src/tsd/rendering/bridge/GraphRenderBridge.hpp
++++ b/tsd/src/tsd/rendering/bridge/GraphRenderBridge.hpp
+@@ -24,46 +24,48 @@
+   GraphRenderBridge(tsd::graph::Graph &graph,
+       tsd::graph::Evaluator &eval,
+       tsd::core::Token deviceName,
+       anari::Device device,
+       int numViewports);
+   ~GraphRenderBridge();
+ 
+   GraphRenderBridge(const GraphRenderBridge &) = delete;
+   GraphRenderBridge &operator=(const GraphRenderBridge &) = delete;
+ 
+   void setDisplay(tsd::graph::NodeId node, uint64_t viewportMask, bool enabled);
+   void removeDisplay(tsd::graph::NodeId node);
++  void setDisplayTransform(tsd::graph::NodeId node, const tsd::math::mat4 &xfm);
+ 
+   std::vector<const tsd::scene::Layer *> layersForViewport(int i) const;
+ 
+   void update();
+ 
+   anari::World world(int viewport) const;
+   int numViewports() const
+   {
+     return int(m_indices.size());
+   }
+ 
+   // Number of render-Scene objects + arrays; for tests/diagnostics.
+   size_t renderSceneObjectCount() const;
+ 
+  private:
+   struct Display
+   {
+     uint64_t mask{0};
+     bool enabled{true};
+     tsd::scene::Layer *layer{nullptr};
+     uint64_t lastVersion{0};
+     bool realized{false};
++    tsd::math::mat4 transform{tsd::math::IDENTITY_MAT4};
+   };
+ 
+   void rebuildLayer(tsd::graph::NodeId node, Display &d);
+   void clearLayerObjects(tsd::scene::Layer *layer);
+   void buildSurface(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
+   void buildVolume(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
+   void applyParams(
+       tsd::scene::Object &obj, const tsd::graph::RenderableParams &p);
+ 
+   tsd::graph::Graph &m_graph;
+   tsd::graph::Evaluator &m_eval;
+   tsd::core::Token m_deviceName;
+diff --git a/tsd/tests/CMakeLists.txt b/tsd/tests/CMakeLists.txt
+index 3371bab28e..1d4ab053e4 100644
+--- a/tsd/tests/CMakeLists.txt
++++ b/tsd/tests/CMakeLists.txt
+@@ -43,24 +43,25 @@
+   test_nodes_ScalarRange.cpp
+   test_nodes_TransferFunction.cpp
+   test_nodes_DisplayVolume.cpp
+   test_nodes_DisplayMask.cpp
+   test_nodes_DisplayTransform.cpp
+   test_nodes_MultiViewport.cpp
+   test_nodes_Surface.cpp
+   test_nodes_TfnSampling.cpp
+   test_nodes_GraphLayout.cpp
+   test_nodes_Wiring.cpp
+   test_nodes_Render.cpp
+   test_bridge_Mask.cpp
++  test_bridge_Transform.cpp
+   test_bridge_RenderSurface.cpp
+   test_bridge_RenderVolume.cpp
+   test_bridge_Rebuild.cpp
+   test_nodes_EditRender.cpp
+   test_tsdflow_Smoke.cpp
+   test_Importers.cpp
+   test_Manipulator.cpp
+   test_ObjectPool.cpp
+   test_Material.cpp
+   test_Math.cpp
+   test_Object.cpp
+   test_ObjectUsePtr.cpp
+@@ -126,24 +127,26 @@
+ add_test(NAME tsd::nodes::DisplayMask COMMAND ${PROJECT_NAME} "[display-mask]")
+ add_test(NAME tsd::nodes::DisplayTransform COMMAND ${PROJECT_NAME} "[display-transform]")
+ add_test(NAME tsd::nodes::MultiViewport COMMAND ${PROJECT_NAME} "[multi-viewport]")
+ set_tests_properties(tsd::nodes::MultiViewport PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
+ add_test(NAME tsd::nodes::TfnSampling COMMAND ${PROJECT_NAME} "[tfn-sampling]")
+ add_test(NAME tsd::nodes::GraphLayout COMMAND ${PROJECT_NAME} "[graph-layout]")
+ add_test(NAME tsd::nodes::Wiring COMMAND ${PROJECT_NAME} "[nodes-wiring]")
+ add_test(NAME tsd::nodes::Render COMMAND ${PROJECT_NAME} "[nodes-render]")
+ set_tests_properties(tsd::nodes::Render PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
+ set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
++add_test(NAME tsd::rendering::BridgeTransform COMMAND ${PROJECT_NAME} "[bridge-transform]")
++set_tests_properties(tsd::rendering::BridgeTransform PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[bridge-render-surface]")
+ set_tests_properties(tsd::rendering::BridgeRenderSurface PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::rendering::BridgeRenderVolume COMMAND ${PROJECT_NAME} "[bridge-render-volume]")
+ set_tests_properties(tsd::rendering::BridgeRenderVolume PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::rendering::BridgeRebuild COMMAND ${PROJECT_NAME} "[bridge-rebuild]")
+ set_tests_properties(tsd::rendering::BridgeRebuild PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::nodes::EditRender COMMAND ${PROJECT_NAME} "[edit-render]")
+ set_tests_properties(tsd::nodes::EditRender PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::tsdflow::Smoke COMMAND ${PROJECT_NAME} "[tsdflow-smoke]")
+ set_tests_properties(tsd::tsdflow::Smoke PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
+ add_test(NAME tsd::Manipulator   COMMAND ${PROJECT_NAME} "[Manipulator]"  )
+diff --git a/tsd/tests/test_bridge_Transform.cpp b/tsd/tests/test_bridge_Transform.cpp
+new file mode 100644
+index 0000000000..5838b54795
+--- /dev/null
++++ b/tsd/tests/test_bridge_Transform.cpp
+@@ -0,0 +1,63 @@
++// Copyright 2026 NVIDIA Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++// catch
++#include "catch.hpp"
++// tsd
++#include "tsd/graph/Evaluator.hpp"
++#include "tsd/graph/NodeRegistry.hpp"
++#include "tsd/graph_nodes/BuiltinNodes.hpp"
++#include "tsd/graph_nodes/DemoGraph.hpp"
++#include "tsd/rendering/bridge/GraphRenderBridge.hpp"
++#include "tsd/scene/Layer.hpp"
++// anari
++#include <anari/anari_cpp.hpp>
++
++using tsd::core::Token;
++using namespace tsd::graph;
++using tsd::rendering::GraphRenderBridge;
++using mat4 = tsd::math::mat4;
++
++namespace {
++anari::Device makeVisRTX()
++{
++  auto lib = anari::loadLibrary("visrtx", nullptr, nullptr);
++  return lib ? anari::newDevice(lib, "default") : nullptr;
++}
++} // namespace
++
++SCENARIO("setDisplayTransform applies to the display's layer-root",
++    "[bridge-transform]")
++{
++  anari::Device dev = makeVisRTX();
++  REQUIRE(dev != nullptr);
++
++  NodeRegistry reg;
++  tsd::graph_nodes::registerBuiltinNodes(reg);
++  Graph g;
++  auto d = tsd::graph_nodes::buildVolumeSurfaceDemo(g, reg);
++  Evaluator e(g);
++
++  GraphRenderBridge bridge(g, e, Token("visrtx"), dev, /*numViewports=*/1);
++  bridge.setDisplay(
++      d.volumeDisplay, 0b01, true); // only the volume, in viewport 0
++  bridge.setDisplay(d.surfaceDisplay, 0b00, false); // exclude the surface
++
++  mat4 m = tsd::math::IDENTITY_MAT4;
++  m[3].x = 5.f; // translate +5 x
++  bridge.setDisplayTransform(d.volumeDisplay, m);
++  bridge.update();
++
++  WHEN("inspecting the volume display's layer root")
++  {
++    auto layers = bridge.layersForViewport(0);
++    THEN("its root transform is the matrix we set")
++    {
++      REQUIRE(layers.size() == 1);
++      const auto root = layers[0]->root();
++      REQUIRE((*root)->getTransform()[3].x == Approx(5.f));
++    }
++  }
++
++  anari::release(dev, dev);
++}

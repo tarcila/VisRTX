@@ -1,0 +1,82 @@
+# 4h Task 4 review package
+
+## Commits (d72fa418..@-)
+0caccb7147ef feat(ui): Inspector transform TRS section for ITransformableNode
+
+## Diff stat
+tsd/src/tsd/ui/imgui/windows/Inspector.cpp | 23 +++++++++++++++++++++++
+1 file changed, 23 insertions(+), 0 deletions(-)
+
+## Full diff (-U16)
+diff --git a/tsd/src/tsd/ui/imgui/windows/Inspector.cpp b/tsd/src/tsd/ui/imgui/windows/Inspector.cpp
+index f64026c7b3..7b617dde8a 100644
+--- a/tsd/src/tsd/ui/imgui/windows/Inspector.cpp
++++ b/tsd/src/tsd/ui/imgui/windows/Inspector.cpp
+@@ -1,24 +1,26 @@
+ // Copyright 2026 NVIDIA Corporation
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #include "tsd/ui/imgui/windows/Inspector.hpp"
+ #include "tsd/graph_nodes/DisplayMask.hpp"
+ #include "tsd/graph_nodes/TransferFunctionNode.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
+ #include "tsd/ui/imgui/Application.h"
+ // imgui
++#include "ImGuizmo.h"
+ #include "imgui.h"
+ // anari
+ #include <anari/anari.h>
+ // std
+ #include <string>
+ 
+ namespace tsd::ui::imgui {
+ 
+ using namespace tsd::graph;
+ using tsd::core::Token;
+ 
+ Inspector::Inspector(Application *app,
+     Graph *graph,
+     NodeId *selected,
+     bool *graphDirty,
+     const char *name)
+@@ -117,19 +119,40 @@
+   }
+   ImGui::Text("%s", gn->impl->typeInfo().name.c_str());
+   ImGui::Separator();
+   if (auto *itf = dynamic_cast<tsd::graph_nodes::ITransferFunctionNode *>(
+           gn->impl.get())) {
+     if (!m_tfEditor)
+       m_tfEditor = std::make_unique<TFCurveEditor>(m_app);
+     bool changed = false;
+     m_tfEditor->draw(itf->tfState(), itf->samples(), changed);
+     if (changed) {
+       m_graph->markDirty(*m_selected);
+       *m_graphDirty = true;
+     }
+   } else {
+     drawParameters(*m_selected);
+   }
++  if (auto *it = dynamic_cast<tsd::graph_nodes::ITransformableNode *>(
++          gn->impl.get())) {
++    ImGui::Separator();
++    ImGui::TextUnformatted("Transform");
++    tsd::core::math::mat4 &m = it->transform();
++    float t[3], r[3], s[3];
++    ImGuizmo::DecomposeMatrixToComponents(&m[0].x, t, r, s);
++    bool changed = false;
++    changed |= ImGui::DragFloat3("Translate", t, 0.01f);
++    changed |= ImGui::DragFloat3("Rotate", r, 0.5f);
++    changed |= ImGui::DragFloat3("Scale", s, 0.01f);
++    if (changed) {
++      ImGuizmo::RecomposeMatrixFromComponents(t, r, s, &m[0].x);
++      *m_graphDirty = true; // NOTE: NO m_graph->markDirty — transform is
++                            // render-routing, not node data
++    }
++    if (ImGui::Button("Reset##transform")) {
++      m = tsd::core::math::IDENTITY_MAT4;
++      *m_graphDirty = true;
++    }
++  }
+ }
+ 
+ } // namespace tsd::ui::imgui

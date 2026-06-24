@@ -1,0 +1,290 @@
+# 4h Task 5 review package
+
+## Commits (0caccb71..@-)
+6af16ae882b1 feat(app): GraphViewport ImGuizmo overlay for the selected display's transform
+
+## Diff stat
+tsd/apps/interactive/tsdFlow/tsdFlow.cpp       | 12 ++++-
+tsd/src/tsd/ui/imgui/windows/GraphViewport.cpp | 63 +++++++++++++++++++++++++++-
+tsd/src/tsd/ui/imgui/windows/GraphViewport.hpp | 13 +++++
+3 files changed, 85 insertions(+), 3 deletions(-)
+
+## Full diff (-U10)
+diff --git a/tsd/apps/interactive/tsdFlow/tsdFlow.cpp b/tsd/apps/interactive/tsdFlow/tsdFlow.cpp
+index 048df67d50..1b7d574b01 100644
+--- a/tsd/apps/interactive/tsdFlow/tsdFlow.cpp
++++ b/tsd/apps/interactive/tsdFlow/tsdFlow.cpp
+@@ -9,20 +9,21 @@
+ #include "tsd/ui/imgui/windows/Log.h"
+ #include "tsd/ui/imgui/windows/ViewportRail.hpp"
+ // tsd
+ #include "tsd/core/Logging.hpp"
+ #include "tsd/graph/Evaluator.hpp"
+ #include "tsd/graph/Graph.hpp"
+ #include "tsd/graph/NodeRegistry.hpp"
+ #include "tsd/graph_nodes/BuiltinNodes.hpp"
+ #include "tsd/graph_nodes/DemoGraph.hpp"
+ #include "tsd/graph_nodes/DisplayMask.hpp"
++#include "tsd/graph_nodes/DisplayTransform.hpp"
+ #include "tsd/graph_nodes/GraphEditModel.hpp"
+ #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
+ // imgui
+ #include "imgui.h"
+ #include "imnodes.h"
+ // std
+ #include <cstdio>
+ #include <cstdlib>
+ #include <memory>
+ #include <set>
+@@ -198,21 +199,28 @@
+         &m_graphDirty,
+         "Graph Editor"));
+     windows.emplace_back(new ui::Inspector(
+         this, &m_graph, &m_selected, &m_graphDirty, "Inspector"));
+     static_assert(tsd::graph_nodes::kMaxViewports <= 99,
+         "Viewport name buffer (nm[16]) and getDefaultLayout() INI assume <= 99 viewports");
+     std::vector<ui::Window *> viewportPtrs;
+     for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
+       char nm[16];
+       std::snprintf(nm, sizeof(nm), "Viewport %d", i + 1);
+-      auto *vp = new ui::GraphViewport(this, m_bridge.get(), i, m_device, nm);
++      auto *vp = new ui::GraphViewport(this,
++          m_bridge.get(),
++          i,
++          m_device,
++          &m_graph,
++          &m_selected,
++          &m_graphDirty,
++          nm);
+       if (i > 0)
+         vp->hide();
+       viewportPtrs.push_back(vp);
+       windows.emplace_back(vp);
+     }
+     windows.emplace_back(new ui::ViewportRail(this, viewportPtrs, "Viewports"));
+     windows.emplace_back(new ui::Log(this));
+ 
+     setWindowArray(windows);
+     return windows;
+@@ -250,20 +258,22 @@
+     const auto masks = tsd::graph_nodes::collectDisplayMasks(m_graph);
+     std::set<tsd::graph::NodeId> current;
+     for (const auto &dm : masks) {
+       m_bridge->setDisplay(dm.node, dm.mask, /*enabled=*/dm.mask != 0);
+       current.insert(dm.node);
+     }
+     for (auto id : m_knownDisplays)
+       if (!current.count(id))
+         m_bridge->removeDisplay(id);
+     m_knownDisplays = std::move(current);
++    for (const auto &dt : tsd::graph_nodes::collectDisplayTransforms(m_graph))
++      m_bridge->setDisplayTransform(dt.node, dt.xfm);
+   }
+ 
+   // Member declaration order is load-bearing — DO NOT REORDER. Reverse-order
+   // destruction yields m_model -> m_bridge -> m_device -> m_eval -> m_graph,
+   // which is required because m_bridge holds Graph&, Evaluator&, and the
+   // device, and m_eval holds Graph&. The device handle is intentionally NOT
+   // hand-released (releasing it in this dtor's body would run BEFORE m_bridge
+   // destructs -> use-after-free); process/manager teardown reclaims it.
+   tsd::graph::Graph m_graph;
+   tsd::graph::NodeRegistry m_registry;
+diff --git a/tsd/src/tsd/ui/imgui/windows/GraphViewport.cpp b/tsd/src/tsd/ui/imgui/windows/GraphViewport.cpp
+index 8f8afd2ad1..741a74207a 100644
+--- a/tsd/src/tsd/ui/imgui/windows/GraphViewport.cpp
++++ b/tsd/src/tsd/ui/imgui/windows/GraphViewport.cpp
+@@ -1,41 +1,50 @@
+ // Copyright 2026 NVIDIA Corporation
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #include "tsd/ui/imgui/windows/GraphViewport.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
+ #include "tsd/rendering/view/ManipulatorToAnari.hpp"
+ #include "tsd/ui/imgui/Application.h"
+ // imgui
+ #include "imgui.h"
+ // anari
+ #include <anari/anari_cpp/ext/linalg.h>
++// std
++#include <algorithm>
+ 
+ namespace tsd::ui::imgui {
+ 
+ using float2 = anari::math::float2;
+ using float3 = anari::math::float3;
+ 
+ // Frame the demo content (field spans ~[-1,1]) at a comfortable distance.
+ constexpr float kInitialViewDistance = 3.f;
+ // Distance change per scroll-wheel notch is m_speed * this (m_speed default
+ // 0.25), kept gentle so a notch nudges rather than jumps the view.
+ constexpr float kWheelZoomScale = 1.f;
+ 
+ GraphViewport::GraphViewport(Application *app,
+     tsd::rendering::GraphRenderBridge *bridge,
+     int viewportIndex,
+     anari::Device device,
++    tsd::graph::Graph *graph,
++    tsd::graph::NodeId *selected,
++    bool *graphDirty,
+     const char *name)
+     : Window(app, name),
+       m_bridge(bridge),
+       m_viewportIndex(viewportIndex),
+-      m_device(device)
++      m_device(device),
++      m_graph(graph),
++      m_selected(selected),
++      m_graphDirty(graphDirty)
+ {
+   // Camera + renderer on the bridge's device.
+   m_camera = anari::newObject<anari::Camera>(m_device, "perspective");
+   anari::commitParameters(m_device, m_camera);
+   m_renderer = anari::newObject<anari::Renderer>(m_device, "default");
+   anari::setParameter(m_device, m_renderer, "ambientRadiance", 1.f);
+   anari::commitParameters(m_device, m_renderer);
+ 
+   m_manip.setConfig(float3(0.f, 0.f, 0.f), kInitialViewDistance);
+ 
+@@ -90,21 +99,71 @@
+   ImGui::InvisibleButton("##viewport",
+       imgSize,
+       ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
+           | ImGuiButtonFlags_MouseButtonMiddle);
+   ImGui::GetWindowDrawList()->AddImage((ImTextureID)m_outputPass->getTexture(),
+       pos,
+       ImVec2(pos.x + imgSize.x, pos.y + imgSize.y),
+       ImVec2(0, 1),
+       ImVec2(1, 0));
+ 
+-  handleNavigation();
++  const bool gizmoActive = drawGizmo(pos, imgSize);
++  if (!gizmoActive)
++    handleNavigation();
++}
++
++bool GraphViewport::drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize)
++{
++  if (!m_selected || *m_selected == tsd::graph::INVALID_NODE || !m_graph)
++    return false;
++  auto *gn = m_graph->node(*m_selected);
++  if (!gn || !gn->impl)
++    return false;
++  auto *itf =
++      dynamic_cast<tsd::graph_nodes::ITransformableNode *>(gn->impl.get());
++  if (!itf)
++    return false;
++  // Only show the gizmo if this display is masked into this viewport.
++  const int mask =
++      gn->impl->parameters().getOr<int>(tsd::core::Token("viewportMask"), 0);
++  if (!((mask >> m_viewportIndex) & 1))
++    return false;
++
++  const float3 eye = m_manip.eye(), at = m_manip.at(), up = m_manip.up();
++  const auto view = linalg::lookat_matrix(eye, at, up);
++  const float aspect = float(m_size.x) / float(m_size.y);
++  constexpr float kFovy =
++      1.04719755f; // π/3 — the ANARI/VisRTX perspective default
++  const float focusDist = std::max(linalg::length(at - eye), 1e-4f);
++  const float near = std::max(0.01f * focusDist, 1e-3f);
++  const float far = 100.f * focusDist + 10.f;
++  const float oneOverTanFov = 1.f / std::tan(kFovy * 0.5f);
++  // Column-major perspective (matches BaseViewport's manual construction).
++  const tsd::math::mat4 proj{
++      {oneOverTanFov / aspect, 0.f, 0.f, 0.f},
++      {0.f, oneOverTanFov, 0.f, 0.f},
++      {0.f, 0.f, -(far + near) / (far - near), -1.f},
++      {0.f, 0.f, -2.f * far * near / (far - near), 0.f},
++  };
++
++  ImGuizmo::BeginFrame();
++  ImGuizmo::SetOrthographic(false);
++  ImGuizmo::SetDrawlist();
++  ImGuizmo::SetRect(imgPos.x, imgPos.y, imgSize.x, imgSize.y);
++
++  tsd::math::mat4 m = itf->transform();
++  if (ImGuizmo::Manipulate(
++          &view[0].x, &proj[0].x, m_gizmoOp, m_gizmoMode, &m[0].x)) {
++    itf->transform() = m;
++    *m_graphDirty = true;
++  }
++  return ImGuizmo::IsUsing() || ImGuizmo::IsOver();
+ }
+ 
+ // Left-drag orbits, right-drag (or Left+Shift) dollies, middle-drag (or
+ // Left+Alt) pans, scroll wheel zooms. Mouse deltas are normalized to
+ // screen-fraction units before reaching the Manipulator, matching BaseViewport
+ // — raw pixel deltas would be ~100x too fast (Manipulator::rotate scales by
+ // 100).
+ void GraphViewport::handleNavigation()
+ {
+   const bool hovered = ImGui::IsItemHovered();
+diff --git a/tsd/src/tsd/ui/imgui/windows/GraphViewport.hpp b/tsd/src/tsd/ui/imgui/windows/GraphViewport.hpp
+index 22f1d39fa9..efea563a09 100644
+--- a/tsd/src/tsd/ui/imgui/windows/GraphViewport.hpp
++++ b/tsd/src/tsd/ui/imgui/windows/GraphViewport.hpp
+@@ -1,52 +1,65 @@
+ // Copyright 2026 NVIDIA Corporation
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #pragma once
+ 
++#include "tsd/graph/Graph.hpp"
+ #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
+ #include "tsd/rendering/pipeline/ImagePipeline.h"
+ #include "tsd/rendering/pipeline/passes/AnariSceneRenderPass.h"
+ #include "tsd/rendering/pipeline/passes/CopyToSDLTexturePass.h"
+ #include "tsd/rendering/view/Manipulator.hpp"
+ #include "tsd/ui/imgui/windows/Window.h"
+ // anari
+ #include <anari/anari_cpp.hpp>
++// imguizmo
++#include "ImGuizmo.h"
+ 
+ namespace tsd::ui::imgui {
+ 
+ // Standalone viewport that renders one of a GraphRenderBridge's per-viewport
+ // ANARI worlds. Owns its own ANARI camera/renderer + manipulator + pipeline; it
+ // does NOT use BaseViewport (which is bound to TSD scene cameras/renderers).
+ struct GraphViewport : public Window
+ {
+   GraphViewport(Application *app,
+       tsd::rendering::GraphRenderBridge *bridge,
+       int viewportIndex,
+       anari::Device device,
++      tsd::graph::Graph *graph,
++      tsd::graph::NodeId *selected,
++      bool *graphDirty,
+       const char *name = "Viewport");
+   ~GraphViewport() override;
+ 
+   void buildUI() override;
+ 
+  private:
+   void handleNavigation();
++  bool drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize);
+ 
+   tsd::rendering::GraphRenderBridge *m_bridge{nullptr};
+   int m_viewportIndex{0};
+   anari::Device m_device{nullptr};
+   anari::Camera m_camera{nullptr};
+   anari::Renderer m_renderer{nullptr};
+   tsd::rendering::Manipulator m_manip;
+   tsd::rendering::UpdateToken m_manipToken{0};
+   tsd::rendering::ImagePipeline m_pipeline;
+   tsd::rendering::AnariSceneRenderPass *m_anariPass{nullptr};
+   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
+   tsd::math::int2 m_size{0, 0};
+ 
+   // Mouse-navigation state (mirrors BaseViewport's normalized-delta model).
+   tsd::math::float2 m_prevMouse{-1.f};
+   bool m_manipulating{false};
+   bool m_rotating{false};
++
++  tsd::graph::Graph *m_graph{nullptr};
++  tsd::graph::NodeId *m_selected{nullptr};
++  bool *m_graphDirty{nullptr};
++  ImGuizmo::OPERATION m_gizmoOp{ImGuizmo::TRANSLATE};
++  ImGuizmo::MODE m_gizmoMode{ImGuizmo::WORLD};
+ };
+ 
+ } // namespace tsd::ui::imgui

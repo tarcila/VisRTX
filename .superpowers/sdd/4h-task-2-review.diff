@@ -1,0 +1,332 @@
+# 4h Task 2 review package
+
+## Commits (c4ca0737..@-)
+1dfe120efb79 feat(graph_nodes): ITransformableNode on display nodes + collectDisplayTransforms
+
+## Diff stat
+tsd/src/tsd/graph_nodes/CMakeLists.txt        |  1 +
+tsd/src/tsd/graph_nodes/DisplaySurface.cpp    |  8 ++-
+tsd/src/tsd/graph_nodes/DisplayTransform.cpp  | 24 +++++++++
+tsd/src/tsd/graph_nodes/DisplayTransform.hpp  | 24 +++++++++
+tsd/src/tsd/graph_nodes/DisplayVolume.cpp     |  8 ++-
+tsd/src/tsd/graph_nodes/TransformableNode.hpp | 20 ++++++++
+tsd/tests/CMakeLists.txt                      |  2 +
+tsd/tests/test_nodes_DisplayTransform.cpp     | 70 +++++++++++++++++++++++++++++
+8 files changed, 155 insertions(+), 2 deletions(-)
+
+## Full diff (-U10)
+diff --git a/tsd/src/tsd/graph_nodes/CMakeLists.txt b/tsd/src/tsd/graph_nodes/CMakeLists.txt
+index 69988f486c..6b4e66597c 100644
+--- a/tsd/src/tsd/graph_nodes/CMakeLists.txt
++++ b/tsd/src/tsd/graph_nodes/CMakeLists.txt
+@@ -7,18 +7,19 @@
+   DemoGraph.cpp
+   GraphLayout.cpp
+   DisplayMask.cpp
+   GraphEditModel.cpp
+   GenerateNoiseVolume.cpp
+   ScalarRange.cpp
+   TransferFunction.cpp
+   DisplayVolume.cpp
+   BoundingBox.cpp
+   DisplaySurface.cpp
++  DisplayTransform.cpp
+ )
+ 
+ project_include_directories(
+ PUBLIC
+   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../..>
+ )
+ 
+ project_link_libraries(PUBLIC tsd_graph)
+diff --git a/tsd/src/tsd/graph_nodes/DisplaySurface.cpp b/tsd/src/tsd/graph_nodes/DisplaySurface.cpp
+index 65ef6b13d7..d484098805 100644
+--- a/tsd/src/tsd/graph_nodes/DisplaySurface.cpp
++++ b/tsd/src/tsd/graph_nodes/DisplaySurface.cpp
+@@ -1,28 +1,34 @@
+ // Copyright 2026 NVIDIA Corporation
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #include <memory>
+ #include "tsd/graph/Evaluator.hpp"
+ #include "tsd/graph_nodes/BuiltinNodes.hpp"
+ #include "tsd/graph_nodes/Descriptors.hpp"
+ #include "tsd/graph_nodes/DisplayMask.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
+ 
+ namespace tsd::graph_nodes {
+ namespace {
+ 
+ using namespace tsd::graph;
+ using tsd::core::Token;
+ 
+-struct DisplaySurface : Node
++struct DisplaySurface : Node, ITransformableNode
+ {
+   ParameterList params;
++  tsd::core::math::mat4 m_transform{tsd::core::math::IDENTITY_MAT4};
++  tsd::core::math::mat4 &transform() override
++  {
++    return m_transform;
++  }
+   DisplaySurface()
+   {
+     params.set(tsd::core::Token("viewportMask"), kDefaultViewportMask);
+   }
+   NodeTypeInfo typeInfo() const override
+   {
+     NodeTypeInfo i;
+     i.name = Token("DisplaySurface");
+     i.category = Token("sink");
+     i.inputs.push_back({Token("in"), PortType{portSurface()}, true, {}});
+diff --git a/tsd/src/tsd/graph_nodes/DisplayTransform.cpp b/tsd/src/tsd/graph_nodes/DisplayTransform.cpp
+new file mode 100644
+index 0000000000..1ca3d07322
+--- /dev/null
++++ b/tsd/src/tsd/graph_nodes/DisplayTransform.cpp
+@@ -0,0 +1,24 @@
++// Copyright 2026 NVIDIA Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++#include "tsd/graph_nodes/DisplayTransform.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
++
++namespace tsd::graph_nodes {
++
++using tsd::graph::NodeId;
++
++std::vector<DisplayTransform> collectDisplayTransforms(tsd::graph::Graph &g)
++{
++  std::vector<DisplayTransform> out;
++  for (const NodeId id : g.nodeIds()) {
++    auto *gn = g.node(id);
++    if (!gn || !gn->impl)
++      continue;
++    if (auto *itf = dynamic_cast<ITransformableNode *>(gn->impl.get()))
++      out.push_back({id, itf->transform()});
++  }
++  return out;
++}
++
++} // namespace tsd::graph_nodes
+diff --git a/tsd/src/tsd/graph_nodes/DisplayTransform.hpp b/tsd/src/tsd/graph_nodes/DisplayTransform.hpp
+new file mode 100644
+index 0000000000..143eaea91c
+--- /dev/null
++++ b/tsd/src/tsd/graph_nodes/DisplayTransform.hpp
+@@ -0,0 +1,24 @@
++// Copyright 2026 NVIDIA Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include "tsd/core/TSDMath.hpp"
++#include "tsd/graph/Graph.hpp"
++// std
++#include <vector>
++
++namespace tsd::graph_nodes {
++
++struct DisplayTransform
++{
++  tsd::graph::NodeId node{0};
++  tsd::core::math::mat4 xfm{tsd::core::math::IDENTITY_MAT4};
++};
++
++// Every node implementing ITransformableNode and its transform. Graph&
++// non-const (node()->impl is non-const for the dynamic_cast). Logically
++// read-only.
++std::vector<DisplayTransform> collectDisplayTransforms(tsd::graph::Graph &g);
++
++} // namespace tsd::graph_nodes
+diff --git a/tsd/src/tsd/graph_nodes/DisplayVolume.cpp b/tsd/src/tsd/graph_nodes/DisplayVolume.cpp
+index 14ddce6fa4..1fe54d03dc 100644
+--- a/tsd/src/tsd/graph_nodes/DisplayVolume.cpp
++++ b/tsd/src/tsd/graph_nodes/DisplayVolume.cpp
+@@ -1,29 +1,35 @@
+ // Copyright 2026 NVIDIA Corporation
+ // SPDX-License-Identifier: Apache-2.0
+ 
+ #include <memory>
+ #include "tsd/graph/Evaluator.hpp"
+ #include "tsd/graph_nodes/BuiltinNodes.hpp"
+ #include "tsd/graph_nodes/Descriptors.hpp"
+ #include "tsd/graph_nodes/DisplayMask.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
+ 
+ namespace tsd::graph_nodes {
+ namespace {
+ 
+ using namespace tsd::graph;
+ using tsd::core::Token;
+ using float3 = tsd::core::math::float3;
+ 
+-struct DisplayVolume : Node
++struct DisplayVolume : Node, ITransformableNode
+ {
+   ParameterList params;
++  tsd::core::math::mat4 m_transform{tsd::core::math::IDENTITY_MAT4};
++  tsd::core::math::mat4 &transform() override
++  {
++    return m_transform;
++  }
+   DisplayVolume()
+   {
+     params.set(tsd::core::Token("viewportMask"), kDefaultViewportMask);
+   }
+   NodeTypeInfo typeInfo() const override
+   {
+     NodeTypeInfo i;
+     i.name = Token("DisplayVolume");
+     i.category = Token("sink");
+     i.inputs.push_back({Token("field"), PortType{portField()}, true, {}});
+diff --git a/tsd/src/tsd/graph_nodes/TransformableNode.hpp b/tsd/src/tsd/graph_nodes/TransformableNode.hpp
+new file mode 100644
+index 0000000000..6fe6b5dc41
+--- /dev/null
++++ b/tsd/src/tsd/graph_nodes/TransformableNode.hpp
+@@ -0,0 +1,20 @@
++// Copyright 2026 NVIDIA Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include "tsd/core/TSDMath.hpp"
++
++namespace tsd::graph_nodes {
++
++// Implemented by nodes carrying a render-time instance transform. Kept OUT of
++// the node's ParameterList (so it never enters ParameterList::hash() and a
++// transform edit never triggers re-evaluation / layer rebuild). UI reaches it
++// via dynamic_cast, like ITransferFunctionNode.
++struct ITransformableNode
++{
++  virtual ~ITransformableNode() = default;
++  virtual tsd::core::math::mat4 &transform() = 0;
++};
++
++} // namespace tsd::graph_nodes
+diff --git a/tsd/tests/CMakeLists.txt b/tsd/tests/CMakeLists.txt
+index 91e3d42b1b..3371bab28e 100644
+--- a/tsd/tests/CMakeLists.txt
++++ b/tsd/tests/CMakeLists.txt
+@@ -37,20 +37,21 @@
+   test_graph_AsyncError.cpp
+   test_graph_Renderable.cpp
+   test_graph_EditApis.cpp
+   test_nodes_GraphEditModel.cpp
+   test_nodes_Scaffold.cpp
+   test_nodes_GenerateNoiseVolume.cpp
+   test_nodes_ScalarRange.cpp
+   test_nodes_TransferFunction.cpp
+   test_nodes_DisplayVolume.cpp
+   test_nodes_DisplayMask.cpp
++  test_nodes_DisplayTransform.cpp
+   test_nodes_MultiViewport.cpp
+   test_nodes_Surface.cpp
+   test_nodes_TfnSampling.cpp
+   test_nodes_GraphLayout.cpp
+   test_nodes_Wiring.cpp
+   test_nodes_Render.cpp
+   test_bridge_Mask.cpp
+   test_bridge_RenderSurface.cpp
+   test_bridge_RenderVolume.cpp
+   test_bridge_Rebuild.cpp
+@@ -116,20 +117,21 @@
+ add_test(NAME tsd::graph::AsyncError COMMAND ${PROJECT_NAME} "[graph-asyncerror]")
+ add_test(NAME tsd::graph::Renderable COMMAND ${PROJECT_NAME} "[graph-renderable]")
+ add_test(NAME tsd::graph::EditApis COMMAND ${PROJECT_NAME} "[graph-editapis]")
+ add_test(NAME tsd::nodes::GraphEditModel COMMAND ${PROJECT_NAME} "[edit-model]")
+ add_test(NAME tsd::nodes::Scaffold COMMAND ${PROJECT_NAME} "[nodes-scaffold]")
+ add_test(NAME tsd::nodes::Noise   COMMAND ${PROJECT_NAME} "[nodes-noise]"   )
+ add_test(NAME tsd::nodes::Range   COMMAND ${PROJECT_NAME} "[nodes-range]"   )
+ add_test(NAME tsd::nodes::TransferFunction COMMAND ${PROJECT_NAME} "[nodes-tf]")
+ add_test(NAME tsd::nodes::DisplayVolume COMMAND ${PROJECT_NAME} "[nodes-dvol]")
+ add_test(NAME tsd::nodes::DisplayMask COMMAND ${PROJECT_NAME} "[display-mask]")
++add_test(NAME tsd::nodes::DisplayTransform COMMAND ${PROJECT_NAME} "[display-transform]")
+ add_test(NAME tsd::nodes::MultiViewport COMMAND ${PROJECT_NAME} "[multi-viewport]")
+ set_tests_properties(tsd::nodes::MultiViewport PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
+ add_test(NAME tsd::nodes::TfnSampling COMMAND ${PROJECT_NAME} "[tfn-sampling]")
+ add_test(NAME tsd::nodes::GraphLayout COMMAND ${PROJECT_NAME} "[graph-layout]")
+ add_test(NAME tsd::nodes::Wiring COMMAND ${PROJECT_NAME} "[nodes-wiring]")
+ add_test(NAME tsd::nodes::Render COMMAND ${PROJECT_NAME} "[nodes-render]")
+ set_tests_properties(tsd::nodes::Render PROPERTIES TIMEOUT 300)
+ add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
+ set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
+diff --git a/tsd/tests/test_nodes_DisplayTransform.cpp b/tsd/tests/test_nodes_DisplayTransform.cpp
+new file mode 100644
+index 0000000000..1f386bcb0b
+--- /dev/null
++++ b/tsd/tests/test_nodes_DisplayTransform.cpp
+@@ -0,0 +1,70 @@
++// Copyright 2026 NVIDIA Corporation
++// SPDX-License-Identifier: Apache-2.0
++
++// catch
++#include "catch.hpp"
++// tsd
++#include "tsd/graph/Graph.hpp"
++#include "tsd/graph/NodeRegistry.hpp"
++#include "tsd/graph_nodes/BuiltinNodes.hpp"
++#include "tsd/graph_nodes/DemoGraph.hpp"
++#include "tsd/graph_nodes/DisplayTransform.hpp"
++#include "tsd/graph_nodes/TransformableNode.hpp"
++
++using tsd::core::Token;
++using namespace tsd::graph;
++using tsd::graph_nodes::collectDisplayTransforms;
++using mat4 = tsd::core::math::mat4;
++
++namespace {
++const tsd::graph_nodes::DisplayTransform *find(
++    const std::vector<tsd::graph_nodes::DisplayTransform> &v, NodeId id)
++{
++  for (const auto &dt : v)
++    if (dt.node == id)
++      return &dt;
++  return nullptr;
++}
++} // namespace
++
++SCENARIO("collectDisplayTransforms reports display transforms",
++    "[display-transform]")
++{
++  NodeRegistry reg;
++  tsd::graph_nodes::registerBuiltinNodes(reg);
++  Graph g;
++  auto d = tsd::graph_nodes::buildVolumeSurfaceDemo(g, reg);
++
++  WHEN("transforms are default")
++  {
++    auto xs = collectDisplayTransforms(g);
++    THEN("both display nodes appear at identity")
++    {
++      REQUIRE(xs.size() == 2);
++      REQUIRE(find(xs, d.volumeDisplay) != nullptr);
++      REQUIRE(find(xs, d.surfaceDisplay) != nullptr);
++      REQUIRE(find(xs, d.volumeDisplay)->xfm == tsd::core::math::IDENTITY_MAT4);
++    }
++    THEN("non-display nodes are excluded")
++    {
++      REQUIRE(find(xs, d.source) == nullptr);
++    }
++  }
++
++  WHEN("one display's transform is set via ITransformableNode")
++  {
++    mat4 m = tsd::core::math::IDENTITY_MAT4;
++    m[3].x = 5.f; // translate +5 in x (column-major: column 3 = translation)
++    auto *itf = dynamic_cast<tsd::graph_nodes::ITransformableNode *>(
++        g.node(d.volumeDisplay)->impl.get());
++    REQUIRE(itf != nullptr);
++    itf->transform() = m;
++    auto xs = collectDisplayTransforms(g);
++    THEN("the helper reports it; the other stays identity")
++    {
++      REQUIRE(find(xs, d.volumeDisplay)->xfm == m);
++      REQUIRE(
++          find(xs, d.surfaceDisplay)->xfm == tsd::core::math::IDENTITY_MAT4);
++    }
++  }
++}
