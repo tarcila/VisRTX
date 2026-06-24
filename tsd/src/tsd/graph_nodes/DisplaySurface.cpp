@@ -6,6 +6,7 @@
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
 #include "tsd/graph_nodes/Descriptors.hpp"
 #include "tsd/graph_nodes/DisplayMask.hpp"
+#include "tsd/graph_nodes/TransformableNode.hpp"
 
 namespace tsd::graph_nodes {
 namespace {
@@ -13,9 +14,14 @@ namespace {
 using namespace tsd::graph;
 using tsd::core::Token;
 
-struct DisplaySurface : Node
+struct DisplaySurface : Node, ITransformableNode
 {
   ParameterList params;
+  tsd::core::math::mat4 m_transform{tsd::core::math::IDENTITY_MAT4};
+  tsd::core::math::mat4 &transform() override
+  {
+    return m_transform;
+  }
   DisplaySurface()
   {
     params.set(tsd::core::Token("viewportMask"), kDefaultViewportMask);

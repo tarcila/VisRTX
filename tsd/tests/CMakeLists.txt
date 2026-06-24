@@ -50,6 +50,7 @@ project_add_executable(
   test_nodes_TransferFunction.cpp
   test_nodes_DisplayVolume.cpp
   test_nodes_DisplayMask.cpp
+  test_nodes_DisplayTransform.cpp
   test_nodes_MultiViewport.cpp
   test_nodes_Surface.cpp
   test_nodes_TfnSampling.cpp
@@ -145,6 +146,7 @@ add_test(NAME tsd::nodes::Range   COMMAND ${PROJECT_NAME} "[nodes-range]"   )
 add_test(NAME tsd::nodes::TransferFunction COMMAND ${PROJECT_NAME} "[nodes-tf]")
 add_test(NAME tsd::nodes::DisplayVolume COMMAND ${PROJECT_NAME} "[nodes-dvol]")
 add_test(NAME tsd::nodes::DisplayMask COMMAND ${PROJECT_NAME} "[display-mask]")
+add_test(NAME tsd::nodes::DisplayTransform COMMAND ${PROJECT_NAME} "[display-transform]")
 add_test(NAME tsd::nodes::MultiViewport COMMAND ${PROJECT_NAME} "[multi-viewport]")
 set_tests_properties(tsd::nodes::MultiViewport PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
