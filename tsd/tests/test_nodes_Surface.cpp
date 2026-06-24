@@ -70,7 +70,8 @@ NodeId addBuiltin(Graph &g, const char *t)
 
 } // namespace
 
-SCENARIO("BoundingBox -> DisplaySurface produces a triangle surface renderable",
+SCENARIO(
+    "BoundingBox -> DisplaySurface produces a cylinder wireframe renderable",
     "[nodes-surface]")
 {
   Graph g;
@@ -88,16 +89,24 @@ SCENARIO("BoundingBox -> DisplaySurface produces a triangle surface renderable",
   {
     auto s = std::static_pointer_cast<SurfaceData>(
         e.output(bb, Token("out"), hostResidency())->payload);
-    THEN("it is a triangle box with 36 vertex positions")
+    THEN("it is a cylinder wireframe with 24 vertex positions and a radius")
     {
       REQUIRE(s != nullptr);
-      REQUIRE(s->geomSubtype == Token("triangle"));
-      REQUIRE(hasArray(s->prim, Token("vertex.position")));
-      size_t n = 0;
-      for (auto &a : s->prim.arrays)
-        if (a.first == Token("vertex.position"))
-          n = a.second.size();
-      REQUIRE(n == 36);
+      REQUIRE(s->geomSubtype == Token("cylinder"));
+      // 12 box edges x 2 endpoints
+      bool foundPos = false, foundRadius = false;
+      for (const auto &a : s->prim.arrays)
+        if (a.first == Token("vertex.position")) {
+          REQUIRE(a.second.size() == 24);
+          foundPos = true;
+        }
+      for (const auto &sc : s->prim.scalars)
+        if (sc.first == Token("radius")) {
+          REQUIRE(sc.second.get<float>() > 0.f);
+          foundRadius = true;
+        }
+      REQUIRE(foundPos);
+      REQUIRE(foundRadius);
     }
   }
 
@@ -108,7 +117,7 @@ SCENARIO("BoundingBox -> DisplaySurface produces a triangle surface renderable",
     THEN("it is a Surface renderable carrying the geometry")
     {
       REQUIRE(r->kind == Renderable::Kind::Surface);
-      REQUIRE(r->primSubtype == Token("triangle"));
+      REQUIRE(r->primSubtype == Token("cylinder"));
       REQUIRE(hasArray(r->prim, Token("vertex.position")));
     }
   }

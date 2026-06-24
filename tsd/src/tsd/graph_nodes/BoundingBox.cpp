@@ -1,7 +1,9 @@
 // Copyright 2026 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 #include "tsd/graph/Evaluator.hpp"
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
@@ -50,49 +52,32 @@ struct BoundingBox : Node
         {hi.x, lo.y, hi.z},
         {hi.x, hi.y, hi.z},
         {lo.x, hi.y, hi.z}};
-    const int tri[36] = {0,
-        1,
-        2,
-        0,
-        2,
-        3,
-        4,
-        6,
-        5,
-        4,
-        7,
-        6,
-        0,
-        4,
-        5,
-        0,
-        5,
-        1,
-        1,
-        5,
-        6,
-        1,
-        6,
-        2,
-        2,
-        6,
-        7,
-        2,
-        7,
-        3,
-        3,
-        7,
-        4,
-        3,
-        4,
-        0};
-    tsd::core::AnyArray pos(ANARI_FLOAT32_VEC3, 36);
-    for (int i = 0; i < 36; ++i)
-      pos.get<float3>(size_t(i)) = c[tri[i]];
+    // 12 box edges as cylinder segments (consecutive vertex.position pairs).
+    static const int edge[12][2] = {{0, 1},
+        {1, 2},
+        {2, 3},
+        {3, 0}, // bottom
+        {4, 5},
+        {5, 6},
+        {6, 7},
+        {7, 4}, // top
+        {0, 4},
+        {1, 5},
+        {2, 6},
+        {3, 7}}; // verticals
+    tsd::core::AnyArray pos(ANARI_FLOAT32_VEC3, 24);
+    for (int e = 0; e < 12; ++e) {
+      pos.get<float3>(size_t(2 * e)) = c[edge[e][0]];
+      pos.get<float3>(size_t(2 * e + 1)) = c[edge[e][1]];
+    }
+    const float3 d = hi - lo;
+    const float radius =
+        std::max(0.004f * std::sqrt(tsd::core::math::dot(d, d)), 1e-4f);
 
     auto s = std::make_shared<SurfaceData>();
-    s->geomSubtype = Token("triangle");
+    s->geomSubtype = Token("cylinder");
     s->prim.arrays.push_back({Token("vertex.position"), pos});
+    s->prim.scalars.push_back({Token("radius"), tsd::core::Any(radius)});
     s->appearance.scalars.push_back({Token("color"),
         tsd::core::Any(params.getOr<float3>(Token("color"), float3(0.8f)))});
 
