@@ -33,6 +33,7 @@ class GraphRenderBridge
 
   void setDisplay(tsd::graph::NodeId node, uint64_t viewportMask, bool enabled);
   void removeDisplay(tsd::graph::NodeId node);
+  void setDisplayTransform(tsd::graph::NodeId node, const tsd::math::mat4 &xfm);
 
   std::vector<const tsd::scene::Layer *> layersForViewport(int i) const;
 
@@ -55,6 +56,7 @@ class GraphRenderBridge
     tsd::scene::Layer *layer{nullptr};
     uint64_t lastVersion{0};
     bool realized{false};
+    tsd::math::mat4 transform{tsd::math::IDENTITY_MAT4};
   };
 
   void rebuildLayer(tsd::graph::NodeId node, Display &d);

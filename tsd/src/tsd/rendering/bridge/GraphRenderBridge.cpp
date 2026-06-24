@@ -54,6 +54,14 @@ void GraphRenderBridge::setDisplay(NodeId node, uint64_t mask, bool enabled)
   }
 }
 
+void GraphRenderBridge::setDisplayTransform(
+    NodeId node, const tsd::math::mat4 &xfm)
+{
+  auto it = m_displays.find(node);
+  if (it != m_displays.end())
+    it->second.transform = xfm;
+}
+
 void GraphRenderBridge::removeDisplay(NodeId node)
 {
   auto it = m_displays.find(node);
@@ -94,6 +102,8 @@ void GraphRenderBridge::update()
       continue;
     }
     rebuildLayer(kv.first, d);
+    if (d.layer)
+      (*d.layer->root())->setAsTransform(d.transform);
   }
   // setIncludedLayers() triggers the index's full rebuild (populate); calling
   // populate() again here would redundantly tear down + rebuild the cache.

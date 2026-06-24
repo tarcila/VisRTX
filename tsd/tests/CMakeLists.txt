@@ -58,6 +58,7 @@ project_add_executable(
   test_nodes_Wiring.cpp
   test_nodes_Render.cpp
   test_bridge_Mask.cpp
+  test_bridge_Transform.cpp
   test_bridge_RenderSurface.cpp
   test_bridge_RenderVolume.cpp
   test_bridge_Rebuild.cpp
@@ -157,6 +158,8 @@ add_test(NAME tsd::nodes::Render COMMAND ${PROJECT_NAME} "[nodes-render]")
 set_tests_properties(tsd::nodes::Render PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeMask COMMAND ${PROJECT_NAME} "[bridge-mask]")
 set_tests_properties(tsd::rendering::BridgeMask PROPERTIES TIMEOUT 300)
+add_test(NAME tsd::rendering::BridgeTransform COMMAND ${PROJECT_NAME} "[bridge-transform]")
+set_tests_properties(tsd::rendering::BridgeTransform PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderSurface COMMAND ${PROJECT_NAME} "[bridge-render-surface]")
 set_tests_properties(tsd::rendering::BridgeRenderSurface PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRenderVolume COMMAND ${PROJECT_NAME} "[bridge-render-volume]")
