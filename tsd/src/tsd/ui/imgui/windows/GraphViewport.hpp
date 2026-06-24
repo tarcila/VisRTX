@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "tsd/graph/Graph.hpp"
 #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
 #include "tsd/rendering/pipeline/ImagePipeline.h"
 #include "tsd/rendering/pipeline/passes/AnariSceneRenderPass.h"
@@ -11,6 +12,8 @@
 #include "tsd/ui/imgui/windows/Window.h"
 // anari
 #include <anari/anari_cpp.hpp>
+// imguizmo
+#include "ImGuizmo.h"
 
 namespace tsd::ui::imgui {
 
@@ -23,6 +26,9 @@ struct GraphViewport : public Window
       tsd::rendering::GraphRenderBridge *bridge,
       int viewportIndex,
       anari::Device device,
+      tsd::graph::Graph *graph,
+      tsd::graph::NodeId *selected,
+      bool *graphDirty,
       const char *name = "Viewport");
   ~GraphViewport() override;
 
@@ -30,6 +36,7 @@ struct GraphViewport : public Window
 
  private:
   void handleNavigation();
+  bool drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize);
 
   tsd::rendering::GraphRenderBridge *m_bridge{nullptr};
   int m_viewportIndex{0};
@@ -47,6 +54,12 @@ struct GraphViewport : public Window
   tsd::math::float2 m_prevMouse{-1.f};
   bool m_manipulating{false};
   bool m_rotating{false};
+
+  tsd::graph::Graph *m_graph{nullptr};
+  tsd::graph::NodeId *m_selected{nullptr};
+  bool *m_graphDirty{nullptr};
+  ImGuizmo::OPERATION m_gizmoOp{ImGuizmo::TRANSLATE};
+  ImGuizmo::MODE m_gizmoMode{ImGuizmo::WORLD};
 };
 
 } // namespace tsd::ui::imgui

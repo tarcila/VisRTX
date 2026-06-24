@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/ui/imgui/windows/GraphViewport.hpp"
+#include "tsd/graph_nodes/TransformableNode.hpp"
 #include "tsd/rendering/view/ManipulatorToAnari.hpp"
 #include "tsd/ui/imgui/Application.h"
 // imgui
 #include "imgui.h"
 // anari
 #include <anari/anari_cpp/ext/linalg.h>
+// std
+#include <algorithm>
 
 namespace tsd::ui::imgui {
 
@@ -24,11 +27,17 @@ GraphViewport::GraphViewport(Application *app,
     tsd::rendering::GraphRenderBridge *bridge,
     int viewportIndex,
     anari::Device device,
+    tsd::graph::Graph *graph,
+    tsd::graph::NodeId *selected,
+    bool *graphDirty,
     const char *name)
     : Window(app, name),
       m_bridge(bridge),
       m_viewportIndex(viewportIndex),
-      m_device(device)
+      m_device(device),
+      m_graph(graph),
+      m_selected(selected),
+      m_graphDirty(graphDirty)
 {
   // Camera + renderer on the bridge's device.
   m_camera = anari::newObject<anari::Camera>(m_device, "perspective");
@@ -97,7 +106,57 @@ void GraphViewport::buildUI()
       ImVec2(0, 1),
       ImVec2(1, 0));
 
-  handleNavigation();
+  const bool gizmoActive = drawGizmo(pos, imgSize);
+  if (!gizmoActive)
+    handleNavigation();
+}
+
+bool GraphViewport::drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize)
+{
+  if (!m_selected || *m_selected == tsd::graph::INVALID_NODE || !m_graph)
+    return false;
+  auto *gn = m_graph->node(*m_selected);
+  if (!gn || !gn->impl)
+    return false;
+  auto *itf =
+      dynamic_cast<tsd::graph_nodes::ITransformableNode *>(gn->impl.get());
+  if (!itf)
+    return false;
+  // Only show the gizmo if this display is masked into this viewport.
+  const int mask =
+      gn->impl->parameters().getOr<int>(tsd::core::Token("viewportMask"), 0);
+  if (!((mask >> m_viewportIndex) & 1))
+    return false;
+
+  const float3 eye = m_manip.eye(), at = m_manip.at(), up = m_manip.up();
+  const auto view = linalg::lookat_matrix(eye, at, up);
+  const float aspect = float(m_size.x) / float(m_size.y);
+  constexpr float kFovy =
+      1.04719755f; // π/3 — the ANARI/VisRTX perspective default
+  const float focusDist = std::max(linalg::length(at - eye), 1e-4f);
+  const float near = std::max(0.01f * focusDist, 1e-3f);
+  const float far = 100.f * focusDist + 10.f;
+  const float oneOverTanFov = 1.f / std::tan(kFovy * 0.5f);
+  // Column-major perspective (matches BaseViewport's manual construction).
+  const tsd::math::mat4 proj{
+      {oneOverTanFov / aspect, 0.f, 0.f, 0.f},
+      {0.f, oneOverTanFov, 0.f, 0.f},
+      {0.f, 0.f, -(far + near) / (far - near), -1.f},
+      {0.f, 0.f, -2.f * far * near / (far - near), 0.f},
+  };
+
+  ImGuizmo::BeginFrame();
+  ImGuizmo::SetOrthographic(false);
+  ImGuizmo::SetDrawlist();
+  ImGuizmo::SetRect(imgPos.x, imgPos.y, imgSize.x, imgSize.y);
+
+  tsd::math::mat4 m = itf->transform();
+  if (ImGuizmo::Manipulate(
+          &view[0].x, &proj[0].x, m_gizmoOp, m_gizmoMode, &m[0].x)) {
+    itf->transform() = m;
+    *m_graphDirty = true;
+  }
+  return ImGuizmo::IsUsing() || ImGuizmo::IsOver();
 }
 
 // Left-drag orbits, right-drag (or Left+Shift) dollies, middle-drag (or

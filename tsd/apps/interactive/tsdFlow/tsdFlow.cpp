@@ -16,6 +16,7 @@
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
 #include "tsd/graph_nodes/DemoGraph.hpp"
 #include "tsd/graph_nodes/DisplayMask.hpp"
+#include "tsd/graph_nodes/DisplayTransform.hpp"
 #include "tsd/graph_nodes/GraphEditModel.hpp"
 #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
 // imgui
@@ -205,7 +206,14 @@ DockSpace        ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
     for (int i = 0; i < tsd::graph_nodes::kMaxViewports; ++i) {
       char nm[16];
       std::snprintf(nm, sizeof(nm), "Viewport %d", i + 1);
-      auto *vp = new ui::GraphViewport(this, m_bridge.get(), i, m_device, nm);
+      auto *vp = new ui::GraphViewport(this,
+          m_bridge.get(),
+          i,
+          m_device,
+          &m_graph,
+          &m_selected,
+          &m_graphDirty,
+          nm);
       if (i > 0)
         vp->hide();
       viewportPtrs.push_back(vp);
@@ -257,6 +265,8 @@ DockSpace        ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
       if (!current.count(id))
         m_bridge->removeDisplay(id);
     m_knownDisplays = std::move(current);
+    for (const auto &dt : tsd::graph_nodes::collectDisplayTransforms(m_graph))
+      m_bridge->setDisplayTransform(dt.node, dt.xfm);
   }
 
   // Member declaration order is load-bearing — DO NOT REORDER. Reverse-order
