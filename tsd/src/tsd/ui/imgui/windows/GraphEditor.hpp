@@ -38,6 +38,10 @@ struct GraphEditor : public Window
 
   int pinId(tsd::graph::NodeId, tsd::core::Token port, bool isInput);
   void drawNode(tsd::graph::NodeId);
+  bool isCollapsed(tsd::graph::NodeId) const;
+  // Map a (possibly proxy) pin to a concrete port; false (logged) if the
+  // collapsed node's direction has zero or multiple ports.
+  bool resolvePort(const PinKey &pin, tsd::core::Token &outPort) const;
   void applyPendingPlacements();
   void applyAutoLayout();
   void handleCreation();
@@ -53,6 +57,7 @@ struct GraphEditor : public Window
   std::map<int, tsd::graph::ConnectionId>
       m_linkId; // imnodes link id -> ConnectionId
   std::set<tsd::graph::NodeId> m_positioned; // nodes already given a position
+  std::set<tsd::graph::NodeId> m_expanded;   // collapsed unless present here
   bool m_relayoutAll{false}; // "Clean Up Layout" request
   // Mouse-added nodes: placed next frame (inside the editor, before drawNode)
   // so the node is submitted that frame — calling SetNode*Pos on an

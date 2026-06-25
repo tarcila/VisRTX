@@ -49,6 +49,11 @@ int GraphEditor::pinId(NodeId node, Token port, bool isInput)
   return int(m_pins.size()); // size after push == index+1
 }
 
+bool GraphEditor::isCollapsed(NodeId id) const
+{
+  return m_expanded.find(id) == m_expanded.end();
+}
+
 void GraphEditor::drawNode(NodeId id)
 {
   const auto *gn = m_graph->node(id);
@@ -58,24 +63,62 @@ void GraphEditor::drawNode(NodeId id)
 
   ImNodes::BeginNode(nodeImId(id));
 
-  ImNodes::BeginNodeTitleBar();
-  ImGui::TextUnformatted(info.name.c_str());
-  ImNodes::EndNodeTitleBar();
+  if (isCollapsed(id)) {
+    const bool hasIn = !info.inputs.empty();
+    const bool hasOut = !info.outputs.empty();
+    if (hasIn) {
+      ImNodes::BeginInputAttribute(
+          pinId(id, Token("##in"), true), ImNodesPinShape_CircleFilled);
+      ImNodes::EndInputAttribute();
+      ImGui::SameLine();
+    }
+    ImGui::TextUnformatted(info.name.c_str());
+    if (hasOut) {
+      ImGui::SameLine();
+      ImNodes::BeginOutputAttribute(
+          pinId(id, Token("##out"), false), ImNodesPinShape_TriangleFilled);
+      ImNodes::EndOutputAttribute();
+    }
+  } else {
+    ImNodes::BeginNodeTitleBar();
+    ImGui::TextUnformatted(info.name.c_str());
+    ImNodes::EndNodeTitleBar();
 
-  for (const auto &in : info.inputs) {
-    ImNodes::BeginInputAttribute(
-        pinId(id, in.name, true), ImNodesPinShape_CircleFilled);
-    ImGui::TextUnformatted(in.name.c_str());
-    ImNodes::EndInputAttribute();
-  }
-  for (const auto &out : info.outputs) {
-    ImNodes::BeginOutputAttribute(
-        pinId(id, out.name, false), ImNodesPinShape_TriangleFilled);
-    ImGui::TextUnformatted(out.name.c_str());
-    ImNodes::EndOutputAttribute();
+    for (const auto &in : info.inputs) {
+      ImNodes::BeginInputAttribute(
+          pinId(id, in.name, true), ImNodesPinShape_CircleFilled);
+      ImGui::TextUnformatted(in.name.c_str());
+      ImNodes::EndInputAttribute();
+    }
+    for (const auto &out : info.outputs) {
+      ImNodes::BeginOutputAttribute(
+          pinId(id, out.name, false), ImNodesPinShape_TriangleFilled);
+      ImGui::TextUnformatted(out.name.c_str());
+      ImNodes::EndOutputAttribute();
+    }
   }
 
   ImNodes::EndNode();
+}
+
+bool GraphEditor::resolvePort(const PinKey &pin, Token &outPort) const
+{
+  const Token proxy = pin.isInput ? Token("##in") : Token("##out");
+  if (pin.port != proxy) { // already a concrete port
+    outPort = pin.port;
+    return true;
+  }
+  const auto *gn = m_graph->node(pin.node);
+  if (!gn || !gn->impl)
+    return false;
+  const auto info = gn->impl->typeInfo(); // by value — copy the Token out
+  const auto &ports = pin.isInput ? info.inputs : info.outputs;
+  if (ports.size() != 1) {
+    tsd::core::logWarning("[GraphEditor] expand node to choose a port");
+    return false;
+  }
+  outPort = ports.front().name;
+  return true;
 }
 
 void GraphEditor::handleCreation()
@@ -97,14 +140,17 @@ void GraphEditor::handleCreation()
   if (outPin->isInput || !inPin->isInput)
     return; // not an out->in pairing
 
-  auto chk =
-      m_model->canConnect(outPin->node, outPin->port, inPin->node, inPin->port);
+  Token outPort, inPort;
+  if (!resolvePort(*outPin, outPort) || !resolvePort(*inPin, inPort))
+    return; // ambiguous proxy on a multi-port collapsed node — expand first
+
+  auto chk = m_model->canConnect(outPin->node, outPort, inPin->node, inPort);
   if (!chk.ok()) {
     tsd::core::logWarning(
         "[GraphEditor] link rejected: %s", chk.detail.c_str());
     return;
   }
-  m_model->connect(outPin->node, outPin->port, inPin->node, inPin->port);
+  m_model->connect(outPin->node, outPort, inPin->node, inPort);
   *m_graphDirty = true;
 }
 
@@ -135,6 +181,7 @@ void GraphEditor::handleDeletion()
         *m_selected = INVALID_NODE;
       m_model->removeNode(id);
       m_positioned.erase(id);
+      m_expanded.erase(id);
       *m_graphDirty = true;
     }
   }
@@ -232,9 +279,13 @@ void GraphEditor::buildUI()
         m_model->classify(c) == tsd::graph_nodes::LinkKind::Conversion;
     if (conv)
       ImNodes::PushColorStyle(ImNodesCol_Link, kConversionColor);
-    ImNodes::Link(lid,
-        pinId(c.fromNode, c.fromPort, false),
-        pinId(c.toNode, c.toPort, true));
+    const int fromPin = isCollapsed(c.fromNode)
+        ? pinId(c.fromNode, Token("##out"), false)
+        : pinId(c.fromNode, c.fromPort, false);
+    const int toPin = isCollapsed(c.toNode)
+        ? pinId(c.toNode, Token("##in"), true)
+        : pinId(c.toNode, c.toPort, true);
+    ImNodes::Link(lid, fromPin, toPin);
     if (conv)
       ImNodes::PopColorStyle();
   }
@@ -242,6 +293,18 @@ void GraphEditor::buildUI()
   contextMenu();
   ImNodes::MiniMap();
   ImNodes::EndNodeEditor();
+
+  // Double-click a node to toggle compact/expanded. IsNodeHovered returns the
+  // topmost node under the cursor, so this targets the right node when stacked.
+  int hoveredNode = 0;
+  if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+      && ImNodes::IsNodeHovered(&hoveredNode)) {
+    const NodeId id = NodeId(hoveredNode);
+    if (m_expanded.count(id))
+      m_expanded.erase(id);
+    else
+      m_expanded.insert(id);
+  }
 
   // After EndNodeEditor: creation, deletion, selection.
   handleCreation();
