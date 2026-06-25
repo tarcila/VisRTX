@@ -21,8 +21,12 @@ int nodeImId(NodeId id)
   return int(id);
 } // NodeId small in practice
 constexpr unsigned int kConversionColor = IM_COL32(204, 148, 81, 255); // amber
-constexpr float kColW = 360.f;
-constexpr float kRowH = 170.f;
+// Auto-layout grid pitch — tight, sized for compact (collapsed) nodes.
+constexpr float kColW = 190.f;
+constexpr float kRowH = 70.f;
+// Shrink the whole editor a notch to fit more graph on screen (static, not a
+// live zoom — imnodes v0.5 has no canvas scaling).
+constexpr float kEditorFontScale = 0.85f;
 } // namespace
 
 GraphEditor::GraphEditor(Application *app,
@@ -264,6 +268,9 @@ void GraphEditor::applyAutoLayout()
 
 void GraphEditor::buildUI()
 {
+  ImGui::SetWindowFontScale(kEditorFontScale);
+  ImNodes::GetStyle().NodePadding = ImVec2(6.f, 3.f); // tighter node interiors
+
   if (ImGui::Button("Clean Up Layout"))
     m_relayoutAll = true;
 
