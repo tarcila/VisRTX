@@ -907,19 +907,27 @@ void Scene::removeNode(LayerNodeRef obj, bool deleteReferencedObjects)
   auto *layer = (*obj)->layer();
 
   if (deleteReferencedObjects) {
-    std::vector<LayerNodeRef> objects;
+    // Collect the referenced objects before erasing the subtree (the node refs
+    // are invalid afterward). Erase the subtree first, then delete the objects:
+    // removeObject() -> clearLayerReferencesToObject() erases any node still
+    // referencing the object, so deleting before erasing would free this
+    // subtree's nodes out from under the erase() below (double-free).
+    std::vector<const Object *> objects;
 
     layer->traverse(obj, [&](auto &node, int level) {
       if (node.isLeaf())
-        objects.push_back(layer->at(node.index()));
+        objects.push_back(node.value().getObject());
       return true;
     });
 
-    for (auto &o : objects)
-      removeObject(o->value().getObject());
+    layer->erase(obj);
+
+    for (auto *o : objects)
+      removeObject(o);
+  } else {
+    layer->erase(obj);
   }
 
-  layer->erase(obj);
   signalLayerStructureChanged(layer);
 }
 

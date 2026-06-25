@@ -72,19 +72,15 @@ void Inspector::drawParameters(NodeId id)
       }
     } else if (t == ANARI_FLOAT32) {
       float v = p.value.get<float>();
-      if (ImGui::InputFloat(name.c_str(),
-              &v,
-              0.f,
-              0.f,
-              "%.4f",
-              ImGuiInputTextFlags_EnterReturnsTrue)) {
+      // EnterReturnsTrue is forbidden on InputScalar (asserts); InputFloat
+      // commits on deactivation-after-edit instead.
+      if (ImGui::InputFloat(name.c_str(), &v, 0.f, 0.f, "%.4f")) {
         params.set(name, v);
         *m_graphDirty = true;
       }
     } else if (t == ANARI_INT32) {
       int v = p.value.get<int>();
-      if (ImGui::InputInt(
-              name.c_str(), &v, 1, 10, ImGuiInputTextFlags_EnterReturnsTrue)) {
+      if (ImGui::InputInt(name.c_str(), &v, 1, 10)) {
         params.set(name, v);
         *m_graphDirty = true;
       }
