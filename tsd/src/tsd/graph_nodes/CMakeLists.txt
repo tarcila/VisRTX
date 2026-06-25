@@ -23,3 +23,13 @@ PUBLIC
 )
 
 project_link_libraries(PUBLIC tsd_graph)
+
+# IsosurfaceExtract requires Viskores. Auto-detected and optional: when Viskores
+# is absent the node source, its link deps, and its TSD_GRAPH_NODES_HAVE_VISKORES
+# guard are all omitted, leaving the rest of the library unchanged.
+find_package(Viskores 1.1.0 QUIET)
+if(Viskores_FOUND)
+  target_sources(tsd_graph_nodes PRIVATE IsosurfaceExtract.cpp)
+  target_link_libraries(tsd_graph_nodes PUBLIC viskores::filter_contour viskores::cont)
+  target_compile_definitions(tsd_graph_nodes PUBLIC TSD_GRAPH_NODES_HAVE_VISKORES)
+endif()

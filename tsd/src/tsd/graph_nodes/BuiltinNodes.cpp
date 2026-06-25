@@ -13,6 +13,9 @@ void registerBuiltinNodes(tsd::graph::NodeRegistry &reg)
   registerDisplayVolume(reg);
   registerBoundingBox(reg);
   registerDisplaySurface(reg);
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+  registerIsosurfaceExtract(reg);
+#endif
 }
 
 void registerBuiltinNodes()

@@ -53,6 +53,7 @@ project_add_executable(
   test_nodes_DisplayTransform.cpp
   test_nodes_MultiViewport.cpp
   test_nodes_Surface.cpp
+  test_nodes_Isosurface.cpp
   test_nodes_TfnSampling.cpp
   test_nodes_GraphLayout.cpp
   test_nodes_Wiring.cpp
@@ -151,6 +152,7 @@ add_test(NAME tsd::nodes::DisplayTransform COMMAND ${PROJECT_NAME} "[display-tra
 add_test(NAME tsd::nodes::MultiViewport COMMAND ${PROJECT_NAME} "[multi-viewport]")
 set_tests_properties(tsd::nodes::MultiViewport PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::nodes::Surface COMMAND ${PROJECT_NAME} "[nodes-surface]")
+add_test(NAME tsd::nodes::Isosurface COMMAND ${PROJECT_NAME} "[nodes-isosurface]")
 add_test(NAME tsd::nodes::TfnSampling COMMAND ${PROJECT_NAME} "[tfn-sampling]")
 add_test(NAME tsd::nodes::GraphLayout COMMAND ${PROJECT_NAME} "[graph-layout]")
 add_test(NAME tsd::nodes::Wiring COMMAND ${PROJECT_NAME} "[nodes-wiring]")
