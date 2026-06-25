@@ -27,11 +27,113 @@ static bool UI_layerName_callback(void *l, int index, const char **out_text)
 
 // LayerTree definitions //////////////////////////////////////////////////////
 
-LayerTree::LayerTree(Application *app, const char *name) : Window(app, name) {}
+LayerTree::LayerTree(Application *app,
+    const char *name,
+    tsd::scene::Scene *sceneOverride,
+    bool readOnly)
+    : Window(app, name), m_sceneOverride(sceneOverride), m_readOnly(readOnly)
+{
+  if (m_readOnly)
+    m_enableAddRemove = false; // also disables layer new/delete + node add/remove
+}
+
+tsd::scene::Scene &LayerTree::activeScene()
+{
+  return m_sceneOverride ? *m_sceneOverride : appContext()->tsd.scene;
+}
+
+bool LayerTree::isSel(const tsd::scene::LayerNodeRef &r)
+{
+  if (m_readOnly)
+    return r.valid() && r.index() == m_roSelectedIndex;
+  return appContext()->isSelected(r);
+}
+
+tsd::scene::LayerNodeRef LayerTree::firstSel()
+{
+  if (m_readOnly) {
+    if (m_roSelectedIndex == TSD_INVALID_INDEX
+        || m_layerIdx >= int(activeScene().numberOfLayers()))
+      return {};
+    return activeScene().layer(m_layerIdx)->at(m_roSelectedIndex);
+  }
+  return appContext()->getFirstSelected();
+}
+
+std::vector<tsd::scene::LayerNodeRef> LayerTree::selNodes()
+{
+  if (m_readOnly) {
+    std::vector<tsd::scene::LayerNodeRef> v;
+    auto r = firstSel();
+    if (r.valid())
+      v.push_back(r);
+    return v;
+  }
+  return appContext()->getSelectedNodes();
+}
+
+void LayerTree::setSel(const tsd::scene::LayerNodeRef &r)
+{
+  if (m_readOnly)
+    m_roSelectedIndex = r.valid() ? r.index() : TSD_INVALID_INDEX;
+  else
+    appContext()->setSelected(r);
+}
+
+void LayerTree::setSel(const std::vector<tsd::scene::LayerNodeRef> &v)
+{
+  if (m_readOnly)
+    m_roSelectedIndex = (!v.empty() && v.front().valid())
+        ? v.front().index()
+        : TSD_INVALID_INDEX;
+  else
+    appContext()->setSelected(v);
+}
+
+void LayerTree::addSel(const tsd::scene::LayerNodeRef &r)
+{
+  if (m_readOnly)
+    m_roSelectedIndex = r.valid() ? r.index() : TSD_INVALID_INDEX;
+  else
+    appContext()->addToSelection(r);
+}
+
+void LayerTree::removeSel(const tsd::scene::LayerNodeRef &r)
+{
+  if (m_readOnly) {
+    if (r.valid() && r.index() == m_roSelectedIndex)
+      m_roSelectedIndex = TSD_INVALID_INDEX;
+  } else
+    appContext()->removeFromSelection(r);
+}
+
+void LayerTree::clearSel()
+{
+  if (m_readOnly)
+    m_roSelectedIndex = TSD_INVALID_INDEX;
+  else
+    appContext()->clearSelected();
+}
+
+tsd::scene::Object *LayerTree::readOnlySelectedObject() const
+{
+  if (!m_readOnly || !m_sceneOverride
+      || m_roSelectedIndex == TSD_INVALID_INDEX)
+    return nullptr;
+  if (m_layerIdx < 0 || m_layerIdx >= int(m_sceneOverride->numberOfLayers()))
+    return nullptr;
+  auto *layer = m_sceneOverride->layer(m_layerIdx);
+  if (!layer)
+    return nullptr;
+  auto ref = layer->at(m_roSelectedIndex);
+  if (!ref.valid() || !(*ref)->isObject())
+    return nullptr;
+  return (*ref)->getObject();
+}
 
 void LayerTree::buildUI()
 {
-  if (!appContext()->tsd.sceneLoadComplete) {
+  if (!m_sceneOverride && !appContext()->tsd.sceneLoadComplete) {
     ImGui::Text("{SCENE NOT AVAILABLE}");
     return;
   }
@@ -53,7 +155,7 @@ void LayerTree::setEnableAddRemoveLayers(bool enable)
 
 void LayerTree::buildUI_layerHeader()
 {
-  auto &scene = appContext()->tsd.scene;
+  auto &scene = activeScene();
   const auto &layers = scene.layers();
 
   if (scene.numberOfLayers() == 0) {
@@ -68,11 +170,14 @@ void LayerTree::buildUI_layerHeader()
   }
 
   ImGui::SetNextItemWidth(-1.0f);
-  ImGui::Combo("##layer",
-      &m_layerIdx,
-      UI_layerName_callback,
-      (void *)&layers,
-      layers.size());
+  if (ImGui::Combo("##layer",
+          &m_layerIdx,
+          UI_layerName_callback,
+          (void *)&layers,
+          layers.size())
+      && m_readOnly) {
+    m_roSelectedIndex = TSD_INVALID_INDEX;
+  }
 
   if (ImGui::IsItemHovered()) {
     tooltipForPreviousItem("right-click to set layer visibility", false);
@@ -82,9 +187,9 @@ void LayerTree::buildUI_layerHeader()
     }
   }
 
-  if (ImGui::Button("clear")) {
-    appContext()->clearSelected();
-    appContext()->tsd.scene.removeAllObjects();
+  if (!m_readOnly && ImGui::Button("clear")) {
+    clearSel();
+    activeScene().removeAllObjects();
   }
 
   ImGui::SameLine();
@@ -151,7 +256,7 @@ std::vector<tsd::scene::LayerNodeRef> LayerTree::computeSelectionRange(
 
 void LayerTree::buildUI_tree()
 {
-  auto &scene = appContext()->tsd.scene;
+  auto &scene = activeScene();
 
   if (scene.numberOfLayers() == 0)
     return;
@@ -198,16 +303,16 @@ void LayerTree::buildUI_tree()
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.3f, 0.3f, 1.f));
       }
 
-      auto selectedNodeRef = appContext()->getFirstSelected();
+      auto selectedNodeRef = firstSel();
       auto currentNodeRef = layer.at(node.index());
 
       // Check if this node is in the selection set
-      const bool isSelectedNode = appContext()->isSelected(currentNodeRef);
+      const bool isSelectedNode = isSel(currentNodeRef);
 
       // Check if any selected node's object matches this node's object
       bool sameObject = false;
       if (obj) {
-        const auto &selectedNodes = appContext()->getSelectedNodes();
+        const auto selectedNodes = selNodes();
         for (const auto &selected : selectedNodes) {
           if (selected.valid() && (*selected)->getObject() == obj) {
             sameObject = true;
@@ -298,41 +403,34 @@ void LayerTree::buildUI_tree()
         ImGuiIO &io = ImGui::GetIO();
         bool ctrlPressed = io.KeyCtrl;
         bool shiftPressed = io.KeyShift;
-        bool isAlreadySelected = appContext()->isSelected(clickedNode);
+        bool isAlreadySelected = isSel(clickedNode);
 
-        if (ctrlPressed) {
-          // Toggle selection
-          if (appContext()->isSelected(clickedNode)) {
-            appContext()->removeFromSelection(clickedNode);
+        if (!m_readOnly && ctrlPressed) {
+          if (isSel(clickedNode)) {
+            removeSel(clickedNode);
           } else {
-            appContext()->addToSelection(clickedNode);
+            addSel(clickedNode);
           }
           m_anchorNode = clickedNode;
-        } else if (shiftPressed) {
-          // Range selection
+        } else if (!m_readOnly && shiftPressed) {
           if (m_anchorNode.valid()) {
             auto rangeNodes =
                 computeSelectionRange(layer, m_anchorNode, clickedNode);
             if (!rangeNodes.empty()) {
-              appContext()->setSelected(rangeNodes);
+              setSel(rangeNodes);
             }
           } else {
-            appContext()->addToSelection(clickedNode);
+            addSel(clickedNode);
             m_anchorNode = clickedNode;
           }
         } else if (!isAlreadySelected) {
-          // Normal click on unselected item: replace selection immediately
-          appContext()->setSelected(clickedNode);
-          // Update anchor to the clicked node
+          setSel(clickedNode);
           m_anchorNode = clickedNode;
         }
-        // If clicking on already selected item without modifiers, defer
-        // selection change to allow drag and drop. Selection will be updated on
-        // mouse release if no drag occurred.
       }
 
-      // Drag and drop source
-      if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+      // Drag and drop source (disabled in read-only mode)
+      if (!m_readOnly && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         // Get parent-only nodes from the selection
         auto draggedNodes = appContext()->getParentOnlySelectedNodes();
 
@@ -365,19 +463,19 @@ void LayerTree::buildUI_tree()
             && m_menuNode == TSD_INVALID_INDEX) {
           auto clickedNode = layer.at(node.index());
           ImGuiIO &io = ImGui::GetIO();
-          bool isAlreadySelected = appContext()->isSelected(clickedNode);
+          bool isAlreadySelected = isSel(clickedNode);
 
           // Only update selection if clicking on already-selected item without
           // modifiers
           if (isAlreadySelected && !io.KeyCtrl && !io.KeyShift) {
-            appContext()->setSelected(clickedNode);
+            setSel(clickedNode);
             m_anchorNode = clickedNode;
           }
         }
       }
 
       // Drag and drop target
-      if (ImGui::BeginDragDropTarget()) {
+      if (!m_readOnly && ImGui::BeginDragDropTarget()) {
         // Peek at the payload to validate before accepting
         if (const ImGuiPayload *payload = ImGui::GetDragDropPayload()) {
           if (payload->IsDataType("LAYER_TREE_NODE")) {
@@ -429,7 +527,7 @@ void LayerTree::buildUI_tree()
     ImGui::EndTable();
 
     // Drag and drop target on the panel itself. Will drop under the root node.
-    if (ImGui::BeginDragDropTarget()) {
+    if (!m_readOnly && ImGui::BeginDragDropTarget()) {
       if (const ImGuiPayload *payload =
               ImGui::AcceptDragDropPayload("LAYER_TREE_NODE")) {
         dragAndDropTarget = layer.root();
@@ -444,17 +542,18 @@ void LayerTree::buildUI_tree()
     }
 
     // Deferred handling of the drop event
-    if (dragAndDropTarget.valid() && !droppedNodes.empty()) {
+    if (!m_readOnly && dragAndDropTarget.valid() && !droppedNodes.empty()) {
       ImGuiIO &io = ImGui::GetIO();
       copyNodesTo(dragAndDropTarget, droppedNodes, !io.KeyCtrl);
 
-      appContext()->tsd.scene.signalLayerStructureChanged(&layer);
+      activeScene().signalLayerStructureChanged(&layer);
     }
   }
 }
 
 void LayerTree::buildUI_activateObjectSceneMenu()
 {
+  if (m_readOnly) return;
   if (!m_activeLayerMenuTriggered && ImGui::IsWindowHovered()) {
     ImGuiIO &io = ImGui::GetIO();
 
@@ -465,7 +564,7 @@ void LayerTree::buildUI_activateObjectSceneMenu()
 
     // Check for Delete key to delete selected nodes
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
-      auto &scene = appContext()->tsd.scene;
+      auto &scene = activeScene();
       auto parentOnlyNodes = appContext()->getParentOnlySelectedNodes();
 
       if (!parentOnlyNodes.empty()) {
@@ -495,6 +594,7 @@ void LayerTree::buildUI_activateObjectSceneMenu()
 
 void LayerTree::buildUI_handleSelection()
 {
+  if (m_readOnly) return;
   ImGuiIO &io = ImGui::GetIO();
 
   // Check for Ctrl+X to cut selected nodes
@@ -517,7 +617,7 @@ void LayerTree::buildUI_handleSelection()
 
   // Check for Ctrl+V to paste stashed nodes
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) {
-    auto &scene = appContext()->tsd.scene;
+    auto &scene = activeScene();
     auto &stashed = appContext()->tsd.stashedSelection;
     auto selectedNodes = appContext()->getSelectedNodes();
 
@@ -558,7 +658,7 @@ void LayerTree::buildUI_handleSelection()
 
   // Check for Ctrl+A to select all nodes in the current layer
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) {
-    auto &scene = appContext()->tsd.scene;
+    auto &scene = activeScene();
     if (scene.numberOfLayers() > 0) {
       auto &layer = *scene.layer(m_layerIdx);
       std::vector<tsd::scene::LayerNodeRef> allNodes;
@@ -581,7 +681,8 @@ void LayerTree::buildUI_handleSelection()
 
 void LayerTree::buildUI_objectSceneMenu()
 {
-  auto &scene = appContext()->tsd.scene;
+  if (m_readOnly) return;
+  auto &scene = activeScene();
 
   if (scene.numberOfLayers() == 0)
     return;
@@ -863,6 +964,7 @@ void LayerTree::buildUI_objectSceneMenu()
 
 void LayerTree::buildUI_newLayerSceneMenu()
 {
+  if (m_readOnly) return;
   if (ImGui::BeginPopup("LayerTree_contextMenu_newLayer")) {
     ImGui::InputText("layer name", &s_newLayerName);
 
@@ -871,7 +973,7 @@ void LayerTree::buildUI_newLayerSceneMenu()
     ImGuiIO &io = ImGui::GetIO();
     if ((ImGui::Button("ok") || ImGui::IsKeyDown(ImGuiKey_Enter))
         && !s_newLayerName.empty()) {
-      auto &scene = appContext()->tsd.scene;
+      auto &scene = activeScene();
       tsd::core::Token layerName = s_newLayerName.c_str();
       auto *newLayer = scene.addLayer(layerName);
 
@@ -897,8 +999,9 @@ void LayerTree::buildUI_newLayerSceneMenu()
 
 void LayerTree::buildUI_setActiveLayersSceneMenus()
 {
+  if (m_readOnly) return;
   if (ImGui::BeginPopup("LayerTree_contextMenu_setActiveLayers")) {
-    auto &scene = appContext()->tsd.scene;
+    auto &scene = activeScene();
 
     if (ImGui::Button("show all"))
       scene.setAllLayersActive();
@@ -946,7 +1049,7 @@ std::vector<tsd::scene::LayerNodeRef> LayerTree::copyNodesTo(
     return {};
 
   auto layer = targetParent->container();
-  auto &scene = appContext()->tsd.scene;
+  auto &scene = activeScene();
 
   // Copy all valid stashed nodes to target parent
   std::vector<tsd::scene::LayerNodeRef> newNodes;

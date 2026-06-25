@@ -13,7 +13,14 @@ struct ImportFileDialog;
 
 struct LayerTree : public Window
 {
-  LayerTree(Application *app, const char *name = "Layers");
+  LayerTree(Application *app,
+      const char *name = "Layers",
+      tsd::scene::Scene *sceneOverride = nullptr, // null => appContext()->tsd.scene
+      bool readOnly = false);
+
+  // Valid only in read-only mode: the locally-selected node's object, or null.
+  tsd::scene::Object *readOnlySelectedObject() const;
+
   void buildUI() override;
 
   void setEnableAddRemoveLayers(bool enable);
@@ -26,6 +33,19 @@ struct LayerTree : public Window
   void buildUI_objectSceneMenu();
   void buildUI_newLayerSceneMenu();
   void buildUI_setActiveLayersSceneMenus();
+
+  // Scene source: the override when set, else the app scene.
+  tsd::scene::Scene &activeScene();
+  // Selection dispatch: app selection normally; a local single-select in
+  // read-only mode (so the render-scene view never touches app selection).
+  bool isSel(const tsd::scene::LayerNodeRef &r);
+  tsd::scene::LayerNodeRef firstSel();
+  std::vector<tsd::scene::LayerNodeRef> selNodes();
+  void setSel(const tsd::scene::LayerNodeRef &r);
+  void setSel(const std::vector<tsd::scene::LayerNodeRef> &v);
+  void addSel(const tsd::scene::LayerNodeRef &r);
+  void removeSel(const tsd::scene::LayerNodeRef &r);
+  void clearSel();
 
   std::vector<tsd::scene::LayerNodeRef> computeSelectionRange(
       tsd::scene::Layer &layer,
@@ -56,6 +76,9 @@ struct LayerTree : public Window
   std::vector<int> m_needToTreePop;
   int m_layerIdx{0};
   tsd::scene::LayerNodeRef m_anchorNode;
+  tsd::scene::Scene *m_sceneOverride{nullptr};
+  bool m_readOnly{false};
+  size_t m_roSelectedIndex{TSD_INVALID_INDEX}; // read-only local selection
 };
 
 } // namespace tsd::ui::imgui
