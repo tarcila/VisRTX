@@ -90,25 +90,39 @@ void GraphViewport::buildUI()
   m_anariPass->setWorld(m_bridge->world(m_viewportIndex));
   m_pipeline.render();
 
-  // Reserve the viewport area with an invisible button BEFORE blitting: while
-  // held it owns ImGui's ActiveId, so drags are consumed as navigation rather
-  // than moving the dock/window. The rendered texture is then drawn into the
-  // same rect via the window draw list.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
   const ImVec2 imgSize(float(m_size.x), float(m_size.y));
-  ImGui::InvisibleButton("##viewport",
-      imgSize,
-      ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
-          | ImGuiButtonFlags_MouseButtonMiddle);
+  // Blit the rendered texture first. AddImage is draw-list only: it does not
+  // advance the cursor or claim input, so the cursor stays at pos for the
+  // InvisibleButton below.
   ImGui::GetWindowDrawList()->AddImage((ImTextureID)m_outputPass->getTexture(),
       pos,
       ImVec2(pos.x + imgSize.x, pos.y + imgSize.y),
       ImVec2(0, 1),
       ImVec2(1, 0));
 
+  // Run the gizmo first; ImGuizmo hit-tests and captures the mouse internally.
   const bool gizmoActive = drawGizmo(pos, imgSize);
-  if (!gizmoActive)
+
+  // Camera drag-nav only when the gizmo is not hot. The InvisibleButton owns
+  // ImGui's ActiveId only when a press lands inside it, so window-decoration
+  // drags and out-of-rect presses never manipulate; and when the gizmo is hot
+  // no button is submitted to steal its press.
+  if (!gizmoActive) {
+    ImGui::InvisibleButton("##viewport",
+        imgSize,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
+            | ImGuiButtonFlags_MouseButtonMiddle);
     handleNavigation();
+  } else {
+    m_orbiting = false; // gizmo owns the frame; drop any orbit latch
+  }
+
+  // Wheel zoom works anywhere over the viewport (ImGuizmo ignores the wheel),
+  // suppressed only during an active gizmo drag.
+  ImGuiIO &io = ImGui::GetIO();
+  if (ImGui::IsWindowHovered() && !ImGuizmo::IsUsing() && io.MouseWheel != 0.f)
+    m_manip.zoom(io.MouseWheel * kWheelZoomScale);
 }
 
 bool GraphViewport::drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize)
@@ -159,16 +173,17 @@ bool GraphViewport::drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize)
   return ImGuizmo::IsUsing() || ImGuizmo::IsOver();
 }
 
-// Left-drag orbits, right-drag (or Left+Shift) dollies, middle-drag (or
-// Left+Alt) pans, scroll wheel zooms. Mouse deltas are normalized to
-// screen-fraction units before reaching the Manipulator, matching BaseViewport
-// — raw pixel deltas would be ~100x too fast (Manipulator::rotate scales by
-// 100).
 void GraphViewport::handleNavigation()
 {
-  const bool hovered = ImGui::IsItemHovered();
-  ImGuiIO &io = ImGui::GetIO();
+  // Manipulate only while the viewport's InvisibleButton is held — i.e. the
+  // press landed inside the viewport rect. Title-bar drags and presses that
+  // started elsewhere never set this item active, so they never manipulate.
+  if (!ImGui::IsItemActive()) {
+    m_orbiting = false;
+    return;
+  }
 
+  ImGuiIO &io = ImGui::GetIO();
   const bool dolly = ImGui::IsMouseDown(ImGuiMouseButton_Right)
       || (ImGui::IsMouseDown(ImGuiMouseButton_Left)
           && ImGui::IsKeyDown(ImGuiKey_LeftShift));
@@ -178,38 +193,22 @@ void GraphViewport::handleNavigation()
   const bool orbit =
       ImGui::IsMouseDown(ImGuiMouseButton_Left) && !dolly && !pan;
 
-  const bool anyMovement = dolly || pan || orbit;
-  if (!anyMovement) {
-    m_manipulating = false;
-    m_prevMouse = float2(-1.f);
-  } else if (hovered && !m_manipulating) {
-    m_manipulating = true;
-  }
-  if (m_rotating && !orbit)
-    m_rotating = false;
+  // Re-baseline rotation on the rising edge of orbit (including resume after a
+  // dolly/pan interlude in the same held drag), or the view jumps.
+  if (orbit && !m_orbiting)
+    m_manip.startNewRotation();
+  m_orbiting = orbit;
 
-  if (m_manipulating) {
-    const float2 mouse(io.MousePos.x, io.MousePos.y);
-    if (m_prevMouse != float2(-1.f)) {
-      const float2 delta = (mouse - m_prevMouse) * 2.f / float2(m_size);
-      if (delta != float2(0.f)) {
-        if (orbit) {
-          if (!m_rotating) {
-            m_manip.startNewRotation();
-            m_rotating = true;
-          }
-          m_manip.rotate(delta);
-        } else if (dolly)
-          m_manip.zoom(delta.y);
-        else if (pan)
-          m_manip.pan(delta);
-      }
-    }
-    m_prevMouse = mouse;
-  }
-
-  if (hovered && io.MouseWheel != 0.f)
-    m_manip.zoom(io.MouseWheel * kWheelZoomScale);
+  const float2 delta =
+      float2(io.MouseDelta.x, io.MouseDelta.y) * 2.f / float2(m_size);
+  if (delta == float2(0.f))
+    return;
+  if (orbit)
+    m_manip.rotate(delta);
+  else if (dolly)
+    m_manip.zoom(delta.y);
+  else if (pan)
+    m_manip.pan(delta);
 }
 
 } // namespace tsd::ui::imgui

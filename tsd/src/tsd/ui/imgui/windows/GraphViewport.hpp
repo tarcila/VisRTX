@@ -50,10 +50,10 @@ struct GraphViewport : public Window
   tsd::rendering::CopyToSDLTexturePass *m_outputPass{nullptr};
   tsd::math::int2 m_size{0, 0};
 
-  // Mouse-navigation state (mirrors BaseViewport's normalized-delta model).
-  tsd::math::float2 m_prevMouse{-1.f};
-  bool m_manipulating{false};
-  bool m_rotating{false};
+  // Camera-navigation state: a single rising-edge latch so startNewRotation()
+  // re-arms whenever orbit resumes within one held drag (e.g. orbit → Shift to
+  // dolly → release back to orbit).
+  bool m_orbiting{false};
 
   tsd::graph::Graph *m_graph{nullptr};
   tsd::graph::NodeId *m_selected{nullptr};
