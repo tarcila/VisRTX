@@ -4,14 +4,15 @@
 #pragma once
 
 #include "tsd/rendering/bridge/GraphRenderBridge.hpp"
+#include "tsd/ui/imgui/windows/LayerTree.h"
 #include "tsd/ui/imgui/windows/Window.h"
 // std
-#include <cstddef>
+#include <memory>
 
 namespace tsd::ui::imgui {
 
-// Read-only, hidden-by-default debug view of the GraphRenderBridge's realized
-// per-viewport layers, with a greyed param pane for the selected object.
+// Hidden-by-default debug panel: the real LayerTree, read-only, over the
+// bridge's render scene, plus a greyed param pane for the selected object.
 struct LayerDebug : public Window
 {
   LayerDebug(Application *app,
@@ -21,10 +22,7 @@ struct LayerDebug : public Window
 
  private:
   tsd::rendering::GraphRenderBridge *m_bridge{nullptr};
-  // Selection key, re-resolved each frame (never a persisted pointer).
-  int m_selViewport{-1};
-  int m_selLayer{-1};
-  std::size_t m_selNodeIndex{~std::size_t(0)};
+  std::unique_ptr<LayerTree> m_tree;
 };
 
 } // namespace tsd::ui::imgui
