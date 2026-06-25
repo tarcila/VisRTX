@@ -236,6 +236,7 @@ DockSpace        ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
     if (ImGui::BeginMainMenuBar()) {
       if (ImGui::MenuItem("Regenerate"))
         regenerate();
+      uiMainMenuBar_View(); // "View" menu: per-window visibility toggles
       ImGui::EndMainMenuBar();
     }
 
