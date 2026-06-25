@@ -66,9 +66,15 @@ void GraphEditor::drawNode(NodeId id)
   if (isCollapsed(id)) {
     const bool hasIn = !info.inputs.empty();
     const bool hasOut = !info.outputs.empty();
+    // Each proxy attribute needs a real item: an empty ImGui group adopts
+    // g.LastItemData.Rect.Max (the previously drawn node's right edge) as its
+    // bounding box, which stretches the node across the canvas. A text-height
+    // stub gives the group a small, well-defined rect and centers the pin.
+    const ImVec2 pinStub(1.f, ImGui::GetTextLineHeight());
     if (hasIn) {
       ImNodes::BeginInputAttribute(
           pinId(id, Token("##in"), true), ImNodesPinShape_CircleFilled);
+      ImGui::Dummy(pinStub);
       ImNodes::EndInputAttribute();
       ImGui::SameLine();
     }
@@ -77,6 +83,7 @@ void GraphEditor::drawNode(NodeId id)
       ImGui::SameLine();
       ImNodes::BeginOutputAttribute(
           pinId(id, Token("##out"), false), ImNodesPinShape_TriangleFilled);
+      ImGui::Dummy(pinStub);
       ImNodes::EndOutputAttribute();
     }
   } else {
