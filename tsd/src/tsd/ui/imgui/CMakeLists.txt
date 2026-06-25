@@ -22,6 +22,7 @@ project_sources(PRIVATE
   windows/CameraPoses.cpp
   windows/DatabaseEditor.cpp
   windows/IsosurfaceEditor.cpp
+  windows/LayerDebug.cpp
   windows/LayerTree.cpp
   windows/Log.cpp
   windows/MultiDeviceViewport.cpp

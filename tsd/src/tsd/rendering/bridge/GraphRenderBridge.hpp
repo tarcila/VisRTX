@@ -45,6 +45,13 @@ class GraphRenderBridge
     return int(m_indices.size());
   }
 
+  // Read access to the generated render scene (for the layer debug panel).
+  // The scene is rebuilt each frame from the graph; do not retain references.
+  tsd::scene::Scene &renderScene()
+  {
+    return m_renderScene;
+  }
+
   // Number of render-Scene objects + arrays; for tests/diagnostics.
   size_t renderSceneObjectCount() const;
 

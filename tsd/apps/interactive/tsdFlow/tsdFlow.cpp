@@ -5,6 +5,7 @@
 #include "tsd/ui/imgui/Application.h"
 #include "tsd/ui/imgui/windows/GraphEditor.hpp"
 #include "tsd/ui/imgui/windows/GraphViewport.hpp"
+#include "tsd/ui/imgui/windows/LayerDebug.hpp"
 #include "tsd/ui/imgui/windows/Inspector.hpp"
 #include "tsd/ui/imgui/windows/Log.h"
 #include "tsd/ui/imgui/windows/ViewportRail.hpp"
@@ -220,6 +221,9 @@ DockSpace        ID=0x80F5B4C5 Window=0x079D3A04 Pos=0,26 Size=1920,1054 Split=Y
       windows.emplace_back(vp);
     }
     windows.emplace_back(new ui::ViewportRail(this, viewportPtrs, "Viewports"));
+    auto *layerDebug = new ui::LayerDebug(this, m_bridge.get(), "Layer Debug");
+    layerDebug->hide(); // debug tool: off by default; toggle via the View menu
+    windows.emplace_back(layerDebug);
     windows.emplace_back(new ui::Log(this));
 
     setWindowArray(windows);
