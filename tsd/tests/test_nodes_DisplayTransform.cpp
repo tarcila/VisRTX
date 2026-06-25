@@ -38,9 +38,15 @@ SCENARIO("collectDisplayTransforms reports display transforms",
   WHEN("transforms are default")
   {
     auto xs = collectDisplayTransforms(g);
-    THEN("both display nodes appear at identity")
+    THEN("all display nodes appear at identity")
     {
+      // 2 display nodes unconditionally + 1 extra DisplaySurface under
+      // TSD_GRAPH_NODES_HAVE_VISKORES (isosurface branch).
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+      REQUIRE(xs.size() == 3);
+#else
       REQUIRE(xs.size() == 2);
+#endif
       REQUIRE(find(xs, d.volumeDisplay) != nullptr);
       REQUIRE(find(xs, d.surfaceDisplay) != nullptr);
       REQUIRE(find(xs, d.volumeDisplay)->xfm == tsd::core::math::IDENTITY_MAT4);

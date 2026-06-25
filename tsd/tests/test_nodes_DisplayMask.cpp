@@ -39,9 +39,16 @@ SCENARIO("collectDisplayMasks reports display nodes and their masks",
   WHEN("masks are read from a fresh demo graph")
   {
     auto masks = collectDisplayMasks(g);
-    THEN("exactly the two display nodes appear, each at the default mask")
+    THEN("exactly the display nodes appear, each at the default mask")
     {
+      // The demo graph has 2 display nodes unconditionally (DisplayVolume +
+      // DisplaySurface) plus a third DisplaySurface under
+      // TSD_GRAPH_NODES_HAVE_VISKORES when the isosurface branch is compiled in.
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+      REQUIRE(masks.size() == 3);
+#else
       REQUIRE(masks.size() == 2);
+#endif
       REQUIRE(find(masks, d.volumeDisplay) != nullptr);
       REQUIRE(find(masks, d.surfaceDisplay) != nullptr);
       REQUIRE(

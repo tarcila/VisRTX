@@ -59,7 +59,13 @@ SCENARIO("display viewportMask routes its layer into the masked viewports",
     sync(bridge, g);
     THEN("vp0 has both displays, vp1 has the volume, vp2 is empty")
     {
+      // Under TSD_GRAPH_NODES_HAVE_VISKORES the demo graph adds a third
+      // display (isosurface DisplaySurface) that appears in vp0 at default mask.
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+      REQUIRE(bridge.layersForViewport(0).size() == 3); // volume + 2 surfaces
+#else
       REQUIRE(bridge.layersForViewport(0).size() == 2); // volume + surface
+#endif
       REQUIRE(bridge.layersForViewport(1).size() == 1); // volume only
       REQUIRE(bridge.layersForViewport(2).empty());
     }
@@ -71,7 +77,13 @@ SCENARIO("display viewportMask routes its layer into the masked viewports",
     sync(bridge, g);
     THEN("vp0 has only the surface; the volume appears nowhere")
     {
+      // Under TSD_GRAPH_NODES_HAVE_VISKORES the isosurface DisplaySurface also
+      // appears at the default mask, so vp0 gets 2 surface layers.
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+      REQUIRE(bridge.layersForViewport(0).size() == 2); // 2 surfaces
+#else
       REQUIRE(bridge.layersForViewport(0).size() == 1); // surface only
+#endif
       REQUIRE(bridge.layersForViewport(1).empty());
       REQUIRE(bridge.layersForViewport(2).empty());
     }

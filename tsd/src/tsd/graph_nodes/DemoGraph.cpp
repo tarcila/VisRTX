@@ -38,6 +38,14 @@ DemoDisplays buildVolumeSurfaceDemo(
   link(src, "out", bb, "in");
   link(bb, "out", ds, "in");
 
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+  // Isosurface path: field -> IsosurfaceExtract -> its own DisplaySurface.
+  const NodeId iso = add("IsosurfaceExtract");
+  const NodeId dsIso = add("DisplaySurface");
+  link(src, "out", iso, "in");
+  link(iso, "out", dsIso, "in");
+#endif
+
   return DemoDisplays{src, dv, ds};
 }
 

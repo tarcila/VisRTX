@@ -83,11 +83,17 @@ SCENARIO("computeLayeredLayout lays the demo graph out by topological depth",
 
   THEN("rows within a column are 0..k-1 (determinism via nodeIds order)")
   {
-    // column 1 has exactly ScalarRange and BoundingBox → rows {0,1}.
+    // Under TSD_GRAPH_NODES_HAVE_VISKORES the isosurface branch adds
+    // IsosurfaceExtract (col 1) and its DisplaySurface (col 2).
+    // Column 1: ScalarRange, BoundingBox, [IsosurfaceExtract] → rows {0,1[,2]}.
     std::set<int> col1rows;
     for (const auto &p : placements)
       if (p.col == 1)
         col1rows.insert(p.row);
+#ifdef TSD_GRAPH_NODES_HAVE_VISKORES
+    REQUIRE(col1rows == std::set<int>({0, 1, 2}));
+#else
     REQUIRE(col1rows == std::set<int>({0, 1}));
+#endif
   }
 }
