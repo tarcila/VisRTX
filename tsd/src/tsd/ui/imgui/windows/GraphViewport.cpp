@@ -5,6 +5,7 @@
 #include "tsd/graph_nodes/TransformableNode.hpp"
 #include "tsd/rendering/view/ManipulatorToAnari.hpp"
 #include "tsd/ui/imgui/Application.h"
+#include "tsd/ui/imgui/tsd_ui_imgui.h"
 // imgui
 #include "imgui.h"
 // anari
@@ -42,9 +43,8 @@ GraphViewport::GraphViewport(Application *app,
   // Camera + renderer on the bridge's device.
   m_camera = anari::newObject<anari::Camera>(m_device, "perspective");
   anari::commitParameters(m_device, m_camera);
-  m_renderer = anari::newObject<anari::Renderer>(m_device, "default");
-  anari::setParameter(m_device, m_renderer, "ambientRadiance", 1.f);
-  anari::commitParameters(m_device, m_renderer);
+  rebuildRendererObject(); // introspected defaults; no hard-coded
+                           // ambientRadiance
 
   m_manip.setConfig(float3(0.f, 0.f, 0.f), kInitialViewDistance);
 
@@ -52,10 +52,47 @@ GraphViewport::GraphViewport(Application *app,
   m_anariPass =
       m_pipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
   m_anariPass->setCamera(m_camera);
-  m_anariPass->setRenderer(m_renderer);
   m_anariPass->setRunAsync(false);
+  reifyRenderer(); // builds the live renderer + sets it on m_anariPass
   m_outputPass = m_pipeline.emplace_back<tsd::rendering::CopyToSDLTexturePass>(
       m_app->sdlRenderer());
+}
+
+int GraphViewport::windowFlags() const
+{
+  return Window::windowFlags() | ImGuiWindowFlags_MenuBar;
+}
+
+void GraphViewport::rebuildRendererObject()
+{
+  m_rendererObj = tsd::scene::parseANARIObjectInfo(
+      m_device, ANARI_RENDERER, m_rendererSubtype.c_str());
+  // Point the delegate at this viewport's live device/renderer members (their
+  // addresses are stable; values are refreshed on each reify / device switch).
+  m_rud.device = &m_device;
+  m_rud.renderer = &m_renderer;
+  m_rendererObj.setUpdateDelegate(&m_rud);
+}
+
+void GraphViewport::reifyRenderer()
+{
+  if (m_renderer)
+    anari::release(m_device, m_renderer);
+  m_renderer =
+      anari::newObject<anari::Renderer>(m_device, m_rendererSubtype.c_str());
+  m_rendererObj.updateAllANARIParameters(m_device, m_renderer);
+  anari::commitParameters(m_device, m_renderer);
+  if (m_anariPass)
+    m_anariPass->setRenderer(m_renderer);
+}
+
+void GraphViewport::RendererUpdateDelegate::signalParameterUpdated(
+    const tsd::scene::Object *o, const tsd::scene::Parameter *p)
+{
+  if (!device || !renderer || !*renderer)
+    return;
+  o->updateANARIParameter(*device, *renderer, *p, p->name().c_str());
+  anari::commitParameters(*device, *renderer);
 }
 
 GraphViewport::~GraphViewport()
@@ -69,6 +106,11 @@ GraphViewport::~GraphViewport()
 
 void GraphViewport::buildUI()
 {
+  if (ImGui::BeginMenuBar()) {
+    ui_menu_Renderer();
+    ImGui::EndMenuBar();
+  }
+
   const ImVec2 avail = ImGui::GetContentRegionAvail();
   const tsd::math::int2 size{int(avail.x), int(avail.y)};
   if (size.x > 0 && size.y > 0 && (size.x != m_size.x || size.y != m_size.y)) {
@@ -171,6 +213,38 @@ bool GraphViewport::drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize)
     *m_graphDirty = true;
   }
   return ImGuizmo::IsUsing() || ImGuizmo::IsOver();
+}
+
+void GraphViewport::ui_menu_Renderer()
+{
+  if (!ImGui::BeginMenu("Renderer"))
+    return;
+
+  const auto subtypes =
+      tsd::scene::getANARIObjectSubtypes(m_device, ANARI_RENDERER);
+  if (subtypes.size() > 1) {
+    ImGui::Text("Subtype:");
+    for (size_t i = 0; i < subtypes.size(); ++i) {
+      ImGui::PushID(int(i));
+      const bool selected =
+          m_rendererSubtype == tsd::core::Token(subtypes[i].c_str());
+      if (ImGui::RadioButton(subtypes[i].c_str(), selected) && !selected) {
+        m_rendererSubtype = tsd::core::Token(subtypes[i].c_str());
+        rebuildRendererObject();
+        reifyRenderer();
+      }
+      ImGui::PopID();
+    }
+    ImGui::Separator();
+  }
+
+  ImGui::Text("Parameters:");
+  // The scene arg only resolves object-reference params; the standalone
+  // renderer object has none, but buildUI_object requires a scene handle.
+  tsd::ui::buildUI_object(
+      m_rendererObj, m_bridge->renderScene(), /*useTable=*/true);
+
+  ImGui::EndMenu();
 }
 
 void GraphViewport::handleNavigation()

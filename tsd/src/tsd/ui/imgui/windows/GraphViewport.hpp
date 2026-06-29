@@ -10,6 +10,10 @@
 #include "tsd/rendering/pipeline/passes/CopyToSDLTexturePass.h"
 #include "tsd/rendering/view/Manipulator.hpp"
 #include "tsd/ui/imgui/windows/Window.h"
+// tsd
+#include "tsd/core/Token.hpp"
+#include "tsd/scene/Object.hpp"
+#include "tsd/scene/UpdateDelegate.hpp" // EmptyUpdateDelegate
 // anari
 #include <anari/anari_cpp.hpp>
 // imguizmo
@@ -38,11 +42,33 @@ struct GraphViewport : public Window
   void handleNavigation();
   bool drawGizmo(const ImVec2 &imgPos, const ImVec2 &imgSize);
 
+  int windowFlags() const override;
+
+  void ui_menu_Renderer();
+  void
+  rebuildRendererObject(); // (re)introspect m_rendererObj + attach delegate
+  void reifyRenderer(); // full rebuild: new handle + push all params + commit
+
+  // Pushes a single edited renderer param onto the live anari::Renderer.
+  // Mirrors MultiDeviceViewport::RendererUpdateDelegate. Subclass
+  // EmptyUpdateDelegate (NOT BaseUpdateDelegate, whose methods are pure
+  // virtual) so only signalParameterUpdated must be overridden.
+  struct RendererUpdateDelegate : public tsd::scene::EmptyUpdateDelegate
+  {
+    anari::Device *device{nullptr};
+    anari::Renderer *renderer{nullptr};
+    void signalParameterUpdated(
+        const tsd::scene::Object *o, const tsd::scene::Parameter *p) override;
+  };
+
   tsd::rendering::GraphRenderBridge *m_bridge{nullptr};
   int m_viewportIndex{0};
   anari::Device m_device{nullptr};
   anari::Camera m_camera{nullptr};
   anari::Renderer m_renderer{nullptr};
+  tsd::core::Token m_rendererSubtype{tsd::core::Token("default")};
+  tsd::scene::Object m_rendererObj; // editable renderer mirror
+  RendererUpdateDelegate m_rud; // reifies edits onto m_renderer
   tsd::rendering::Manipulator m_manip;
   tsd::rendering::UpdateToken m_manipToken{0};
   tsd::rendering::ImagePipeline m_pipeline;
