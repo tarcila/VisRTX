@@ -29,12 +29,15 @@ struct Renderable
   enum class Kind
   {
     Surface,
-    Volume
+    Volume,
+    Light
   };
   Kind kind{Kind::Surface};
-  tsd::core::Token primSubtype; // geometry subtype, or spatial-field subtype
-  RenderableParams prim; // geometry params, or spatial-field params
-  RenderableParams appearance; // material params, or volume/TF params
+  // geometry subtype, spatial-field subtype, or ANARI light subtype
+  tsd::core::Token primSubtype;
+  RenderableParams
+      prim; // geometry params, or spatial-field params (unused for lights)
+  RenderableParams appearance; // material/volume/TF params, or light params
 };
 
 } // namespace tsd::graph

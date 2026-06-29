@@ -14,6 +14,7 @@ project_sources(PRIVATE
   DisplayVolume.cpp
   BoundingBox.cpp
   DisplaySurface.cpp
+  DisplayLight.cpp
   DisplayTransform.cpp
 )
 

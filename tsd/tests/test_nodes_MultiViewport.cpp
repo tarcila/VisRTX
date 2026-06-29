@@ -57,17 +57,20 @@ SCENARIO("display viewportMask routes its layer into the masked viewports",
         ->impl->parameters()
         .set(Token("viewportMask"), 0b11);
     sync(bridge, g);
-    THEN("vp0 has both displays, vp1 has the volume, vp2 is empty")
+    THEN("vp0 has both displays, vp1 has the volume, all get the default light")
     {
-      // Under TSD_GRAPH_NODES_HAVE_VISKORES the demo graph adds a third
-      // display (isosurface DisplaySurface) that appears in vp0 at default mask.
+      // The demo seeds a DisplayLight masked to ALL viewports, so every
+      // viewport gains +1 layer. Under TSD_GRAPH_NODES_HAVE_VISKORES the demo
+      // also adds an isosurface DisplaySurface that appears in vp0 at default
+      // mask.
 #ifdef TSD_GRAPH_NODES_HAVE_VISKORES
-      REQUIRE(bridge.layersForViewport(0).size() == 3); // volume + 2 surfaces
+      REQUIRE(
+          bridge.layersForViewport(0).size() == 4); // volume + 2 surf + light
 #else
-      REQUIRE(bridge.layersForViewport(0).size() == 2); // volume + surface
+      REQUIRE(bridge.layersForViewport(0).size() == 3); // volume + surf + light
 #endif
-      REQUIRE(bridge.layersForViewport(1).size() == 1); // volume only
-      REQUIRE(bridge.layersForViewport(2).empty());
+      REQUIRE(bridge.layersForViewport(1).size() == 2); // volume + light
+      REQUIRE(bridge.layersForViewport(2).size() == 1); // light only
     }
   }
 
@@ -75,17 +78,18 @@ SCENARIO("display viewportMask routes its layer into the masked viewports",
   {
     g.node(d.volumeDisplay)->impl->parameters().set(Token("viewportMask"), 0);
     sync(bridge, g);
-    THEN("vp0 has only the surface; the volume appears nowhere")
+    THEN("vp0 has the surface; the volume appears nowhere; all get the light")
     {
-      // Under TSD_GRAPH_NODES_HAVE_VISKORES the isosurface DisplaySurface also
+      // The all-viewports DisplayLight adds +1 to every viewport. Under
+      // TSD_GRAPH_NODES_HAVE_VISKORES the isosurface DisplaySurface also
       // appears at the default mask, so vp0 gets 2 surface layers.
 #ifdef TSD_GRAPH_NODES_HAVE_VISKORES
-      REQUIRE(bridge.layersForViewport(0).size() == 2); // 2 surfaces
+      REQUIRE(bridge.layersForViewport(0).size() == 3); // 2 surfaces + light
 #else
-      REQUIRE(bridge.layersForViewport(0).size() == 1); // surface only
+      REQUIRE(bridge.layersForViewport(0).size() == 2); // surface + light
 #endif
-      REQUIRE(bridge.layersForViewport(1).empty());
-      REQUIRE(bridge.layersForViewport(2).empty());
+      REQUIRE(bridge.layersForViewport(1).size() == 1); // light only
+      REQUIRE(bridge.layersForViewport(2).size() == 1); // light only
     }
   }
 

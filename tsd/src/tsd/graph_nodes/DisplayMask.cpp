@@ -17,7 +17,8 @@ std::vector<DisplayMask> collectDisplayMasks(tsd::graph::Graph &g)
       continue;
     const auto info = gn->impl->typeInfo(); // bind temporary to a local
     if (info.name != Token("DisplayVolume")
-        && info.name != Token("DisplaySurface"))
+        && info.name != Token("DisplaySurface")
+        && info.name != Token("DisplayLight"))
       continue;
     const int mask = gn->impl->parameters().getOr<int>(
         Token("viewportMask"), kDefaultViewportMask);

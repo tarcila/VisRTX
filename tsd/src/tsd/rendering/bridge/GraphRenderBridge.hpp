@@ -69,13 +69,11 @@ class GraphRenderBridge
     tsd::scene::Layer *layer{nullptr};
     uint64_t lastVersion{0};
     bool realized{false};
+    bool isLight{
+        false}; // last build emitted a light (headlight auto uses this)
     tsd::math::mat4 transform{tsd::math::IDENTITY_MAT4};
   };
 
-  void addDefaultLight();
-  // Layers a viewport's index includes: masked display layers + the light
-  // layer.
-  std::vector<const tsd::scene::Layer *> indexLayers(int i) const;
   // Human-readable name shared by a display's layer and its render object,
   // matching the graph node's editor title: "<typeName> #<nodeId>".
   std::string displayName(tsd::graph::NodeId node) const;
@@ -85,6 +83,9 @@ class GraphRenderBridge
       const tsd::graph::Renderable &r,
       const std::string &name);
   void buildVolume(tsd::scene::Layer *layer,
+      const tsd::graph::Renderable &r,
+      const std::string &name);
+  void buildLight(tsd::scene::Layer *layer,
       const tsd::graph::Renderable &r,
       const std::string &name);
   void applyParams(
@@ -102,7 +103,6 @@ class GraphRenderBridge
   std::vector<tsd::core::Token> m_viewportDeviceNames;
 
   tsd::scene::Scene m_renderScene;
-  tsd::scene::Layer *m_lightsLayer{nullptr}; // default light; in every viewport
   std::map<tsd::graph::NodeId, Display> m_displays;
   std::vector<std::unique_ptr<RenderIndexAllLayers>> m_indices;
 };

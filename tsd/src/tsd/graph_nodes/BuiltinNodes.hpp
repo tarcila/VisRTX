@@ -16,6 +16,7 @@ void registerTransferFunction(tsd::graph::NodeRegistry &reg);
 void registerDisplayVolume(tsd::graph::NodeRegistry &reg);
 void registerBoundingBox(tsd::graph::NodeRegistry &reg);
 void registerDisplaySurface(tsd::graph::NodeRegistry &reg);
+void registerDisplayLight(tsd::graph::NodeRegistry &reg);
 #ifdef TSD_GRAPH_NODES_HAVE_VISKORES
 void registerIsosurfaceExtract(tsd::graph::NodeRegistry &reg);
 #endif

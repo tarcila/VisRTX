@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/graph_nodes/DemoGraph.hpp"
+#include "tsd/graph_nodes/DisplayMask.hpp" // kMaxViewports
 // std
 #include <cassert>
 
@@ -30,6 +31,11 @@ DemoDisplays buildVolumeSurfaceDemo(
   const NodeId dv = add("DisplayVolume");
   const NodeId bb = add("BoundingBox");
   const NodeId ds = add("DisplaySurface");
+
+  // Default directional light, visible in every viewport, so scenes are lit.
+  const NodeId dl = add("DisplayLight");
+  g.node(dl)->impl->parameters().set(
+      Token("viewportMask"), int((1 << kMaxViewports) - 1));
 
   link(src, "out", sr, "in");
   link(sr, "out", tf, "in");
