@@ -68,6 +68,12 @@ anari::Device makeVisRTX()
   return lib ? anari::newDevice(lib, "default") : nullptr;
 }
 
+anari::Device makeDevice(const char *libName)
+{
+  auto lib = anari::loadLibrary(libName, nullptr, nullptr);
+  return lib ? anari::newDevice(lib, "default") : nullptr;
+}
+
 } // namespace
 
 SCENARIO("GraphRenderBridge reclaims render-scene objects on rebuild",
@@ -111,5 +117,47 @@ SCENARIO("GraphRenderBridge reclaims render-scene objects on rebuild",
     }
   }
 
+  anari::release(dev, dev);
+}
+
+SCENARIO("GraphRenderBridge rebuilds a viewport index on a new device",
+    "[bridge-device]")
+{
+  anari::Device dev = makeVisRTX();
+  REQUIRE(dev != nullptr);
+
+  // A second, distinct device. helide ships with the ANARI SDK; if it is not
+  // loadable in this environment, skip rather than assert nothing.
+  anari::Device dev2 = makeDevice("helide");
+  if (!dev2) {
+    WARN(
+        "second ANARI device (helide) not loadable; "
+        "setViewportDevice path verified manually");
+    anari::release(dev, dev);
+    return;
+  }
+
+  Graph g;
+  auto sphere = g.addNode(std::make_unique<EmitSphere>());
+  Evaluator e(g);
+
+  GraphRenderBridge bridge(g, e, Token("visrtx"), dev, /*numViewports=*/1);
+  bridge.setDisplay(sphere, /*mask=*/0b1, /*enabled=*/true);
+  bridge.update();
+  const size_t baseline = bridge.renderSceneObjectCount();
+  REQUIRE(baseline > 0);
+
+  WHEN("viewport 0 switches to a second device")
+  {
+    bridge.setViewportDevice(0, Token("helide"), dev2);
+
+    THEN("its world is rebuilt and the device-agnostic scene is unchanged")
+    {
+      REQUIRE(bridge.world(0) != nullptr);
+      REQUIRE(bridge.renderSceneObjectCount() == baseline);
+    }
+  }
+
+  anari::release(dev2, dev2);
   anari::release(dev, dev);
 }

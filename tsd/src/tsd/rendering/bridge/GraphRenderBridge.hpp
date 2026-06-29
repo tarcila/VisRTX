@@ -39,6 +39,11 @@ class GraphRenderBridge
 
   void update();
 
+  // Rebuild viewport i's RenderIndex on a new device. No-op if d is already
+  // this viewport's device. The render scene is device-agnostic; the index
+  // maintains its own per-device ANARI handle cache.
+  void setViewportDevice(int i, tsd::core::Token deviceName, anari::Device d);
+
   anari::World world(int viewport) const;
   int numViewports() const
   {
@@ -77,6 +82,12 @@ class GraphRenderBridge
   tsd::graph::Evaluator &m_eval;
   tsd::core::Token m_deviceName;
   anari::Device m_device;
+
+  // Authoritative per-viewport device + name. m_device/m_deviceName above are
+  // only the ctor defaults (used to seed these and for device-agnostic layer
+  // creation); per-viewport device is m_viewportDevices[i].
+  std::vector<anari::Device> m_viewportDevices;
+  std::vector<tsd::core::Token> m_viewportDeviceNames;
 
   tsd::scene::Scene m_renderScene;
   std::map<tsd::graph::NodeId, Display> m_displays;

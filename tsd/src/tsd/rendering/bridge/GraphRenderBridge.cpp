@@ -35,10 +35,27 @@ GraphRenderBridge::GraphRenderBridge(tsd::graph::Graph &graph,
     throw std::runtime_error("GraphRenderBridge: null ANARI device");
   if (numViewports < 1 || numViewports > 64)
     throw std::runtime_error("GraphRenderBridge: numViewports must be 1..64");
+  m_viewportDevices.assign(numViewports, m_device);
+  m_viewportDeviceNames.assign(numViewports, m_deviceName);
   for (int i = 0; i < numViewports; ++i) {
     m_indices.push_back(std::make_unique<RenderIndexAllLayers>(
-        m_renderScene, m_deviceName, m_device));
+        m_renderScene, m_viewportDeviceNames[i], m_viewportDevices[i]));
   }
+}
+
+void GraphRenderBridge::setViewportDevice(
+    int i, Token deviceName, anari::Device d)
+{
+  if (i < 0 || i >= int(m_indices.size()) || !d)
+    return;
+  if (m_viewportDevices[i] == d) // no-op guard: same device
+    return;
+
+  m_viewportDeviceNames[i] = deviceName;
+  m_viewportDevices[i] = d;
+  m_indices[i] =
+      std::make_unique<RenderIndexAllLayers>(m_renderScene, deviceName, d);
+  m_indices[i]->setIncludedLayers(layersForViewport(i));
 }
 
 GraphRenderBridge::~GraphRenderBridge() = default;

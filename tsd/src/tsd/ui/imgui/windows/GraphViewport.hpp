@@ -30,6 +30,7 @@ struct GraphViewport : public Window
       tsd::rendering::GraphRenderBridge *bridge,
       int viewportIndex,
       anari::Device device,
+      tsd::core::Token deviceName,
       tsd::graph::Graph *graph,
       tsd::graph::NodeId *selected,
       bool *graphDirty,
@@ -49,6 +50,9 @@ struct GraphViewport : public Window
   rebuildRendererObject(); // (re)introspect m_rendererObj + attach delegate
   void reifyRenderer(); // full rebuild: new handle + push all params + commit
 
+  void ui_menu_Device();
+  void switchDevice(tsd::core::Token name, anari::Device d);
+
   // Pushes a single edited renderer param onto the live anari::Renderer.
   // Mirrors MultiDeviceViewport::RendererUpdateDelegate. Subclass
   // EmptyUpdateDelegate (NOT BaseUpdateDelegate, whose methods are pure
@@ -64,6 +68,7 @@ struct GraphViewport : public Window
   tsd::rendering::GraphRenderBridge *m_bridge{nullptr};
   int m_viewportIndex{0};
   anari::Device m_device{nullptr};
+  tsd::core::Token m_deviceName;
   anari::Camera m_camera{nullptr};
   anari::Renderer m_renderer{nullptr};
   tsd::core::Token m_rendererSubtype{tsd::core::Token("default")};

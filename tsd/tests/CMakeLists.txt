@@ -168,6 +168,8 @@ add_test(NAME tsd::rendering::BridgeRenderVolume COMMAND ${PROJECT_NAME} "[bridg
 set_tests_properties(tsd::rendering::BridgeRenderVolume PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::rendering::BridgeRebuild COMMAND ${PROJECT_NAME} "[bridge-rebuild]")
 set_tests_properties(tsd::rendering::BridgeRebuild PROPERTIES TIMEOUT 300)
+add_test(NAME tsd::rendering::BridgeDevice COMMAND ${PROJECT_NAME} "[bridge-device]")
+set_tests_properties(tsd::rendering::BridgeDevice PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::nodes::EditRender COMMAND ${PROJECT_NAME} "[edit-render]")
 set_tests_properties(tsd::nodes::EditRender PROPERTIES TIMEOUT 300)
 add_test(NAME tsd::tsdflow::Smoke COMMAND ${PROJECT_NAME} "[tsdflow-smoke]")

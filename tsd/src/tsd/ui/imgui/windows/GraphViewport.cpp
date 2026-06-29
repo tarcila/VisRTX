@@ -28,6 +28,7 @@ GraphViewport::GraphViewport(Application *app,
     tsd::rendering::GraphRenderBridge *bridge,
     int viewportIndex,
     anari::Device device,
+    tsd::core::Token deviceName,
     tsd::graph::Graph *graph,
     tsd::graph::NodeId *selected,
     bool *graphDirty,
@@ -36,6 +37,7 @@ GraphViewport::GraphViewport(Application *app,
       m_bridge(bridge),
       m_viewportIndex(viewportIndex),
       m_device(device),
+      m_deviceName(deviceName),
       m_graph(graph),
       m_selected(selected),
       m_graphDirty(graphDirty)
@@ -107,6 +109,7 @@ GraphViewport::~GraphViewport()
 void GraphViewport::buildUI()
 {
   if (ImGui::BeginMenuBar()) {
+    ui_menu_Device();
     ui_menu_Renderer();
     ImGui::EndMenuBar();
   }
@@ -245,6 +248,72 @@ void GraphViewport::ui_menu_Renderer()
       m_rendererObj, m_bridge->renderScene(), /*useTable=*/true);
 
   ImGui::EndMenu();
+}
+
+void GraphViewport::ui_menu_Device()
+{
+  if (!ImGui::BeginMenu("Device"))
+    return;
+
+  for (const auto &name : appContext()->anari.libraryList()) {
+    const bool selected = m_deviceName == tsd::core::Token(name.c_str());
+    if (ImGui::RadioButton(name.c_str(), selected) && !selected) {
+      // loadDevice ALWAYS retains (both create and cache-hit paths), so this
+      // call returns a +1 handle. switchDevice's pass + bridge index each take
+      // their own retain; release this transient menu ref afterward (mirrors
+      // ANARIDeviceManager::loadDeviceExtensions). The manager keeps the device
+      // cached/alive regardless.
+      anari::Device d = appContext()->anari.loadDevice(name); // may be null
+      if (d && d != m_device) {
+        switchDevice(tsd::core::Token(name.c_str()), d);
+        anari::release(d, d);
+      } else if (d) {
+        anari::release(d, d); // already our device: drop the transient ref
+      }
+    }
+  }
+
+  ImGui::EndMenu();
+}
+
+void GraphViewport::switchDevice(tsd::core::Token name, anari::Device d)
+{
+  // 1) Release this viewport's own handles on the old device.
+  if (m_camera)
+    anari::release(m_device, m_camera);
+  if (m_renderer)
+    anari::release(m_device, m_renderer);
+  m_camera = nullptr;
+  m_renderer = nullptr;
+
+  // 2) Adopt the new device.
+  m_device = d;
+  m_deviceName = name;
+
+  // 3) Rebuild the pipeline on the new device.
+  m_pipeline.clear();
+  m_anariPass =
+      m_pipeline.emplace_back<tsd::rendering::AnariSceneRenderPass>(m_device);
+  m_anariPass->setRunAsync(false);
+  m_outputPass = m_pipeline.emplace_back<tsd::rendering::CopyToSDLTexturePass>(
+      m_app->sdlRenderer());
+  if (m_size.x > 0 && m_size.y > 0)
+    m_pipeline.setDimensions(uint32_t(m_size.x), uint32_t(m_size.y));
+
+  // 4) Recreate camera + renderer on the new device.
+  m_camera = anari::newObject<anari::Camera>(m_device, "perspective");
+  anari::commitParameters(m_device, m_camera);
+  m_anariPass->setCamera(m_camera);
+  rebuildRendererObject();
+  reifyRenderer();
+
+  // 5) Tell the bridge to rebuild this viewport's world on the new device.
+  m_bridge->setViewportDevice(m_viewportIndex, m_deviceName, m_device);
+
+  // 6) Force the buildUI size block to re-apply aspect/dimensions and the
+  //    manipulator to re-push camera params against the fresh camera.
+  m_manipToken = 0;
+  m_size = tsd::math::int2(0, 0);
 }
 
 void GraphViewport::handleNavigation()
