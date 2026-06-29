@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace tsd::rendering {
@@ -75,10 +76,17 @@ class GraphRenderBridge
   // Layers a viewport's index includes: masked display layers + the light
   // layer.
   std::vector<const tsd::scene::Layer *> indexLayers(int i) const;
+  // Human-readable name shared by a display's layer and its render object,
+  // matching the graph node's editor title: "<typeName> #<nodeId>".
+  std::string displayName(tsd::graph::NodeId node) const;
   void rebuildLayer(tsd::graph::NodeId node, Display &d);
   void clearLayerObjects(tsd::scene::Layer *layer);
-  void buildSurface(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
-  void buildVolume(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
+  void buildSurface(tsd::scene::Layer *layer,
+      const tsd::graph::Renderable &r,
+      const std::string &name);
+  void buildVolume(tsd::scene::Layer *layer,
+      const tsd::graph::Renderable &r,
+      const std::string &name);
   void applyParams(
       tsd::scene::Object &obj, const tsd::graph::RenderableParams &p);
 

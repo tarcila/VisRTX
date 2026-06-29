@@ -84,10 +84,17 @@ void GraphRenderBridge::setDisplay(NodeId node, uint64_t mask, bool enabled)
   auto &d = m_displays[node];
   d.mask = mask;
   d.enabled = enabled;
-  if (!d.layer) {
-    const std::string name = "display_" + std::to_string(node);
-    d.layer = m_renderScene.addLayer(Token(name.c_str()));
-  }
+  if (!d.layer)
+    d.layer = m_renderScene.addLayer(Token(displayName(node).c_str()));
+}
+
+std::string GraphRenderBridge::displayName(NodeId node) const
+{
+  const auto *gn = m_graph.node(node);
+  const std::string base = (gn && gn->impl)
+      ? std::string(gn->impl->typeInfo().name.c_str())
+      : std::string("display");
+  return base + " #" + std::to_string(node);
 }
 
 void GraphRenderBridge::setDisplayTransform(
@@ -197,10 +204,11 @@ void GraphRenderBridge::rebuildLayer(NodeId node, Display &d)
   clearLayerObjects(d.layer);
 
   auto r = std::static_pointer_cast<Renderable>(out->payload);
+  const std::string name = displayName(node);
   if (r->kind == Renderable::Kind::Surface)
-    buildSurface(d.layer, *r);
+    buildSurface(d.layer, *r, name);
   else
-    buildVolume(d.layer, *r);
+    buildVolume(d.layer, *r, name);
 
   d.lastVersion = out->version;
   d.realized = true;
@@ -219,21 +227,27 @@ void GraphRenderBridge::applyParams(
   }
 }
 
-void GraphRenderBridge::buildSurface(Layer *layer, const Renderable &r)
+void GraphRenderBridge::buildSurface(
+    Layer *layer, const Renderable &r, const std::string &name)
 {
   auto geom = m_renderScene.createObject<Geometry>(r.primSubtype);
+  geom->setName(r.primSubtype.c_str());
   applyParams(*geom, r.prim);
 
   auto mat = m_renderScene.createObject<Material>(tokens::material::matte);
   applyParams(*mat, r.appearance);
 
-  auto surf = m_renderScene.createSurface("renderable", geom, mat);
+  // Name the surface after the display node so the layer panel shows the same
+  // label as the graph editor (instead of a generic "renderable").
+  auto surf = m_renderScene.createSurface(name.c_str(), geom, mat);
   m_renderScene.insertChildObjectNode(layer->root(), surf);
 }
 
-void GraphRenderBridge::buildVolume(Layer *layer, const Renderable &r)
+void GraphRenderBridge::buildVolume(
+    Layer *layer, const Renderable &r, const std::string &name)
 {
   auto field = m_renderScene.createObject<SpatialField>(r.primSubtype);
+  field->setName(r.primSubtype.c_str());
 
   if (r.primSubtype == Token("structuredRegular")) {
     float3 dims(0.f);
@@ -259,6 +273,7 @@ void GraphRenderBridge::buildVolume(Layer *layer, const Renderable &r)
 
   auto vol =
       m_renderScene.createObject<Volume>(tokens::volume::transferFunction1D);
+  vol->setName(name.c_str()); // match the graph editor / layer label
   vol->setParameterObject("value", *field);
   applyParams(*vol, r.appearance);
 
