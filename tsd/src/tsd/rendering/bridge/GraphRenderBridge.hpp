@@ -71,6 +71,10 @@ class GraphRenderBridge
     tsd::math::mat4 transform{tsd::math::IDENTITY_MAT4};
   };
 
+  void addDefaultLight();
+  // Layers a viewport's index includes: masked display layers + the light
+  // layer.
+  std::vector<const tsd::scene::Layer *> indexLayers(int i) const;
   void rebuildLayer(tsd::graph::NodeId node, Display &d);
   void clearLayerObjects(tsd::scene::Layer *layer);
   void buildSurface(tsd::scene::Layer *layer, const tsd::graph::Renderable &r);
@@ -90,6 +94,7 @@ class GraphRenderBridge
   std::vector<tsd::core::Token> m_viewportDeviceNames;
 
   tsd::scene::Scene m_renderScene;
+  tsd::scene::Layer *m_lightsLayer{nullptr}; // default light; in every viewport
   std::map<tsd::graph::NodeId, Display> m_displays;
   std::vector<std::unique_ptr<RenderIndexAllLayers>> m_indices;
 };

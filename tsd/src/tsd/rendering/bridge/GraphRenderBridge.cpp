@@ -5,6 +5,7 @@
 // tsd
 #include "tsd/core/Logging.hpp"
 #include "tsd/scene/objects/Geometry.hpp"
+#include "tsd/scene/objects/Light.hpp"
 #include "tsd/scene/objects/Material.hpp"
 #include "tsd/scene/objects/SpatialField.hpp"
 #include "tsd/scene/objects/Surface.hpp"
@@ -41,6 +42,24 @@ GraphRenderBridge::GraphRenderBridge(tsd::graph::Graph &graph,
     m_indices.push_back(std::make_unique<RenderIndexAllLayers>(
         m_renderScene, m_viewportDeviceNames[i], m_viewportDevices[i]));
   }
+
+  addDefaultLight();
+}
+
+void GraphRenderBridge::addDefaultLight()
+{
+  // A single directional light so display surfaces/volumes are lit by default
+  // (renderers introspect ambientRadiance=0). Lives in its own layer — never a
+  // display layer — so clearLayerObjects() never touches it; indexLayers()
+  // includes it in every viewport so it renders through the normal all-objects
+  // path (the index's gather-all-lights path mishandles excluded surface
+  // layers).
+  m_lightsLayer = m_renderScene.addLayer(Token("defaultLights"));
+  auto light = m_renderScene.createObject<tsd::scene::Light>(
+      tsd::scene::tokens::light::directional);
+  light->setName("mainDistantLight");
+  light->setParameter("direction", tsd::math::float2(0.f, 240.f));
+  m_lightsLayer->root()->insert_first_child({m_lightsLayer, light});
 }
 
 void GraphRenderBridge::setViewportDevice(
@@ -55,7 +74,7 @@ void GraphRenderBridge::setViewportDevice(
   m_viewportDevices[i] = d;
   m_indices[i] =
       std::make_unique<RenderIndexAllLayers>(m_renderScene, deviceName, d);
-  m_indices[i]->setIncludedLayers(layersForViewport(i));
+  m_indices[i]->setIncludedLayers(indexLayers(i));
 }
 
 GraphRenderBridge::~GraphRenderBridge() = default;
@@ -93,7 +112,7 @@ void GraphRenderBridge::removeDisplay(NodeId node)
   // Drop the freed layer from every viewport index immediately so no index
   // retains a dangling Layer* until the next update().
   for (int i = 0; i < int(m_indices.size()); ++i)
-    m_indices[i]->setIncludedLayers(layersForViewport(i));
+    m_indices[i]->setIncludedLayers(indexLayers(i));
 }
 
 std::vector<const Layer *> GraphRenderBridge::layersForViewport(int i) const
@@ -107,6 +126,17 @@ std::vector<const Layer *> GraphRenderBridge::layersForViewport(int i) const
     if (d.enabled && d.realized && d.layer && (d.mask & bit))
       out.push_back(d.layer);
   }
+  return out;
+}
+
+std::vector<const Layer *> GraphRenderBridge::indexLayers(int i) const
+{
+  // What viewport i's RenderIndex includes: its masked display layers plus the
+  // shared default-light layer (rendered in every viewport). Kept separate from
+  // layersForViewport(), which is the public mask→display-layer mapping.
+  auto out = layersForViewport(i);
+  if (m_lightsLayer)
+    out.push_back(m_lightsLayer);
   return out;
 }
 
@@ -125,7 +155,7 @@ void GraphRenderBridge::update()
   // setIncludedLayers() triggers the index's full rebuild (populate); calling
   // populate() again here would redundantly tear down + rebuild the cache.
   for (int i = 0; i < int(m_indices.size()); ++i)
-    m_indices[i]->setIncludedLayers(layersForViewport(i));
+    m_indices[i]->setIncludedLayers(indexLayers(i));
 }
 
 void GraphRenderBridge::clearLayerObjects(Layer *layer)
