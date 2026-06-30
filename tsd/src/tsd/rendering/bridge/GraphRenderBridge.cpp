@@ -13,6 +13,7 @@
 // anari
 #include <anari/anari_cpp/ext/linalg.h>
 // std
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -297,6 +298,15 @@ void GraphRenderBridge::buildSurface(
 
   auto mat = m_renderScene.createObject<Material>(tokens::material::matte);
   applyParams(*mat, r.appearance);
+
+  // If the geometry carries per-vertex colors (e.g. a TF-colored cross
+  // section), bind the matte color to the "color" attribute instead of the flat
+  // value.
+  const bool hasVertexColor = std::any_of(r.prim.arrays.begin(),
+      r.prim.arrays.end(),
+      [](const auto &a) { return a.first == Token("vertex.color"); });
+  if (hasVertexColor)
+    mat->setParameter("color", "color"); // matte samples the vertex.color attr
 
   // Name the surface after the display node so the layer panel shows the same
   // label as the graph editor (instead of a generic "renderable").
