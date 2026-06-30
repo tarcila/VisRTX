@@ -61,6 +61,8 @@ struct GraphEditor : public Window
   std::set<tsd::graph::NodeId> m_expanded; // collapsed unless present here
   bool m_relayoutAll{false}; // "Clean Up Layout" request
   tsd::graph::NodeId m_menuNode{tsd::graph::INVALID_NODE}; // right-clicked node
+  tsd::graph::ConnectionId m_menuLink{
+      tsd::graph::INVALID_CONNECTION}; // right-clicked link
   // Mouse-added nodes: placed next frame (inside the editor, before drawNode)
   // so the node is submitted that frame — calling SetNode*Pos on an
   // un-submitted node trips an imnodes EndNodeEditor assert.

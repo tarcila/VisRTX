@@ -174,12 +174,19 @@ void GraphEditor::handleCreation()
         "[GraphEditor] link rejected: %s", chk.detail.c_str());
     return;
   }
+  // Inputs are 1:1 — dropping onto an already-connected input replaces the
+  // existing link (rewire to a new upstream).
+  if (const auto *existing = m_graph->inputConnection(inPin->node, inPort))
+    m_model->disconnect(existing->id);
   m_model->connect(outPin->node, outPort, inPin->node, inPort);
   *m_graphDirty = true;
 }
 
 void GraphEditor::handleDeletion()
 {
+  // Don't hijack Delete while editing a text field (e.g. an Inspector input).
+  if (ImGui::GetIO().WantTextInput)
+    return;
   if (!ImGui::IsKeyPressed(ImGuiKey_Delete))
     return;
 
@@ -228,14 +235,50 @@ void GraphEditor::contextMenu()
     if (ImNodes::IsNodeHovered(&hovered)) {
       m_menuNode = NodeId(hovered);
       ImGui::OpenPopup("nodeMenu");
+    } else if (ImNodes::IsLinkHovered(&hovered)) {
+      auto it = m_linkId.find(hovered);
+      m_menuLink =
+          it != m_linkId.end() ? it->second : tsd::graph::INVALID_CONNECTION;
+      ImGui::OpenPopup("linkMenu");
     } else {
       ImGui::OpenPopup("addNode");
     }
   }
 
   if (ImGui::BeginPopup("nodeMenu")) {
+    // Connection-aware: create a compatible downstream node and auto-wire it.
+    const auto suggestions = m_menuNode != INVALID_NODE
+        ? m_model->downstreamSuggestions(m_menuNode)
+        : std::vector<tsd::graph_nodes::DownstreamSuggestion>{};
+    if (!suggestions.empty() && ImGui::BeginMenu("Add connected")) {
+      const ImVec2 fromPos =
+          ImNodes::GetNodeScreenSpacePos(nodeImId(m_menuNode));
+      for (const auto &s : suggestions) {
+        if (ImGui::MenuItem(s.nodeType.c_str())) {
+          const NodeId id = m_model->addNode(s.nodeType);
+          if (id != INVALID_NODE) {
+            m_model->connect(m_menuNode, s.fromPort, id, s.toPort);
+            m_pendingScreenPos[id] =
+                ImVec2(fromPos.x + kColW, fromPos.y); // place to the right
+            *m_graphDirty = true;
+          }
+        }
+      }
+      ImGui::EndMenu();
+    }
+    if (!suggestions.empty())
+      ImGui::Separator();
     if (ImGui::MenuItem("Delete Node") && m_menuNode != INVALID_NODE)
       deleteNode(m_menuNode);
+    ImGui::EndPopup();
+  }
+
+  if (ImGui::BeginPopup("linkMenu")) {
+    if (ImGui::MenuItem("Delete Link")
+        && m_menuLink != tsd::graph::INVALID_CONNECTION) {
+      m_model->disconnect(m_menuLink);
+      *m_graphDirty = true;
+    }
     ImGui::EndPopup();
   }
 
