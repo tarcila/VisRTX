@@ -46,6 +46,7 @@ project_add_executable(
   test_nodes_GraphEditModel.cpp
   test_nodes_Scaffold.cpp
   test_nodes_GenerateNoiseVolume.cpp
+  test_nodes_ProceduralVolumes.cpp
   test_nodes_ScalarRange.cpp
   test_nodes_TransferFunction.cpp
   test_nodes_DisplayVolume.cpp
@@ -146,6 +147,7 @@ add_test(NAME tsd::graph::EditApis COMMAND ${PROJECT_NAME} "[graph-editapis]")
 add_test(NAME tsd::nodes::GraphEditModel COMMAND ${PROJECT_NAME} "[edit-model]")
 add_test(NAME tsd::nodes::Scaffold COMMAND ${PROJECT_NAME} "[nodes-scaffold]")
 add_test(NAME tsd::nodes::Noise   COMMAND ${PROJECT_NAME} "[nodes-noise]"   )
+add_test(NAME tsd::nodes::ProceduralVolumes COMMAND ${PROJECT_NAME} "[nodes-procedural]")
 add_test(NAME tsd::nodes::Range   COMMAND ${PROJECT_NAME} "[nodes-range]"   )
 add_test(NAME tsd::nodes::TransferFunction COMMAND ${PROJECT_NAME} "[nodes-tf]")
 add_test(NAME tsd::nodes::DisplayVolume COMMAND ${PROJECT_NAME} "[nodes-dvol]")

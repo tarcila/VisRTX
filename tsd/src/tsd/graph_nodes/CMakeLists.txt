@@ -9,6 +9,9 @@ project_sources(PRIVATE
   DisplayMask.cpp
   GraphEditModel.cpp
   GenerateNoiseVolume.cpp
+  GenerateGyroid.cpp
+  GenerateTurbulence.cpp
+  GenerateMetaballs.cpp
   ScalarRange.cpp
   TransferFunction.cpp
   DisplayVolume.cpp

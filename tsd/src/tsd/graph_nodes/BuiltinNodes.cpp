@@ -8,6 +8,9 @@ namespace tsd::graph_nodes {
 void registerBuiltinNodes(tsd::graph::NodeRegistry &reg)
 {
   registerGenerateNoiseVolume(reg);
+  registerGenerateGyroid(reg);
+  registerGenerateTurbulence(reg);
+  registerGenerateMetaballs(reg);
   registerScalarRange(reg);
   registerTransferFunction(reg);
   registerDisplayVolume(reg);

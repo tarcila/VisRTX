@@ -11,6 +11,9 @@ void registerBuiltinNodes(tsd::graph::NodeRegistry &reg);
 void registerBuiltinNodes();
 
 void registerGenerateNoiseVolume(tsd::graph::NodeRegistry &reg);
+void registerGenerateGyroid(tsd::graph::NodeRegistry &reg);
+void registerGenerateTurbulence(tsd::graph::NodeRegistry &reg);
+void registerGenerateMetaballs(tsd::graph::NodeRegistry &reg);
 void registerScalarRange(tsd::graph::NodeRegistry &reg);
 void registerTransferFunction(tsd::graph::NodeRegistry &reg);
 void registerDisplayVolume(tsd::graph::NodeRegistry &reg);

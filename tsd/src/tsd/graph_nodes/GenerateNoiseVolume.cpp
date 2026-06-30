@@ -3,7 +3,7 @@
 
 #include "tsd/graph/Evaluator.hpp"
 #include "tsd/graph_nodes/BuiltinNodes.hpp"
-#include "tsd/graph_nodes/Descriptors.hpp"
+#include "tsd/graph_nodes/ProceduralField.hpp"
 // std
 #include <cmath>
 #include <memory>
@@ -48,29 +48,23 @@ struct GenerateNoiseVolume : Node
       ctx.fail("GenerateNoiseVolume: dims must be > 0 on each axis");
       return;
     }
-    auto f = std::make_shared<Field>();
-    f->dims = dims;
-    f->origin = float3(-1.f, -1.f, -1.f);
-    f->spacing = float3(2.f / dims.x, 2.f / dims.y, 2.f / dims.z);
-    f->data =
-        tsd::core::AnyArray(ANARI_FLOAT32, size_t(dims.x) * dims.y * dims.z);
+    auto f = std::make_shared<Field>(makeUnitField(dims));
 
     const float sx = float(seed) * 0.137f;
     size_t idx = 0;
-    for (uint32_t z = 0; z < dims.z; ++z)
-      for (uint32_t y = 0; y < dims.y; ++y)
+    for (uint32_t z = 0; z < dims.z; ++z) {
+      const float pz = normCoord(z, dims.z);
+      for (uint32_t y = 0; y < dims.y; ++y) {
+        const float py = normCoord(y, dims.y);
         for (uint32_t x = 0; x < dims.x; ++x, ++idx) {
-          const float px =
-              (float(x) / float(dims.x - 1 ? dims.x - 1 : 1)) * 2.f - 1.f;
-          const float py =
-              (float(y) / float(dims.y - 1 ? dims.y - 1 : 1)) * 2.f - 1.f;
-          const float pz =
-              (float(z) / float(dims.z - 1 ? dims.z - 1 : 1)) * 2.f - 1.f;
+          const float px = normCoord(x, dims.x);
           const float r = std::sqrt(px * px + py * py + pz * pz);
           float v = 1.f - r;
           v += 0.1f * std::sin(px * freq + sx) * std::sin(py * freq + sx);
-          f->data.get<float>(idx) = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+          f->data.get<float>(idx) = clamp01(v);
         }
+      }
+    }
 
     Value out;
     out.type = PortType{portField()};
