@@ -46,6 +46,7 @@ struct GraphEditor : public Window
   void applyAutoLayout();
   void handleCreation();
   void handleDeletion();
+  void deleteNode(tsd::graph::NodeId id); // remove node + editor bookkeeping
   void contextMenu();
 
   tsd::graph::Graph *m_graph{nullptr};
@@ -57,8 +58,9 @@ struct GraphEditor : public Window
   std::map<int, tsd::graph::ConnectionId>
       m_linkId; // imnodes link id -> ConnectionId
   std::set<tsd::graph::NodeId> m_positioned; // nodes already given a position
-  std::set<tsd::graph::NodeId> m_expanded;   // collapsed unless present here
+  std::set<tsd::graph::NodeId> m_expanded; // collapsed unless present here
   bool m_relayoutAll{false}; // "Clean Up Layout" request
+  tsd::graph::NodeId m_menuNode{tsd::graph::INVALID_NODE}; // right-clicked node
   // Mouse-added nodes: placed next frame (inside the editor, before drawNode)
   // so the node is submitted that frame — calling SetNode*Pos on an
   // un-submitted node trips an imnodes EndNodeEditor assert.

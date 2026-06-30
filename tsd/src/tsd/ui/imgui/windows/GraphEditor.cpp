@@ -186,23 +186,42 @@ void GraphEditor::handleDeletion()
   if (nNodes > 0) {
     std::vector<int> sel(static_cast<size_t>(nNodes));
     ImNodes::GetSelectedNodes(sel.data());
-    for (int nid : sel) {
-      const NodeId id = NodeId(nid);
-      if (*m_selected == id)
-        *m_selected = INVALID_NODE;
-      m_model->removeNode(id);
-      m_positioned.erase(id);
-      m_expanded.erase(id);
-      *m_graphDirty = true;
-    }
+    for (int nid : sel)
+      deleteNode(NodeId(nid));
   }
+}
+
+void GraphEditor::deleteNode(NodeId id)
+{
+  if (*m_selected == id)
+    *m_selected = INVALID_NODE;
+  m_model->removeNode(
+      id); // removes the node + its connections, dirties consumers
+  m_positioned.erase(id);
+  m_expanded.erase(id);
+  m_pendingScreenPos.erase(id);
+  *m_graphDirty = true;
 }
 
 void GraphEditor::contextMenu()
 {
-  if (ImNodes::IsEditorHovered()
-      && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-    ImGui::OpenPopup("addNode");
+  // Right-click a node → per-node menu; right-click empty canvas → add menu.
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    int hovered = -1;
+    if (ImNodes::IsNodeHovered(&hovered)) {
+      m_menuNode = NodeId(hovered);
+      ImGui::OpenPopup("nodeMenu");
+    } else if (ImNodes::IsEditorHovered()) {
+      ImGui::OpenPopup("addNode");
+    }
+  }
+
+  if (ImGui::BeginPopup("nodeMenu")) {
+    if (ImGui::MenuItem("Delete Node") && m_menuNode != INVALID_NODE)
+      deleteNode(m_menuNode);
+    ImGui::EndPopup();
+  }
+
   if (ImGui::BeginPopup("addNode")) {
     const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
     for (const auto &type : m_model->nodeCatalog()) {
