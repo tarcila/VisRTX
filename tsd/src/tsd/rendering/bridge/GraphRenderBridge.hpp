@@ -61,6 +61,24 @@ class GraphRenderBridge
   // Number of render-Scene objects + arrays; for tests/diagnostics.
   size_t renderSceneObjectCount() const;
 
+  // Per-viewport camera headlight. mode On/Off force it; Auto enables it only
+  // when no plain light is masked to that viewport.
+  struct HeadlightState
+  {
+    enum class Mode
+    {
+      Auto,
+      On,
+      Off
+    } mode{Mode::Auto};
+    tsd::math::float3 direction{0.f, 0.f, -1.f}; // light travel dir (world)
+    tsd::math::float3 color{1.f, 1.f, 1.f};
+    float irradiance{1.f};
+  };
+  void setViewportHeadlight(int viewport, const HeadlightState &s);
+  // Whether viewport i's headlight is currently injected (for tests + UI).
+  bool headlightActive(int viewport) const;
+
  private:
   struct Display
   {
@@ -90,6 +108,17 @@ class GraphRenderBridge
       const std::string &name);
   void applyParams(
       tsd::scene::Object &obj, const tsd::graph::RenderableParams &p);
+
+  bool viewportHasPlainLight(int i) const;
+  void releaseHeadlight(int i);
+
+  struct Headlight
+  {
+    anari::Light light{nullptr};
+    anari::Instance instance{nullptr};
+    bool active{false}; // currently injected via setExternalInstances
+  };
+  std::vector<Headlight> m_headlights; // sized to numViewports
 
   tsd::graph::Graph &m_graph;
   tsd::graph::Evaluator &m_eval;

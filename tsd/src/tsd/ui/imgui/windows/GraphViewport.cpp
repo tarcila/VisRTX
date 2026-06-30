@@ -111,6 +111,7 @@ void GraphViewport::buildUI()
   if (ImGui::BeginMenuBar()) {
     ui_menu_Device();
     ui_menu_Renderer();
+    ui_menu_Lights();
     ImGui::EndMenuBar();
   }
 
@@ -132,6 +133,12 @@ void GraphViewport::buildUI()
         m_device, m_camera, m_manip);
     anari::commitParameters(m_device, m_camera);
   }
+
+  // Aim the per-viewport headlight along the view direction every frame
+  // (unconditionally — not gated on camera movement).
+  m_headlight.direction = linalg::normalize(m_manip.at() - m_manip.eye());
+  m_bridge->setViewportHeadlight(m_viewportIndex, m_headlight);
+
   m_anariPass->setWorld(m_bridge->world(m_viewportIndex));
   m_pipeline.render();
 
@@ -314,6 +321,22 @@ void GraphViewport::switchDevice(tsd::core::Token name, anari::Device d)
   //    manipulator to re-push camera params against the fresh camera.
   m_manipToken = 0;
   m_size = tsd::math::int2(0, 0);
+}
+
+void GraphViewport::ui_menu_Lights()
+{
+  if (!ImGui::BeginMenu("Lights"))
+    return;
+  using Mode = tsd::rendering::GraphRenderBridge::HeadlightState::Mode;
+  ImGui::TextUnformatted("Headlight:");
+  int mode = int(m_headlight.mode);
+  ImGui::RadioButton("Auto", &mode, int(Mode::Auto));
+  ImGui::RadioButton("On", &mode, int(Mode::On));
+  ImGui::RadioButton("Off", &mode, int(Mode::Off));
+  m_headlight.mode = Mode(mode);
+  ImGui::ColorEdit3("Color", &m_headlight.color.x);
+  ImGui::DragFloat("Intensity", &m_headlight.irradiance, 0.05f, 0.f, 100.f);
+  ImGui::EndMenu();
 }
 
 void GraphViewport::handleNavigation()

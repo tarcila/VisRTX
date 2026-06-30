@@ -38,6 +38,7 @@ GraphRenderBridge::GraphRenderBridge(tsd::graph::Graph &graph,
     throw std::runtime_error("GraphRenderBridge: numViewports must be 1..64");
   m_viewportDevices.assign(numViewports, m_device);
   m_viewportDeviceNames.assign(numViewports, m_deviceName);
+  m_headlights.resize(numViewports);
   for (int i = 0; i < numViewports; ++i) {
     m_indices.push_back(std::make_unique<RenderIndexAllLayers>(
         m_renderScene, m_viewportDeviceNames[i], m_viewportDevices[i]));
@@ -52,6 +53,10 @@ void GraphRenderBridge::setViewportDevice(
   if (m_viewportDevices[i] == d) // no-op guard: same device
     return;
 
+  // Release the headlight on the OLD device before reassigning; the next
+  // setViewportHeadlight rebuilds it on the new device.
+  releaseHeadlight(i);
+
   m_viewportDeviceNames[i] = deviceName;
   m_viewportDevices[i] = d;
   m_indices[i] =
@@ -59,7 +64,84 @@ void GraphRenderBridge::setViewportDevice(
   m_indices[i]->setIncludedLayers(layersForViewport(i));
 }
 
-GraphRenderBridge::~GraphRenderBridge() = default;
+GraphRenderBridge::~GraphRenderBridge()
+{
+  for (int i = 0; i < int(m_headlights.size()); ++i)
+    releaseHeadlight(i);
+}
+
+bool GraphRenderBridge::viewportHasPlainLight(int i) const
+{
+  const uint64_t bit = uint64_t(1) << i;
+  for (const auto &kv : m_displays) {
+    const Display &d = kv.second;
+    if (d.enabled && d.realized && d.isLight && (d.mask & bit))
+      return true;
+  }
+  return false;
+}
+
+void GraphRenderBridge::releaseHeadlight(int i)
+{
+  auto &h = m_headlights[i];
+  if (h.active && i < int(m_indices.size()))
+    m_indices[i]->setExternalInstances(nullptr, 0);
+  if (h.instance)
+    anari::release(m_viewportDevices[i], h.instance);
+  if (h.light)
+    anari::release(m_viewportDevices[i], h.light);
+  h = Headlight{};
+}
+
+void GraphRenderBridge::setViewportHeadlight(int i, const HeadlightState &s)
+{
+  if (i < 0 || i >= int(m_indices.size()))
+    return;
+  auto &h = m_headlights[i];
+
+  // Resolve on/off FIRST so an off headlight does no per-frame ANARI work.
+  const bool on = s.mode == HeadlightState::Mode::On
+      || (s.mode == HeadlightState::Mode::Auto && !viewportHasPlainLight(i));
+
+  if (!on) {
+    if (h.active) {
+      m_indices[i]->setExternalInstances(nullptr, 0);
+      h.active = false;
+    }
+    return; // do not create/commit handles for an off headlight
+  }
+
+  auto d = m_viewportDevices[i];
+
+  // Lazily build the light + one-light group + instance on this viewport's
+  // device (idiom mirrors RenderToAnariObjectsVisitor::createInstanceFromTop).
+  if (!h.light) {
+    h.light = anari::newObject<anari::Light>(d, "directional");
+    auto group = anari::newObject<anari::Group>(d);
+    anari::setParameterArray1D(d, group, "light", &h.light, 1);
+    anari::commitParameters(d, group);
+    h.instance = anari::newObject<anari::Instance>(d, "transform");
+    anari::setParameter(d, h.instance, "group", group);
+    anari::commitParameters(d, h.instance);
+    anari::release(d, group); // instance holds the ref
+  }
+
+  // Aim + tint (cheap; no world rebuild — the instance already references it).
+  anari::setParameter(d, h.light, "direction", s.direction);
+  anari::setParameter(d, h.light, "color", s.color);
+  anari::setParameter(d, h.light, "irradiance", s.irradiance);
+  anari::commitParameters(d, h.light);
+
+  if (!h.active) {
+    m_indices[i]->setExternalInstances(&h.instance, 1);
+    h.active = true;
+  }
+}
+
+bool GraphRenderBridge::headlightActive(int i) const
+{
+  return i >= 0 && i < int(m_headlights.size()) && m_headlights[i].active;
+}
 
 void GraphRenderBridge::setDisplay(NodeId node, uint64_t mask, bool enabled)
 {

@@ -53,6 +53,8 @@ struct GraphViewport : public Window
   void ui_menu_Device();
   void switchDevice(tsd::core::Token name, anari::Device d);
 
+  void ui_menu_Lights();
+
   // Pushes a single edited renderer param onto the live anari::Renderer.
   // Mirrors MultiDeviceViewport::RendererUpdateDelegate. Subclass
   // EmptyUpdateDelegate (NOT BaseUpdateDelegate, whose methods are pure
@@ -74,6 +76,7 @@ struct GraphViewport : public Window
   tsd::core::Token m_rendererSubtype{tsd::core::Token("default")};
   tsd::scene::Object m_rendererObj; // editable renderer mirror
   RendererUpdateDelegate m_rud; // reifies edits onto m_renderer
+  tsd::rendering::GraphRenderBridge::HeadlightState m_headlight;
   tsd::rendering::Manipulator m_manip;
   tsd::rendering::UpdateToken m_manipToken{0};
   tsd::rendering::ImagePipeline m_pipeline;
