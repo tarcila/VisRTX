@@ -20,6 +20,19 @@ int nodeImId(NodeId id)
 {
   return int(id);
 } // NodeId small in practice
+// Display label for a category token: capitalize the first letter of each word
+// ("source" -> "Source", "spatial field" -> "Spatial Field").
+std::string titleCase(const char *s)
+{
+  std::string out(s ? s : "");
+  bool atWordStart = true;
+  for (char &c : out) {
+    if (atWordStart && c >= 'a' && c <= 'z')
+      c = char(c - 'a' + 'A');
+    atWordStart = (c == ' ');
+  }
+  return out;
+}
 constexpr unsigned int kConversionColor = IM_COL32(204, 148, 81, 255); // amber
 // Auto-layout grid pitch — tight, sized for compact (collapsed) nodes.
 constexpr float kColW = 190.f;
@@ -205,13 +218,17 @@ void GraphEditor::deleteNode(NodeId id)
 
 void GraphEditor::contextMenu()
 {
-  // Right-click a node → per-node menu; right-click empty canvas → add menu.
-  if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+  // Right-click a node → per-node menu; right-click elsewhere in the editor →
+  // add menu. Runs after EndNodeEditor, where IsNodeHovered is valid;
+  // IsEditorHovered is NOT valid here (it needs the live editor scope), so gate
+  // on the window/child hover instead.
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)
+      && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) {
     int hovered = -1;
     if (ImNodes::IsNodeHovered(&hovered)) {
       m_menuNode = NodeId(hovered);
       ImGui::OpenPopup("nodeMenu");
-    } else if (ImNodes::IsEditorHovered()) {
+    } else {
       ImGui::OpenPopup("addNode");
     }
   }
@@ -236,7 +253,7 @@ void GraphEditor::contextMenu()
       }
     };
     for (const auto &cat : m_model->nodeCatalogByCategory()) {
-      if (ImGui::BeginMenu(cat.first.c_str())) {
+      if (ImGui::BeginMenu(titleCase(cat.first.c_str()).c_str())) {
         for (const auto &type : cat.second)
           if (ImGui::MenuItem(type.c_str()))
             addType(type);
@@ -329,9 +346,13 @@ void GraphEditor::buildUI()
       ImNodes::PopColorStyle();
   }
 
-  contextMenu();
   ImNodes::MiniMap();
   ImNodes::EndNodeEditor();
+
+  // Context menus query ImNodes::IsNodeHovered/IsEditorHovered, which are only
+  // valid AFTER EndNodeEditor (same reason the double-click handler below runs
+  // here).
+  contextMenu();
 
   // Double-click a node to toggle compact/expanded. IsNodeHovered returns the
   // topmost node under the cursor, so this targets the right node when stacked.
