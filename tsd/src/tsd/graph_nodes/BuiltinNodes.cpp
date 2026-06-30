@@ -19,6 +19,7 @@ void registerBuiltinNodes(tsd::graph::NodeRegistry &reg)
   registerDisplayLight(reg);
 #ifdef TSD_GRAPH_NODES_HAVE_VISKORES
   registerIsosurfaceExtract(reg);
+  registerCrossSection(reg);
 #endif
 }
 
