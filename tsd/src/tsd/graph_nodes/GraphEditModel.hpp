@@ -33,6 +33,15 @@ struct ConnectCheck
   }
 };
 
+// One connection-aware downstream option: create `nodeType` and wire the
+// clicked node's `fromPort` output into the new node's `toPort` input.
+struct DownstreamSuggestion
+{
+  tsd::core::Token nodeType;
+  tsd::core::Token fromPort;
+  tsd::core::Token toPort;
+};
+
 // UI-free editor logic over a Graph + NodeRegistry (+ optional
 // ConversionRegistry). Every mutating op marks the graph dirty so the bridge
 // re-renders on update().
@@ -66,6 +75,11 @@ class GraphEditModel
       std::pair<tsd::core::Token, std::vector<tsd::core::Token>>> &
   nodeCatalogByCategory() const;
 
+  // Catalog node types whose input accepts one of `from`'s outputs, with the
+  // ports to wire — drives the connection-aware "Add connected" node menu.
+  std::vector<DownstreamSuggestion> downstreamSuggestions(
+      tsd::graph::NodeId from) const;
+
   // Pure TF sampling (implemented in Task 3): control points -> RGBA colormap.
   // ColorPoint is {position, R, G, B}; OpacityPoint is {position, opacity}.
   static std::vector<tsd::core::math::float4> sampleColormap(
@@ -86,6 +100,8 @@ class GraphEditModel
   std::vector<tsd::core::Token> m_catalog; // cached NodeRegistry::types()
   std::vector<std::pair<tsd::core::Token, std::vector<tsd::core::Token>>>
       m_catalogByCategory;
+  // (type, typeInfo) cached once; typeInfo needs an instance to read.
+  std::vector<std::pair<tsd::core::Token, tsd::graph::NodeTypeInfo>> m_typeInfo;
 };
 
 } // namespace tsd::graph_nodes

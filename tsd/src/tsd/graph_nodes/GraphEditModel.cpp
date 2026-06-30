@@ -21,7 +21,12 @@ GraphEditModel::GraphEditModel(
   // keep registration order; an empty category is bucketed under "other".
   for (const auto &type : m_catalog) {
     auto node = m_registry.create(type);
-    Token category = node ? node->typeInfo().category : Token();
+    if (!node)
+      continue;
+    const auto info = node->typeInfo();
+    m_typeInfo.push_back({type, info}); // cached for downstreamSuggestions()
+
+    Token category = info.category;
     if (!category)
       category = Token("other");
     auto it = std::find_if(m_catalogByCategory.begin(),
@@ -134,6 +139,33 @@ const std::vector<std::pair<Token, std::vector<Token>>> &
 GraphEditModel::nodeCatalogByCategory() const
 {
   return m_catalogByCategory;
+}
+
+std::vector<DownstreamSuggestion> GraphEditModel::downstreamSuggestions(
+    NodeId from) const
+{
+  std::vector<DownstreamSuggestion> out;
+  const auto *gn = m_graph.node(from);
+  if (!gn || !gn->impl)
+    return out;
+
+  auto compatible = [&](const tsd::graph::PortType &a,
+                        const tsd::graph::PortType &b) {
+    return a == b || (m_conversions && m_conversions->find(a, b) != nullptr);
+  };
+
+  const auto info = gn->impl->typeInfo();
+  for (const auto &op : info.outputs) { // each output port of the clicked node
+    for (const auto &ti : m_typeInfo) { // each catalog type
+      for (const auto &ip : ti.second.inputs) { // candidate's input ports
+        if (compatible(op.type, ip.type)) {
+          out.push_back({ti.first, op.name, ip.name});
+          break; // first compatible input of this type for this output
+        }
+      }
+    }
+  }
+  return out;
 }
 
 std::vector<tsd::core::math::float4> GraphEditModel::sampleColormap(

@@ -96,4 +96,30 @@ SCENARIO(
       REQUIRE(chk.kind == LinkKind::Cycle);
     }
   }
+
+  WHEN("downstream suggestions are requested for a field source")
+  {
+    const NodeId src = model.addNode(Token("GenerateNoiseVolume")); // field out
+    const auto sugg = model.downstreamSuggestions(src);
+
+    auto has = [&](const char *type) {
+      return std::any_of(sugg.begin(), sugg.end(), [&](const auto &s) {
+        return s.nodeType == Token(type) && s.fromPort == Token("out");
+      });
+    };
+
+    THEN("field-consuming nodes are offered, wired from the 'out' port")
+    {
+      REQUIRE(has("ScalarRange"));
+      REQUIRE(has("DisplayVolume"));
+      // Incompatible sinks (range/surface inputs) are not offered.
+      REQUIRE_FALSE(has("TransferFunction"));
+      // The suggested DisplayVolume wires into its 'field' input.
+      auto it = std::find_if(sugg.begin(), sugg.end(), [&](const auto &s) {
+        return s.nodeType == Token("DisplayVolume");
+      });
+      REQUIRE(it != sugg.end());
+      REQUIRE(it->toPort == Token("field"));
+    }
+  }
 }
