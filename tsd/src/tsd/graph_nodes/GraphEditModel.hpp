@@ -10,6 +10,7 @@
 #include "tsd/graph/NodeRegistry.hpp"
 // std
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace tsd::graph_nodes {
@@ -59,6 +60,11 @@ class GraphEditModel
   LinkKind classify(const tsd::graph::Connection &c) const;
 
   const std::vector<tsd::core::Token> &nodeCatalog() const;
+  // The catalog grouped into (category, types) buckets for a categorized
+  // add-node menu; registration order preserved, empty category → "other".
+  const std::vector<
+      std::pair<tsd::core::Token, std::vector<tsd::core::Token>>> &
+  nodeCatalogByCategory() const;
 
   // Pure TF sampling (implemented in Task 3): control points -> RGBA colormap.
   // ColorPoint is {position, R, G, B}; OpacityPoint is {position, opacity}.
@@ -78,6 +84,8 @@ class GraphEditModel
   tsd::graph::NodeRegistry &m_registry;
   const tsd::graph::ConversionRegistry *m_conversions{nullptr};
   std::vector<tsd::core::Token> m_catalog; // cached NodeRegistry::types()
+  std::vector<std::pair<tsd::core::Token, std::vector<tsd::core::Token>>>
+      m_catalogByCategory;
 };
 
 } // namespace tsd::graph_nodes

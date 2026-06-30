@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tsd/graph_nodes/GraphEditModel.hpp"
+// std
+#include <algorithm>
 
 namespace tsd::graph_nodes {
 
@@ -13,6 +15,23 @@ GraphEditModel::GraphEditModel(
     : m_graph(graph), m_registry(registry), m_conversions(conversions)
 {
   m_catalog = m_registry.types();
+
+  // Group the catalog by node category for the editor's add-node menu. Reading
+  // a category needs an instance, so build this once here. Categories and types
+  // keep registration order; an empty category is bucketed under "other".
+  for (const auto &type : m_catalog) {
+    auto node = m_registry.create(type);
+    Token category = node ? node->typeInfo().category : Token();
+    if (!category)
+      category = Token("other");
+    auto it = std::find_if(m_catalogByCategory.begin(),
+        m_catalogByCategory.end(),
+        [&](const auto &e) { return e.first == category; });
+    if (it == m_catalogByCategory.end())
+      m_catalogByCategory.push_back({category, {type}});
+    else
+      it->second.push_back(type);
+  }
 }
 
 NodeId GraphEditModel::addNode(Token type)
@@ -109,6 +128,12 @@ LinkKind GraphEditModel::classify(const Connection &c) const
 const std::vector<Token> &GraphEditModel::nodeCatalog() const
 {
   return m_catalog;
+}
+
+const std::vector<std::pair<Token, std::vector<Token>>> &
+GraphEditModel::nodeCatalogByCategory() const
+{
+  return m_catalogByCategory;
 }
 
 std::vector<tsd::core::math::float4> GraphEditModel::sampleColormap(

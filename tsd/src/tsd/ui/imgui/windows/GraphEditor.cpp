@@ -224,17 +224,23 @@ void GraphEditor::contextMenu()
 
   if (ImGui::BeginPopup("addNode")) {
     const ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
-    for (const auto &type : m_model->nodeCatalog()) {
-      if (ImGui::MenuItem(type.c_str())) {
-        const NodeId id = m_model->addNode(type);
-        if (id != INVALID_NODE) {
-          // Defer placement to next frame: this node is added after the
-          // drawNode loop, so it is not submitted to imnodes this frame.
-          // Calling SetNodeScreenSpacePos now flags it InUse without a
-          // submission index, which asserts in EndNodeEditor.
-          m_pendingScreenPos[id] = clickPos;
-          *m_graphDirty = true;
-        }
+    auto addType = [&](const Token &type) {
+      const NodeId id = m_model->addNode(type);
+      if (id != INVALID_NODE) {
+        // Defer placement to next frame: this node is added after the
+        // drawNode loop, so it is not submitted to imnodes this frame.
+        // Calling SetNodeScreenSpacePos now flags it InUse without a
+        // submission index, which asserts in EndNodeEditor.
+        m_pendingScreenPos[id] = clickPos;
+        *m_graphDirty = true;
+      }
+    };
+    for (const auto &cat : m_model->nodeCatalogByCategory()) {
+      if (ImGui::BeginMenu(cat.first.c_str())) {
+        for (const auto &type : cat.second)
+          if (ImGui::MenuItem(type.c_str()))
+            addType(type);
+        ImGui::EndMenu();
       }
     }
     ImGui::EndPopup();
