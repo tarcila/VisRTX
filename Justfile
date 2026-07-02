@@ -17,7 +17,7 @@ _emacs_desktop_dir := _root_dir / ".emacs.d"
 _emacs_dape_dir := _root_dir
 
 # Per-workspace ANARI library name so dev builds coexist with an official install.
-_visrtx_library_name := "visrtx_" + file_name(_root_dir)
+_visrtx_library_name := "visrtx_" + replace_regex(file_name(_root_dir), '[^A-Za-z0-9_]+', '_')
 # Prepend this workspace's device to the flake-provided list and make it the default.
 _anari_envrc := 'export TSD_ANARI_LIBRARIES="' + _visrtx_library_name + '\${TSD_ANARI_LIBRARIES:+,\${TSD_ANARI_LIBRARIES}}"' + "\n" + 'export ANARI_LIBRARY="' + _visrtx_library_name + '"'
 
