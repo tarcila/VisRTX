@@ -1,6 +1,6 @@
 {
   description = ''
-    An simple anari-nix template
+    VisRTX / ANARI local dev shell
   '';
 
   nixConfig = {
@@ -59,6 +59,7 @@
 
           (lib.optionals pkgs.config.cudaSupport [
             anari-barney
+            visrtx
           ])
           ++ [
             anari-helide
@@ -76,7 +77,6 @@
           hardeningDisable = [ "all" ];
           packages = with pkgs; [
             anari-cts
-            cmakeCurses
             jq
           ];
           nativeBuildInputs = with pkgs; [
@@ -112,19 +112,16 @@
           ];
 
           inputsFrom = with pkgs; [
-            #(visrtx.override { cudaPackages = pkgs.cudaPackages_12_8; })
-            #(tsd.override { cudaPackages = pkgs.cudaPackages_12_8; })
             visrtx
             tsd
           ];
 
           STOCKADE_SESSION = "anari";
-          LD_LIBRARY_PATH = "/home/tarcila/Code/ANARI/VisRTX/next_release/_out/lib:/run/opengl-driver/lib:${pkgs.mdl-sdk}/lib:${lib.makeLibraryPath anariDevices}";
-          DYLD_LIBRARY_PATH = "${lib.makeLibraryPath anariDevices}";
+          LD_LIBRARY_PATH = "/run/opengl-driver/lib:${pkgs.mdl-sdk}/lib:${lib.makeLibraryPath anariDevices}";
           ANARI_LIBRARY = "visrtx";
-          TSD_ANARI_LIBRARIES = "visrtx,${
-            lib.concatStringsSep "," (map (p: lib.removePrefix "anari-" p.pname) anariDevices)
-          }";
+          TSD_ANARI_LIBRARIES = lib.concatStringsSep "," (
+            map (p: lib.removePrefix "anari-" p.pname) anariDevices
+          );
           TSD_LUA_PACKAGE_PATHS = "/data/TSD/scripts";
 
           shellHook = ''
