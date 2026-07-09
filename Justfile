@@ -87,6 +87,11 @@ build cfg=cfg: reconfigure (cmake::install cfg _build_dir)
 [metadata("task", "pm=$gcc")]
 rebuild cfg=cfg: clean (build cfg)
 
+[doc("Run ctest")]
+[metadata("task", "pm=$gcc")]
+test cfg=cfg: (build cfg)
+    ctest --test-dir "{{ _build_dir }}" -C {{ cfg }} --output-on-failure
+
 # Run recipes
 
 [doc("Run a command")]
