@@ -106,6 +106,7 @@
             silo
 
             tsd
+            materialx
           ];
 
           inputsFrom = with pkgs; [

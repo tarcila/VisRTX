@@ -60,10 +60,10 @@ _cmake_options_base := replace_regex('
 ', '\s*\n\s*', ' ') + " -DVISRTX_LIBRARY_NAME=" + _visrtx_library_name
 
 [private]
-_cmake_options := _cmake_options_base + " -DVISRTX_ENABLE_MDL_SUPPORT=ON"
+_cmake_options := _cmake_options_base + " -DVISRTX_ENABLE_MDL_SUPPORT=ON -DVISRTX_ENABLE_MATERIALX_SUPPORT=ON"
     
 [private]
-_cmake_options_mdl_off := _cmake_options_base + " -DVISRTX_ENABLE_MDL_SUPPORT=OFF"
+_cmake_options_mdl_off := _cmake_options_base + " -DVISRTX_ENABLE_MDL_SUPPORT=OFF -DVISRTX_ENABLE_MATERIALX_SUPPORT=OFF"
 
 [doc("Configure")]
 configure: (cmake::force_configure _source_dir _build_dir _install_dir _cmake_options "-DVISRTX_USE_MDL_FOR_PHYSICALLY_BASED=OFF")
