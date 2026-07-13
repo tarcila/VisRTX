@@ -89,6 +89,12 @@
             tbb
             libdecor
 
+            # Runtime PTX linking for the wavefront MDL per-material kernels
+            # (NVRTC to compile the shade shell, nvJitLink to link it with the
+            # MDL material PTX). Matches the 12.9 CUDA toolchain the build uses.
+            cudaPackages_13_3.cuda_nvrtc
+            cudaPackages_13_3.libnvjitlink
+
             python3Packages.pandas
             python3Packages.matplotlib
             python3Packages.plotly
@@ -105,22 +111,23 @@
 
             silo
 
-            tsd
+            vela
+            anari-vsr
             materialx
           ];
 
           inputsFrom = with pkgs; [
-            visrtx
-            tsd
+            (visrtx.override { cudaPackages = cudaPackages_13_2; })
+            (vela.override { cudaPackages = cudaPackages_13_2; })
           ];
 
           STOCKADE_SESSION = "anari";
           LD_LIBRARY_PATH = "/run/opengl-driver/lib:${pkgs.mdl-sdk}/lib:${lib.makeLibraryPath anariDevices}";
           ANARI_LIBRARY = "visrtx";
-          TSD_ANARI_LIBRARIES = lib.concatStringsSep "," (
+          VSR_ANARI_LIBRARIES = lib.concatStringsSep "," (
             map (p: lib.removePrefix "anari-" p.pname) anariDevices
           );
-          TSD_LUA_PACKAGE_PATHS = "/data/TSD/scripts";
+          VSR_LUA_PACKAGE_PATHS = "/data/VSR/scripts";
 
           shellHook = ''
             if test -n "''${VSCODE_IPC_HOOK_CLI}"

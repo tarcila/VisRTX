@@ -19,7 +19,7 @@ _emacs_dape_dir := _root_dir
 # Per-workspace ANARI library name so dev builds coexist with an official install.
 _visrtx_library_name := "visrtx_" + replace_regex(file_name(_root_dir), '[^A-Za-z0-9_]+', '_')
 # Prepend this workspace's device to the flake-provided list and make it the default.
-_anari_envrc := 'export TSD_ANARI_LIBRARIES="' + _visrtx_library_name + '\${TSD_ANARI_LIBRARIES:+,\${TSD_ANARI_LIBRARIES}}"' + "\n" + 'export ANARI_LIBRARY="' + _visrtx_library_name + '"'
+_anari_envrc := 'export VSR_ANARI_LIBRARIES="' + _visrtx_library_name + '\${VSR_ANARI_LIBRARIES:+,\${VSR_ANARI_LIBRARIES}}"' + "\n" + 'export ANARI_LIBRARY="' + _visrtx_library_name + '"'
 
 _compiler := if os() == "macos" { "clang++" } else { "g++" }
 
@@ -55,8 +55,8 @@ _cmake_options_base := replace_regex('
     -DBUILD_SHARED_LIBS=OFF
     -DOPTIX_FETCH_VERSION=9.0
     -DVISRTX_BUILD_GL_DEVICE=OFF
-    -DVISRTX_BUILD_TSD=ON
     -DVISRTX_BUILD_TESTS=ON
+    -DVISRTX_MIN_ARCH=89
 ', '\s*\n\s*', ' ') + " -DVISRTX_LIBRARY_NAME=" + _visrtx_library_name
 
 [private]
@@ -81,7 +81,6 @@ reconfigure: (cmake::configure _source_dir _build_dir _install_dir _cmake_option
 [metadata("task", "pm=$gcc")]
 build cfg=cfg: reconfigure (cmake::install cfg _build_dir)
     mkdir -p "{{ _install_dir }}/bin"
-    cp -u "{{ _build_dir }}/{{ cfg }}/tsd"* "{{ _install_dir }}/bin"
 
 [doc("Rebuild")]
 [metadata("task", "pm=$gcc")]
@@ -100,13 +99,15 @@ test cfg=cfg: (build cfg)
 run COMMAND *ARGS:
     exec {{ COMMAND }} {{ ARGS }}
 
-[doc("Run tsdViewer")]
+# vsrViewer / vsrRender come from the nix `vela` package (TSD is being dropped
+# from VisRTX and lives on as VSR in the NVIDIA/Vela repo).
+[doc("Run vsrViewer")]
 [metadata("launch", "debug")]
-view *ARGS: (run "tsdViewer" "-v" "-e" ARGS)
+view *ARGS: (run "vsrViewer" "-v" "-e" ARGS)
 
-[doc("Run tsdRender")]
+[doc("Run vsrRender")]
 [metadata("launch", "debug")]
-render *ARGS: (run "tsdRender" ARGS)
+render *ARGS: (run "vsrRender" ARGS)
 
 # Auxiliary recipes
 
