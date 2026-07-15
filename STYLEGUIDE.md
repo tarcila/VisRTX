@@ -195,6 +195,15 @@ Avoid features that obscure intent or have poor tooling support.
 Do not use `try`/`catch` inside library code — let exceptions propagate to the
 application layer.
 
+### Fallible Returns
+
+Distinguish the two kinds of "not found" by return type:
+
+- **Missing value** → `std::optional<T>`, returned as `return {};` on absence.
+- **Missing object / pointer** → raw `T *`, returned as `nullptr` on absence.
+
+Do not mix the two for the same kind of lookup within a type.
+
 ---
 
 ## 12. Comments
@@ -211,7 +220,39 @@ application layer.
 
 ---
 
-## 13. CUDA and OptiX (`devices/rtx`)
+## 13. Polymorphic Class Hierarchies
+
+The project's canonical extensibility shape is an abstract base with a
+**public non-virtual driving API**, a small set of **protected pure-virtual
+hooks** subclasses must implement, and optional virtual hooks with default
+no-op bodies. Prefer this over CRTP (see §10).
+
+```cpp
+struct ImagePass {
+  // public non-virtual API driven by the owner
+  void setEnabled(bool e);
+  virtual const char *name() const = 0;
+
+ protected:
+  virtual void render(ImageBuffers &b, int stageId) = 0; // required hook
+  virtual void updateSize();                             // optional, no-op default
+
+ private:
+  friend struct ImagePipeline; // owner drives the protected API
+};
+```
+
+- Notification/observer bases (e.g. `BaseUpdateDelegate`, `RenderIndex`) expose
+  many narrow `signalXxx(...)`/`preChildren`/`postChildren` virtual hooks;
+  subclasses override only the ones they care about.
+- Provide a Null-Object subclass (all hooks no-op) where a "do nothing" default
+  is useful (`EmptyUpdateDelegate`).
+- Always null-check an optional delegate/observer before signaling it:
+  `if (m_delegate) m_delegate->signalX(...);`
+
+---
+
+## 14. CUDA and OptiX (`devices/rtx`)
 
 ### File Types
 
