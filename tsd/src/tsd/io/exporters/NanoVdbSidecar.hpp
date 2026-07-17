@@ -24,11 +24,15 @@ struct NanoVdbSidecar
   std::vector<double> coordsY;
   std::vector<double> coordsZ;
 
-  bool hasCoords() const
-  {
-    return !coordsX.empty() && !coordsY.empty() && !coordsZ.empty();
-  }
+  bool hasCoords() const;
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline bool NanoVdbSidecar::hasCoords() const
+{
+  return !coordsX.empty() && !coordsY.empty() && !coordsZ.empty();
+}
 
 std::filesystem::path makeSidecarPath(const std::filesystem::path &nvdbPath);
 

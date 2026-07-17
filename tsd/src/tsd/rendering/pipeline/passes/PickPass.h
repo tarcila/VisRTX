@@ -25,7 +25,7 @@ struct PickPass : public ImagePass
 
   PickPass();
   ~PickPass() override;
-  const char *name() const override { return "Pick"; }
+  const char *name() const override;
 
   void setPickOperation(PickOpFunc &&f);
 
@@ -34,5 +34,12 @@ struct PickPass : public ImagePass
 
   PickOpFunc m_op;
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *PickPass::name() const
+{
+  return "Pick";
+}
 
 } // namespace tsd::rendering

@@ -20,7 +20,7 @@ struct BoxOutlineRenderPass : public ImagePass
 {
   BoxOutlineRenderPass();
   ~BoxOutlineRenderPass() override;
-  const char *name() const override { return "Box Outline"; }
+  const char *name() const override;
 
   void setBox(const tsd::math::box3 &box);
   void setPerspectiveView(const tsd::math::float3 &eye,
@@ -59,5 +59,12 @@ struct BoxOutlineRenderPass : public ImagePass
   uint32_t m_width{1};
   bool m_depthTestEnabled{true};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *BoxOutlineRenderPass::name() const
+{
+  return "Box Outline";
+}
 
 } // namespace tsd::rendering

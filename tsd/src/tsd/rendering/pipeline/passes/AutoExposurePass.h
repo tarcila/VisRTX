@@ -11,7 +11,7 @@ struct AutoExposurePass : public ImagePass
 {
   AutoExposurePass();
   ~AutoExposurePass() override;
-  const char *name() const override { return "Auto Exposure"; }
+  const char *name() const override;
 
   void setHDREnabled(bool enabled);
   float currentExposure() const;
@@ -24,5 +24,12 @@ struct AutoExposurePass : public ImagePass
   float m_currentExposure{0.f};
   float m_response{0.15f};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *AutoExposurePass::name() const
+{
+  return "Auto Exposure";
+}
 
 } // namespace tsd::rendering

@@ -13,10 +13,7 @@ struct OutputTransformPass : public ImagePass
 {
   OutputTransformPass();
   ~OutputTransformPass() override;
-  const char *name() const override
-  {
-    return "Output Transform";
-  }
+  const char *name() const override;
 
   void setColorFormat(anari::DataType format);
   void setGamma(float gamma);
@@ -28,5 +25,12 @@ struct OutputTransformPass : public ImagePass
   anari::DataType m_colorFormat{ANARI_UFIXED8_RGBA_SRGB};
   float m_gamma{2.2f};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *OutputTransformPass::name() const
+{
+  return "Output Transform";
+}
 
 } // namespace tsd::rendering

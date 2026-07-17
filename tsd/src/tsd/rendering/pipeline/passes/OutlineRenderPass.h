@@ -19,7 +19,7 @@ struct OutlineRenderPass : public ImagePass
 {
   OutlineRenderPass();
   ~OutlineRenderPass() override;
-  const char *name() const override { return "Outline"; }
+  const char *name() const override;
 
   void setOutlineId(uint32_t id);
 
@@ -28,5 +28,12 @@ struct OutlineRenderPass : public ImagePass
 
   uint32_t m_outlineId{~0u};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *OutlineRenderPass::name() const
+{
+  return "Outline";
+}
 
 } // namespace tsd::rendering

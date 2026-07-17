@@ -14,10 +14,7 @@ struct ToneMapPass : public ImagePass
 {
   ToneMapPass();
   ~ToneMapPass() override;
-  const char *name() const override
-  {
-    return "Tone Map";
-  }
+  const char *name() const override;
 
   void setOperator(ToneMapOperator op);
   void setAutoExposureEnabled(bool enabled);
@@ -33,5 +30,12 @@ struct ToneMapPass : public ImagePass
   float m_exposure{0.f};
   bool m_hdrEnabled{false};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *ToneMapPass::name() const
+{
+  return "Tone Map";
+}
 
 } // namespace tsd::rendering

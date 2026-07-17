@@ -101,10 +101,10 @@ template <typename T>
 struct ForestVisitor
 {
   virtual ~ForestVisitor() = default;
-  virtual bool preChildren(ForestNode<T> &n, int level) { return true; }
-  virtual void postChildren(ForestNode<T> &n, int level) {}
-  virtual bool preChildren_const(const ForestNode<T> &n, int level) { return true; }
-  virtual void postChildren_const(const ForestNode<T> &n, int level) {}
+  virtual bool preChildren(ForestNode<T> &n, int level);
+  virtual void postChildren(ForestNode<T> &n, int level);
+  virtual bool preChildren_const(const ForestNode<T> &n, int level);
+  virtual void postChildren_const(const ForestNode<T> &n, int level);
 };
 // clang-format on
 
@@ -369,6 +369,28 @@ inline bool operator!=(const ForestNode<T> &a, const ForestNode<T> &b)
 {
   return !(a == b);
 }
+
+// ForestVisitor<> //
+
+template <typename T>
+inline bool ForestVisitor<T>::preChildren(ForestNode<T> &, int)
+{
+  return true;
+}
+
+template <typename T>
+inline void ForestVisitor<T>::postChildren(ForestNode<T> &, int)
+{}
+
+template <typename T>
+inline bool ForestVisitor<T>::preChildren_const(const ForestNode<T> &, int)
+{
+  return true;
+}
+
+template <typename T>
+inline void ForestVisitor<T>::postChildren_const(const ForestNode<T> &, int)
+{}
 
 // Forest<> //
 

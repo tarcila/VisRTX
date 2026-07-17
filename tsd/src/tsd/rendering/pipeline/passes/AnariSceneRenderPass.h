@@ -22,7 +22,7 @@ struct AnariSceneRenderPass : public ImagePass
 {
   AnariSceneRenderPass(anari::Device d);
   ~AnariSceneRenderPass() override;
-  const char *name() const override { return "ANARI Scene"; }
+  const char *name() const override;
 
   void setCamera(anari::Camera c);
   void setRenderer(anari::Renderer r);
@@ -72,5 +72,12 @@ struct AnariSceneRenderPass : public ImagePass
   anari::World m_world{nullptr};
   anari::Frame m_frame{nullptr};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *AnariSceneRenderPass::name() const
+{
+  return "ANARI Scene";
+}
 
 } // namespace tsd::rendering

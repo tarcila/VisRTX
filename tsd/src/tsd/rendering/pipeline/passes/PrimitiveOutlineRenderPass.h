@@ -13,7 +13,7 @@ struct PrimitiveOutlineRenderPass : public ImagePass
 {
   PrimitiveOutlineRenderPass();
   ~PrimitiveOutlineRenderPass() override;
-  const char *name() const override { return "Primitive Outline"; }
+  const char *name() const override;
 
   void setOutlineColor(const tsd::math::float4 &color);
   void setThickness(uint32_t thickness);
@@ -24,5 +24,12 @@ struct PrimitiveOutlineRenderPass : public ImagePass
   tsd::math::float4 m_outlineColor{0.8f, 0.8f, 0.8f, 1.f};
   uint32_t m_thickness{1};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *PrimitiveOutlineRenderPass::name() const
+{
+  return "Primitive Outline";
+}
 
 } // namespace tsd::rendering

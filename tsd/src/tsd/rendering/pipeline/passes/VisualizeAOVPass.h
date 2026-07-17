@@ -32,10 +32,7 @@ struct VisualizeAOVPass : public ImagePass
 {
   VisualizeAOVPass();
   ~VisualizeAOVPass() override;
-  const char *name() const override
-  {
-    return "Visualize AOV";
-  }
+  const char *name() const override;
 
   void setAOVType(AOVType type);
   void setDepthRange(float minDepth, float maxDepth);
@@ -49,5 +46,12 @@ struct VisualizeAOVPass : public ImagePass
   float m_maxDepth{1.f};
   bool m_edgeInvert{false};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *VisualizeAOVPass::name() const
+{
+  return "Visualize AOV";
+}
 
 } // namespace tsd::rendering

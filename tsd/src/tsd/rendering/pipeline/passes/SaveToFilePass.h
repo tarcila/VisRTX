@@ -22,7 +22,7 @@ struct SaveToFilePass : public ImagePass
 {
   SaveToFilePass();
   ~SaveToFilePass() override;
-  const char *name() const override { return "Save To File"; }
+  const char *name() const override;
 
   void setFilename(const std::string &filename);
   const std::string &getFilename() const;
@@ -35,5 +35,12 @@ struct SaveToFilePass : public ImagePass
   std::string m_filename;
   bool m_singleShot{true};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const char *SaveToFilePass::name() const
+{
+  return "Save To File";
+}
 
 } // namespace tsd::rendering
