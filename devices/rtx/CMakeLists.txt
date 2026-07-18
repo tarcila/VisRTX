@@ -42,6 +42,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 project(visrtx_device VERSION 0.14.0 LANGUAGES CXX CUDA)
 
 include(GenerateExportHeader)
+include(CMakeDependentOption)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
@@ -59,28 +60,24 @@ if(NOT VISRTX_LIBRARY_NAME MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
     "VISRTX_LIBRARY_NAME must be a valid C identifier (it is pasted into a symbol name): '${VISRTX_LIBRARY_NAME}'")
 endif()
 
-option(
-  VISRTX_ENABLE_MDL_SUPPORT
-  "Whether to enable NVIDIA MDL support for VisRTX materials"
-  OFF
-)
 option(VISRTX_ENABLE_NEURAL "Enable Neural Graphics Primitives" OFF)
 option(VISRTX_ENABLE_NVTX "Enable NVTX profiling instrumentation" OFF)
 mark_as_advanced(VISRTX_ENABLE_NVTX)
 option(VISRTX_ENABLE_NVML "Enable NVML for runtime driver checks" ON)
 mark_as_advanced(VISRTX_ENABLE_NVML)
-
-option(VISRTX_USE_MDL_FOR_PHYSICALLY_BASED "Use MDL for physically based materials" OFF)
-
 option(
+  VISRTX_ENABLE_MDL_SUPPORT
+  "Whether to enable NVIDIA MDL support for VisRTX materials"
+  OFF
+)
+option(VISRTX_USE_MDL_FOR_PHYSICALLY_BASED "Use MDL for physically based materials" OFF)
+cmake_dependent_option(
   VISRTX_ENABLE_MATERIALX_SUPPORT
   "Whether to enable MaterialX (.mtlx) materials (requires MDL support)"
   OFF
+  "VISRTX_ENABLE_MDL_SUPPORT"
+  OFF
 )
-if(VISRTX_ENABLE_MATERIALX_SUPPORT AND NOT VISRTX_ENABLE_MDL_SUPPORT)
-  message(FATAL_ERROR
-    "VISRTX_ENABLE_MATERIALX_SUPPORT requires VISRTX_ENABLE_MDL_SUPPORT (MaterialX transcodes to MDL)")
-endif()
 
 # Enable possibly costly debug support
 option(VISRTX_ENABLE_HDRI_SAMPLING_DEBUG "Enable HDRI sampling debug support" OFF)
