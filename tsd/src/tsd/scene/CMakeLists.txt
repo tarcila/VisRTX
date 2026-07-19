@@ -23,6 +23,7 @@ set(TSD_CORE_CXX_SOURCES
   Scene.cpp
   UpdateDelegate.cpp
   algorithms/computeScalarRange.cpp
+  algorithms/reclassifyAlphaModes.cpp
   objects/Array.cpp
   objects/Camera.cpp
   objects/Geometry.cpp

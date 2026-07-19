@@ -34,6 +34,7 @@ project_add_executable(
   test_ObjectUsePtr.cpp
   test_Parameter.cpp
   test_RenderIndex.cpp
+  test_ReclassifyAlpha.cpp
   test_Scene.cpp
   test_SceneArchive.cpp
   test_Token.cpp
@@ -99,6 +100,8 @@ add_test(NAME tsd::ObjectUsePtr  COMMAND ${PROJECT_NAME} "[ObjectUsePtr]" )
 add_test(NAME tsd::Downsample    COMMAND ${PROJECT_NAME} "[Downsample]"   )
 add_test(NAME tsd::Parameter     COMMAND ${PROJECT_NAME} "[Parameter]"    )
 add_test(NAME tsd::RenderIndex   COMMAND ${PROJECT_NAME} "[RenderIndex]"  )
+add_test(NAME tsd::ReclassifyAlpha
+         COMMAND ${PROJECT_NAME} "[reclassifyAlphaModes]")
 add_test(NAME tsd::Scene         COMMAND ${PROJECT_NAME} "[Scene]"        )
 add_test(NAME tsd::SceneArchive  COMMAND ${PROJECT_NAME} "[SceneArchive]" )
 add_test(NAME tsd::Token         COMMAND ${PROJECT_NAME} "[Token]"        )

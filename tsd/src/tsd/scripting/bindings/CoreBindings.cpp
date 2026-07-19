@@ -10,6 +10,7 @@
 #include "tsd/scene/Object.hpp"
 #include "tsd/scene/Parameter.hpp"
 #include "tsd/scene/Scene.hpp"
+#include "tsd/scene/algorithms/reclassifyAlphaModes.hpp"
 #include "tsd/scene/objects/Array.hpp"
 #include "tsd/scene/objects/Sampler.hpp"
 #include "tsd/scripting/LuaBindings.hpp"
@@ -537,6 +538,13 @@ void registerContextBindings(sol::state &lua)
       });
 
   tsd["createScene"] = []() { return std::make_unique<scene::Scene>(); };
+
+  // Alpha Classification (opt-in; rewrites author intent — never implicit).
+  // Returns examined, toMask, toOpaque counts.
+  tsd["reclassifyAlphaModes"] = [](scene::Scene &s) {
+    const auto r = scene::reclassifyAlphaModes(s);
+    return std::make_tuple(r.examined, r.toMask, r.toOpaque);
+  };
 
   // ANARI data type constants
   tsd["GEOMETRY"] = ANARI_GEOMETRY;
