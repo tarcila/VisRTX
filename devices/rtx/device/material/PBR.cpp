@@ -147,6 +147,36 @@ void PBR::commitParameters()
   m_mode = alphaModeFromString(getParamString("alphaMode", "opaque"));
 
   refreshEmissionLightSet();
+  refreshAlphaState(alphaSpec());
+}
+
+MaterialAlphaSpec PBR::alphaSpec() const
+{
+  MaterialAlphaSpec spec;
+  spec.bakeable = true;
+  spec.mode = m_mode;
+  spec.cutoff = m_cutoff;
+  populateMaterialParameter(
+      spec.colorAlpha, m_color, m_colorSampler.get(), m_colorAttribute);
+  populateMaterialParameter(
+      spec.opacity, m_opacity, m_opacitySampler.get(), m_opacityAttribute);
+  populateMaterialParameter(spec.transmission,
+      m_transmission,
+      m_transmissionSampler.get(),
+      m_transmissionAttribute);
+  return spec;
+}
+
+helium::TimeStamp PBR::alphaStateStamp() const
+{
+  auto t = Material::alphaStateStamp();
+  if (m_colorSampler.get())
+    t = std::max(t, m_colorSampler->lastFinalized());
+  if (m_opacitySampler.get())
+    t = std::max(t, m_opacitySampler->lastFinalized());
+  if (m_transmissionSampler.get())
+    t = std::max(t, m_transmissionSampler->lastFinalized());
+  return t;
 }
 
 static bool emissiveIsBound(const Sampler *sampler, const std::string &attribute)

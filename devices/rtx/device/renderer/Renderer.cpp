@@ -1100,6 +1100,8 @@ OptixPipelineCompileOptions makeVisRTXOptixPipelineCompileOptions()
   pipelineCompileOptions.numAttributeValues = ATTRIBUTE_VALUES;
   pipelineCompileOptions.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
   pipelineCompileOptions.pipelineLaunchParamsVariableName = "frameData";
+  // Required for traversal of GASes carrying Opacity Micromaps (ADR 0009).
+  pipelineCompileOptions.allowOpacityMicromaps = 1;
 
   return pipelineCompileOptions;
 }

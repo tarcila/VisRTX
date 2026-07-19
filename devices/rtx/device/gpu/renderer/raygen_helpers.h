@@ -46,11 +46,18 @@ namespace visrtx {
 // Float payload init 0, accumulateValue(o, α, o) in __anyhit__shadow. The
 // path-tracing renderer uses vec3 transmittance instead — see
 // shadowTransmittance.h.
+// Closest-hit stays ENABLED: a hit accepted without any-hit (DISABLE_ANYHIT
+// geometry, OMM-opaque states) must still write "blocked" — see
+// __closesthit__shadow. First accepted hit fully blocks, so stop there.
 VISRTX_DEVICE float surfaceShadowOpacity(ScreenSample &ss, const Ray &r)
 {
   float a = 0.0f;
-  intersectSurface(
-      ss, r, RayType::SHADOW, &a, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+  intersectSurface(ss,
+      r,
+      RayType::SHADOW,
+      &a,
+      OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT
+          | enforceAnyhitIfCutPlane(ss.frameData->renderer));
   return a;
 }
 

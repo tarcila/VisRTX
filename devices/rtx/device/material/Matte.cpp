@@ -32,6 +32,8 @@
 #include "Matte.h"
 #include "gpu/gpu_objects.h"
 
+#include <algorithm>
+
 namespace visrtx {
 
 Matte::Matte(DeviceGlobalState *d)
@@ -52,6 +54,31 @@ void Matte::commitParameters()
 
   m_cutoff = getParam<float>("alphaCutoff", 0.5f);
   m_mode = alphaModeFromString(getParamString("alphaMode", "opaque"));
+
+  refreshAlphaState(alphaSpec());
+}
+
+MaterialAlphaSpec Matte::alphaSpec() const
+{
+  MaterialAlphaSpec spec;
+  spec.bakeable = true;
+  spec.mode = m_mode;
+  spec.cutoff = m_cutoff;
+  populateMaterialParameter(
+      spec.colorAlpha, m_color, m_colorSampler.get(), m_colorAttribute);
+  populateMaterialParameter(
+      spec.opacity, m_opacity, m_opacitySampler.get(), m_opacityAttribute);
+  return spec;
+}
+
+helium::TimeStamp Matte::alphaStateStamp() const
+{
+  auto t = Material::alphaStateStamp();
+  if (m_colorSampler.get())
+    t = std::max(t, m_colorSampler->lastFinalized());
+  if (m_opacitySampler.get())
+    t = std::max(t, m_opacitySampler->lastFinalized());
+  return t;
 }
 
 MaterialGPUData Matte::gpuData() const

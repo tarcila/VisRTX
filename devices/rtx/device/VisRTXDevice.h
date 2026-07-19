@@ -166,6 +166,8 @@ struct VisRTXDevice : public helium::BaseDevice
   int m_desiredGpuID{-1};
   int m_appGpuID{-1};
   bool m_eagerInit{false};
+  // One warning per device when VISRTX_OMM overrides an explicit "omm" param.
+  bool m_ommEnvWarned{false};
   std::atomic<DeviceInitStatus> m_initStatus{DeviceInitStatus::UNINITIALIZED};
 #ifdef USE_MDL
   std::atomic<DeviceInitStatus> m_mdlInitStatus{

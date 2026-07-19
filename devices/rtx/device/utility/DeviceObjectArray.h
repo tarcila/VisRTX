@@ -55,6 +55,9 @@ struct DeviceObjectArray
   T &map(DeviceObjectIndex idx);
   void unmap(DeviceObjectIndex idx);
 
+  // Read-only view of the host mirror; never marks the slot for re-upload.
+  const T &hostValue(DeviceObjectIndex idx) const;
+
   void *hostObject(DeviceObjectIndex idx) const;
 
   void upload();
@@ -135,6 +138,12 @@ template <typename T>
 inline void DeviceObjectArray<T>::unmap(DeviceObjectIndex idx)
 {
   m_objectsToUpload.push_back(idx);
+}
+
+template <typename T>
+inline const T &DeviceObjectArray<T>::hostValue(DeviceObjectIndex idx) const
+{
+  return *(m_objects.dataHost() + idx);
 }
 
 template <typename T>

@@ -31,6 +31,8 @@
 
 #include "Surface.h"
 
+#include <algorithm>
+
 namespace visrtx {
 
 Surface::Surface(DeviceGlobalState *d)
@@ -130,7 +132,143 @@ OptixBuildInput Surface::buildInput() const
   OptixBuildInput obi = {};
   if (geometryIsValid())
     m_geometry->populateBuildInput(obi);
+
+  // Fully Opaque surfaces skip any-hit entirely (shadow rays terminate in
+  // traversal). Backface-culling tri/quad geometry still needs the primary
+  // any-hit cull, so it keeps any-hit; active cut planes re-enable any-hit
+  // per-ray via ENFORCE_ANYHIT instead of per-build.
+  if (materialIsValid() && geometryIsValid()) {
+    const auto &registry = deviceState()->registry;
+    bool disableAnyhit =
+        registry.materials.hostValue(m_material->index()).isFullyOpaque;
+    if (disableAnyhit) {
+      const auto &ggd = registry.geometries.hostValue(m_geometry->index());
+      if (ggd.type == GeometryType::TRIANGLE)
+        disableAnyhit = !ggd.tri.cullBackfaces;
+      else if (ggd.type == GeometryType::QUAD)
+        disableAnyhit = !ggd.quad.cullBackfaces;
+    }
+    if (disableAnyhit) {
+      // Keep REQUIRE_SINGLE_ANYHIT_CALL: ENFORCE_ANYHIT (cut planes) turns
+      // any-hit back on for exactly these surfaces, and the shadow programs
+      // rely on single invocation per primitive.
+      constexpr uint32_t flags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT
+          | OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL;
+      m_buildInputFlags[0] = flags;
+      if (obi.type == OPTIX_BUILD_INPUT_TYPE_TRIANGLES)
+        obi.triangleArray.flags = m_buildInputFlags;
+      else if (obi.type == OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES)
+        obi.customPrimitiveArray.flags = m_buildInputFlags;
+      else if (obi.type == OPTIX_BUILD_INPUT_TYPE_CURVES)
+        obi.curveArray.flag = flags;
+    }
+  }
+
+  if (m_omm && m_omm->attached
+      && obi.type == OPTIX_BUILD_INPUT_TYPE_TRIANGLES) {
+    auto &om = obi.triangleArray.opacityMicromap;
+    om.indexingMode = OPTIX_OPACITY_MICROMAP_ARRAY_INDEXING_MODE_INDEXED;
+    om.opacityMicromapArray = (CUdeviceptr)m_omm->micromapArray.ptr();
+    om.indexBuffer = (CUdeviceptr)m_omm->indexBuffer.ptr();
+    om.indexSizeInBytes = sizeof(int32_t);
+    om.indexStrideInBytes = 0;
+    om.indexOffset = 0;
+    om.numMicromapUsageCounts = m_omm->numUsage;
+    om.micromapUsageCounts = m_omm->numUsage ? m_omm->usage : nullptr;
+  }
+
   return obi;
+}
+
+helium::TimeStamp Surface::lastBLASInputChange() const
+{
+  auto t = lastFinalized();
+  if (m_geometry)
+    t = std::max(t, m_geometry->lastFinalized());
+  if (m_material)
+    t = std::max(t, m_material->alphaStateStamp());
+  return t;
+}
+
+// Cache key mixes object identities with their finalize stamps: stamps are
+// globally monotonic, so an allocator-recycled pointer can never resurrect a
+// stale entry.
+static uint64_t ommBakeCacheKey(const Geometry *g,
+    const Material *m,
+    helium::TimeStamp geomStamp,
+    helium::TimeStamp alphaStamp,
+    helium::TimeStamp configStamp)
+{
+  auto mix = [](uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h;
+  };
+  uint64_t h = 0;
+  h = mix(h, uint64_t(reinterpret_cast<uintptr_t>(g)));
+  h = mix(h, uint64_t(geomStamp));
+  h = mix(h, uint64_t(reinterpret_cast<uintptr_t>(m)));
+  h = mix(h, uint64_t(alphaStamp));
+  h = mix(h, uint64_t(configStamp));
+  return h;
+}
+
+bool Surface::ensureOpacityMicromap()
+{
+  if (!isValid())
+    return false;
+  auto &omm = deviceState()->omm;
+  const auto inputStamp = std::max(lastBLASInputChange(), omm.lastChange);
+  if (m_ommBakedAt >= inputStamp)
+    return false;
+
+  // Surfaces sharing (geometry, material alpha state) share one bake —
+  // including negative verdicts, so a no-win pair is evaluated once.
+  const auto key = ommBakeCacheKey(m_geometry.ptr,
+      m_material.ptr,
+      m_geometry->lastFinalized(),
+      m_material->alphaStateStamp(),
+      omm.lastChange);
+  if (auto it = omm.bakeCache.find(key); it != omm.bakeCache.end()) {
+    m_omm = it->second;
+    m_ommBakedAt = helium::newTimeStamp();
+    return false;
+  }
+
+  // Bake only once the inputs have been stable across OMM_SETTLE_PASSES
+  // BLAS-rebuild passes: hosts that churn surface/geometry objects would
+  // otherwise pay full bakes for micromaps that never get traversed.
+  // Deferred surfaces render without OMM; the Group schedules follow-up
+  // rebuilds until the settled bakes attach. Epochs (not per-call checks)
+  // keep a surface shared by several Groups from "settling" within a pass.
+  constexpr uint64_t OMM_SETTLE_PASSES = 2;
+  const auto epoch = omm.rebuildEpoch;
+  if (m_ommSeenStamp != inputStamp) {
+    m_ommSeenStamp = inputStamp;
+    m_ommSeenEpoch = epoch;
+    m_omm.reset();
+    return true;
+  }
+  if (epoch - m_ommSeenEpoch < OMM_SETTLE_PASSES)
+    return true;
+
+  auto baked = std::make_shared<OpacityMicromapBuffers>();
+  bakeOpacityMicromaps(*baked, m_geometry.ptr, m_material.ptr, this);
+  m_omm = std::move(baked);
+
+  // Prune entries only the cache still references before inserting.
+  constexpr size_t OMM_BAKE_CACHE_MAX = 512;
+  if (omm.bakeCache.size() >= OMM_BAKE_CACHE_MAX) {
+    for (auto it = omm.bakeCache.begin(); it != omm.bakeCache.end();) {
+      if (it->second.use_count() == 1)
+        it = omm.bakeCache.erase(it);
+      else
+        ++it;
+    }
+  }
+  omm.bakeCache.emplace(key, m_omm);
+
+  m_ommBakedAt = helium::newTimeStamp();
+  return false;
 }
 
 bool Surface::geometryIsValid() const

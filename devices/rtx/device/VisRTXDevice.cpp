@@ -485,6 +485,29 @@ void VisRTXDevice::deviceCommitParameters()
   m_eagerInit = getParam<bool>("forceInit", false);
   m_desiredGpuID = getParam<int>("cudaDevice", -1);
 
+  if (auto *state = deviceState(); state) {
+    bool ommEnabled = getParam<bool>("omm", true);
+    if (auto env = ommEnabledFromEnv()) {
+      if (*env != ommEnabled && !m_ommEnvWarned) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "VISRTX_OMM=%d overrides the 'omm' device parameter (%d)",
+            int(*env),
+            int(ommEnabled));
+        m_ommEnvWarned = true;
+      }
+      ommEnabled = *env;
+    }
+    const int ommLevel = getParam<int>("ommSubdivisionLevel", -1);
+    if (ommEnabled != state->omm.enabled
+        || ommLevel != state->omm.subdivisionLevel) {
+      state->omm.enabled = ommEnabled;
+      state->omm.subdivisionLevel = ommLevel;
+      // OMM config feeds triangle GAS build inputs — groups must rebuild.
+      state->omm.lastChange = helium::newTimeStamp();
+      state->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
+    }
+  }
+
   if (m_desiredGpuID < 0) {
     if (auto *env = std::getenv("VISRTX_CUDA_DEVICE"); env) {
       reportMessage(ANARI_SEVERITY_DEBUG,
