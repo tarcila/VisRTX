@@ -190,28 +190,6 @@ helium::TimeStamp Surface::lastBLASInputChange() const
   return t;
 }
 
-// Cache key mixes object identities with their finalize stamps: stamps are
-// globally monotonic, so an allocator-recycled pointer can never resurrect a
-// stale entry.
-static uint64_t ommBakeCacheKey(const Geometry *g,
-    const Material *m,
-    helium::TimeStamp geomStamp,
-    helium::TimeStamp alphaStamp,
-    helium::TimeStamp configStamp)
-{
-  auto mix = [](uint64_t h, uint64_t v) {
-    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-    return h;
-  };
-  uint64_t h = 0;
-  h = mix(h, uint64_t(reinterpret_cast<uintptr_t>(g)));
-  h = mix(h, uint64_t(geomStamp));
-  h = mix(h, uint64_t(reinterpret_cast<uintptr_t>(m)));
-  h = mix(h, uint64_t(alphaStamp));
-  h = mix(h, uint64_t(configStamp));
-  return h;
-}
-
 bool Surface::ensureOpacityMicromap()
 {
   if (!isValid())
@@ -221,13 +199,17 @@ bool Surface::ensureOpacityMicromap()
   if (m_ommBakedAt >= inputStamp)
     return false;
 
-  // Surfaces sharing (geometry, material alpha state) share one bake —
-  // including negative verdicts, so a no-win pair is evaluated once.
-  const auto key = ommBakeCacheKey(m_geometry.ptr,
-      m_material.ptr,
-      m_geometry->lastFinalized(),
-      m_material->alphaStateStamp(),
-      omm.lastChange);
+  // Content-addressed dedup: surfaces whose bake inputs are byte-identical
+  // share one micromap, even across recreated host objects. Ineligible pairs
+  // simply carry no OMM.
+  uint64_t key = 0;
+  std::shared_ptr<OmmBakeSetup> bakeSetup;
+  if (!computeOpacityMicromapKey(
+          key, bakeSetup, m_geometry.ptr, m_material.ptr, this)) {
+    m_omm.reset();
+    m_ommBakedAt = helium::newTimeStamp();
+    return false;
+  }
   if (auto it = omm.bakeCache.find(key); it != omm.bakeCache.end()) {
     m_omm = it->second;
     m_ommBakedAt = helium::newTimeStamp();
@@ -252,7 +234,7 @@ bool Surface::ensureOpacityMicromap()
     return true;
 
   auto baked = std::make_shared<OpacityMicromapBuffers>();
-  bakeOpacityMicromaps(*baked, m_geometry.ptr, m_material.ptr, this);
+  bakeOpacityMicromaps(*baked, *bakeSetup, this);
   m_omm = std::move(baked);
 
   // Prune entries only the cache still references before inserting.
