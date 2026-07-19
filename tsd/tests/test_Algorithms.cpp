@@ -4,11 +4,11 @@
 // catch
 #include "catch.hpp"
 // tsd_algorithms
-#include "tsd/algorithms/cpu/autoExposure.hpp"
 #include "tsd/algorithms/cpu/boxOutline.hpp"
 #include "tsd/algorithms/cpu/clearBuffers.hpp"
 #include "tsd/algorithms/cpu/convertColorBuffer.hpp"
 #include "tsd/algorithms/cpu/depthCompositeFrame.hpp"
+#include "tsd/algorithms/cpu/downsample.hpp"
 #include "tsd/algorithms/cpu/outline.hpp"
 #include "tsd/algorithms/cpu/outputTransform.hpp"
 #include "tsd/algorithms/cpu/toneMap.hpp"
@@ -91,9 +91,9 @@ SCENARIO("Host buffer helpers apply fills and float-to-byte conversion",
 }
 
 SCENARIO(
-    "Host auto exposure computes strided log luminance sums", "[Algorithms]")
+    "Host auto exposure computes the exact mean log luminance", "[Algorithms]")
 {
-  GIVEN("An HDR buffer with known luminance samples")
+  GIVEN("An HDR buffer with known luminance values")
   {
     const std::array<float, 16> hdr{1.f,
         1.f,
@@ -112,13 +112,16 @@ SCENARIO(
         16.f,
         1.f};
 
-    WHEN("Sampling every other pixel")
+    WHEN("Reducing the full 2x2 image")
     {
-      const float sum = cpu::sumLogLuminance(hdr.data(), 2u, 2u);
+      const float mean = cpu::meanLogLuminance(hdr.data(), 2u, 2u);
 
-      THEN("Only the strided samples contribute")
+      THEN("Every pixel contributes to the exact mean")
       {
-        REQUIRE(sum == Approx(-2.f));
+        // (log2(1) + log2(9) + log2(0.25) + log2(16)) / 4
+        const float expected =
+            (0.f + std::log2(9.f) + -2.f + 4.f) / 4.f;
+        REQUIRE(mean == Approx(expected));
       }
     }
   }
@@ -127,13 +130,13 @@ SCENARIO(
   {
     const std::array<float, 4> hdr{0.f, 0.f, 0.f, 1.f};
 
-    WHEN("The luminance is accumulated")
+    WHEN("The luminance is reduced")
     {
-      const float sum = cpu::sumLogLuminance(hdr.data(), 1u, 1u);
+      const float mean = cpu::meanLogLuminance(hdr.data(), 1u, 1u);
 
       THEN("The minimum luminance clamp is respected")
       {
-        REQUIRE(sum == Approx(std::log2(1e-4f)));
+        REQUIRE(mean == Approx(std::log2(1e-4f)));
       }
     }
   }

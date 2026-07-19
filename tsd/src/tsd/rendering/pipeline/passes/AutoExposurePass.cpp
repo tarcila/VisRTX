@@ -3,9 +3,9 @@
 
 #include "AutoExposurePass.h"
 // tsd_algorithms
-#include "tsd/algorithms/cpu/autoExposure.hpp"
+#include "tsd/algorithms/cpu/downsample.hpp"
 #ifdef TSD_ALGORITHMS_HAS_CUDA
-#include "tsd/algorithms/cuda/autoExposure.hpp"
+#include "tsd/algorithms/cuda/downsample.hpp"
 #endif
 // std
 #include <algorithm>
@@ -15,7 +15,6 @@ namespace tsd::rendering {
 
 namespace {
 
-constexpr uint32_t SAMPLE_COUNT = 16384;
 constexpr float MIN_EXPOSURE = -20.f;
 constexpr float MAX_EXPOSURE = 20.f;
 constexpr float MID_GRAY = 0.18f;
@@ -48,24 +47,22 @@ void AutoExposurePass::render(ImageBuffers &b, int stageId)
   if (totalPixels == 0 || !b.hdrColor)
     return;
 
-  const uint32_t stride = std::max(1u, totalPixels / SAMPLE_COUNT);
-  const uint32_t numSamples = (totalPixels + stride - 1) / stride;
-  if (numSamples == 0)
-    return;
-
-  float sumLogLum = 0.f;
+  // Mean log-luminance via the same API on either backend: the CUDA path is
+  // an exact full-image SPD reduction, the host path a strided estimate
+  // (bounded per-frame cost; ~0.02-stop accuracy).
+  float meanLogLum = 0.f;
 #ifdef TSD_ALGORITHMS_HAS_CUDA
   if (b.stream) {
-    sumLogLum = tsd::algorithms::cuda::sumLogLuminance(
-        b.stream, b.hdrColor, numSamples, stride);
+    meanLogLum = tsd::algorithms::cuda::meanLogLuminance(
+        b.stream, b.hdrColor, size.x, size.y);
   } else
 #endif
   {
-    sumLogLum =
-        tsd::algorithms::cpu::sumLogLuminance(b.hdrColor, numSamples, stride);
+    meanLogLum =
+        tsd::algorithms::cpu::meanLogLuminance(b.hdrColor, size.x, size.y);
   }
 
-  const float avgLum = std::exp2(sumLogLum / float(numSamples));
+  const float avgLum = std::exp2(meanLogLum);
   const float targetExposure =
       std::clamp(std::log2(MID_GRAY / avgLum), MIN_EXPOSURE, MAX_EXPOSURE);
 

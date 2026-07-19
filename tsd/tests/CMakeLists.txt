@@ -18,6 +18,7 @@ project_add_executable(
   test_Array.cpp
   test_ComponentSerialization.cpp
   test_DataTree.cpp
+  test_Downsample.cpp
   test_FlatMap.cpp
   test_Forest.cpp
   test_Geometry.cpp
@@ -95,6 +96,7 @@ add_test(NAME tsd::Math          COMMAND ${PROJECT_NAME} "[Math]"         )
 add_test(NAME tsd::Object        COMMAND ${PROJECT_NAME} "[Object]"       )
 add_test(NAME tsd::ObjectArchive COMMAND ${PROJECT_NAME} "[ObjectArchive]")
 add_test(NAME tsd::ObjectUsePtr  COMMAND ${PROJECT_NAME} "[ObjectUsePtr]" )
+add_test(NAME tsd::Downsample    COMMAND ${PROJECT_NAME} "[Downsample]"   )
 add_test(NAME tsd::Parameter     COMMAND ${PROJECT_NAME} "[Parameter]"    )
 add_test(NAME tsd::RenderIndex   COMMAND ${PROJECT_NAME} "[RenderIndex]"  )
 add_test(NAME tsd::Scene         COMMAND ${PROJECT_NAME} "[Scene]"        )
