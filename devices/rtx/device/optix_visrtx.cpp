@@ -138,6 +138,9 @@ DeviceGlobalState::DeviceGlobalState(ANARIDevice d)
 {
   if (auto env = ommEnabledFromEnv())
     omm.enabled = *env;
+  // Same escape-hatch rationale for the experimental opaque-states toggle.
+  if (auto *env = std::getenv("VISRTX_OMM_OPAQUE"); env)
+    omm.opaqueStates = std::atoi(env) != 0;
 }
 
 DeviceGlobalState::~DeviceGlobalState() = default;

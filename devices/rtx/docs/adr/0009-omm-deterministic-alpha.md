@@ -67,9 +67,17 @@ diverge by design — see the determinism-scope consequence below.
   transmittance per invocation, which OptiX may repeat per primitive).
 - **v1 emits only TRANSPARENT and UNKNOWN_OPAQUE states** (no hard OPAQUE):
   every surviving hit runs the existing any-hit/loop paths, so the micromap
-  is purely subtractive. Hard-OPAQUE states are a measured follow-up; the
-  shadow-ray machinery for them already exists — shadow traces keep
-  closest-hit enabled and commit blocked hits exactly, because a hit
-  accepted *without* any-hit (DISABLE_ANYHIT geometry, future OMM-opaque)
-  used to leave the payload reading "unoccluded" (mesh emitters stopped
-  self-occluding — caught by TestEmissiveCylinderConeLight).
+  is purely subtractive. The shadow-ray machinery for opaque commits exists
+  regardless — shadow traces keep closest-hit enabled and commit blocked
+  hits exactly, because a hit accepted *without* any-hit (DISABLE_ANYHIT
+  geometry, OMM-opaque) used to leave the payload reading "unoccluded"
+  (mesh emitters stopped self-occluding — caught by
+  TestEmissiveCylinderConeLight).
+- **Hard-OPAQUE states were measured and lose on foliage workloads**
+  (traversal 1.85s→1.99s GPU, bake 0.8s→3.4s on the benchmark scene:
+  per-candidate OMM lookups on the many newly-eligible alpha≈1 surfaces
+  outweigh saving one terminating any-hit per shadow ray). They ship as
+  the experimental `ommOpaqueStates` device parameter, default off; images
+  stay bit-identical when enabled, but primary-ray cut-plane culling cannot
+  be forced back on for opaque-committed hits, so clipping scenes must
+  leave it off.

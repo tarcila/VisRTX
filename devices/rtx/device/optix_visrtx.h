@@ -55,7 +55,6 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -224,6 +223,12 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
   {
     bool enabled{true};
     int subdivisionLevel{-1};
+    // Experimental: also emit hard OPAQUE states (device param
+    // "ommOpaqueStates" / env VISRTX_OMM_OPAQUE, default off). Opaque hits
+    // then commit without any-hit — exact for shading (closest-hit shadow
+    // commits blocked), but primary-ray cut-plane culling cannot be forced
+    // back on for them, so clipping scenes must leave this off.
+    bool opaqueStates{false};
     helium::TimeStamp lastChange{0}; // folds into triangle-GAS input stamps
     // Some surface deferred its bake-on-stable this pass; World converts this
     // into a BLAS-change bump at the top of the NEXT rebuildWorld() (a bump
