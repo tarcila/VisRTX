@@ -32,11 +32,23 @@
 #pragma once
 
 #include "optix_visrtx.h"
+#include "utility/SinglePassDownsampler.h"
 
 namespace visrtx {
 
 struct Geometry;
 struct Material;
+
+// Min/max pyramid over a sampler's transformed alpha (float2 = {min, max}
+// per texel), built once per (sampler content, transform, channel) with the
+// SPD downsampler and cached in DeviceGlobalState. The bake queries a level
+// matched to each microtriangle's UV footprint instead of scanning texels.
+struct OmmAlphaPyramid
+{
+  DeviceBuffer storage; // backs every level plus the SPD tile counter
+  spd::MipChainView<float2> chain;
+  uint2 srcDims{};
+};
 
 // Conservative Opacity Micromap for one Surface (ADR 0009). The bake
 // classifies each micro-triangle of every base triangle against the
@@ -67,16 +79,15 @@ struct OpacityMicromapBuffers
   void reset();
 };
 
-// Bakes OMMs for (geometry, material) into `out`. Returns false (with `out`
-// reset) when the pair is ineligible or the bake would win nothing (no
-// provably transparent region). Non-fatal on failure: the surface just
-// renders without OMM acceleration.
 // Resolved bake plan (opaque outside OpacityMicromap.cu). Produced by
 // computeOpacityMicromapKey, consumed by bakeOpacityMicromaps — resolving is
 // not free (registry lookups, factor resolution, domain-range queries), so a
 // cache miss must not do it twice.
 struct OmmBakeSetup;
 
+// Bakes OMMs for the resolved plan into `out`. Returns false (with `out`
+// reset) when the bake would win nothing (no provably transparent region).
+// Non-fatal on failure: the surface just renders without OMM acceleration.
 bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
     OmmBakeSetup &setup,
     Object *reporter);

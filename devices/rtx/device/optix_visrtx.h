@@ -158,6 +158,7 @@ namespace visrtx {
 struct Object;
 struct MDL;
 struct OpacityMicromapBuffers;
+struct OmmAlphaPyramid;
 
 struct ptx_blob
 {
@@ -256,6 +257,10 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
     // entry. Entries may hold an unattached result (negative verdict cache).
     std::unordered_map<uint64_t, std::shared_ptr<OpacityMicromapBuffers>>
         bakeCache;
+    // Min/max alpha pyramids the bake queries per microtri footprint, keyed
+    // by (sampler content stamp, transform, channel). In-flight bakes hold
+    // shared_ptrs, so eviction never dangles a queued kernel.
+    std::unordered_map<uint64_t, std::shared_ptr<OmmAlphaPyramid>> pyramids;
   } omm;
 
   DeferredArrayUploadBuffer uploadBuffer;
