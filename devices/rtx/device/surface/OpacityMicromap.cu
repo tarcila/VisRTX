@@ -71,6 +71,14 @@ constexpr uint32_t TRI_HAS_OPAQUE = 4;
 
 namespace {
 
+VISRTX_HOST_DEVICE uint64_t splitmix64(uint64_t x)
+{
+  x += 0x9e3779b97f4a7c15ull;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+  return x ^ (x >> 31);
+}
+
 struct OmmFactorView
 {
   MaterialParameterType type{MaterialParameterType::VALUE};
@@ -81,6 +89,42 @@ struct OmmFactorView
   // MDL's mono float lookup has no single defined channel here; bound over
   // all of them — a superset interval is conservative for any convention.
   bool allChannels{false};
+  // Min/max pyramid over the transformed alpha; footprints wider than a few
+  // texels fold a small rect at a matched level instead of scanning.
+  bool hasPyramid{false};
+  spd::MipChainView<float2> pyramid{};
+};
+
+// Per-texel transformed alpha as a {min, max} pair — the SPD level-0 loader.
+struct AlphaTexelLoader
+{
+  SamplerGPUData s;
+  int channel;
+  bool allChannels;
+
+  VISRTX_DEVICE float2 operator()(uint32_t x, uint32_t y) const
+  {
+    vec4 t = make_vec4(tex2D<::float4>(s.image2D.texobj,
+        (x + 0.5f) / float(s.image2D.size.x),
+        (y + 0.5f) / float(s.image2D.size.y)));
+    if (s.numChannels < 4)
+      t.w = 1.f;
+    t = s.outTransform * t + s.outOffset;
+    if (allChannels) {
+      return {fminf(fminf(t.x, t.y), fminf(t.z, t.w)),
+          fmaxf(fmaxf(t.x, t.y), fmaxf(t.z, t.w))};
+    }
+    return {t[channel], t[channel]};
+  }
+};
+
+struct MinMax4
+{
+  VISRTX_DEVICE float2 operator()(float2 a, float2 b, float2 c, float2 d) const
+  {
+    return {fminf(fminf(a.x, b.x), fminf(c.x, d.x)),
+        fmaxf(fmaxf(a.y, b.y), fmaxf(c.y, d.y))};
+  }
 };
 
 struct OmmBakeParams
@@ -173,6 +217,44 @@ VISRTX_DEVICE bool factorBounds(const OmmBakeParams &p,
     const int x1 = int(floorf(uvHi.x * fsize.x - 0.5f)) + 1;
     const int y0 = int(floorf(uvLo.y * fsize.y - 0.5f));
     const int y1 = int(floorf(uvHi.y * fsize.y - 0.5f)) + 1;
+
+    // Pyramid folds apply only to footprints fully inside the texture: the
+    // pyramid bounds real texels, and a clampToBorder read returns the border
+    // color, which no texel fold can bound. Out-of-domain footprints use the
+    // exact texel scan below — it fetches through the shading texture object
+    // and inherits the hardware wrap/border semantics (pre-pyramid behavior);
+    // oversized ones classify unknown via the scan cap.
+    const bool inDomain =
+        x0 >= 0 && y0 >= 0 && x1 < int(size.x) && y1 < int(size.y);
+    if (f.hasPyramid && inDomain) {
+      const auto &pyr = f.pyramid;
+      const int span = max(x1 - x0, y1 - y0);
+      if (span > 2) {
+        // Fold a small rect at the level matching the footprint — up to 3x3
+        // (endpoint straddle), wider only when the chain is level-capped.
+        int L = 1;
+        while ((span >> L) >= 2 && L < pyr.count)
+          L++;
+        const float2 *lvl = pyr.level[L - 1];
+        const uint2 d = pyr.dims[L - 1];
+        const uint32_t lx0 = min(uint32_t(x0) >> L, d.x - 1);
+        const uint32_t lx1 = min(uint32_t(x1) >> L, d.x - 1);
+        const uint32_t ly0 = min(uint32_t(y0) >> L, d.y - 1);
+        const uint32_t ly1 = min(uint32_t(y1) >> L, d.y - 1);
+        lo = FLT_MAX;
+        hi = -FLT_MAX;
+        for (uint32_t ty = ly0; ty <= ly1; ty++) {
+          for (uint32_t tx = lx0; tx <= lx1; tx++) {
+            const float2 v = lvl[size_t(ty) * d.x + tx];
+            lo = fminf(lo, v.x);
+            hi = fmaxf(hi, v.y);
+          }
+        }
+        return true;
+      }
+      // Small footprints fall through to the exact texel scan below.
+    }
+
     const long long count =
         (long long)(x1 - x0 + 1) * (long long)(y1 - y0 + 1);
     if (count <= 0 || count > OMM_MAX_TEXELS_PER_SCAN)
@@ -382,16 +464,85 @@ bool geometryResolvesAttribute(
       || ggd.attr[id].numChannels > 0;
 }
 
+// Builds (or fetches) the min/max alpha pyramid for a resolved sampler
+// factor. Cached per (sampler content stamp, transforms, channel); callers
+// hold the shared_ptr for the bake's lifetime so eviction cannot dangle.
+std::shared_ptr<OmmAlphaPyramid> ensureAlphaPyramid(const OmmFactorView &f,
+    const MaterialParameter &mp,
+    DeviceGlobalState *state)
+{
+  auto *samplerObj =
+      static_cast<Object *>(state->registry.samplers.hostObject(mp.sampler));
+  uint64_t key = splitmix64(uint64_t(mp.sampler) + 1);
+  auto mixBits = [&key](uint64_t v) { key = splitmix64(key ^ v); };
+  mixBits(uint64_t(samplerObj->lastFinalized()));
+  mixBits(uint64_t(f.channel) | (uint64_t(f.allChannels) << 8));
+  const auto *xf = &f.sampler.outTransform[0][0];
+  for (int i = 0; i < 16; i++) {
+    uint32_t bits;
+    std::memcpy(&bits, &xf[i], sizeof(bits));
+    mixBits(bits);
+  }
+  for (int i = 0; i < 4; i++) {
+    uint32_t bits;
+    std::memcpy(&bits, &f.sampler.outOffset[i], sizeof(bits));
+    mixBits(bits);
+  }
+
+  auto &cache = state->omm.pyramids;
+  if (auto it = cache.find(key); it != cache.end())
+    return it->second;
+
+  auto pyr = std::make_shared<OmmAlphaPyramid>();
+  pyr->srcDims = {f.sampler.image2D.size.x, f.sampler.image2D.size.y};
+  if (spd::spdBuildDims(pyr->srcDims, pyr->chain) == 0)
+    return nullptr; // 1x1 texture: the domain-range cache already covers it
+
+  size_t texels = 0;
+  for (int i = 0; i < pyr->chain.count; i++)
+    texels += size_t(pyr->chain.dims[i].x) * pyr->chain.dims[i].y;
+  pyr->storage.reserve(texels * sizeof(float2) + sizeof(uint32_t));
+  auto *base = pyr->storage.ptrAs<float2>();
+  for (int i = 0; i < pyr->chain.count; i++) {
+    pyr->chain.level[i] = base;
+    base += size_t(pyr->chain.dims[i].x) * pyr->chain.dims[i].y;
+  }
+  auto *counter = reinterpret_cast<uint32_t *>(base);
+  cudaMemsetAsync(counter, 0, sizeof(uint32_t), state->stream);
+
+  spd::singlePassDownsample(state->stream,
+      AlphaTexelLoader{f.sampler, f.channel, f.allChannels},
+      pyr->srcDims,
+      pyr->chain,
+      MinMax4{},
+      counter);
+
+  constexpr size_t OMM_PYRAMID_CACHE_MAX = 64;
+  if (cache.size() >= OMM_PYRAMID_CACHE_MAX) {
+    for (auto it = cache.begin(); it != cache.end();) {
+      if (it->second.use_count() == 1)
+        it = cache.erase(it);
+      else
+        ++it;
+    }
+  }
+  cache.emplace(key, pyr);
+  return pyr;
+}
+
 // Fills `out` from a MaterialParameter; false when the parameter cannot be
 // conservatively evaluated by the bake kernel. channel < 0 bounds over all
 // channels. `raw` (MDL) normalizes the sampler view to the wrapper's fixed
-// uv0 / untransformed lookups.
+// uv0 / untransformed lookups. When `holdPyramid` is given, a min/max alpha
+// pyramid is attached and the shared_ptr parked there for the bake's
+// lifetime.
 bool resolveFactor(OmmFactorView &out,
     const MaterialParameter &mp,
     int channel,
     const GeometryGPUData &ggd,
     DeviceGlobalState *state,
-    bool raw)
+    bool raw,
+    std::shared_ptr<OmmAlphaPyramid> *holdPyramid = nullptr)
 {
   out.allChannels = channel < 0;
   out.channel = std::max(channel, 0);
@@ -421,6 +572,13 @@ bool resolveFactor(OmmFactorView &out,
     if (!geometryResolvesAttribute(ggd, sd.attribute))
       return false;
     out.sampler = sd;
+    if (holdPyramid) {
+      if (auto pyr = ensureAlphaPyramid(out, mp, state); pyr) {
+        out.pyramid = pyr->chain;
+        out.hasPyramid = true;
+        *holdPyramid = std::move(pyr);
+      }
+    }
     return true;
   }
   default:
@@ -539,14 +697,6 @@ int autoSubdivisionLevel(const OmmBakeParams &p,
   return std::min(std::max(level, 0), OMM_MAX_LEVEL);
 }
 
-VISRTX_HOST_DEVICE uint64_t splitmix64(uint64_t x)
-{
-  x += 0x9e3779b97f4a7c15ull;
-  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
-  x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
-  return x ^ (x >> 31);
-}
-
 // Position-mixed content hash of a device buffer, XOR-accumulated so lanes
 // commute; `salt` keeps multi-buffer keys order-sensitive across buffers.
 VISRTX_GLOBAL void hashBufferKernel(
@@ -577,6 +727,8 @@ struct OmmBakeSetup
   uint32_t numTris{0};
   uint32_t numVertices{0};
   OmmBakeParams p{};
+  // Keep the factor pyramids alive while kernels referencing them are queued.
+  std::shared_ptr<OmmAlphaPyramid> pyramids[2];
 };
 
 namespace {
@@ -619,15 +771,20 @@ bool resolveBakeSetup(OmmBakeSetup &setup,
 
   // MDL's mono opacity lookup has no defined channel — bound all of them.
   const int opacityChannel = spec.rawSamplerLookups ? -1 : 0;
-  if (!resolveFactor(
-          p.factors[0], spec.colorAlpha, 3, setup.ggd, state,
-          spec.rawSamplerLookups)
+  if (!resolveFactor(p.factors[0],
+          spec.colorAlpha,
+          3,
+          setup.ggd,
+          state,
+          spec.rawSamplerLookups,
+          &setup.pyramids[0])
       || !resolveFactor(p.factors[1],
           spec.opacity,
           opacityChannel,
           setup.ggd,
           state,
-          spec.rawSamplerLookups))
+          spec.rawSamplerLookups,
+          &setup.pyramids[1]))
     return false;
 
   // Hard OPAQUE states (experimental): only when transmission is provably
@@ -734,10 +891,12 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
     bakeOmmStatesKernel<<<nb, bs, 0, state->stream>>>(p);
   }
 
+  // Micro-state counts feed only the VISRTX_OMM_STATS report — skip the
+  // kernel entirely otherwise.
   DeviceBuffer countBuf;
-  countBuf.reserve(2 * sizeof(uint32_t));
-  cudaMemsetAsync(countBuf.ptr(), 0, 2 * sizeof(uint32_t), state->stream);
-  {
+  if (stats) {
+    countBuf.reserve(2 * sizeof(uint32_t));
+    cudaMemsetAsync(countBuf.ptr(), 0, 2 * sizeof(uint32_t), state->stream);
     const uint32_t words = uint32_t(stateScratch.bytes() / sizeof(uint32_t));
     const uint32_t bs = 256;
     const uint32_t nb = std::min(2048u, (words + bs - 1) / bs);
@@ -751,7 +910,8 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
   std::vector<uint32_t> triClass(numTris);
   classScratch.download(triClass.data(), numTris);
   uint32_t counts[2] = {0, 0}; // nonTransparent, unknown
-  countBuf.download(counts, 2);
+  if (stats)
+    countBuf.download(counts, 2);
   cudaStreamSynchronize(state->stream);
 
   const uint64_t totalMicroTris = uint64_t(numTris) * p.microPerTri;
