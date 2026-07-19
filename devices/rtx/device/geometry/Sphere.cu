@@ -202,7 +202,8 @@ void Sphere::populateBuildInput(OptixBuildInput &buildInput) const
   buildInput.customPrimitiveArray.aabbBuffers = &m_aabbsBufferPtr;
   buildInput.customPrimitiveArray.numPrimitives = m_numSpheres;
 
-  static uint32_t buildInputFlags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+  static uint32_t buildInputFlags[1] = {
+      OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL};
 
   buildInput.customPrimitiveArray.flags = buildInputFlags;
   buildInput.customPrimitiveArray.numSbtRecords = 1;

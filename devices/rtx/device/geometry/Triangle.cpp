@@ -284,7 +284,11 @@ void Triangle::populateBuildInput(OptixBuildInput &buildInput) const
     buildInput.triangleArray.indexBuffer = 0;
   }
 
-  static uint32_t buildInputFlags[1] = {0};
+  // Shadow any-hit accumulates attenuation multiplicatively; without this
+  // flag OptiX may invoke any-hit more than once per primitive and
+  // double-attenuate.
+  static uint32_t buildInputFlags[1] = {
+      OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL};
 
   buildInput.triangleArray.flags = buildInputFlags;
   buildInput.triangleArray.numSbtRecords = 1;
