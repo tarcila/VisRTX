@@ -245,11 +245,13 @@ int main()
     anari::release(device, light);
     anari::commitParameters(device, world);
 
+    // Content-dedup means one bake per world: the second renderer adopts the
+    // cached micromap without re-baking, so the counter spans both renderers.
+    g_bakeMessages = 0;
     for (const char *renderer : {"quality", "interactive"}) {
       setOmmEnabled(device, false);
       const auto reference = renderFrame(device, world, renderer);
 
-      g_bakeMessages = 0;
       setOmmEnabled(device, true);
       const auto withOmm = renderFrame(device, world, renderer);
 
@@ -276,7 +278,7 @@ int main()
 
       if (g_bakeMessages.load() == 0) {
         fprintf(stderr,
-            "FAIL[%s/%s]: no OpacityMicromap bake happened — accelerator "
+            "FAIL[%s/%s]: no OpacityMicromap bake happened yet — accelerator "
             "silently off\n",
             alphaMode,
             renderer);

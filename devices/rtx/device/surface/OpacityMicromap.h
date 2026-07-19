@@ -69,7 +69,23 @@ struct OpacityMicromapBuffers
 // reset) when the pair is ineligible or the bake would win nothing (no
 // provably transparent region). Non-fatal on failure: the surface just
 // renders without OMM acceleration.
+// Resolved bake plan (opaque outside OpacityMicromap.cu). Produced by
+// computeOpacityMicromapKey, consumed by bakeOpacityMicromaps — resolving is
+// not free (registry lookups, factor resolution, domain-range queries), so a
+// cache miss must not do it twice.
+struct OmmBakeSetup;
+
 bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
+    OmmBakeSetup &setup,
+    Object *reporter);
+
+// Content-addressed dedup key: hashes everything a bake would read (index /
+// attribute buffers, factor spec, sampler content stamps), so surfaces whose
+// host objects differ but whose bake inputs are byte-identical share one
+// micromap. False when the pair is OMM-ineligible (no key exists; `setup`
+// is cleared). On success `setup` holds the resolved plan for the bake.
+bool computeOpacityMicromapKey(uint64_t &key,
+    std::shared_ptr<OmmBakeSetup> &setup,
     Geometry *geometry,
     const Material *material,
     Object *reporter);

@@ -483,13 +483,111 @@ int autoSubdivisionLevel(const OmmBakeParams &p,
   return std::min(std::max(level, 0), OMM_MAX_LEVEL);
 }
 
+VISRTX_HOST_DEVICE uint64_t splitmix64(uint64_t x)
+{
+  x += 0x9e3779b97f4a7c15ull;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+  return x ^ (x >> 31);
+}
+
+// Position-mixed content hash of a device buffer, XOR-accumulated so lanes
+// commute; `salt` keeps multi-buffer keys order-sensitive across buffers.
+VISRTX_GLOBAL void hashBufferKernel(
+    const uint8_t *data, size_t bytes, uint64_t salt, unsigned long long *acc)
+{
+  const size_t lanes = (bytes + 7) / 8;
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < lanes;
+       i += gridDim.x * blockDim.x) {
+    uint64_t w = 0;
+    const size_t o = i * 8;
+    const int n = int(min(size_t(8), bytes - o));
+    for (int b = 0; b < n; b++)
+      w |= uint64_t(data[o + b]) << (8 * b);
+    atomicXor(acc, (unsigned long long)splitmix64(w ^ splitmix64(i ^ salt)));
+  }
+}
+
+} // namespace
+
+// Everything the bake reads, resolved once by computeOpacityMicromapKey and
+// handed to bakeOpacityMicromaps so cache keys and bakes can never disagree
+// on eligibility — and a cache miss never resolves twice. Opaque outside
+// this translation unit.
+struct OmmBakeSetup
+{
+  MaterialAlphaSpec spec;
+  GeometryGPUData ggd;
+  uint32_t numTris{0};
+  uint32_t numVertices{0};
+  OmmBakeParams p{};
+};
+
+namespace {
+
+// False when the (geometry, material) pair is OMM-ineligible or provably has
+// no transparency anywhere (whole-domain verdict).
+bool resolveBakeSetup(OmmBakeSetup &setup,
+    Geometry *geometry,
+    const Material *material,
+    DeviceGlobalState *state)
+{
+  if (!state->omm.enabled)
+    return false;
+
+  setup.spec = material->alphaSpec();
+  const auto &spec = setup.spec;
+  if (!spec.bakeable || spec.mode == AlphaMode::OPAQUE)
+    return false;
+  if (!geometry->supportsOpacityMicromap())
+    return false;
+
+  setup.ggd = geometry->ommGeometryView();
+
+  OptixBuildInput obi = {};
+  geometry->populateBuildInput(obi);
+  setup.numTris = obi.triangleArray.numIndexTriplets
+      ? obi.triangleArray.numIndexTriplets
+      : obi.triangleArray.numVertices / 3;
+  setup.numVertices = obi.triangleArray.numVertices;
+  if (setup.numTris == 0)
+    return false;
+
+  auto &p = setup.p;
+  std::memcpy(&p.tri, &setup.ggd.tri, sizeof(p.tri));
+  std::memcpy(&p.primAttr, &setup.ggd.attr, sizeof(p.primAttr));
+  std::memcpy(&p.attrUniform, &setup.ggd.attrUniform, sizeof(p.attrUniform));
+  p.mode = spec.mode;
+  p.cutoff = spec.cutoff;
+  p.numTris = setup.numTris;
+
+  if (!resolveFactor(p.factors[0], spec.colorAlpha, 3, setup.ggd, state)
+      || !resolveFactor(p.factors[1], spec.opacity, 0, setup.ggd, state))
+    return false;
+
+  // Whole-domain verdict: when both factors are boundable and their product
+  // provably never reaches transparency, no geometry using this material can
+  // gain anything from an OMM — skip without touching the mesh.
+  float dl0, dh0, dl1, dh1;
+  if (factorDomainRange(p.factors[0], spec.colorAlpha, state, dl0, dh0)
+      && factorDomainRange(p.factors[1], spec.opacity, state, dl1, dh1)) {
+    const float c[4] = {dl0 * dl1, dl0 * dh1, dh0 * dl1, dh0 * dh1};
+    const float mn = fminf(fminf(c[0], c[1]), fminf(c[2], c[3]));
+    const bool canBeTransparent =
+        spec.mode == AlphaMode::MASK ? mn < spec.cutoff : mn <= 0.f;
+    if (!canBeTransparent)
+      return false;
+  }
+
+  return true;
+}
+
 } // namespace
 
 // Public entry point /////////////////////////////////////////////////////////
 
 bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
-    Geometry *geometry,
-    const Material *material,
+    OmmBakeSetup &setup,
     Object *reporter)
 {
   // VISRTX_OMM_STATS=1 prints per-bake timing/coverage diagnostics.
@@ -504,56 +602,8 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
   out.reset();
 
   auto *state = reporter->deviceState();
-  if (!state->omm.enabled)
-    return false;
-
-  const MaterialAlphaSpec spec = material->alphaSpec();
-  if (!spec.bakeable || spec.mode == AlphaMode::OPAQUE)
-    return false;
-  if (!geometry->supportsOpacityMicromap())
-    return false;
-
-  const GeometryGPUData ggd = geometry->ommGeometryView();
-
-  OptixBuildInput obi = {};
-  geometry->populateBuildInput(obi);
-  const uint32_t numTris = obi.triangleArray.numIndexTriplets
-      ? obi.triangleArray.numIndexTriplets
-      : obi.triangleArray.numVertices / 3;
-  if (numTris == 0)
-    return false;
-
-  OmmBakeParams p = {};
-  std::memcpy(&p.tri, &ggd.tri, sizeof(p.tri));
-  std::memcpy(&p.primAttr, &ggd.attr, sizeof(p.primAttr));
-  std::memcpy(&p.attrUniform, &ggd.attrUniform, sizeof(p.attrUniform));
-  p.mode = spec.mode;
-  p.cutoff = spec.cutoff;
-  p.numTris = numTris;
-
-  if (!resolveFactor(p.factors[0], spec.colorAlpha, 3, ggd, state)
-      || !resolveFactor(p.factors[1], spec.opacity, 0, ggd, state)) {
-    reporter->reportMessage(ANARI_SEVERITY_DEBUG,
-        "visrtx::OpacityMicromap skip: alpha factors not conservatively "
-        "bakeable on this geometry");
-    return false;
-  }
-
-  // Whole-domain verdict: when both factors are boundable and their product
-  // provably never reaches transparency, no geometry using this material can
-  // gain anything from an OMM — skip without touching the mesh.
-  {
-    float dl0, dh0, dl1, dh1;
-    if (factorDomainRange(p.factors[0], spec.colorAlpha, state, dl0, dh0)
-        && factorDomainRange(p.factors[1], spec.opacity, state, dl1, dh1)) {
-      const float c[4] = {dl0 * dl1, dl0 * dh1, dh0 * dl1, dh0 * dh1};
-      const float mn = fminf(fminf(c[0], c[1]), fminf(c[2], c[3]));
-      const bool canBeTransparent =
-          spec.mode == AlphaMode::MASK ? mn < spec.cutoff : mn <= 0.f;
-      if (!canBeTransparent)
-        return false;
-    }
-  }
+  const uint32_t numTris = setup.numTris;
+  OmmBakeParams &p = setup.p;
 
   const bool anySampler =
       p.factors[0].type == MaterialParameterType::SAMPLER
@@ -748,6 +798,133 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
       numTransparentTris,
       (out.micromapArray.bytes() + out.indexBuffer.bytes()) >> 10);
 
+  return true;
+}
+
+bool computeOpacityMicromapKey(uint64_t &key,
+    std::shared_ptr<OmmBakeSetup> &setup,
+    Geometry *geometry,
+    const Material *material,
+    Object *reporter)
+{
+  auto *state = reporter->deviceState();
+  setup = std::make_shared<OmmBakeSetup>();
+  if (!resolveBakeSetup(*setup, geometry, material, state)) {
+    setup.reset();
+    return false;
+  }
+  const auto &spec = setup->spec;
+  const auto &p = setup->p;
+
+  // Scalar seed: everything non-buffer the bake result depends on.
+  uint64_t seed = splitmix64(uint64_t(spec.mode));
+  auto mixBits = [&seed](uint64_t v) { seed = splitmix64(seed ^ v); };
+  auto mixFloat = [&](float v) {
+    uint32_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    mixBits(bits);
+  };
+  mixFloat(spec.cutoff);
+  mixBits(uint64_t(state->omm.subdivisionLevel) + 1);
+  mixBits(setup->numTris);
+
+  // Buffers the bake reads: triangle indices plus, per factor, the populated
+  // geometry attribute source (mirrors bakeReadAttribute's priority).
+  struct BufferRef
+  {
+    const void *data;
+    size_t bytes;
+  };
+  BufferRef buffers[3] = {};
+  uint32_t numBuffers = 0;
+  if (p.tri.indices)
+    buffers[numBuffers++] = {p.tri.indices, sizeof(uvec3) * setup->numTris};
+
+  auto addAttributeSource = [&](MaterialAttribute attribute) {
+    if (attribute >= MaterialAttribute::OBJECT_POSITION)
+      return; // not a geometry attribute (gated earlier; belt-and-braces)
+    const uint8_t id = static_cast<uint8_t>(attribute);
+    const AttributeData *src = nullptr;
+    size_t count = 0;
+    if (p.tri.vertexAttrFV[id].numChannels > 0) {
+      src = &p.tri.vertexAttrFV[id];
+      count = size_t(3) * setup->numTris;
+    } else if (p.tri.vertexAttr[id].numChannels > 0) {
+      src = &p.tri.vertexAttr[id];
+      count = setup->numVertices;
+    } else if (p.primAttr[id].numChannels > 0) {
+      src = &p.primAttr[id];
+      count = setup->numTris;
+    }
+    if (src && numBuffers < 3)
+      buffers[numBuffers++] = {src->data, count * anari::sizeOf(src->type)};
+  };
+
+  for (const auto &f : p.factors) {
+    // Channel selection changes the baked function even when every other
+    // factor input matches (e.g. alpha-in-.w vs opacity-in-.x lookups of the
+    // same texture must not share a bake).
+    mixBits(uint64_t(uint32_t(f.channel)) + 0x30);
+    switch (f.type) {
+    case MaterialParameterType::VALUE:
+      mixFloat(f.value);
+      break;
+    case MaterialParameterType::ATTRIBUTE:
+      mixBits(uint64_t(f.attribute) + 0x10);
+      addAttributeSource(f.attribute);
+      break;
+    case MaterialParameterType::SAMPLER: {
+      // Texture content is covered by the sampler's finalize stamp (globally
+      // monotonic — in-place image updates re-finalize the sampler).
+      mixBits(uint64_t(f.sampler.attribute) + 0x20);
+      mixBits(f.sampler.image2D.size.x);
+      mixBits(f.sampler.image2D.size.y);
+      const float *xf = &f.sampler.inTransform[0][0];
+      for (int i = 0; i < 16; i++)
+        mixFloat(xf[i]);
+      for (int i = 0; i < 4; i++)
+        mixFloat(f.sampler.inOffset[i]);
+      const float *xo = &f.sampler.outTransform[0][0];
+      for (int i = 0; i < 16; i++)
+        mixFloat(xo[i]);
+      for (int i = 0; i < 4; i++)
+        mixFloat(f.sampler.outOffset[i]);
+      addAttributeSource(f.sampler.attribute);
+      break;
+    }
+    default:
+      break;
+    }
+  }
+  // Sampler content stamps (texture data identity).
+  auto mixSamplerStamp = [&](const MaterialParameter &mp) {
+    if (mp.type != MaterialParameterType::SAMPLER)
+      return;
+    auto *obj =
+        static_cast<Object *>(state->registry.samplers.hostObject(mp.sampler));
+    mixBits(uint64_t(obj->lastFinalized()));
+  };
+  mixSamplerStamp(spec.colorAlpha);
+  mixSamplerStamp(spec.opacity);
+
+  DeviceBuffer accBuf;
+  accBuf.upload(&seed, 1);
+  for (uint32_t i = 0; i < numBuffers; i++) {
+    const size_t lanes = (buffers[i].bytes + 7) / 8;
+    const uint32_t bs = 256;
+    const uint32_t nb =
+        uint32_t(std::min<size_t>(2048, (lanes + bs - 1) / bs));
+    hashBufferKernel<<<nb, bs, 0, state->stream>>>(
+        (const uint8_t *)buffers[i].data,
+        buffers[i].bytes,
+        seed ^ splitmix64(i + 1),
+        accBuf.ptrAs<unsigned long long>());
+  }
+  uint64_t acc = 0;
+  accBuf.download(&acc, 1);
+  cudaStreamSynchronize(state->stream);
+
+  key = acc;
   return true;
 }
 
