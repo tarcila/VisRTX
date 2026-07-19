@@ -48,7 +48,8 @@ void Neural::populateBuildInput(OptixBuildInput &input) const
   input.customPrimitiveArray.aabbBuffers = &m_aabbsBufferPtr;
   input.customPrimitiveArray.numPrimitives = m_aabbs.size();
 
-  static uint32_t buildInputFlags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+  static uint32_t buildInputFlags[1] = {
+      OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL};
 
   input.customPrimitiveArray.flags = buildInputFlags;
   input.customPrimitiveArray.numSbtRecords = 1;

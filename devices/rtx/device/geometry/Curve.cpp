@@ -78,7 +78,7 @@ void Curve::populateBuildInput(OptixBuildInput &buildInput) const
 
   auto &curveArray = buildInput.curveArray;
   curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
-  curveArray.flag = OPTIX_GEOMETRY_FLAG_NONE;
+  curveArray.flag = OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL;
 
   curveArray.vertexStrideInBytes = sizeof(vec3);
   curveArray.numVertices = m_vertexPosition->size();
