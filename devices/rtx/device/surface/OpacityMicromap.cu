@@ -65,6 +65,7 @@ constexpr size_t OMM_MAX_SCRATCH_BYTES = size_t(64) << 20;
 
 constexpr uint32_t TRI_HAS_TRANSPARENT = 1;
 constexpr uint32_t TRI_HAS_UNKNOWN = 2;
+constexpr uint32_t TRI_HAS_OPAQUE = 4;
 
 // Bake kernels ///////////////////////////////////////////////////////////////
 
@@ -90,11 +91,14 @@ struct OmmBakeParams
   OmmFactorView factors[2];
   AlphaMode mode;
   float cutoff;
+  // Emit hard OPAQUE states (experimental; requires provably-zero
+  // transmission and no backface culling — see resolveBakeSetup).
+  bool allowOpaque;
   uint32_t numTris;
   int level;
   uint32_t microPerTri;
   uint32_t slotWords; // 32-bit words per triangle state slot
-  uint32_t *states; // zero-initialized; only unknown microtris are written
+  uint32_t *states; // zero-initialized; transparent microtris stay unwritten
   uint32_t *triClass;
 };
 
@@ -221,21 +225,31 @@ VISRTX_GLOBAL void bakeOmmStatesKernel(OmmBakeParams p)
         && factorBounds(p, p.factors[1], primID, b, lo1, hi1);
 
     bool transparent = false;
+    bool opaque = false;
     if (bounded) {
       // alpha = colorAlpha * opacity; interval product over the 4 endpoint
       // combinations (factors may be negative through out-transforms).
       const float c[4] = {lo0 * lo1, lo0 * hi1, hi0 * lo1, hi0 * hi1};
       const float mn = fminf(fminf(c[0], c[1]), fminf(c[2], c[3]));
       const float mx = fmaxf(fmaxf(c[0], c[1]), fmaxf(c[2], c[3]));
-      if (p.mode == AlphaMode::MASK)
+      if (p.mode == AlphaMode::MASK) {
         transparent = mx < p.cutoff;
-      else // BLEND: only alpha ≡ 0 composites to exactly nothing
+        // strict >: conservative under both the CUDA (>=) and MDL (>)
+        // cutoff conventions
+        opaque = p.allowOpaque && mn > p.cutoff;
+      } else { // BLEND: exact endpoints only
         transparent = mx <= 0.f && mn >= 0.f;
+        opaque = p.allowOpaque && mn >= 1.f;
+      }
     }
 
     if (transparent) {
       // State TRANSPARENT == 0: the zero-initialized slot already encodes it.
       atomicOr(&p.triClass[primID], TRI_HAS_TRANSPARENT);
+    } else if (opaque) {
+      atomicOr(&p.states[primID * p.slotWords + (micro >> 4)],
+          uint32_t(OPTIX_OPACITY_MICROMAP_STATE_OPAQUE) << (2 * (micro & 15)));
+      atomicOr(&p.triClass[primID], TRI_HAS_OPAQUE);
     } else {
       atomicOr(&p.states[primID * p.slotWords + (micro >> 4)],
           uint32_t(OPTIX_OPACITY_MICROMAP_STATE_UNKNOWN_OPAQUE)
@@ -320,16 +334,21 @@ VISRTX_GLOBAL void textureRangeKernel(
   }
 }
 
-// Counts UNKNOWN_OPAQUE microtris (state bits 11); transparent = total - this.
-// Cheap popcount reduction over the packed 2-bit states.
-VISRTX_GLOBAL void countUnknownKernel(
-    const uint32_t *states, uint32_t numWords, uint32_t *unknownCount)
+// Counts non-transparent (bit0: OPAQUE=01 or UNKNOWN=11) and unknown (bit1)
+// microtris; transparent = total - nonTransparent, opaque = the difference.
+VISRTX_GLOBAL void countStatesKernel(const uint32_t *states,
+    uint32_t numWords,
+    uint32_t *nonTransparentCount,
+    uint32_t *unknownCount)
 {
-  uint32_t local = 0;
+  uint32_t nonTransparent = 0, unknown = 0;
   for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x; i < numWords;
-       i += gridDim.x * blockDim.x)
-    local += __popc(states[i]) >> 1;
-  atomicAdd(unknownCount, local);
+       i += gridDim.x * blockDim.x) {
+    nonTransparent += __popc(states[i] & 0x55555555u);
+    unknown += __popc(states[i] & 0xAAAAAAAAu);
+  }
+  atomicAdd(nonTransparentCount, nonTransparent);
+  atomicAdd(unknownCount, unknown);
 }
 
 VISRTX_GLOBAL void gatherMixedSlotsKernel(const uint32_t *states,
@@ -611,17 +630,45 @@ bool resolveBakeSetup(OmmBakeSetup &setup,
           spec.rawSamplerLookups))
     return false;
 
+  // Hard OPAQUE states (experimental): only when transmission is provably
+  // zero everywhere (an opaque-committed hit skips the transmission-aware
+  // any-hit) and the geometry doesn't backface-cull (that cull also lives in
+  // any-hit).
+  p.allowOpaque = false;
+  if (state->omm.opaqueStates) {
+    const bool backfaceCulled = setup.ggd.type == GeometryType::TRIANGLE
+        && setup.ggd.tri.cullBackfaces;
+    OmmFactorView tf;
+    float tl = 1.f, th = 1.f;
+    // Same mono-lookup rule as the opacity factor above: raw MDL has no
+    // defined channel, so the proof must bound ALL channels.
+    const int transmissionChannel = spec.rawSamplerLookups ? -1 : 0;
+    const bool transmissionZero = resolveFactor(tf,
+                                      spec.transmission,
+                                      transmissionChannel,
+                                      setup.ggd,
+                                      state,
+                                      spec.rawSamplerLookups)
+        && factorDomainRange(tf, spec.transmission, state, tl, th) && tl >= 0.f
+        && th <= 0.f;
+    p.allowOpaque = !backfaceCulled && transmissionZero;
+  }
+
   // Whole-domain verdict: when both factors are boundable and their product
-  // provably never reaches transparency, no geometry using this material can
-  // gain anything from an OMM — skip without touching the mesh.
+  // provably never reaches transparency (nor, with opaque states on,
+  // provable opacity), no geometry using this material can gain anything
+  // from an OMM — skip without touching the mesh.
   float dl0, dh0, dl1, dh1;
   if (factorDomainRange(p.factors[0], spec.colorAlpha, state, dl0, dh0)
       && factorDomainRange(p.factors[1], spec.opacity, state, dl1, dh1)) {
     const float c[4] = {dl0 * dl1, dl0 * dh1, dh0 * dl1, dh0 * dh1};
     const float mn = fminf(fminf(c[0], c[1]), fminf(c[2], c[3]));
+    const float mx = fmaxf(fmaxf(c[0], c[1]), fmaxf(c[2], c[3]));
     const bool canBeTransparent =
         spec.mode == AlphaMode::MASK ? mn < spec.cutoff : mn <= 0.f;
-    if (!canBeTransparent)
+    const bool canBeOpaque = p.allowOpaque
+        && (spec.mode == AlphaMode::MASK ? mx > spec.cutoff : mx >= 1.f);
+    if (!canBeTransparent && !canBeOpaque)
       return false;
   }
 
@@ -687,49 +734,60 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
     bakeOmmStatesKernel<<<nb, bs, 0, state->stream>>>(p);
   }
 
-  DeviceBuffer unknownBuf;
-  unknownBuf.reserve(sizeof(uint32_t));
-  cudaMemsetAsync(unknownBuf.ptr(), 0, sizeof(uint32_t), state->stream);
+  DeviceBuffer countBuf;
+  countBuf.reserve(2 * sizeof(uint32_t));
+  cudaMemsetAsync(countBuf.ptr(), 0, 2 * sizeof(uint32_t), state->stream);
   {
     const uint32_t words = uint32_t(stateScratch.bytes() / sizeof(uint32_t));
     const uint32_t bs = 256;
     const uint32_t nb = std::min(2048u, (words + bs - 1) / bs);
-    countUnknownKernel<<<nb, bs, 0, state->stream>>>(
-        stateScratch.ptrAs<uint32_t>(), words, unknownBuf.ptrAs<uint32_t>());
+    countStatesKernel<<<nb, bs, 0, state->stream>>>(
+        stateScratch.ptrAs<uint32_t>(),
+        words,
+        countBuf.ptrAs<uint32_t>(),
+        countBuf.ptrAs<uint32_t>() + 1);
   }
 
   std::vector<uint32_t> triClass(numTris);
   classScratch.download(triClass.data(), numTris);
-  uint32_t unknownMicroTris = 0;
-  unknownBuf.download(&unknownMicroTris);
+  uint32_t counts[2] = {0, 0}; // nonTransparent, unknown
+  countBuf.download(counts, 2);
   cudaStreamSynchronize(state->stream);
 
   const uint64_t totalMicroTris = uint64_t(numTris) * p.microPerTri;
   const double transparentFraction =
-      1.0 - double(unknownMicroTris) / double(totalMicroTris);
+      1.0 - double(counts[0]) / double(totalMicroTris);
+  const double opaqueFraction =
+      double(counts[0] - counts[1]) / double(totalMicroTris);
 
   // Index buffer: uniform triangles use predefined indices (zero storage),
   // mixed triangles reference a real micromap.
   std::vector<int32_t> indices(numTris);
   std::vector<uint32_t> mixedTris;
   uint32_t numTransparentTris = 0;
+  uint32_t numOpaqueTris = 0;
   for (uint32_t t = 0; t < numTris; t++) {
     const bool hasT = triClass[t] & TRI_HAS_TRANSPARENT;
     const bool hasU = triClass[t] & TRI_HAS_UNKNOWN;
-    if (hasT && !hasU) {
+    const bool hasO = triClass[t] & TRI_HAS_OPAQUE;
+    if (hasT && !hasU && !hasO) {
       indices[t] = OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_TRANSPARENT;
       numTransparentTris++;
-    } else if (hasT && hasU) {
+    } else if (hasO && !hasU && !hasT) {
+      indices[t] = OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_OPAQUE;
+      numOpaqueTris++;
+    } else if (hasU && !hasT && !hasO) {
+      indices[t] = OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_OPAQUE;
+    } else {
       indices[t] = int32_t(mixedTris.size());
       mixedTris.push_back(t);
-    } else {
-      indices[t] = OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_OPAQUE;
     }
   }
 
-  if (numTransparentTris == 0 && mixedTris.empty()) {
+  if (numTransparentTris == 0 && numOpaqueTris == 0 && mixedTris.empty()) {
     reporter->reportMessage(ANARI_SEVERITY_DEBUG,
-        "visrtx::OpacityMicromap skip: no provably transparent region");
+        "visrtx::OpacityMicromap skip: no provably transparent or opaque "
+        "region");
     return false;
   }
 
@@ -740,6 +798,8 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
   if (mixedTris.empty()) {
     if (indices[0] == OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_TRANSPARENT)
       numTransparentTris--;
+    else if (indices[0] == OPTIX_OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_OPAQUE)
+      numOpaqueTris--;
     indices[0] = 0;
     mixedTris.push_back(0);
   }
@@ -826,13 +886,15 @@ bool bakeOpacityMicromaps(OpacityMicromapBuffers &out,
   if (stats) {
     fprintf(stderr,
         "[omm] bake %.2f ms: %u tris level %d mixed %u transparentTris %u "
-        "transparentFraction %.3f\n",
+        "opaqueTris %u transparentFraction %.3f opaqueFraction %.3f\n",
         elapsedMs(),
         numTris,
         level,
         numMixed,
         numTransparentTris,
-        transparentFraction);
+        numOpaqueTris,
+        transparentFraction,
+        opaqueFraction);
   }
 
   reporter->reportMessage(ANARI_SEVERITY_DEBUG,
@@ -872,6 +934,7 @@ bool computeOpacityMicromapKey(uint64_t &key,
   };
   mixFloat(spec.cutoff);
   mixBits(uint64_t(state->omm.subdivisionLevel) + 1);
+  mixBits(uint64_t(setup->p.allowOpaque) + 3);
   mixBits(setup->numTris);
 
   // Buffers the bake reads: triangle indices plus, per factor, the populated

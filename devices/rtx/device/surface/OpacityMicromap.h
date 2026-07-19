@@ -40,12 +40,14 @@ struct Material;
 
 // Conservative Opacity Micromap for one Surface (ADR 0009). The bake
 // classifies each micro-triangle of every base triangle against the
-// material's Opacity Function and emits only two Opacity States:
+// material's Opacity Function and emits, by default, two Opacity States:
 //   TRANSPARENT     — alpha provably 0 over the whole footprint; traversal
 //                     skips the hit entirely (no any-hit, no closest-hit)
 //   UNKNOWN_OPAQUE  — everything else; the existing exact any-hit /
 //                     transparency-loop paths run unchanged
-// Never emitting hard OPAQUE keeps every surviving hit on today's shading
+// (The experimental `ommOpaqueStates` toggle additionally emits hard OPAQUE
+// where alpha is provably committing — default off, see ADR 0009.)
+// Not emitting hard OPAQUE keeps every surviving hit on today's shading
 // paths, so every path that evaluates alpha exactly (primary Transparency
 // Loop, shadow/AO any-hit) renders pixel-identical by construction. Paths
 // that never evaluated alpha diverge by design once provably transparent

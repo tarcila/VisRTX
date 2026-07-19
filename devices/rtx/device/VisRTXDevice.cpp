@@ -497,11 +497,17 @@ void VisRTXDevice::deviceCommitParameters()
       }
       ommEnabled = *env;
     }
+    bool ommOpaque = getParam<bool>("ommOpaqueStates", false);
+    // Same escape-hatch rationale for the experimental opaque-states toggle.
+    if (auto *env = std::getenv("VISRTX_OMM_OPAQUE"); env)
+      ommOpaque = std::atoi(env) != 0;
     const int ommLevel = getParam<int>("ommSubdivisionLevel", -1);
     if (ommEnabled != state->omm.enabled
-        || ommLevel != state->omm.subdivisionLevel) {
+        || ommLevel != state->omm.subdivisionLevel
+        || ommOpaque != state->omm.opaqueStates) {
       state->omm.enabled = ommEnabled;
       state->omm.subdivisionLevel = ommLevel;
+      state->omm.opaqueStates = ommOpaque;
       // OMM config feeds triangle GAS build inputs — groups must rebuild.
       state->omm.lastChange = helium::newTimeStamp();
       state->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
