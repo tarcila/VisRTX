@@ -41,7 +41,11 @@ using namespace std::string_view_literals;
 namespace visrtx {
 
 PhysicallyBasedMDL::PhysicallyBasedMDL(DeviceGlobalState *d)
-    : MDL(d), m_emissiveSampler(this)
+    : MDL(d),
+      m_emissiveSampler(this),
+      m_alphaColorSampler(this),
+      m_alphaOpacitySampler(this),
+      m_alphaTransmissionSampler(this)
 {
   setParam("source",
       ANARI_STRING,
@@ -144,12 +148,66 @@ void PhysicallyBasedMDL::commitParameters()
   // attenuationColor: color
   // iridescenceIor: float
 
-  // Translate alphaMode to its matching integer value
+  // Translate alphaMode to its matching integer value, capturing the decoded
+  // mode on the way: under helium snapshot-commit the setParam below writes
+  // STAGING, so a getParam("alphaMode") in this same flush would still read
+  // the pre-translate string (or nothing) from the committed snapshot.
   if (auto alphaModeAny = getParamDirect("alphaMode");
       alphaModeAny.type() == ANARI_STRING) {
-    auto alphaMode = alphaModeFromString(alphaModeAny.getString());
-    setParam("alphaMode", static_cast<int>(alphaMode));
+    m_alphaMode = alphaModeFromString(alphaModeAny.getString());
+    setParam("alphaMode", static_cast<int>(m_alphaMode));
+  } else {
+    // Not freshly set as a string: an int from the app, or the int this
+    // translation persisted in an earlier flush.
+    m_alphaMode = static_cast<AlphaMode>(
+        getParam<int>("alphaMode", int(AlphaMode::OPAQUE)));
   }
+
+  // Capture the alpha bindings for the Opacity Micromap bake view. Getters
+  // read the committed snapshot while the translation above wrote staging, so
+  // the post-translate keys it just produced are INVISIBLE until the next
+  // flush. Mirror the translation instead: a pre-translate key freshly set by
+  // the app (visible in this flush's snapshot) fully determines the binding;
+  // only when absent do the post-translate keys persisted by earlier flushes
+  // apply.
+  auto captureAlphaBinding = [&](const char *name,
+                                 const char *textureKey,
+                                 const char *valueKey,
+                                 float defaultValue) {
+    struct
+    {
+      Sampler *sampler{nullptr};
+      float value;
+    } b{nullptr, defaultValue};
+    if (auto any = getParamDirect(name); any.type() != ANARI_UNKNOWN) {
+      if (any.type() == ANARI_SAMPLER)
+        b.sampler = any.getObject<Sampler>();
+      else if (any.type() == ANARI_FLOAT32)
+        b.value = any.get<float>();
+      // vec3/vec4 color values carry no alpha for the bake view — keep the
+      // default, matching the wrapper's texture-over-value precedence.
+      return b;
+    }
+    if (auto *s = getParamObject<Sampler>(textureKey); s)
+      b.sampler = s;
+    else if (valueKey)
+      b.value = getParam<float>(valueKey, defaultValue);
+    return b;
+  };
+
+  m_alphaCutoff = getParam<float>("alphaCutoff", 0.5f);
+  m_alphaColorSampler =
+      captureAlphaBinding("baseColor", "baseColor.texture", nullptr, 1.f)
+          .sampler;
+  const auto opacity =
+      captureAlphaBinding("opacity", "opacity.texture", "opacity.value", 1.f);
+  m_alphaOpacitySampler = opacity.sampler;
+  m_alphaOpacity = opacity.value;
+  const auto transmission = captureAlphaBinding(
+      "transmission", "transmission.texture", "transmission.value", 0.f);
+  m_alphaTransmissionSampler = transmission.sampler;
+  m_alphaTransmission = vec4(transmission.value);
+  refreshAlphaState(alphaSpec());
 
   MDL::commitParameters();
   // The light-set refresh runs from MDL::finalize (after the emission
@@ -177,6 +235,53 @@ vec3 PhysicallyBasedMDL::emissionAverage() const
   if (m_emissiveSampler && m_emissiveSampler->isValid())
     return vec3(m_emissiveSampler->averageValue());
   return m_emissionRadiance;
+}
+
+MaterialAlphaSpec PhysicallyBasedMDL::alphaSpec() const
+{
+  MaterialAlphaSpec spec;
+  spec.bakeable = true;
+  spec.rawSamplerLookups = true;
+  spec.mode = m_alphaMode;
+  spec.cutoff = m_alphaCutoff;
+
+  // The wrapper's ResolveBaseColorInput: texture bound -> alpha = lookup.w,
+  // otherwise constant 1 (a plain color has no alpha).
+  if (m_alphaColorSampler.get() && m_alphaColorSampler->isValid()) {
+    spec.colorAlpha.type = MaterialParameterType::SAMPLER;
+    spec.colorAlpha.sampler = m_alphaColorSampler->index();
+  } else {
+    spec.colorAlpha = MaterialParameter(vec4(1.f));
+  }
+
+  if (m_alphaOpacitySampler.get() && m_alphaOpacitySampler->isValid()) {
+    spec.opacity.type = MaterialParameterType::SAMPLER;
+    spec.opacity.sampler = m_alphaOpacitySampler->index();
+  } else {
+    spec.opacity = MaterialParameter(vec4(m_alphaOpacity));
+  }
+
+  if (m_alphaTransmissionSampler.get()
+      && m_alphaTransmissionSampler->isValid()) {
+    spec.transmission.type = MaterialParameterType::SAMPLER;
+    spec.transmission.sampler = m_alphaTransmissionSampler->index();
+  } else {
+    spec.transmission = MaterialParameter(m_alphaTransmission);
+  }
+
+  return spec;
+}
+
+helium::TimeStamp PhysicallyBasedMDL::alphaStateStamp() const
+{
+  auto t = Material::alphaStateStamp();
+  if (m_alphaColorSampler.get())
+    t = std::max(t, m_alphaColorSampler->lastFinalized());
+  if (m_alphaOpacitySampler.get())
+    t = std::max(t, m_alphaOpacitySampler->lastFinalized());
+  if (m_alphaTransmissionSampler.get())
+    t = std::max(t, m_alphaTransmissionSampler->lastFinalized());
+  return t;
 }
 
 } // namespace visrtx
