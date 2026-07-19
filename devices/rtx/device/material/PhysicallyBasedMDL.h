@@ -45,6 +45,12 @@ struct PhysicallyBasedMDL : public MDL
   bool emissionIsSampleable() const override;
   vec3 emissionAverage() const override;
 
+  // Opacity Micromap support (ADR 0009): the wrapper's cutout is
+  // ResolveAlphaInput(mode, cutoff, opacity * baseColor.alpha) with raw uv0
+  // texture lookups, so the spec is bakeable with rawSamplerLookups set.
+  MaterialAlphaSpec alphaSpec() const override;
+  helium::TimeStamp alphaStateStamp() const override;
+
  private:
   void translateAndRemoveParameter(std::string_view paramName);
 
@@ -58,6 +64,16 @@ struct PhysicallyBasedMDL : public MDL
   bool m_emissionIsConstant{false};
   vec3 m_emissionRadiance{0.f};
   helium::ChangeObserverPtr<Sampler> m_emissiveSampler;
+
+  // Alpha bindings for the Opacity Micromap bake view, captured by mirroring
+  // the parameter translation (same rule as the emissive capture above).
+  AlphaMode m_alphaMode{AlphaMode::OPAQUE};
+  float m_alphaCutoff{0.5f};
+  float m_alphaOpacity{1.f};
+  vec4 m_alphaTransmission{0.f};
+  helium::ChangeObserverPtr<Sampler> m_alphaColorSampler;
+  helium::ChangeObserverPtr<Sampler> m_alphaOpacitySampler;
+  helium::ChangeObserverPtr<Sampler> m_alphaTransmissionSampler;
 };
 
 } // namespace visrtx

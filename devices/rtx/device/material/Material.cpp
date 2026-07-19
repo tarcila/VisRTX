@@ -69,7 +69,8 @@ bool operator==(const MaterialAlphaSpec &a, const MaterialAlphaSpec &b)
 {
   return a.bakeable == b.bakeable && a.mode == b.mode && a.cutoff == b.cutoff
       && a.colorAlpha == b.colorAlpha && a.opacity == b.opacity
-      && a.transmission == b.transmission;
+      && a.transmission == b.transmission
+      && a.rawSamplerLookups == b.rawSamplerLookups;
 }
 
 Material::Material(DeviceGlobalState *s)

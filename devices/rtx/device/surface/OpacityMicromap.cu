@@ -77,6 +77,9 @@ struct OmmFactorView
   MaterialAttribute attribute{MaterialAttribute::UNKNOWN};
   SamplerGPUData sampler{};
   int channel{0};
+  // MDL's mono float lookup has no single defined channel here; bound over
+  // all of them — a superset interval is conservative for any convention.
+  bool allChannels{false};
 };
 
 struct OmmBakeParams
@@ -182,9 +185,14 @@ VISRTX_DEVICE bool factorBounds(const OmmBakeParams &p,
         if (s.numChannels < 4)
           t.w = 1.f;
         t = s.outTransform * t + s.outOffset;
-        const float v = t[f.channel];
-        lo = fminf(lo, v);
-        hi = fmaxf(hi, v);
+        if (f.allChannels) {
+          lo = fminf(lo, fminf(fminf(t.x, t.y), fminf(t.z, t.w)));
+          hi = fmaxf(hi, fmaxf(fmaxf(t.x, t.y), fmaxf(t.z, t.w)));
+        } else {
+          const float v = t[f.channel];
+          lo = fminf(lo, v);
+          hi = fmaxf(hi, v);
+        }
       }
     }
     return true;
@@ -356,27 +364,41 @@ bool geometryResolvesAttribute(
 }
 
 // Fills `out` from a MaterialParameter; false when the parameter cannot be
-// conservatively evaluated by the bake kernel.
+// conservatively evaluated by the bake kernel. channel < 0 bounds over all
+// channels. `raw` (MDL) normalizes the sampler view to the wrapper's fixed
+// uv0 / untransformed lookups.
 bool resolveFactor(OmmFactorView &out,
     const MaterialParameter &mp,
     int channel,
     const GeometryGPUData &ggd,
-    DeviceGlobalState *state)
+    DeviceGlobalState *state,
+    bool raw)
 {
-  out.channel = channel;
+  out.allChannels = channel < 0;
+  out.channel = std::max(channel, 0);
   out.type = mp.type;
   switch (mp.type) {
   case MaterialParameterType::VALUE:
-    out.value = mp.value[channel];
+    out.value = mp.value[out.channel];
     return true;
   case MaterialParameterType::ATTRIBUTE:
     out.attribute = mp.attribute;
-    return geometryResolvesAttribute(ggd, mp.attribute);
+    return !raw && geometryResolvesAttribute(ggd, mp.attribute);
   case MaterialParameterType::SAMPLER: {
-    const SamplerGPUData &sd =
-        state->registry.samplers.hostValue(mp.sampler);
+    SamplerGPUData sd = state->registry.samplers.hostValue(mp.sampler);
     if (sd.type != SamplerType::TEXTURE2D)
       return false;
+    if (raw) {
+      // MDL lookups still apply the sampler's affine transforms
+      // (tex_lookup_float*_2d → evaluateImageTextureSampler), but they wrap
+      // uv0 BEFORE the in-transform — a non-identity in-transform therefore
+      // has no faithful equivalent in this scan; refuse the bake rather than
+      // bound the wrong function. The out-transform composes after the fetch
+      // and is kept.
+      if (sd.inTransform != mat4(1.f) || sd.inOffset != vec4(0.f))
+        return false;
+      sd.attribute = MaterialAttribute::ATTRIB_0;
+    }
     if (!geometryResolvesAttribute(ggd, sd.attribute))
       return false;
     out.sampler = sd;
@@ -440,17 +462,32 @@ bool factorDomainRange(const OmmFactorView &f,
           orderedBitsToFloat(mx[2]),
           orderedBitsToFloat(mx[3]));
     }
-    // Interval through the sampler's affine out-transform, selected channel.
-    double l = f.sampler.outOffset[f.channel];
-    double h = l;
-    for (int j = 0; j < 4; j++) {
-      const float coeff = f.sampler.outTransform[j][f.channel];
-      const float a = cache.mn[j], b = cache.mx[j];
-      l += coeff * (coeff >= 0.f ? a : b);
-      h += coeff * (coeff >= 0.f ? b : a);
+    // Interval through the sampler's affine out-transform; all-channel
+    // factors reduce over every output channel.
+    auto channelInterval = [&](int c, float &clo, float &chi) {
+      double l = f.sampler.outOffset[c];
+      double h = l;
+      for (int j = 0; j < 4; j++) {
+        const float coeff = f.sampler.outTransform[j][c];
+        const float a = cache.mn[j], b = cache.mx[j];
+        l += coeff * (coeff >= 0.f ? a : b);
+        h += coeff * (coeff >= 0.f ? b : a);
+      }
+      clo = float(l);
+      chi = float(h);
+    };
+    if (f.allChannels) {
+      lo = FLT_MAX;
+      hi = -FLT_MAX;
+      for (int c = 0; c < 4; c++) {
+        float clo, chi;
+        channelInterval(c, clo, chi);
+        lo = std::min(lo, clo);
+        hi = std::max(hi, chi);
+      }
+    } else {
+      channelInterval(f.channel, lo, hi);
     }
-    lo = float(l);
-    hi = float(h);
     return true;
   }
   default:
@@ -561,8 +598,17 @@ bool resolveBakeSetup(OmmBakeSetup &setup,
   p.cutoff = spec.cutoff;
   p.numTris = setup.numTris;
 
-  if (!resolveFactor(p.factors[0], spec.colorAlpha, 3, setup.ggd, state)
-      || !resolveFactor(p.factors[1], spec.opacity, 0, setup.ggd, state))
+  // MDL's mono opacity lookup has no defined channel — bound all of them.
+  const int opacityChannel = spec.rawSamplerLookups ? -1 : 0;
+  if (!resolveFactor(
+          p.factors[0], spec.colorAlpha, 3, setup.ggd, state,
+          spec.rawSamplerLookups)
+      || !resolveFactor(p.factors[1],
+          spec.opacity,
+          opacityChannel,
+          setup.ggd,
+          state,
+          spec.rawSamplerLookups))
     return false;
 
   // Whole-domain verdict: when both factors are boundable and their product
@@ -863,8 +909,12 @@ bool computeOpacityMicromapKey(uint64_t &key,
   for (const auto &f : p.factors) {
     // Channel selection changes the baked function even when every other
     // factor input matches (e.g. alpha-in-.w vs opacity-in-.x lookups of the
-    // same texture must not share a bake).
-    mixBits(uint64_t(uint32_t(f.channel)) + 0x30);
+    // same texture must not share a bake). allChannels distinguishes MDL's
+    // all-channel bound (channel -1, clamped to 0) from a plain channel-0
+    // factor — a raw-MDL and a PBR material sharing sampler+geometry must
+    // not share a bake either.
+    mixBits(((uint64_t(uint32_t(f.channel)) << 1) | uint64_t(f.allChannels))
+        + 0x30);
     switch (f.type) {
     case MaterialParameterType::VALUE:
       mixFloat(f.value);

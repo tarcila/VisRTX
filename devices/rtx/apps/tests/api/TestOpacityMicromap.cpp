@@ -53,6 +53,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 using uvec2 = std::array<unsigned int, 2>;
@@ -88,7 +89,8 @@ static constexpr uint32_t TEX_SIZE = 32; // alpha texture resolution
 // the with/without-OMM shading factor sets are identical, so frames must
 // match bitwise). Contiguous transparent regions are what the conservative
 // bake is designed to carve — per-texel noise legitimately stays unknown.
-static anari::Surface makeCutoutQuad(ANARIDevice device, const char *alphaMode)
+static anari::Surface makeCutoutQuad(
+    ANARIDevice device, const char *alphaMode, const char *materialSubtype)
 {
   const std::array<vec3, 4> pos = {vec3{-2.f, -2.f, 0.f},
       vec3{2.f, -2.f, 0.f},
@@ -117,7 +119,7 @@ static anari::Surface makeCutoutQuad(ANARIDevice device, const char *alphaMode)
       device, sampler, "image", img.data(), TEX_SIZE, TEX_SIZE);
   anari::commitParameters(device, sampler);
 
-  auto mat = anari::newObject<anari::Material>(device, "physicallyBased");
+  auto mat = anari::newObject<anari::Material>(device, materialSubtype);
   anari::setAndReleaseParameter(device, mat, "baseColor", sampler);
   anari::setParameter(device, mat, "roughness", 1.f);
   anari::setParameter(device, mat, "metallic", 0.f);
@@ -227,8 +229,15 @@ int main()
   auto device = makeVisRTXDevice(statusFunc);
 
   bool ok = true;
-  for (const char *alphaMode : {"mask", "blend"}) {
-    auto cutout = makeCutoutQuad(device, alphaMode);
+  // "physicallyBasedMDL" exercises the raw-lookup MDL bake view; on hosts
+  // without MDL it falls back to the native PBR implementation.
+  std::vector<std::pair<const char *, const char *>> cases;
+  for (const char *subtype : {"physicallyBased", "physicallyBasedMDL"}) {
+    for (const char *alphaMode : {"mask", "blend"})
+      cases.push_back({subtype, alphaMode});
+  }
+  for (const auto &[matSubtype, alphaMode] : cases) {
+    auto cutout = makeCutoutQuad(device, alphaMode, matSubtype);
     auto backdrop = makeBackdrop(device);
     const std::array<anari::Surface, 2> surfaces = {cutout, backdrop};
 
@@ -268,7 +277,8 @@ int main()
       redMean /= double(reference.size());
       greenMean /= double(reference.size());
 
-      printf("%s/%s: maxDiff=%g bakes=%d redMean=%f greenMean=%f\n",
+      printf("%s/%s/%s: maxDiff=%g bakes=%d redMean=%f greenMean=%f\n",
+          matSubtype,
           alphaMode,
           renderer,
           maxDiff,
@@ -278,15 +288,17 @@ int main()
 
       if (g_bakeMessages.load() == 0) {
         fprintf(stderr,
-            "FAIL[%s/%s]: no OpacityMicromap bake happened yet — accelerator "
-            "silently off\n",
+            "FAIL[%s/%s/%s]: no OpacityMicromap bake happened yet — "
+            "accelerator silently off\n",
+            matSubtype,
             alphaMode,
             renderer);
         ok = false;
       }
       if (maxDiff != 0.0) {
         fprintf(stderr,
-            "FAIL[%s/%s]: OMM changed the image (maxDiff=%g)\n",
+            "FAIL[%s/%s/%s]: OMM changed the image (maxDiff=%g)\n",
+            matSubtype,
             alphaMode,
             renderer,
             maxDiff);
@@ -296,7 +308,8 @@ int main()
       // present: catches both over-transparent and over-opaque bakes.
       if (redMean < 0.01 || greenMean < 0.01) {
         fprintf(stderr,
-            "FAIL[%s/%s]: cutout pattern wrong (redMean=%f greenMean=%f)\n",
+            "FAIL[%s/%s/%s]: cutout pattern wrong (redMean=%f greenMean=%f)\n",
+            matSubtype,
             alphaMode,
             renderer,
             redMean,

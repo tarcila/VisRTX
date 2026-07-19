@@ -53,9 +53,14 @@ diverge by design — see the determinism-scope consequence below.
   is a different — equally unbiased — realization. TestOpacityMicromap pins
   bitwise equality inside the guaranteed domain and keeps `ambientRadiance`
   at 0 to stay out of the divergent one.
-- MDL materials are out of scope for v1 (arbitrary compiled opacity
-  expressions); they keep the existing path. The separate MDL
-  `isFullyOpaque` gap remains worth fixing independently.
+- Raw MDL materials (`mdl` subtype) are out of scope (arbitrary compiled
+  opacity expressions); they keep the existing path. The MDL-*wrapped* PBR
+  materials (`physicallyBasedMDL`, and `pbr` under
+  `USE_MDL_FOR_PHYSICALLY_BASED`) DO bake: their Opacity Function is known at
+  wrap time (`rawSamplerLookups` — raw uv0 lookups; mono lookups bounded over
+  all channels; non-identity sampler in-transforms refuse the bake since MDL
+  wraps uv before the transform). The separate MDL `isFullyOpaque` gap
+  remains worth fixing independently.
 - `OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT` is set per-Surface for Fully Opaque
   materials, and `REQUIRE_SINGLE_ANYHIT_CALL` on blend surfaces — the latter
   also fixes a latent double-attenuation bug (shadow any-hit multiplies

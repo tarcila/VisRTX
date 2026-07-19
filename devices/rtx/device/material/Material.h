@@ -50,6 +50,9 @@ struct MaterialAlphaSpec
   // Not part of alpha itself, but it feeds isFullyOpaque (and thus the
   // per-surface DISABLE_ANYHIT geometry flag), so it must invalidate GASes.
   MaterialParameter transmission{vec4(0.f)};
+  // MDL-backed materials sample textures raw: fixed uv0, no ANARI in/out
+  // transforms. The bake bounds that function instead of the ANARI sampler's.
+  bool rawSamplerLookups{false};
 };
 
 bool operator==(const MaterialParameter &a, const MaterialParameter &b);
