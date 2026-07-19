@@ -1,0 +1,337 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include "Triangle.h"
+
+#include "geometry/ComputeTangent.h"
+
+namespace visrtx {
+
+// Resolve the device pointer the GPU reads tangents from. A non-empty staging
+// buffer means a VEC3 array was padded to vec4; otherwise a non-empty VEC4
+// array is read zero-copy from its own storage. Anything else -- absent,
+// empty, or an unsupported/failed-to-convert type -- yields no tangents, so
+// the shader falls back to a geometric basis.
+static const vec4 *resolveTangentPtr(
+    const helium::IntrusivePtr<Array1D> &tangents,
+    const DeviceBuffer &converted)
+{
+  if (converted)
+    return converted.ptrAs<vec4>();
+  if (tangents && tangents->size() > 0
+      && tangents->elementType() == ANARI_FLOAT32_VEC4)
+    return tangents->beginAs<vec4>(AddressSpace::GPU);
+  return nullptr;
+}
+
+Triangle::Triangle(DeviceGlobalState *d)
+    : Geometry(d), m_index(this), m_vertex(this)
+{}
+
+Triangle::~Triangle() = default;
+
+bool Triangle::prepareTangentArray(
+    const helium::IntrusivePtr<Array1D> &tangents,
+    DeviceBuffer &converted,
+    const char *paramName)
+{
+  // Only the staging buffer is rebuilt here; the array member is left untouched
+  // so it keeps faithfully reflecting the committed parameter.
+  converted.reset();
+
+  if (!tangents)
+    return false;
+
+  const auto type = tangents->elementType();
+
+  // Already in the internal layout: read zero-copy in gpuData().
+  if (type == ANARI_FLOAT32_VEC4)
+    return true;
+
+  // Spec-allowed VEC3 tangents: pad to vec4 with a default +1 handedness.
+  if (type == ANARI_FLOAT32_VEC3) {
+    const auto count = tangents->size();
+    if (count == 0)
+      return false;
+    converted.reserve(count * sizeof(vec4));
+    // On allocation (empty buffer) or conversion failure, leave 'converted'
+    // empty; gpuData() then emits no tangents (resolveTangentPtr zero-copies
+    // VEC4 only) rather than reading an uninitialized buffer.
+    if (!converted
+        || !convertTangentsVec3ToVec4(this,
+            tangents->beginAs<vec3>(AddressSpace::GPU),
+            converted.ptrAs<vec4>(),
+            count)) {
+      converted.reset();
+    }
+    return converted;
+  }
+
+  // Anything else (e.g. the FIXED16 variants) is advertised by the query
+  // metadata but not yet handled here. Report it; gpuData() emits no tangents
+  // rather than throwing on a VEC4 read of a non-VEC4 array.
+  reportMessage(ANARI_SEVERITY_WARNING,
+      "'%s' on triangle geometry has unsupported element type '%s'; "
+      "expected ANARI_FLOAT32_VEC3 or ANARI_FLOAT32_VEC4 -- ignoring tangents",
+      paramName,
+      anari::toString(type));
+
+  return false;
+}
+
+void Triangle::generateVertexTangents(DeviceBuffer &generated)
+{
+  const auto count = m_vertex ? m_vertex->size() : 0;
+  if (count == 0)
+    return;
+
+  generated.reserve(count * sizeof(vec4));
+  if (!generated)
+    return;
+
+  if (!computeGeometryVertexTangent(this, generated.ptrAs<vec4>()))
+    generated.reset();
+}
+
+void Triangle::commitParameters()
+{
+  Geometry::commitParameters();
+  m_index = getParamObject<Array1D>("primitive.index");
+  m_vertex = getParamObject<Array1D>("vertex.position");
+  m_vertexNormal = getParamObject<Array1D>("vertex.normal");
+  m_vertexNormalFV = getParamObject<Array1D>("faceVarying.normal");
+  m_vertexTangent = getParamObject<Array1D>("vertex.tangent");
+  m_vertexTangentFV = getParamObject<Array1D>("faceVarying.tangent");
+  m_cullBackfaces = getParam<bool>("cullBackfaces", false);
+  commitAttributes("vertex.", m_vertexAttributes);
+  commitAttributes("faceVarying.", m_vertexAttributesFV);
+}
+
+void Triangle::finalize()
+{
+  if (!m_vertex) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "missing required parameter 'vertex.position' on triangle geometry");
+    return;
+  }
+
+  if (!m_index && m_vertex->size() % 3 != 0) {
+    reportMessage(ANARI_SEVERITY_ERROR,
+        "'vertex.position' on triangle geometry is a non-multiple of 3"
+        " without 'primitive.index' present");
+    return;
+  }
+
+  if (m_vertexNormal && m_vertex->size() != m_vertexNormal->size()) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "'vertex.normal' on triangle geometry not the same size as "
+        "'vertex.position' (%zu) vs. (%zu)",
+        m_vertexNormal->size(),
+        m_vertex->size());
+  }
+
+  const size_t numTriangles = m_index ? m_index->size() : m_vertex->size() / 3;
+
+  if (m_vertexNormalFV && 3 * numTriangles != m_vertexNormalFV->size()) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "'faceVarying.normal' on triangle geometry is not matching "
+        "the number of triangles in 'primitive.index' (%zu) vs. (%zu)",
+        m_vertexNormalFV->size(),
+        numTriangles);
+  }
+
+  if (m_vertexTangent && m_vertex->size() != m_vertexTangent->size()) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "'vertex.tangent' on triangle geometry not the same size as "
+        "'vertex.position' (%zu) vs. (%zu)",
+        m_vertexTangent->size(),
+        m_vertex->size());
+  }
+
+  if (m_vertexTangentFV && 3 * numTriangles != m_vertexTangentFV->size()) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "'faceVarying.Tangent' on triangle geometry is not matching "
+        "the number of triangles in 'primitive.index' (%zu) vs. (%zu)",
+        m_vertexTangentFV->size(),
+        numTriangles);
+  }
+
+  bool hasTangent = prepareTangentArray(
+      m_vertexTangent, m_vertexTangentFinalized, "vertex.tangent");
+  hasTangent |= prepareTangentArray(
+      m_vertexTangentFV, m_vertexTangentFVFinalized, "faceVarying.tangent");
+  if (!hasTangent)
+    generateVertexTangents(m_vertexTangentFinalized);
+
+  reportMessage(ANARI_SEVERITY_DEBUG,
+      "finalizing %s triangle geometry",
+      m_index ? "indexed" : "soup");
+
+  m_vertexBufferPtr = (CUdeviceptr)m_vertex->beginAs<vec3>(AddressSpace::GPU);
+
+  // Vertices/indices may have changed. Rebuild the Geometry Light CDF if a
+  // surface has ever requested it (order-independent of the surface commit),
+  // else drop any stale data.
+  m_areaDataValid = false;
+  if (m_areaDataWanted)
+    buildAreaData();
+  else {
+    m_totalArea = 0.f;
+    m_primAreaCdf.clear();
+  }
+
+  upload();
+}
+
+void Triangle::buildAreaData()
+{
+  const size_t numTriangles = m_index ? m_index->size() : m_vertex->size() / 3;
+  const vec3 *vertices = m_vertex->beginAs<vec3>(AddressSpace::HOST);
+  const uvec3 *indices =
+      m_index ? m_index->beginAs<uvec3>(AddressSpace::HOST) : nullptr;
+
+  m_primAreaCdf.resize(numTriangles);
+  auto *cdf = m_primAreaCdf.dataHost();
+
+  double cumulative = 0.0;
+  for (size_t i = 0; i < numTriangles; ++i) {
+    const uvec3 tri = indices ? indices[i] : uvec3(0, 1, 2) + uint32_t(3 * i);
+    const vec3 &v0 = vertices[tri.x];
+    const vec3 &v1 = vertices[tri.y];
+    const vec3 &v2 = vertices[tri.z];
+    cumulative += 0.5 * glm::length(glm::cross(v1 - v0, v2 - v0));
+    cdf[i] = float(cumulative);
+  }
+  m_totalArea = float(cumulative);
+
+  // Normalize to a cumulative CDF ending at 1. A degenerate (zero-area) mesh
+  // leaves totalArea 0; callers gate on that.
+  if (m_totalArea > 0.f) {
+    for (size_t i = 0; i < numTriangles; ++i)
+      cdf[i] /= m_totalArea;
+  }
+
+  m_primAreaCdf.upload();
+  m_areaDataValid = true;
+}
+
+bool Triangle::isAreaSamplingSupported() const
+{
+  return true;
+}
+
+void Triangle::ensureAreaData()
+{
+  m_areaDataWanted = true;
+  if (m_areaDataValid)
+    return;
+  buildAreaData();
+  upload(); // republish gpuData() so the CDF pointers reach the device
+}
+
+float Triangle::totalArea() const
+{
+  return m_totalArea;
+}
+
+void Triangle::populateBuildInput(OptixBuildInput &buildInput) const
+{
+  buildInput.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+
+  buildInput.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+  buildInput.triangleArray.vertexStrideInBytes = sizeof(vec3);
+  buildInput.triangleArray.numVertices = m_vertex->size();
+  buildInput.triangleArray.vertexBuffers = &m_vertexBufferPtr;
+
+  if (m_index) {
+    buildInput.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    buildInput.triangleArray.indexStrideInBytes = sizeof(uvec3);
+    buildInput.triangleArray.numIndexTriplets = m_index->size();
+    buildInput.triangleArray.indexBuffer =
+        (CUdeviceptr)m_index->beginAs<uvec3>(AddressSpace::GPU);
+  } else {
+    buildInput.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_NONE;
+    buildInput.triangleArray.indexStrideInBytes = 0;
+    buildInput.triangleArray.numIndexTriplets = 0;
+    buildInput.triangleArray.indexBuffer = 0;
+  }
+
+  // Shadow any-hit accumulates attenuation multiplicatively; without this
+  // flag OptiX may invoke any-hit more than once per primitive and
+  // double-attenuate.
+  static uint32_t buildInputFlags[1] = {
+      OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL};
+
+  buildInput.triangleArray.flags = buildInputFlags;
+  buildInput.triangleArray.numSbtRecords = 1;
+}
+
+int Triangle::optixGeometryType() const
+{
+  return OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+}
+
+bool Triangle::isValid() const
+{
+  return m_vertex;
+}
+
+GeometryGPUData Triangle::gpuData() const
+{
+  auto retval = Geometry::gpuData();
+  retval.type = GeometryType::TRIANGLE;
+
+  auto &tri = retval.tri;
+  tri.vertices = m_vertex->beginAs<vec3>(AddressSpace::GPU);
+  tri.indices = m_index ? m_index->beginAs<uvec3>(AddressSpace::GPU) : nullptr;
+  tri.vertexNormals = m_vertexNormal
+      ? m_vertexNormal->beginAs<vec3>(AddressSpace::GPU)
+      : nullptr;
+  tri.vertexTangents =
+      resolveTangentPtr(m_vertexTangent, m_vertexTangentFinalized);
+  populateAttributeDataSet(m_vertexAttributes, tri.vertexAttr);
+  populateAttributeDataSet(m_vertexAttributesFV, tri.vertexAttrFV);
+  tri.vertexNormalsFV = m_vertexNormalFV
+      ? m_vertexNormalFV->beginAs<vec3>(AddressSpace::GPU)
+      : nullptr;
+  tri.vertexTangentsFV =
+      resolveTangentPtr(m_vertexTangentFV, m_vertexTangentFVFinalized);
+  tri.cullBackfaces = m_cullBackfaces;
+
+  // Geometry Light sampling data; null/zero until ensureAreaData() runs.
+  tri.primAreaCdf = m_primAreaCdf.dataDevice();
+  tri.numPrimitives = uint32_t(m_primAreaCdf.size());
+  tri.totalArea = m_totalArea;
+
+  return retval;
+}
+
+} // namespace visrtx

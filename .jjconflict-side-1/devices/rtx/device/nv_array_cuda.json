@@ -1,0 +1,8 @@
+{
+  "info": {
+    "name": "NV_ARRAY_CUDA",
+    "type": "extension",
+    "dependencies": []
+  },
+  "objects": []
+}

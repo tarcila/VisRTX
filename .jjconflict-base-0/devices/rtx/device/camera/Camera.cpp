@@ -1,0 +1,96 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include "Camera.h"
+// specific types
+#include "Orthographic.h"
+#include "Perspective.h"
+#include "UnknownCamera.h"
+// std
+#include <atomic>
+
+namespace visrtx {
+
+Camera::Camera(DeviceGlobalState *s) : Object(ANARI_CAMERA, s)
+{
+  helium::BaseObject::markParameterChanged();
+  s->commitBuffer.addObjectToCommit(this);
+}
+
+void Camera::commitParameters()
+{
+  m_region = vec4(0.f, 0.f, 1.f, 1.f);
+  getParam("imageRegion", ANARI_FLOAT32_BOX2, &m_region);
+  m_pos = getParam<vec3>("position", vec3(0.f));
+  m_dir = normalize(getParam<vec3>("direction", vec3(0.f, 0.f, 1.f)));
+  m_up = normalize(getParam<vec3>("up", vec3(0.f, 1.f, 0.f)));
+
+  m_aspect.reset();
+  float aspect = 1.f;
+  if (getParam("aspect", ANARI_FLOAT32, &aspect))
+    m_aspect = aspect;
+}
+
+void Camera::populateFrameData(CameraGPUData &fd, uvec2 /*frameSize*/) const
+{
+  populateBaseFrameData(fd);
+  fd.type = CameraType::UNKNOWN;
+}
+
+Camera *Camera::createInstance(std::string_view subtype, DeviceGlobalState *d)
+{
+  if (subtype == "perspective")
+    return new Perspective(d);
+  else if (subtype == "orthographic")
+    return new Orthographic(d);
+  else
+    return new UnknownCamera(subtype, d);
+}
+
+void Camera::populateBaseFrameData(CameraGPUData &fd) const
+{
+  fd.region = m_region;
+  fd.pos = m_pos;
+  fd.dir = m_dir;
+  fd.up = m_up;
+}
+
+float Camera::effectiveAspect(uvec2 frameSize) const
+{
+  if (m_aspect)
+    return *m_aspect;
+
+  return frameSize.y == 0 ? 1.f : float(frameSize.x) / float(frameSize.y);
+}
+
+} // namespace visrtx
+
+VISRTX_ANARI_TYPEFOR_DEFINITION(visrtx::Camera *);

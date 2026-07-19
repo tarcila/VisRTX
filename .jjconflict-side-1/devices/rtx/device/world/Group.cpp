@@ -1,0 +1,484 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include "Group.h"
+
+namespace visrtx {
+
+// Helper functions ///////////////////////////////////////////////////////////
+
+template <typename T>
+static std::vector<OptixBuildInput> createOBI(Span<T> objs)
+{
+  std::vector<OptixBuildInput> buildInput(objs.size());
+  std::transform(objs.begin(), objs.end(), buildInput.begin(), [](auto o) {
+    return o->buildInput();
+  });
+  return buildInput;
+}
+
+template <typename T>
+static std::vector<OptixBuildInput> createOBI(const std::vector<T *> &objs)
+{
+  return createOBI(make_Span(objs.data(), objs.size()));
+}
+
+// Pointer-identity fingerprint (FNV-1a) of a partition. Membership changes
+// must rebuild a kind's GAS even when no surviving member's stamp advanced;
+// a recycled pointer is covered by the stamp side of the gate — a new Surface
+// at an old address always carries a fresh finalize stamp.
+static size_t surfaceListFingerprint(const std::vector<Surface *> &surfaces)
+{
+  size_t h = 0xcbf29ce484222325ull;
+  for (auto s : surfaces) {
+    h ^= reinterpret_cast<size_t>(s);
+    h *= 0x100000001b3ull;
+  }
+  return h;
+}
+
+// Group definitions //////////////////////////////////////////////////////////
+
+Group::Group(DeviceGlobalState *d)
+    : Object(ANARI_GROUP, d),
+      m_surfaceData(this),
+      m_volumeData(this),
+      m_lightData(this)
+{}
+
+Group::~Group() = default;
+
+bool Group::getProperty(const std::string_view &name,
+    ANARIDataType type,
+    void *ptr,
+    uint64_t size,
+    uint32_t flags)
+{
+  if (name == "bounds" && type == ANARI_FLOAT32_BOX3) {
+    if (flags & ANARI_WAIT) {
+      deviceState()->commitBuffer.flush();
+      rebuildSurfaceBVHs();
+      rebuildVolumeBVH();
+    }
+    auto bounds = m_triangleBounds;
+    bounds.extend(m_curveBounds);
+    bounds.extend(m_userBounds);
+    bounds.extend(m_volumeBounds);
+    std::memcpy(ptr, &bounds, sizeof(bounds));
+    return true;
+  }
+
+  return Object::getProperty(name, type, ptr, size, flags);
+}
+
+void Group::commitParameters()
+{
+  m_surfaceData = getParamObject<ObjectArray>("surface");
+  m_volumeData = getParamObject<ObjectArray>("volume");
+  m_lightData = getParamObject<ObjectArray>("light");
+}
+
+void Group::finalize()
+{
+  m_objectUpdates.lastSurfaceBVHBuilt = 0;
+  m_objectUpdates.lastVolumeBVHBuilt = 0;
+  m_objectUpdates.lastLightRebuild = 0;
+}
+
+void Group::markFinalized()
+{
+  Object::markFinalized();
+  auto &updates = deviceState()->objectUpdates;
+  const auto now = helium::newTimeStamp();
+  updates.lastSurfaceBLASChange = now;
+  updates.lastVolumeBLASChange = now;
+  updates.lastLightSetChange = now;
+}
+
+OptixTraversableHandle Group::optixTraversableTriangle() const
+{
+  return m_traversableTriangle;
+}
+
+OptixTraversableHandle Group::optixTraversableCurve() const
+{
+  return m_traversableCurve;
+}
+
+OptixTraversableHandle Group::optixTraversableUser() const
+{
+  return m_traversableUser;
+}
+
+OptixTraversableHandle Group::optixTraversableVolume() const
+{
+  return m_traversableVolume;
+}
+
+Span<DeviceObjectIndex> Group::surfaceTriangleGPUIndices() const
+{
+  return make_Span(
+      (const DeviceObjectIndex *)m_surfaceTriangleObjectIndices.ptr(),
+      m_surfacesTriangle.size());
+}
+
+Span<DeviceObjectIndex> Group::surfaceCurveGPUIndices() const
+{
+  return make_Span((const DeviceObjectIndex *)m_surfaceCurveObjectIndices.ptr(),
+      m_surfacesCurve.size());
+}
+
+Span<DeviceObjectIndex> Group::surfaceUserGPUIndices() const
+{
+  return make_Span((const DeviceObjectIndex *)m_surfaceUserObjectIndices.ptr(),
+      m_surfacesUser.size());
+}
+
+Span<DeviceObjectIndex> Group::volumeGPUIndices() const
+{
+  return make_Span(
+      (const DeviceObjectIndex *)m_volumeObjectIndices.ptr(), m_volumes.size());
+}
+
+bool Group::containsTriangleGeometry() const
+{
+  return !m_surfacesTriangle.empty();
+}
+
+bool Group::containsCurveGeometry() const
+{
+  return !m_surfacesCurve.empty();
+}
+
+bool Group::containsUserGeometry() const
+{
+  return !m_surfacesUser.empty();
+}
+
+bool Group::containsVolumes() const
+{
+  return m_volumes.size() > 0;
+}
+
+bool Group::containsLights() const
+{
+  return m_lights.size() > 0;
+}
+
+Span<DeviceObjectIndex> Group::lightGPUIndices() const
+{
+  return make_Span(
+      (const DeviceObjectIndex *)m_lightObjectIndices.ptr(), m_lights.size());
+}
+
+DeviceObjectIndex Group::firstHDRI() const
+{
+  return m_firstHDRI;
+}
+
+const std::vector<Light *> &Group::lights() const
+{
+  return m_lights;
+}
+
+const std::vector<Surface *> &Group::surfacesTriangle() const
+{
+  return m_surfacesTriangle;
+}
+
+const std::vector<Surface *> &Group::surfacesUser() const
+{
+  return m_surfacesUser;
+}
+
+void Group::rebuildSurfaceBVHs()
+{
+  const auto &state = *deviceState();
+  if (state.objectUpdates.lastSurfaceBLASChange
+      < m_objectUpdates.lastSurfaceBVHBuilt)
+    return;
+
+  partitionValidGeometriesByType();
+
+  // Per-kind gating: a change to a surface, its geometry, or its material's
+  // Opacity Function rebuilds only the GASes that actually contain it
+  // (ADR 0009) — untouched kinds keep their traversables. Membership is
+  // fingerprinted separately: a departed surface (visibility flip,
+  // invalidation, kind swap) advances no surviving member's stamp, yet its
+  // kind's GAS and index list must both be rebuilt to stay in sync.
+  const auto builtAt = m_objectUpdates.lastSurfaceBVHBuilt;
+  auto latestInputChange = [](const std::vector<Surface *> &surfaces) {
+    helium::TimeStamp t = 0;
+    for (auto s : surfaces)
+      t = std::max(t, s->lastBLASInputChange());
+    return t;
+  };
+
+  const size_t triangleFp = surfaceListFingerprint(m_surfacesTriangle);
+  const size_t curveFp = surfaceListFingerprint(m_surfacesCurve);
+  const size_t userFp = surfaceListFingerprint(m_surfacesUser);
+
+  bool ommDeferred = false;
+  if (m_surfacesTriangle.empty()) {
+    m_triangleBounds = box3();
+    m_traversableTriangle = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping triangle BVH build");
+  } else if (m_ommPending || triangleFp != m_surfacesTriangleFingerprint
+      || std::max(latestInputChange(m_surfacesTriangle), state.omm.lastChange)
+          >= builtAt) {
+    for (auto s : m_surfacesTriangle)
+      ommDeferred |= s->ensureOpacityMicromap();
+    reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building triangle BVH");
+    buildOptixBVH(createOBI(m_surfacesTriangle),
+        m_bvhTriangle,
+        m_traversableTriangle,
+        m_triangleBounds,
+        this);
+  }
+
+  if (m_surfacesCurve.empty()) {
+    m_curveBounds = box3();
+    m_traversableCurve = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping curve BVH build");
+  } else if (curveFp != m_surfacesCurveFingerprint
+      || latestInputChange(m_surfacesCurve) >= builtAt) {
+    reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building curve BVH");
+    buildOptixBVH(createOBI(m_surfacesCurve),
+        m_bvhCurve,
+        m_traversableCurve,
+        m_curveBounds,
+        this);
+  }
+
+  if (m_surfacesUser.empty()) {
+    m_userBounds = box3();
+    m_traversableUser = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping user BVH build");
+  } else if (userFp != m_surfacesUserFingerprint
+      || latestInputChange(m_surfacesUser) >= builtAt) {
+    reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building user BVH");
+    buildOptixBVH(createOBI(m_surfacesUser),
+        m_bvhUser,
+        m_traversableUser,
+        m_userBounds,
+        this);
+  }
+
+  buildSurfaceGPUData();
+
+  m_surfacesTriangleFingerprint = triangleFp;
+  m_surfacesCurveFingerprint = curveFp;
+  m_surfacesUserFingerprint = userFp;
+  m_objectUpdates.lastSurfaceBVHBuilt = helium::newTimeStamp();
+
+  // Deferred OMM bakes (inputs still settling) need one follow-up pass to
+  // attach once stable; without this a static scene would never re-enter the
+  // rebuild and never gain its micromaps.
+  m_ommPending = ommDeferred;
+  if (ommDeferred)
+    deviceState()->omm.settlePending = true;
+}
+
+void Group::rebuildVolumeBVH()
+{
+  const auto &state = *deviceState();
+  if (state.objectUpdates.lastVolumeBLASChange
+      < m_objectUpdates.lastVolumeBVHBuilt)
+    return;
+
+  partitionValidVolumes();
+  if (m_volumes.empty()) {
+    m_volumeBounds = box3();
+    m_traversableVolume = {};
+    m_objectUpdates.lastVolumeBVHBuilt = helium::newTimeStamp();
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping volume BVH build");
+    return;
+  }
+
+  reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building volume BVH");
+  buildOptixBVH(createOBI(m_volumes),
+      m_bvhVolume,
+      m_traversableVolume,
+      m_volumeBounds,
+      this);
+
+  buildVolumeGPUData();
+
+  m_objectUpdates.lastVolumeBVHBuilt = helium::newTimeStamp();
+}
+
+void Group::rebuildLights()
+{
+  const auto &state = *deviceState();
+  if (state.objectUpdates.lastLightSetChange < m_objectUpdates.lastLightRebuild)
+    return;
+
+  partitionValidLights();
+  buildLightGPUData();
+  m_objectUpdates.lastLightRebuild = helium::newTimeStamp();
+}
+
+void Group::partitionValidGeometriesByType()
+{
+  m_surfacesTriangle.clear();
+  m_surfacesCurve.clear();
+  m_surfacesUser.clear();
+
+  if (!m_surfaceData)
+    return;
+
+  auto surfaces = make_Span(
+      (Surface **)m_surfaceData->handlesBegin(), m_surfaceData->totalSize());
+
+  for (auto s : surfaces) {
+    if (!(s && s->isValid() && s->isVisible())) {
+      if (s && !s->isValid()) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "visrtx::Group encountered invalid surface %p",
+            s);
+      }
+      continue;
+    }
+    auto g = s->geometry();
+    if (g->optixGeometryType() == OPTIX_BUILD_INPUT_TYPE_TRIANGLES)
+      m_surfacesTriangle.push_back(s);
+    else if (g->optixGeometryType() == OPTIX_BUILD_INPUT_TYPE_CURVES)
+      m_surfacesCurve.push_back(s);
+    else
+      m_surfacesUser.push_back(s);
+  }
+}
+
+void Group::partitionValidVolumes()
+{
+  m_volumes.clear();
+  if (!m_volumeData)
+    return;
+
+  auto volumes = make_Span(
+      (Volume **)m_volumeData->handlesBegin(), m_volumeData->totalSize());
+  for (auto v : volumes) {
+    if (!(v && v->isValid() && v->isVisible())) {
+      if (v && !v->isValid()) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "visrtx::Group encountered invalid volume %p",
+            v);
+      }
+      continue;
+    }
+    m_volumes.push_back(v);
+  }
+}
+
+void Group::partitionValidLights()
+{
+  m_lights.clear();
+  m_firstHDRI = -1;
+  if (!m_lightData)
+    return;
+
+  auto lights = make_Span(
+      (Light **)m_lightData->handlesBegin(), m_lightData->totalSize());
+  for (auto l : lights) {
+    if (!l->isValid()) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "visrtx::Group encountered invalid light %p",
+          l);
+      continue;
+    }
+    m_lights.push_back(l);
+    if (m_firstHDRI == -1 && l->isHDRI())
+      m_firstHDRI = l->index();
+  }
+}
+
+void Group::buildSurfaceGPUData()
+{
+  auto populateData = [](auto g) { return g->gpuData(); };
+
+  if (!m_surfacesTriangle.empty()) {
+    std::vector<DeviceObjectIndex> tmp(m_surfacesTriangle.size());
+    std::transform(m_surfacesTriangle.begin(),
+        m_surfacesTriangle.end(),
+        tmp.begin(),
+        [](auto v) { return v->index(); });
+    m_surfaceTriangleObjectIndices.upload(tmp);
+  } else
+    m_surfaceTriangleObjectIndices.reset();
+
+  if (!m_surfacesCurve.empty()) {
+    std::vector<DeviceObjectIndex> tmp(m_surfacesCurve.size());
+    std::transform(m_surfacesCurve.begin(),
+        m_surfacesCurve.end(),
+        tmp.begin(),
+        [](auto v) { return v->index(); });
+    m_surfaceCurveObjectIndices.upload(tmp);
+  } else
+    m_surfaceCurveObjectIndices.reset();
+
+  if (!m_surfacesUser.empty()) {
+    std::vector<DeviceObjectIndex> tmp(m_surfacesUser.size());
+    std::transform(
+        m_surfacesUser.begin(), m_surfacesUser.end(), tmp.begin(), [](auto v) {
+          return v->index();
+        });
+    m_surfaceUserObjectIndices.upload(tmp);
+  } else
+    m_surfaceUserObjectIndices.reset();
+}
+
+void Group::buildVolumeGPUData()
+{
+  std::vector<DeviceObjectIndex> tmp(m_volumes.size());
+  std::transform(m_volumes.begin(), m_volumes.end(), tmp.begin(), [](auto v) {
+    return v->index();
+  });
+  m_volumeObjectIndices.upload(tmp);
+}
+
+void Group::buildLightGPUData()
+{
+  if (m_lights.empty())
+    return;
+  std::vector<DeviceObjectIndex> tmp(m_lights.size());
+  std::transform(m_lights.begin(), m_lights.end(), tmp.begin(), [](auto l) {
+    return l->index();
+  });
+  m_lightObjectIndices.upload(tmp);
+}
+
+} // namespace visrtx
+
+VISRTX_ANARI_TYPEFOR_DEFINITION(visrtx::Group *);

@@ -1,0 +1,224 @@
+{
+  "info": {
+    "name": "VISRTX_RENDERER_INTERACTIVE",
+    "type": "extension",
+    "dependencies": [
+      "anari_core_1_0"
+    ],
+    "implements": [
+      "khr_renderer_background_color",
+      "khr_renderer_background_image",
+      "khr_renderer_ambient_light"
+    ]
+  },
+  "objects": [
+    {
+      "type": "ANARI_RENDERER",
+      "name": "interactive",
+      "parameters": [
+        {
+          "name": "sampleLimit",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 128,
+          "minimum": 0,
+          "description": "stop refining the frame after this number of samples"
+        },
+        {
+          "name": "denoise",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "enable the OptiX denoiser"
+        },
+        {
+          "name": "denoiseStart",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 0,
+          "description": "accumulated sample count at which denoising starts; negative values count back from sampleLimit (-1 == only the final frame)"
+        },
+        {
+          "name": "denoiseMode",
+          "types": [
+            "ANARI_STRING"
+          ],
+          "tags": [],
+          "default": "colorAlbedoNormal",
+          "values": [
+            "colorAlbedoNormal",
+            "colorAlbedo",
+            "color"
+          ],
+          "description": "mode controlling buffers given to the denoiser"
+        },
+        {
+          "name": "fireflyFilterMode",
+          "types": [
+            "ANARI_STRING"
+          ],
+          "tags": [],
+          "default": "tonemap",
+          "values": [
+            "none",
+            "tonemap",
+            "clamp",
+            "trim"
+          ],
+          "description": "removes bright speckle (firefly) noise: none (off), tonemap (aggressive; strongest suppression but can dim the image), clamp (moderate; caps only the brightest outlier samples), trim (gentlest; energy-preserving, discards only detected outliers)"
+        },
+        {
+          "name": "fireflyFilterSigma",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 8.0,
+          "minimum": 0.0,
+          "description": "clamp/trim mode: outlier sensitivity; lower removes more aggressively"
+        },
+        {
+          "name": "fireflyFilterWarmup",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 4,
+          "minimum": 1,
+          "description": "clamp mode: samples observed before filtering starts; higher delays filtering but estimates the cap more reliably"
+        },
+        {
+          "name": "fireflyFilterTrim",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "trim mode: how many outlier samples to track per pixel; higher is more robust but uses more memory"
+        },
+        {
+          "name": "premultiplyBackground",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "pre-multiply alpha channel with background color"
+        },
+        {
+          "name": "cullTriangleBackfaces",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "enable triangle back face culling"
+        },
+        {
+          "name": "checkerboarding",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "use checkerboarding to lower frame latency"
+        },
+        {
+          "name": "pixelSamples",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 1,
+          "description": "samples per-pixel"
+        },
+        {
+          "name": "ambientSamples",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 0,
+          "description": "AO samples per-pixel, per-frame"
+        },
+        {
+          "name": "ambientOcclusionDistance",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1e20,
+          "minimum": 0,
+          "description": "ambient occlusion distance"
+        },
+        {
+          "name": "maxSampledLights",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 8,
+          "minimum": 0,
+          "description": "max light instances sampled per hit via the Pick-Power CDF; 0 samples all lights (slow with many lights)"
+        },
+        {
+          "name": "lightFalloff",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1.0,
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "light falloff"
+        },
+        {
+          "name": "volumeSamplingRate",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 0.125,
+          "minimum": 0.001,
+          "maximum": 10.0,
+          "description": "sampling rate of volumes when ray marching primary visibility"
+        },
+        {
+          "name": "volumeSamplingRateShadows",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 0.0125,
+          "minimum": 0.0001,
+          "maximum": 10.0,
+          "description": "sampling rate of volumes when ray marching shadows"
+        },
+        {
+          "name": "cutPlane",
+          "types": [
+            "ANARI_FLOAT32_VEC4"
+          ],
+          "tags": [],
+          "default": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "cutting plane equation (nx, ny, nz, d); disabled when all zero (vec4(0))"
+        }
+      ]
+    }
+  ]
+}

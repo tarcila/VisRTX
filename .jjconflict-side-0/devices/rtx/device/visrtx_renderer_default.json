@@ -1,0 +1,34 @@
+{
+  "info" : {
+    "name" : "VISRTX_RENDERER_DEFAULT",
+    "type" : "extension",
+    "dependencies" : ["anari_core_1_0"],
+    "implements" : [
+      "khr_renderer_background_color",
+      "khr_renderer_background_image",
+      "khr_renderer_ambient_light"
+    ]
+  },
+  "objects" : [
+    {
+      "type" : "ANARI_RENDERER",
+      "name" : "default",
+      "parameters": [
+        {
+          "name": "cutPlane",
+          "types": [
+            "ANARI_FLOAT32_VEC4"
+          ],
+          "tags": [],
+          "default": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "description": "cutting plane equation (nx, ny, nz, d); disabled when all zero (vec4(0))"
+        }
+      ]
+    }
+  ]
+}

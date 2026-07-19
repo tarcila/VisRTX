@@ -1,0 +1,334 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#pragma once
+
+#include "gpu/gpu_objects.h"
+#include "utility/DeferredArrayUploadBuffer.h"
+#include "utility/DeviceObjectArray.h"
+
+// helium
+#include "helium/BaseGlobalDeviceState.h"
+// anari
+#include <anari/anari_cpp.hpp>
+// optix
+#include <helium/utility/TimeStamp.h>
+#include <optix.h>
+#include <optix_stubs.h>
+// mdl
+#ifdef USE_MDL
+#include <mi/neuraylib/ineuray.h>
+#include "libmdl/Core.h"
+#include "mdl/Logger.h"
+#include "mdl/MaterialRegistry.h"
+#include "mdl/SamplerRegistry.h"
+#endif // defined(USE_MDL)
+// std
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#ifdef OPAQUE
+#undef OPAQUE
+#endif
+
+constexpr int PAYLOAD_VALUES = 5;
+constexpr int ATTRIBUTE_VALUES = 4;
+
+#define OPTIX_CHECK_REPORT_MESSAGE(call)                                       \
+  std::stringstream ss;                                                        \
+  const char *res_str = optixGetErrorName(res);                                \
+  ss << "Optix call (" << #call << ") failed with code " << res_str            \
+     << " (line " << __LINE__ << ")\n";                                        \
+  reportMessage(ANARI_SEVERITY_FATAL_ERROR, "%s", ss.str().c_str());
+
+#define OPTIX_CHECK(call)                                                      \
+  {                                                                            \
+    OptixResult res = call;                                                    \
+    if (res != OPTIX_SUCCESS) {                                                \
+      OPTIX_CHECK_REPORT_MESSAGE(call)                                         \
+    }                                                                          \
+  }
+
+#define OPTIX_CHECK_RETURN(call)                                               \
+  {                                                                            \
+    OptixResult res = call;                                                    \
+    if (res != OPTIX_SUCCESS) {                                                \
+      OPTIX_CHECK_REPORT_MESSAGE(call)                                         \
+      return;                                                                  \
+    }                                                                          \
+  }
+
+#define OPTIX_CHECK_RETURN_VALUE(call, x)                                      \
+  {                                                                            \
+    OptixResult res = call;                                                    \
+    if (res != OPTIX_SUCCESS) {                                                \
+      OPTIX_CHECK_REPORT_MESSAGE(call)                                         \
+      return x;                                                                \
+    }                                                                          \
+  }
+
+#define OPTIX_CHECK_OBJECT(call, obj)                                          \
+  {                                                                            \
+    OptixResult res = call;                                                    \
+    if (res != OPTIX_SUCCESS) {                                                \
+      std::stringstream ss;                                                    \
+      const char *res_str = optixGetErrorName(res);                            \
+      ss << "Optix call (" << #call << ") failed with code " << res_str        \
+         << " (line " << __LINE__ << ")\n";                                    \
+      obj->reportMessage(ANARI_SEVERITY_FATAL_ERROR, "%s", ss.str().c_str());  \
+    }                                                                          \
+  }
+
+#define CUDA_SYNC_CHECK()                                                      \
+  {                                                                            \
+    cudaDeviceSynchronize();                                                   \
+    cudaError_t error = cudaGetLastError();                                    \
+    if (error != cudaSuccess) {                                                \
+      reportMessage(ANARI_SEVERITY_FATAL_ERROR,                                \
+          "error (%s: line %d): %s\n",                                         \
+          __FILE__,                                                            \
+          __LINE__,                                                            \
+          cudaGetErrorString(error));                                          \
+    }                                                                          \
+  }
+
+#define CUDA_SYNC_CHECK_OBJECT(obj)                                            \
+  {                                                                            \
+    cudaDeviceSynchronize();                                                   \
+    cudaError_t error = cudaGetLastError();                                    \
+    if (error != cudaSuccess) {                                                \
+      obj->reportMessage(ANARI_SEVERITY_FATAL_ERROR,                           \
+          "error (%s: line %d): %s\n",                                         \
+          __FILE__,                                                            \
+          __LINE__,                                                            \
+          cudaGetErrorString(error));                                          \
+    }                                                                          \
+  }
+
+#define VISRTX_ANARI_TYPEFOR_SPECIALIZATION(type, anari_type)                  \
+  namespace anari {                                                            \
+  ANARI_TYPEFOR_SPECIALIZATION(type, anari_type);                              \
+  }
+
+#define VISRTX_ANARI_TYPEFOR_DEFINITION(type)                                  \
+  namespace anari {                                                            \
+  ANARI_TYPEFOR_DEFINITION(type);                                              \
+  }
+
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box1, ANARI_FLOAT32_BOX1);
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box2, ANARI_FLOAT32_BOX2);
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box3, ANARI_FLOAT32_BOX3);
+
+namespace visrtx {
+
+struct Object;
+struct MDL;
+struct OpacityMicromapBuffers;
+struct OmmAlphaPyramid;
+
+struct ptx_blob
+{
+  const unsigned char *ptr{nullptr};
+  size_t size{0};
+};
+
+struct DeviceGlobalState : public helium::BaseGlobalDeviceState
+{
+  anari::Device anariDevice{nullptr};
+
+  CUcontext cudaContext;
+  CUstream stream;
+  cudaDeviceProp deviceProps;
+
+  OptixDeviceContext optixContext;
+
+  struct RendererModules
+  {
+    OptixModule debug{nullptr};
+    OptixModule fast{nullptr};
+    OptixModule interactive{nullptr};
+    OptixModule quality{nullptr};
+    OptixModule test{nullptr};
+#ifdef USE_MDL
+    OptixModule mdl{nullptr};
+    helium::TimeStamp lastMDLMaterialChange{0};
+#endif
+  } rendererModules;
+
+  struct IntersectionModules
+  {
+    OptixModule curveIntersector{nullptr};
+    OptixModule customIntersectors{nullptr};
+  } intersectionModules;
+
+  struct MaterialModules
+  {
+    OptixModule matte{nullptr};
+    OptixModule physicallyBased{nullptr};
+  } materialShaders;
+
+  struct SpatialFieldModules
+  {
+    OptixModule structuredRegular{nullptr};
+    OptixModule nvdb{nullptr};
+    OptixModule structuredRectilinear{nullptr};
+    OptixModule nvdbRectilinear{nullptr};
+    OptixModule customField{nullptr};
+  } fieldSamplers;
+
+  struct ObjectUpdates
+  {
+    helium::TimeStamp lastSurfaceBLASChange{0};
+    helium::TimeStamp lastVolumeBLASChange{0};
+    helium::TimeStamp lastLightSetChange{0};
+    helium::TimeStamp lastTLASChange{0};
+  } objectUpdates;
+
+  // Opacity Micromap controls (ADR 0009); device parameters "omm" and
+  // "ommSubdivisionLevel" (-1 = auto from UV texel footprint).
+  struct OpacityMicromapConfig
+  {
+    bool enabled{true};
+    int subdivisionLevel{-1};
+    // Experimental: also emit hard OPAQUE states (device param
+    // "ommOpaqueStates" / env VISRTX_OMM_OPAQUE, default off). Opaque hits
+    // then commit without any-hit — exact for shading (closest-hit shadow
+    // commits blocked), but primary-ray cut-plane culling cannot be forced
+    // back on for them, so clipping scenes must leave this off.
+    bool opaqueStates{false};
+    helium::TimeStamp lastChange{0}; // folds into triangle-GAS input stamps
+    // Some surface deferred its bake-on-stable this pass; World converts this
+    // into a BLAS-change bump at the top of the NEXT rebuildWorld() (a bump
+    // made mid-rebuild would land before World's own lastBLASCheck stamp and
+    // be missed).
+    bool settlePending{false};
+    // BLAS-rebuild pass counter. Bake-on-stable requires inputs unchanged
+    // across two *passes* — a per-call check would let a surface shared by
+    // several Groups "settle" within a single frame.
+    uint64_t rebuildEpoch{0};
+    // Per-sampler texture channel ranges backing the whole-domain skip
+    // verdict: a material whose alpha provably never crosses into
+    // transparency skips its bake entirely (hosts that stream in thousands
+    // of opaque-textured "blend" surfaces would otherwise bake all of them).
+    struct SamplerRange
+    {
+      helium::TimeStamp stamp{0};
+      vec4 mn{0.f};
+      vec4 mx{1.f};
+    };
+    std::unordered_map<DeviceObjectIndex, SamplerRange> samplerRanges;
+    // Bake dedup: surfaces sharing (geometry, material alpha state) share one
+    // micromap. Keyed by object identity + finalize stamps — stamps are
+    // globally monotonic, so a recycled pointer can never alias a stale
+    // entry. Entries may hold an unattached result (negative verdict cache).
+    std::unordered_map<uint64_t, std::shared_ptr<OpacityMicromapBuffers>>
+        bakeCache;
+    // Min/max alpha pyramids the bake queries per microtri footprint, keyed
+    // by (sampler content stamp, transform, channel). In-flight bakes hold
+    // shared_ptrs, so eviction never dangles a queued kernel.
+    std::unordered_map<uint64_t, std::shared_ptr<OmmAlphaPyramid>> pyramids;
+  } omm;
+
+  DeferredArrayUploadBuffer uploadBuffer;
+
+  struct DeviceObjectRegistry
+  {
+    DeviceObjectArray<SamplerGPUData> samplers;
+    DeviceObjectArray<GeometryGPUData> geometries;
+    DeviceObjectArray<MaterialGPUData> materials;
+    DeviceObjectArray<SurfaceGPUData> surfaces;
+    DeviceObjectArray<LightGPUData> lights;
+    DeviceObjectArray<SpatialFieldGPUData> fields;
+    DeviceObjectArray<VolumeGPUData> volumes;
+  } registry;
+
+  // MDL
+#ifdef USE_MDL
+  struct MDL
+  {
+    libmdl::Core core;
+    mdl::MaterialRegistry materialRegistry;
+    mdl::SamplerRegistry samplerRegistry;
+
+    MDL(DeviceGlobalState *deviceState)
+        : core(new mdl::Logger(deviceState)),
+          materialRegistry(&core),
+          samplerRegistry(&core, deviceState)
+    {}
+    MDL(DeviceGlobalState *deviceState, mi::neuraylib::INeuray *neuray)
+        : core(neuray),
+          materialRegistry(&core),
+          samplerRegistry(&core, deviceState)
+    {}
+  };
+  std::optional<MDL> mdl;
+#endif // defined(USE_MDL)
+
+#ifdef USE_MATERIALX
+  // MaterialX distribution resolved at runtime (ADR 0008); re-resolved on
+  // device commit. `root` empty = unresolved; `trace` names the chain misses.
+  // `generation` bumps whenever the resolved root changes so committed
+  // materials know their generated MDL is stale (MaterialX::needsRetranscode).
+  // `consumers` = live materialx materials: helium's commit buffer filters
+  // no-op commits, so a generation bump must push each one back through it or
+  // an untouched material would never observe the new root.
+  struct MaterialXDistribution
+  {
+    std::filesystem::path root;
+    std::string trace;
+    uint64_t generation{0};
+    std::set<helium::BaseObject *> consumers;
+  } materialx;
+#endif // defined(USE_MATERIALX)
+  // Helper methods //
+
+  DeviceGlobalState(ANARIDevice d);
+  ~DeviceGlobalState() override;
+};
+
+void buildOptixBVH(std::vector<OptixBuildInput> buildInput,
+    DeviceBuffer &bvh,
+    OptixTraversableHandle &traversable,
+    box3 &bounds,
+    Object *obj);
+
+// VISRTX_OMM mirrors the "omm" device parameter for hosts that never commit
+// device parameters (e.g. A/B benchmarking through tsdRender). When set it
+// wins over the parameter; VisRTXDevice reports one warning on mismatch.
+std::optional<bool> ommEnabledFromEnv();
+
+} // namespace visrtx

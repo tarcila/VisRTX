@@ -1,0 +1,111 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#pragma once
+
+#include "geometry/Geometry.h"
+#include "light/GeometryLight.h"
+#include "material/Material.h"
+#include "surface/OpacityMicromap.h"
+
+#include <memory>
+
+namespace visrtx {
+
+struct Surface : public RegisteredObject<SurfaceGPUData>
+{
+  Surface(DeviceGlobalState *d);
+
+  void commitParameters() override;
+  void finalize() override;
+  void markFinalized() override;
+  bool isValid() const override;
+
+  Geometry *geometry();
+  const Geometry *geometry() const;
+  Material *material();
+  const Material *material() const;
+
+  bool isVisible() const;
+
+  OptixBuildInput buildInput() const;
+
+  // Latest change to anything feeding this surface's GAS build input:
+  // the surface itself, its geometry, or its material's Opacity Function.
+  // Groups use it to scope BVH rebuilds to affected surfaces (ADR 0009).
+  helium::TimeStamp lastBLASInputChange() const;
+
+  // (Re)bakes the Opacity Micromap when its inputs changed; cheap no-op
+  // otherwise. Must run before buildInput() is consumed by a GAS build.
+  // Returns true when the bake was deferred because the inputs were seen for
+  // the first time (still settling) — the caller should schedule a follow-up
+  // rebuild pass to pick up the settled bake.
+  bool ensureOpacityMicromap();
+
+  // True when this surface is a Geometry Light: its material's emission is not
+  // provably zero (constant, sampler, or attribute bound) and its geometry can
+  // be area-sampled.
+  bool isSampleableEmitter() const;
+
+  // Geometry Light ownership. The synthesized light lives here (per ADR 0005),
+  // but the World configures its content each rebuild from current material and
+  // geometry state. ensureGeometryLight() lazily creates it; clearGeometryLight()
+  // frees it when this surface stops emitting.
+  GeometryLight *ensureGeometryLight();
+  void clearGeometryLight();
+  GeometryLight *geometryLight() const;
+
+ private:
+  bool geometryIsValid() const;
+  bool materialIsValid() const;
+  SurfaceGPUData gpuData() const override;
+
+  helium::IntrusivePtr<Geometry> m_geometry;
+  helium::IntrusivePtr<Material> m_material;
+  helium::IntrusivePtr<GeometryLight> m_geometryLight;
+
+  OptixBuildInput m_buildInput{};
+
+  std::shared_ptr<OpacityMicromapBuffers> m_omm;
+  helium::TimeStamp m_ommBakedAt{0};
+  helium::TimeStamp m_ommSeenStamp{0};
+  uint64_t m_ommSeenEpoch{0};
+
+  // Referenced by the GAS build input; must outlive buildInput()'s return.
+  mutable uint32_t m_buildInputFlags[1]{0};
+
+  uint32_t m_id{~0u};
+  bool m_visible{true};
+};
+
+} // namespace visrtx
+
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::Surface *, ANARI_SURFACE);

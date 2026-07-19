@@ -1,0 +1,516 @@
+# Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+# this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+# contributors may be used to endorse or promote products derived from
+# this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+#### Establish project ####
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+project(anari_library_visrtx VERSION ${PROJECT_VERSION} LANGUAGES CXX CUDA)
+
+#### Compilation setup ####
+
+set(VISRTX_CUDA_COMPILE_OPTIONS
+  "--expt-relaxed-constexpr" "--extended-lambda" # Lambdas from device code
+  # Routes sinf/cosf/expf etc. through the SFU instead of libm argument
+  # reduction (which uses double internally and trips OptiX's double-
+  # precision warning). Slight accuracy loss in transcendentals.
+  "--use_fast_math"
+  # Silence the spamming of glm warning about `__host__ annotation is ignored on a function("vec") that is explicitly defaulted on its first declaration`
+  "-Xcudafe=--diag_suppress=20012"
+  # Silence the multitude of warnings about deprecated/to be removed GPU architectures
+  "-Wno-deprecated-gpu-targets"
+  # CUDA 13+ CCCL requires MSVC standard conforming preprocessor
+  "$<$<CXX_COMPILER_ID:MSVC>:-Xcompiler=/Zc:preprocessor>"
+  # Debug info support
+  "$<$<CONFIG:DEBUG>:-O0;-lineinfo>" # -G would be nice for debug, but does not work with glm...
+  "$<$<CONFIG:RELWITHDEBINFO>:-lineinfo>"
+  # Neural Graphics Primitives support
+  "$<$<BOOL:${VISRTX_ENABLE_NEURAL}>:-DVISRTX_USE_NEURAL>"
+  # MDL support
+  "$<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:-DUSE_MDL>"
+  "$<$<BOOL:${VISRTX_ENABLE_HDRI_SAMPLING_DEBUG}>:-DVISRTX_ENABLE_HDRI_SAMPLING_DEBUG>"
+)
+
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN TRUE)
+
+#### Dependencies ####
+
+find_package(nanovdb MODULE REQUIRED)
+
+#### Build library target ####
+
+function(embed_resource resource_file_name source_file_name variable_name)
+  # Generate a unique target name based on the variable name
+  set(target_name "embed_${variable_name}")
+
+  # Create a custom command to generate the C++ source file
+  add_custom_command(
+    OUTPUT ${source_file_name}
+    COMMAND ${CMAKE_COMMAND}
+      -DRESOURCE_FILE=${resource_file_name}
+      -DSOURCE_FILE=${source_file_name}
+      -DVARIABLE_NAME=${variable_name}
+      -P ${CMAKE_CURRENT_LIST_DIR}/../cmake/embed_resource.cmake
+    DEPENDS
+      ${resource_file_name}
+      ${CMAKE_CURRENT_LIST_DIR}/../cmake/embed_resource.cmake
+    COMMENT "Embedding ${resource_file_name} into ${source_file_name}"
+    VERBATIM
+  )
+
+  # Create a custom target to ensure the file is generated
+  add_custom_target(${target_name} DEPENDS ${source_file_name})
+
+  # Make the main target depend on this custom target
+  add_dependencies(${PROJECT_NAME} ${target_name})
+endfunction()
+
+project_add_library(SHARED)
+
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  embed_resource(
+      ${CMAKE_CURRENT_BINARY_DIR}/../shaders/visrtx/default.mdl
+      "${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp"
+      "VISRTX_DEFAULT_MDL"
+    )
+  embed_resource(
+      ${CMAKE_CURRENT_BINARY_DIR}/../shaders/visrtx/physically_based.mdl
+      "${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp"
+      "VISRTX_PHYSICALLY_BASED_MDL"
+    )
+endif()
+
+set(SOURCES
+  Object.cpp
+  optix_visrtx.cpp
+  VisRTXDevice.cpp
+  VisRTXLibrary.cpp
+
+  array/Array.cpp
+  array/Array1D.cpp
+  array/Array2D.cpp
+  array/Array3D.cpp
+  array/ObjectArray.cpp
+  array/UploadableArray.cpp
+
+  camera/Camera.cpp
+  camera/Orthographic.cpp
+  camera/Perspective.cpp
+  camera/UnknownCamera.cpp
+
+  frame/Denoiser.cu
+  frame/Frame.cu
+
+  geometry/ComputeTangent.cu
+  geometry/Cone.cpp
+  geometry/Curve.cpp
+  geometry/Cylinder.cpp
+  geometry/Geometry.cpp
+  geometry/SDF.cpp
+  $<$<BOOL:${VISRTX_ENABLE_NEURAL}>:geometry/Neural.cpp>
+  geometry/Isosurface.cpp
+  geometry/IsosurfaceBricks.cu
+  geometry/Quad.cpp
+  geometry/Sphere.cu
+  geometry/Triangle.cpp
+  geometry/UnknownGeometry.cpp
+
+  light/sampling/CDF.cu
+  light/Directional.cpp
+  light/GeometryLight.cpp
+  light/HDRI.cpp
+  light/Light.cpp
+  light/Point.cpp
+  light/Rect.cpp
+  light/Ring.cpp
+  light/Spot.cpp
+  light/UnknownLight.cpp
+
+  material/Material.cpp
+  material/Matte.cpp
+  material/PBR.cpp
+  material/UnknownMaterial.cpp
+  material/shaders/MatteShader.cpp
+  material/shaders/PhysicallyBasedShader.cpp
+
+  renderer/Fast.cpp
+  renderer/Debug.cpp
+  renderer/Interactive.cpp
+  renderer/Quality.cpp
+  renderer/Renderer.cpp
+  renderer/Test.cpp
+  renderer/UnknownRenderer.cpp
+
+  sampler/CompressedImage2D.cpp
+  sampler/Image1D.cpp
+  sampler/Image2D.cpp
+  sampler/Image3D.cpp
+  sampler/PrimitiveSampler.cpp
+  sampler/Sampler.cpp
+  sampler/TextureStats.cu
+  sampler/TransformSampler.cpp
+  sampler/UnknownSampler.cpp
+
+  spatial_field/SpatialField.cpp
+  spatial_field/NvdbRectilinearField.cpp
+  spatial_field/NvdbRegularField.cpp
+  spatial_field/StructuredRectilinearField.cpp
+  spatial_field/StructuredRegularField.cpp
+  spatial_field/UnknownSpatialField.cpp
+  spatial_field/NvdbRectilinearSampler.cpp
+  spatial_field/NvdbRegularSampler.cpp
+  spatial_field/StructuredRectilinearSampler.cpp
+  spatial_field/StructuredRegularSampler.cpp
+  spatial_field/space_skipping/UniformGrid.cu
+  spatial_field/space_skipping/UniformGridCustom.cu
+  spatial_field/CustomFieldSampler.cpp
+  spatial_field/CustomField.cpp
+  spatial_field/RegisterCustomFields.cpp
+
+  surface/OpacityMicromap.cu
+  surface/Surface.cpp
+
+  utility/CudaImageTexture.cpp
+  utility/DeferredArrayUploadBuffer.cpp
+  utility/instrument.cpp
+  utility/MemoryAllocation.cpp
+  utility/PPM.cpp
+
+  volume/TransferFunction1D.cpp
+  volume/UnknownVolume.cpp
+  volume/Volume.cpp
+
+  world/Group.cpp
+  world/Instance.cpp
+  world/World.cpp
+
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:
+    mdl/Logger.cpp
+    mdl/ptx.cpp
+    mdl/MaterialRegistry.cpp
+    mdl/SamplerRegistry.cpp
+    material/MDL.cpp
+    material/PhysicallyBasedMDL.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp
+  >
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:
+    materialx/Transcoder.cpp
+    material/MaterialX.cpp
+  >
+)
+
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  set_source_files_properties(
+    material/Material.cpp
+    PROPERTIES COMPILE_DEFINITIONS $<$<BOOL:${VISRTX_USE_MDL_FOR_PHYSICALLY_BASED}>:USE_MDL_FOR_PHYSICALLY_BASED>
+  )
+endif()
+
+project_sources(PRIVATE ${SOURCES})
+set(CUDA_SOURCES ${SOURCES})
+list(FILTER CUDA_SOURCES INCLUDE REGEX ".*\\.cu$")
+
+set_source_files_properties(${CUDA_SOURCES}
+  PROPERTIES COMPILE_OPTIONS "${VISRTX_CUDA_COMPILE_OPTIONS}"
+)
+
+generate_export_header(${PROJECT_NAME}
+  EXPORT_MACRO_NAME "VISRTX_DEVICE_INTERFACE"
+)
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  OUTPUT_NAME anari_library_${VISRTX_LIBRARY_NAME})
+
+project_include_directories(
+PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
+)
+
+project_include_directories(
+  SYSTEM
+    PRIVATE
+      ${PROJECT_INCLUDE_DIRS}
+)
+
+# NOTE(jda): Order matters here! We want local headers to be preferred over
+#            external ones. Example: NanoVDB could be incidentally on an include
+#            path from another target dependency, but we want to make sure ours
+#            is always used.
+project_link_libraries(
+PRIVATE
+  visrtx::glm
+  visrtx::fmt
+  visrtx::nanovdb
+  OptiX::OptiX
+  nonstd::expected-lite
+  nonstd::scope-lite
+  nonstd::span-lite
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:stb_image>
+PUBLIC
+  anari::anari_headers
+PRIVATE
+  anari::helium
+  CUDA::cuda_driver
+  $<$<BOOL:${VISRTX_ENABLE_NVTX}>:CUDA::nvToolsExt>
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXCore>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXFormat>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXGenShader>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXGenMdl>
+)
+
+math(EXPR VISRTX_VERSION_MAJOR_INT "${PROJECT_VERSION_MAJOR} + 0")
+math(EXPR VISRTX_VERSION_MINOR_INT "${PROJECT_VERSION_MINOR} + 0")
+project_compile_definitions(
+PRIVATE
+  VISRTX_VERSION_MAJOR=${VISRTX_VERSION_MAJOR_INT}
+  VISRTX_VERSION_MINOR=${VISRTX_VERSION_MINOR_INT}
+  $<$<BOOL:${VISRTX_ENABLE_NVTX}>:USE_NVTX>
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:USE_MDL>
+  $<$<BOOL:${VISRTX_ENABLE_NEURAL}>:VISRTX_USE_NEURAL>
+  $<$<BOOL:${VISRTX_ENABLE_HDRI_SAMPLING_DEBUG}>:VISRTX_ENABLE_HDRI_SAMPLING_DEBUG>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:USE_MATERIALX>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}">
+)
+
+if(NOT WIN32)
+  option(VISRTX_SHADER_PARALLEL_BUILD "Build shaders in parallel" ON)
+  if (VISRTX_SHADER_PARALLEL_BUILD)
+    project_compile_definitions(PRIVATE VISRTX_PARALLEL_MODULE_BUILD)
+  endif()
+endif()
+
+project_compile_definitions(PRIVATE anari_library_visrtx_EXPORTS)
+
+set_source_files_properties(VisRTXLibrary.cpp PROPERTIES
+  COMPILE_DEFINITIONS VISRTX_LIBRARY_NAME=${VISRTX_LIBRARY_NAME})
+
+if (VISRTX_ENABLE_NVML)
+  project_link_libraries(PRIVATE CUDA::nvml)
+  project_compile_definitions(PRIVATE USE_NVML)
+endif()
+
+#### Generate OptiX programs as embedded PTX ####
+
+function(GenerateEmbeddedPTX DIR BASE_NAME)
+  set(options)
+  set(oneValueArgs)
+  set(multiValueArgs ENTRIES)
+  cmake_parse_arguments(
+    GEN_EMBEDDED_PTX
+    "${options}"
+    "${oneValueArgs}"
+    "${multiValueArgs}"
+    ${ARGN}
+  )
+
+  set(INPUT_TARGET ${BASE_NAME}_ptx)
+
+  set(INPUT_CU_FILE ${DIR}/${BASE_NAME}_ptx.cu)
+  set(OUTPUT_HEADER ${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_ptx.h)
+
+  if (GEN_EMBEDDED_PTX_ENTRIES)
+    string(REPLACE ";" "," GEN_EMBEDDED_PTX_ENTRIES "${GEN_EMBEDDED_PTX_ENTRIES}")
+    set(GEN_EMBEDDED_PTX_ARGS "--entries" "${GEN_EMBEDDED_PTX_ENTRIES}")
+  endif()
+
+  set_source_files_properties(${INPUT_CU_FILE}
+    # -rdc=true is for relocatable code, can be resolved at link time.
+    PROPERTIES COMPILE_OPTIONS "${VISRTX_CUDA_COMPILE_OPTIONS};-rdc=true;${GEN_EMBEDDED_PTX_ARGS}"
+  )
+
+  add_library(${INPUT_TARGET} OBJECT ${INPUT_CU_FILE})
+
+  # NOTE(jda): Order also matters here for the same reason as above.
+  target_link_libraries(${INPUT_TARGET}
+  PRIVATE
+    visrtx::glm
+    visrtx::nanovdb
+    OptiX::OptiX
+    anari::anari_headers
+    anari::helium
+    $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
+  )
+  target_include_directories(${INPUT_TARGET}
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}
+  )
+
+  # OptiX rewrites module PTX for the actual GPU, so a virtual target at the
+  # floor runs on everything above it. Pinned rather than inherited from
+  # CMAKE_CUDA_ARCHITECTURES: a -real override there is valid for the host
+  # kernels but would emit cubins OptiX cannot load.
+  set_target_properties(${INPUT_TARGET} PROPERTIES
+    CUDA_PTX_COMPILATION ON
+    CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH}-virtual
+  )
+
+  EmbedPTX(
+    OUTPUT_HEADER_FILE ${OUTPUT_HEADER}
+    INPUT_TARGET ${INPUT_TARGET}
+    OUTPUT_TARGETS ${PROJECT_NAME}
+  )
+endfunction()
+
+GenerateEmbeddedPTX(renderer Fast)
+GenerateEmbeddedPTX(renderer Debug)
+GenerateEmbeddedPTX(renderer Interactive)
+GenerateEmbeddedPTX(renderer Quality)
+GenerateEmbeddedPTX(renderer Test)
+GenerateEmbeddedPTX(geometry Intersectors)
+GenerateEmbeddedPTX(material/shaders MatteShader ENTRIES __direct__callable__evalSurfaceMaterial)
+GenerateEmbeddedPTX(material/shaders PhysicallyBasedShader ENTRIES __direct__callable__evalSurfaceMaterial)
+GenerateEmbeddedPTX(spatial_field NvdbRegularSampler)
+GenerateEmbeddedPTX(spatial_field NvdbRectilinearSampler)
+GenerateEmbeddedPTX(spatial_field StructuredRegularSampler)
+GenerateEmbeddedPTX(spatial_field StructuredRectilinearSampler)
+GenerateEmbeddedPTX(spatial_field CustomFieldSampler)
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  GenerateEmbeddedPTX(material/shaders MDLShader ENTRIES __direct__callable__evalSurfaceMaterial)
+  GenerateEmbeddedPTX(material/shaders MDLTexture)
+endif()
+
+
+#### Query code generation ####
+
+# Leading-comma fragment appended after the last static entry; empty list -> empty fragment.
+set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST "")
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_material_mdl)
+endif()
+if(VISRTX_ENABLE_MATERIALX_SUPPORT)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_material_materialx)
+endif()
+if(VISRTX_ENABLE_NEURAL)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_geometry_neural)
+endif()
+set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES "")
+if(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST)
+  list(JOIN VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST "\",\n      \"" _joined_optional_deps)
+  set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES ",\n      \"${_joined_optional_deps}\"")
+endif()
+
+configure_file(visrtx_device.json.in ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json @ONLY)
+file(GLOB DEVICE_JSONS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.json")
+foreach(file ${DEVICE_JSONS})
+  configure_file(${file} ${CMAKE_CURRENT_BINARY_DIR}/${file} @ONLY)
+endforeach()
+
+anari_generate_queries(
+  DEVICE_TARGET ${PROJECT_NAME}
+  CPP_NAMESPACE visrtx
+  JSON_ROOT_LOCATION ${CMAKE_CURRENT_BINARY_DIR}
+  JSON_DEFINITIONS_FILE ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json
+  JSON_EXTENSION_FILES "${DEVICE_JSONS}"
+)
+
+#### Install library + headers ####
+
+include(GNUInstallDirs)
+
+set(VISRTX_CMAKE_INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VisRTX)
+
+if (VISRTX_USE_SOVERSION)
+  set_target_properties(${PROJECT_NAME}
+      PROPERTIES VERSION "${CMAKE_PROJECT_VERSION}" SOVERSION "${CMAKE_PROJECT_VERSION_MAJOR}")
+endif()
+
+install(TARGETS ${PROJECT_NAME}
+  EXPORT VisRTX_Exports
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  # on Windows put the dlls into bin
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  # ... and the import lib into the devel package
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(
+FILES
+  ${PROJECT_BINARY_DIR}/${PROJECT_NAME}_export.h
+  ${CMAKE_CURRENT_LIST_DIR}/include/anari/ext/visrtx/makeVisRTXDevice.h
+  ${CMAKE_CURRENT_LIST_DIR}/include/anari/ext/visrtx/visrtx_extensions.h
+DESTINATION
+  ${CMAKE_INSTALL_INCLUDEDIR}/anari/ext/visrtx
+)
+
+install(EXPORT VisRTX_Exports
+  DESTINATION ${VISRTX_CMAKE_INSTALL_DESTINATION}
+  NAMESPACE VisRTX::
+)
+
+###############################################################################
+#### Configure CMake find_package() config files ##############################
+###############################################################################
+
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/VisRTXConfig.cmake.in"
+  "${PROJECT_BINARY_DIR}/VisRTXConfig.cmake"
+INSTALL_DESTINATION
+  ${VISRTX_CMAKE_INSTALL_DESTINATION}
+)
+
+write_basic_package_version_file(
+    "VisRTXConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/VisRTXConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/VisRTXConfigVersion.cmake
+DESTINATION
+  ${VISRTX_CMAKE_INSTALL_DESTINATION}
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/cmake
+  DESTINATION
+    ${VISRTX_CMAKE_INSTALL_DESTINATION}
+  FILES_MATCHING
+    PATTERN *.cmake
+)
+
+option(VISRTX_PRECOMPILE_SHADERS "Run visrtxCompileShaders after install?" ON)
+if (VISRTX_PRECOMPILE_SHADERS)
+  install(CODE "message(STATUS \"Precompiling VisRTX OptiX shaders...\")")
+  install(CODE
+    "execute_process(COMMAND ${CMAKE_BINARY_DIR}/visrtxCompileShaders)"
+  )
+endif()

@@ -1,0 +1,38 @@
+{
+    "info" : {
+        "name" : "VISRTX_MATERIAL_MDL",
+        "type" : "extension",
+        "dependencies" : []
+    },
+
+    "objects" : [
+        {
+            "type" : "ANARI_MATERIAL",
+            "name" : "mdl",
+            "description" : "mdl material object",
+            "parameters" : [
+                {
+                    "name": "sourceType",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "default": "module",
+                    "values": ["module", "mdle", "code"],
+                    "description": "How `source` is interpreted: `module` (a fully-qualified MDL material name, or a `.mdle` path), `mdle` (a path to a `.mdle` file), or `code` (inline MDL module source)"
+                },
+                {
+                    "name": "source",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "default": "::visrtx::default::diffuseWhite",
+                    "description": "The MDL content, interpreted per `sourceType`: a module/material name, a `.mdle` path, or inline MDL module source"
+                },
+                {
+                    "name": "materialName",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "description": "Optional. Selects the material within `source`. For `module`, when set, `source` is treated as a pure module name (no `::material` split); for `mdle` it must be `main`; for `code` it defaults to `main`"
+                }
+            ]
+        }
+    ]
+}
