@@ -252,7 +252,13 @@ struct InteractiveShadingPolicy
 
 VISRTX_GLOBAL void __closesthit__shadow()
 {
-  // no-op
+  // Runs only on a committed (accepted) shadow hit: any-hit terminate paths
+  // write the same fully-blocked value first, and hits accepted WITHOUT
+  // any-hit (DISABLE_ANYHIT geometry, OMM-opaque states) land here as their
+  // only chance to block the ray — silence would read as "unoccluded".
+  // Volume shadow traces keep DISABLE_CLOSESTHIT (float payload, untouched).
+  if (ray::isIntersectingSurfaces())
+    ray::rayData<vec3>() = vec3(0.f);
 }
 
 VISRTX_GLOBAL void __miss__shadow()
@@ -286,10 +292,13 @@ VISRTX_GLOBAL void __anyhit__shadow()
     transmittance *= (1.0f - alpha * (1.0f - T));
 
     if (glm::all(
-            glm::lessThanEqual(transmittance, vec3(1.f - OPACITY_THRESHOLD))))
+            glm::lessThanEqual(transmittance, vec3(1.f - OPACITY_THRESHOLD)))) {
+      // exact-blocked: matches what __closesthit__shadow writes
+      transmittance = vec3(0.f);
       optixTerminateRay();
-    else
+    } else {
       optixIgnoreIntersection();
+    }
   } else {
     // Volume shadows are a separate trace with a scalar float payload
     // (volumeShadowOpacity); not interchangeable with the vec3 surface payload

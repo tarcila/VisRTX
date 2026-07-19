@@ -51,6 +51,20 @@ static std::vector<OptixBuildInput> createOBI(const std::vector<T *> &objs)
   return createOBI(make_Span(objs.data(), objs.size()));
 }
 
+// Pointer-identity fingerprint (FNV-1a) of a partition. Membership changes
+// must rebuild a kind's GAS even when no surviving member's stamp advanced;
+// a recycled pointer is covered by the stamp side of the gate — a new Surface
+// at an old address always carries a fresh finalize stamp.
+static size_t surfaceListFingerprint(const std::vector<Surface *> &surfaces)
+{
+  size_t h = 0xcbf29ce484222325ull;
+  for (auto s : surfaces) {
+    h ^= reinterpret_cast<size_t>(s);
+    h *= 0x100000001b3ull;
+  }
+  return h;
+}
+
 // Group definitions //////////////////////////////////////////////////////////
 
 Group::Group(DeviceGlobalState *d)
@@ -214,52 +228,86 @@ void Group::rebuildSurfaceBVHs()
 
   partitionValidGeometriesByType();
 
-  m_triangleBounds = box3();
-  m_curveBounds = box3();
-  m_userBounds = box3();
-  m_traversableTriangle = {};
-  m_traversableCurve = {};
-  m_traversableUser = {};
+  // Per-kind gating: a change to a surface, its geometry, or its material's
+  // Opacity Function rebuilds only the GASes that actually contain it
+  // (ADR 0009) — untouched kinds keep their traversables. Membership is
+  // fingerprinted separately: a departed surface (visibility flip,
+  // invalidation, kind swap) advances no surviving member's stamp, yet its
+  // kind's GAS and index list must both be rebuilt to stay in sync.
+  const auto builtAt = m_objectUpdates.lastSurfaceBVHBuilt;
+  auto latestInputChange = [](const std::vector<Surface *> &surfaces) {
+    helium::TimeStamp t = 0;
+    for (auto s : surfaces)
+      t = std::max(t, s->lastBLASInputChange());
+    return t;
+  };
 
-  if (!m_surfacesTriangle.empty()) {
+  const size_t triangleFp = surfaceListFingerprint(m_surfacesTriangle);
+  const size_t curveFp = surfaceListFingerprint(m_surfacesCurve);
+  const size_t userFp = surfaceListFingerprint(m_surfacesUser);
+
+  bool ommDeferred = false;
+  if (m_surfacesTriangle.empty()) {
+    m_triangleBounds = box3();
+    m_traversableTriangle = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping triangle BVH build");
+  } else if (m_ommPending || triangleFp != m_surfacesTriangleFingerprint
+      || std::max(latestInputChange(m_surfacesTriangle), state.omm.lastChange)
+          >= builtAt) {
+    for (auto s : m_surfacesTriangle)
+      ommDeferred |= s->ensureOpacityMicromap();
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building triangle BVH");
     buildOptixBVH(createOBI(m_surfacesTriangle),
         m_bvhTriangle,
         m_traversableTriangle,
         m_triangleBounds,
         this);
-  } else {
-    reportMessage(
-        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping triangle BVH build");
   }
 
-  if (!m_surfacesCurve.empty()) {
+  if (m_surfacesCurve.empty()) {
+    m_curveBounds = box3();
+    m_traversableCurve = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping curve BVH build");
+  } else if (curveFp != m_surfacesCurveFingerprint
+      || latestInputChange(m_surfacesCurve) >= builtAt) {
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building curve BVH");
     buildOptixBVH(createOBI(m_surfacesCurve),
         m_bvhCurve,
         m_traversableCurve,
         m_curveBounds,
         this);
-  } else {
-    reportMessage(
-        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping curve BVH build");
   }
 
-  if (!m_surfacesUser.empty()) {
+  if (m_surfacesUser.empty()) {
+    m_userBounds = box3();
+    m_traversableUser = {};
+    reportMessage(
+        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping user BVH build");
+  } else if (userFp != m_surfacesUserFingerprint
+      || latestInputChange(m_surfacesUser) >= builtAt) {
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building user BVH");
     buildOptixBVH(createOBI(m_surfacesUser),
         m_bvhUser,
         m_traversableUser,
         m_userBounds,
         this);
-  } else {
-    reportMessage(
-        ANARI_SEVERITY_DEBUG, "visrtx::Group skipping user BVH build");
   }
 
   buildSurfaceGPUData();
 
+  m_surfacesTriangleFingerprint = triangleFp;
+  m_surfacesCurveFingerprint = curveFp;
+  m_surfacesUserFingerprint = userFp;
   m_objectUpdates.lastSurfaceBVHBuilt = helium::newTimeStamp();
+
+  // Deferred OMM bakes (inputs still settling) need one follow-up pass to
+  // attach once stable; without this a static scene would never re-enter the
+  // rebuild and never gain its micromaps.
+  m_ommPending = ommDeferred;
+  if (ommDeferred)
+    deviceState()->omm.settlePending = true;
 }
 
 void Group::rebuildVolumeBVH()

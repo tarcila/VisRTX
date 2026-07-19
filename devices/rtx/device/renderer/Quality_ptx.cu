@@ -458,7 +458,16 @@ VISRTX_GLOBAL void __miss__shading()
   }
 }
 
-VISRTX_GLOBAL void __closesthit__shadow() {}
+VISRTX_GLOBAL void __closesthit__shadow()
+{
+  // Runs only on a committed (accepted) shadow hit: any-hit terminate paths
+  // write the same fully-blocked value first, and hits accepted WITHOUT
+  // any-hit (DISABLE_ANYHIT geometry, OMM-opaque states) land here as their
+  // only chance to block the ray — silence would read as "unoccluded".
+  // Volume shadow traces keep DISABLE_CLOSESTHIT (float payload, untouched).
+  if (ray::isIntersectingSurfaces())
+    ray::rayData<vec3>() = vec3(0.f);
+}
 
 VISRTX_GLOBAL void __anyhit__shadow()
 {
@@ -483,10 +492,13 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
     attenuation *= (1.0f - blocking);
 
-    if (glm::all(glm::lessThanEqual(attenuation, vec3(ATTENUATION_EPSILON))))
+    if (glm::all(glm::lessThanEqual(attenuation, vec3(ATTENUATION_EPSILON)))) {
+      // exact-blocked: matches what __closesthit__shadow writes
+      attenuation = vec3(0.f);
       optixTerminateRay();
-    else
+    } else {
       optixIgnoreIntersection();
+    }
   } else {
     VolumeHit hit;
     ray::populateVolumeHit(hit);

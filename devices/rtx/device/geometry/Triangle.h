@@ -59,6 +59,8 @@ struct Triangle : public Geometry
   void ensureAreaData() override;
   float totalArea() const override;
 
+  bool supportsOpacityMicromap() const override;
+
  private:
   GeometryGPUData gpuData() const override;
   void cleanup();
@@ -106,5 +108,12 @@ struct Triangle : public Geometry
   bool m_areaDataValid{false};
   bool m_areaDataWanted{false};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline bool Triangle::supportsOpacityMicromap() const
+{
+  return true;
+}
 
 } // namespace visrtx

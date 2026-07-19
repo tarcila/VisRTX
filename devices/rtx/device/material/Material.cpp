@@ -49,6 +49,29 @@ using namespace std::string_literals;
 
 namespace visrtx {
 
+bool operator==(const MaterialParameter &a, const MaterialParameter &b)
+{
+  if (a.type != b.type)
+    return false;
+  switch (a.type) {
+  case MaterialParameterType::VALUE:
+    return a.value == b.value;
+  case MaterialParameterType::ATTRIBUTE:
+    return a.attribute == b.attribute;
+  case MaterialParameterType::SAMPLER:
+    return a.sampler == b.sampler;
+  default:
+    return true;
+  }
+}
+
+bool operator==(const MaterialAlphaSpec &a, const MaterialAlphaSpec &b)
+{
+  return a.bakeable == b.bakeable && a.mode == b.mode && a.cutoff == b.cutoff
+      && a.colorAlpha == b.colorAlpha && a.opacity == b.opacity
+      && a.transmission == b.transmission;
+}
+
 Material::Material(DeviceGlobalState *s)
     : RegisteredObject<MaterialGPUData>(ANARI_MATERIAL, s)
 {
@@ -80,6 +103,25 @@ void Material::refreshEmissionLightSet()
   }
   m_emissionWasSampleable = nowSampleable;
   m_lastEmissionAverage = nowAverage;
+}
+
+void Material::refreshAlphaState(const MaterialAlphaSpec &spec)
+{
+  // alphaStateStamp() folds in bound samplers' finalize stamps, so it advances
+  // exactly when a re-commit with an unchanged spec was caused by a sampler
+  // content change (ChangeObserverPtr re-commits us) — and stays put for
+  // unrelated edits (roughness, color), which must not touch BLAS state.
+  const auto observed = alphaStateStamp();
+  if (!(spec == m_lastAlphaSpec)) {
+    m_alphaStamp = helium::newTimeStamp();
+    m_lastAlphaSpec = spec;
+    deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
+  } else if (observed > m_lastAlphaObservedStamp) {
+    // Nudge the global BLAS stamp so Groups re-check; per-surface stamps scope
+    // the actual rebuild to groups containing this material.
+    deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
+  }
+  m_lastAlphaObservedStamp = alphaStateStamp();
 }
 
 Material *Material::createInstance(

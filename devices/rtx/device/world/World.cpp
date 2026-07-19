@@ -238,7 +238,14 @@ WorldGPUData World::gpuData() const
 
 void World::rebuildWorld()
 {
-  const auto &state = *deviceState();
+  auto &state = *deviceState();
+
+  // Convert deferred OMM bakes (bake-on-stable, see Surface) into a BLAS
+  // change visible to this frame's check.
+  if (state.omm.settlePending) {
+    state.omm.settlePending = false;
+    state.objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
+  }
 
   const auto &updates = state.objectUpdates;
   const auto lastCheck = m_objectUpdates.lastBLASCheck;
@@ -246,6 +253,7 @@ void World::rebuildWorld()
       || updates.lastVolumeBLASChange >= lastCheck
       || updates.lastLightSetChange >= lastCheck) {
     m_objectUpdates.lastTLASBuild = 0; // BLAS changed, so need to build TLAS
+    state.omm.rebuildEpoch++;
     rebuildBLASs();
   }
 

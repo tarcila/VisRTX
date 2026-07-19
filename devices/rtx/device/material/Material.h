@@ -36,6 +36,25 @@
 
 namespace visrtx {
 
+// OMM bake view of a material's Opacity Function:
+//   alpha = colorAlpha.w * opacity.x, post-processed by mode/cutoff.
+// bakeable=false when the material cannot express its alpha this way (MDL,
+// unknown subtypes) — such materials never get Opacity Micromaps.
+struct MaterialAlphaSpec
+{
+  bool bakeable{false};
+  AlphaMode mode{AlphaMode::OPAQUE};
+  float cutoff{0.5f};
+  MaterialParameter colorAlpha{};
+  MaterialParameter opacity{};
+  // Not part of alpha itself, but it feeds isFullyOpaque (and thus the
+  // per-surface DISABLE_ANYHIT geometry flag), so it must invalidate GASes.
+  MaterialParameter transmission{vec4(0.f)};
+};
+
+bool operator==(const MaterialParameter &a, const MaterialParameter &b);
+bool operator==(const MaterialAlphaSpec &a, const MaterialAlphaSpec &b);
+
 struct Material : public RegisteredObject<MaterialGPUData>
 {
   Material(DeviceGlobalState *d);
@@ -58,6 +77,14 @@ struct Material : public RegisteredObject<MaterialGPUData>
   virtual bool emissionIsSampleable() const;
   virtual vec3 emissionAverage() const;
 
+  // Opacity Micromap support (ADR 0009). alphaSpec() describes the Opacity
+  // Function for the bake; alphaStateStamp() advances whenever the baked
+  // classification could change (spec edits, and for sampler-bound alpha the
+  // sampler's own re-finalization) — Group uses it to scope GAS rebuilds to
+  // affected surfaces.
+  virtual MaterialAlphaSpec alphaSpec() const;
+  virtual helium::TimeStamp alphaStateStamp() const;
+
  protected:
   // Bump the world's light-set timestamp iff this material's Geometry Light
   // eligibility or average radiance changed since the last commit, so emissive
@@ -67,10 +94,33 @@ struct Material : public RegisteredObject<MaterialGPUData>
   // finalize(), where the compile-time emission classification is known.
   void refreshEmissionLightSet();
 
+  // Bump the BLAS timestamps iff this material's Opacity Function changed, so
+  // alpha edits rebake OMMs / rebuild owning GASes while ordinary edits
+  // (roughness, color) stay free. Subclasses with a bakeable alpha call this
+  // once per commit with their current spec.
+  void refreshAlphaState(const MaterialAlphaSpec &spec);
+
  private:
   bool m_emissionWasSampleable{false};
   vec3 m_lastEmissionAverage{0.f};
+  MaterialAlphaSpec m_lastAlphaSpec{};
+  helium::TimeStamp m_alphaStamp{0};
+  // alphaStateStamp() as of the last refreshAlphaState() — detects bound
+  // samplers re-finalizing between commits with an otherwise unchanged spec.
+  helium::TimeStamp m_lastAlphaObservedStamp{0};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline MaterialAlphaSpec Material::alphaSpec() const
+{
+  return {};
+}
+
+inline helium::TimeStamp Material::alphaStateStamp() const
+{
+  return m_alphaStamp;
+}
 
 // Inlined helper functions ///////////////////////////////////////////////////
 

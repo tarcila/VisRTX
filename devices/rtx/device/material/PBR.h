@@ -48,6 +48,9 @@ struct PBR : public Material
   bool emissionIsSampleable() const override;
   vec3 emissionAverage() const override;
 
+  MaterialAlphaSpec alphaSpec() const override;
+  helium::TimeStamp alphaStateStamp() const override;
+
  private:
   MaterialGPUData gpuData() const override;
 

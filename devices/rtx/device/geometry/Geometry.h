@@ -83,6 +83,12 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   virtual void ensureAreaData();
   virtual float totalArea() const;
 
+  // Opacity Micromap support (ADR 0009). Only OptiX-triangle geometry can
+  // carry OMMs; ommGeometryView() hands the bake the committed GPU-facing
+  // attribute layout without widening gpuData() visibility.
+  virtual bool supportsOpacityMicromap() const;
+  GeometryGPUData ommGeometryView() const;
+
  protected:
   GeometryGPUData gpuData() const override = 0;
 
@@ -97,6 +103,18 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   // GeometryGPUData::epsilonScale.
   float m_epsilonScale{0.f};
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline bool Geometry::supportsOpacityMicromap() const
+{
+  return false;
+}
+
+inline GeometryGPUData Geometry::ommGeometryView() const
+{
+  return gpuData();
+}
 
 } // namespace visrtx
 

@@ -43,6 +43,9 @@
 
 namespace visrtx {
 
+// Closest-hit stays ENABLED: a hit accepted without any-hit (DISABLE_ANYHIT
+// geometry, OMM-opaque states) must still write "blocked" — see
+// __closesthit__shadow. First accepted hit fully blocks, so stop there.
 VISRTX_DEVICE vec3 surfaceShadowTransmittance(ScreenSample &ss, const Ray &r)
 {
   vec3 transmittance = vec3(1.0f);
@@ -50,7 +53,8 @@ VISRTX_DEVICE vec3 surfaceShadowTransmittance(ScreenSample &ss, const Ray &r)
       r,
       RayType::SHADOW,
       &transmittance,
-      OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+      OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT
+          | enforceAnyhitIfCutPlane(ss.frameData->renderer));
   return transmittance;
 }
 

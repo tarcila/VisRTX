@@ -34,6 +34,9 @@
 #include "geometry/Geometry.h"
 #include "light/GeometryLight.h"
 #include "material/Material.h"
+#include "surface/OpacityMicromap.h"
+
+#include <memory>
 
 namespace visrtx {
 
@@ -54,6 +57,18 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   bool isVisible() const;
 
   OptixBuildInput buildInput() const;
+
+  // Latest change to anything feeding this surface's GAS build input:
+  // the surface itself, its geometry, or its material's Opacity Function.
+  // Groups use it to scope BVH rebuilds to affected surfaces (ADR 0009).
+  helium::TimeStamp lastBLASInputChange() const;
+
+  // (Re)bakes the Opacity Micromap when its inputs changed; cheap no-op
+  // otherwise. Must run before buildInput() is consumed by a GAS build.
+  // Returns true when the bake was deferred because the inputs were seen for
+  // the first time (still settling) — the caller should schedule a follow-up
+  // rebuild pass to pick up the settled bake.
+  bool ensureOpacityMicromap();
 
   // True when this surface is a Geometry Light: its material's emission is not
   // provably zero (constant, sampler, or attribute bound) and its geometry can
@@ -78,6 +93,14 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   helium::IntrusivePtr<GeometryLight> m_geometryLight;
 
   OptixBuildInput m_buildInput{};
+
+  std::shared_ptr<OpacityMicromapBuffers> m_omm;
+  helium::TimeStamp m_ommBakedAt{0};
+  helium::TimeStamp m_ommSeenStamp{0};
+  uint64_t m_ommSeenEpoch{0};
+
+  // Referenced by the GAS build input; must outlive buildInput()'s return.
+  mutable uint32_t m_buildInputFlags[1]{0};
 
   uint32_t m_id{~0u};
   bool m_visible{true};

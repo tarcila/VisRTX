@@ -46,7 +46,15 @@ DECLARE_FRAME_DATA(frameData)
 
 VISRTX_GLOBAL void __closesthit__shadow()
 {
-  // no-op
+  // Runs only on a committed (accepted) shadow hit: any-hit terminate paths
+  // write the same fully-blocked value first, and hits accepted WITHOUT
+  // any-hit (DISABLE_ANYHIT geometry, OMM-opaque states) land here as their
+  // only chance to block the ray — silence would read as "unoccluded".
+  // Surface-trace guard mirrors Quality/Interactive: volume shadow traces
+  // keep DISABLE_CLOSESTHIT today, but a payload clobber must not hinge on
+  // that staying true.
+  if (ray::isIntersectingSurfaces())
+    ray::rayData<float>() = 1.0f;
 }
 
 VISRTX_GLOBAL void __anyhit__shadow()
@@ -70,10 +78,12 @@ VISRTX_GLOBAL void __anyhit__shadow()
   materialInitShading(&shadingState, fd, md, hit);
 
   accumulateValue(o, materialEvaluateOpacity(shadingState), o);
-  if (o >= OPACITY_THRESHOLD)
+  if (o >= OPACITY_THRESHOLD) {
+    o = 1.0f; // exact-blocked: matches what __closesthit__shadow writes
     optixTerminateRay();
-  else
+  } else {
     optixIgnoreIntersection();
+  }
 }
 
 VISRTX_GLOBAL void __anyhit__primary()

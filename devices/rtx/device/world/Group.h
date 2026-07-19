@@ -128,6 +128,18 @@ struct Group : public Object
     helium::TimeStamp lastLightRebuild{0};
   } m_objectUpdates;
 
+  // Partition membership at the last surface-BVH build, per kind. A membership
+  // change (visibility flip, invalidation, geometry-kind swap) must rebuild
+  // that kind's GAS even when no surviving member's stamp advanced — the
+  // departed surface's stamp is no longer visible to the stamp gate.
+  size_t m_surfacesTriangleFingerprint{0};
+  size_t m_surfacesCurveFingerprint{0};
+  size_t m_surfacesUserFingerprint{0};
+
+  // At least one triangle surface deferred its OMM bake last pass; forces one
+  // follow-up triangle-GAS rebuild to attach the settled bakes.
+  bool m_ommPending{false};
+
   box3 m_triangleBounds;
   box3 m_curveBounds;
   box3 m_userBounds;

@@ -42,6 +42,9 @@ struct Matte : public Material
 
   void commitParameters() override;
 
+  MaterialAlphaSpec alphaSpec() const override;
+  helium::TimeStamp alphaStateStamp() const override;
+
  private:
   MaterialGPUData gpuData() const override;
 

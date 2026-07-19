@@ -53,10 +53,13 @@
 #endif // defined(USE_MDL)
 // std
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef OPAQUE
@@ -155,6 +158,7 @@ namespace visrtx {
 
 struct Object;
 struct MDL;
+struct OpacityMicromapBuffers;
 
 struct ptx_blob
 {
@@ -213,6 +217,41 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
     helium::TimeStamp lastLightSetChange{0};
     helium::TimeStamp lastTLASChange{0};
   } objectUpdates;
+
+  // Opacity Micromap controls (ADR 0009); device parameters "omm" and
+  // "ommSubdivisionLevel" (-1 = auto from UV texel footprint).
+  struct OpacityMicromapConfig
+  {
+    bool enabled{true};
+    int subdivisionLevel{-1};
+    helium::TimeStamp lastChange{0}; // folds into triangle-GAS input stamps
+    // Some surface deferred its bake-on-stable this pass; World converts this
+    // into a BLAS-change bump at the top of the NEXT rebuildWorld() (a bump
+    // made mid-rebuild would land before World's own lastBLASCheck stamp and
+    // be missed).
+    bool settlePending{false};
+    // BLAS-rebuild pass counter. Bake-on-stable requires inputs unchanged
+    // across two *passes* — a per-call check would let a surface shared by
+    // several Groups "settle" within a single frame.
+    uint64_t rebuildEpoch{0};
+    // Per-sampler texture channel ranges backing the whole-domain skip
+    // verdict: a material whose alpha provably never crosses into
+    // transparency skips its bake entirely (hosts that stream in thousands
+    // of opaque-textured "blend" surfaces would otherwise bake all of them).
+    struct SamplerRange
+    {
+      helium::TimeStamp stamp{0};
+      vec4 mn{0.f};
+      vec4 mx{1.f};
+    };
+    std::unordered_map<DeviceObjectIndex, SamplerRange> samplerRanges;
+    // Bake dedup: surfaces sharing (geometry, material alpha state) share one
+    // micromap. Keyed by object identity + finalize stamps — stamps are
+    // globally monotonic, so a recycled pointer can never alias a stale
+    // entry. Entries may hold an unattached result (negative verdict cache).
+    std::unordered_map<uint64_t, std::shared_ptr<OpacityMicromapBuffers>>
+        bakeCache;
+  } omm;
 
   DeferredArrayUploadBuffer uploadBuffer;
 
@@ -276,5 +315,10 @@ void buildOptixBVH(std::vector<OptixBuildInput> buildInput,
     OptixTraversableHandle &traversable,
     box3 &bounds,
     Object *obj);
+
+// VISRTX_OMM mirrors the "omm" device parameter for hosts that never commit
+// device parameters (e.g. A/B benchmarking through tsdRender). When set it
+// wins over the parameter; VisRTXDevice reports one warning on mismatch.
+std::optional<bool> ommEnabledFromEnv();
 
 } // namespace visrtx

@@ -32,6 +32,8 @@
 #include "optix_visrtx.h"
 #include "Object.h"
 
+#include <cstdlib>
+
 namespace visrtx {
 
 void buildOptixBVH(std::vector<OptixBuildInput> buildInput,
@@ -124,9 +126,19 @@ void buildOptixBVH(std::vector<OptixBuildInput> buildInput,
 // DeviceGlobalState definitions //////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+std::optional<bool> ommEnabledFromEnv()
+{
+  if (auto *env = std::getenv("VISRTX_OMM"); env)
+    return std::atoi(env) != 0;
+  return std::nullopt;
+}
+
 DeviceGlobalState::DeviceGlobalState(ANARIDevice d)
     : helium::BaseGlobalDeviceState(d), anariDevice(d)
-{}
+{
+  if (auto env = ommEnabledFromEnv())
+    omm.enabled = *env;
+}
 
 DeviceGlobalState::~DeviceGlobalState() = default;
 

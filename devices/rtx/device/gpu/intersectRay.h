@@ -76,10 +76,20 @@ VISRTX_DEVICE void launchRay(ScreenSample &ss,
 
 } // namespace detail
 
+// Fully Opaque surfaces are built with DISABLE_ANYHIT, which would skip the
+// any-hit cut-plane cull; force any-hit back on whenever a cut plane is
+// active (clipped scenes trade the fast path for correctness).
+VISRTX_DEVICE uint32_t enforceAnyhitIfCutPlane(const RendererGPUData &rd)
+{
+  return rd.cutPlane != vec4(0.f) ? OPTIX_RAY_FLAG_ENFORCE_ANYHIT
+                                  : OPTIX_RAY_FLAG_NONE;
+}
+
 VISRTX_DEVICE uint32_t primaryRayOptiXFlags(const RendererGPUData &rd)
 {
-  return rd.cullTriangleBF ? OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES
-                           : OPTIX_RAY_FLAG_NONE;
+  return (rd.cullTriangleBF ? OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES
+                            : OPTIX_RAY_FLAG_NONE)
+      | enforceAnyhitIfCutPlane(rd);
 }
 
 template <typename T>

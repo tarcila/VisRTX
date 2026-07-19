@@ -199,6 +199,7 @@ set(SOURCES
   spatial_field/CustomField.cpp
   spatial_field/RegisterCustomFields.cpp
 
+  surface/OpacityMicromap.cu
   surface/Surface.cpp
 
   utility/CudaImageTexture.cpp
