@@ -219,6 +219,7 @@ set(SOURCES
     mdl/Logger.cpp
     mdl/ptx.cpp
     mdl/MaterialRegistry.cpp
+    mdl/MdlCompileCoordinator.cpp
     mdl/SamplerRegistry.cpp
     material/MDL.cpp
     material/PhysicallyBasedMDL.cpp
