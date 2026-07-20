@@ -41,7 +41,10 @@
 #include "libmdl/EmissionDescriptor.h"
 #include "sampler/Sampler.h"
 
+#include <future>
 #include <optional>
+#include <string>
+#include <tuple>
 #include <unordered_map>
 
 namespace visrtx {
@@ -70,6 +73,11 @@ struct MDL : public Material
   void syncImplementationIndex();
   // Handle argument block update
   void syncParameters();
+
+  // Kick off the compile for this material during commitParameters so a whole
+  // flush of materials compiles in parallel; syncSource() collects the future
+  // in finalize when its key matches (ADR 0009).
+  void beginAsyncAcquire();
 
  protected:
   // Source handoff for subclasses that GENERATE their MDL source during
@@ -117,6 +125,13 @@ struct MDL : public Material
   libmdl::Uuid m_uuid{};
   mdl::MaterialRegistry::ImplementationIndex m_implementationIndex{};
   std::optional<libmdl::ArgumentBlockInstance> m_argumentBlockInstance;
+
+  // Prefetched compile started in commitParameters. Consumed by syncSource when
+  // m_pendingAcquireKey matches the source it resolves; a leftover future is
+  // released so a prefetch that finalize ends up not using never leaks a slot.
+  std::future<std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor>>
+      m_pendingAcquire;
+  std::string m_pendingAcquireKey;
   // Folded at finalize from the registry's compile-time IR (keyed by m_uuid)
   // against this instance's live arguments and samplers.
   libmdl::EmissionDescriptor m_emissionDescriptor;
