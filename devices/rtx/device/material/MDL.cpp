@@ -71,6 +71,21 @@ namespace visrtx {
 
 namespace {
 
+// Collect a compile future's result, turning a worker exception into an empty
+// (failed) result instead of letting it escape finalize -- where it would
+// bypass the default-material fallback -- or ~MDL, where it would std::terminate
+// a noexcept destructor (ADR 0009 failure path).
+std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor> collectAcquire(
+    std::future<std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor>>
+        &future)
+{
+  try {
+    return future.get();
+  } catch (...) {
+    return {};
+  }
+}
+
 // Value source that folds the emission IR against this material instance's live
 // arguments and bound samplers. Keyed by class-compilation argument name, which
 // is how the argument block and the sampler descriptors are keyed.
@@ -130,8 +145,18 @@ MDL::~MDL()
   // CURRENT uuid here is exact — no double release. Dropping a slot to zero
   // refs bumps the registry timestamp, so a surviving renderer rebuilds its
   // pipeline (leak-free since the releasePipeline fix).
-  if (m_uuid != libmdl::Uuid{})
-    deviceState()->mdl->materialRegistry.releaseMaterial(m_uuid);
+  auto &mdl = *deviceState()->mdl;
+  // A prefetch started in commitParameters but never collected by finalize
+  // (the material was destroyed mid-flush) still acquired a slot; release it.
+  if (m_pendingAcquire.valid()) {
+    auto pending = collectAcquire(m_pendingAcquire);
+    if (std::get<0>(pending) != libmdl::Uuid{})
+      mdl.coordinator.run(
+          [&] { mdl.materialRegistry.releaseMaterial(std::get<0>(pending)); });
+  }
+  if (m_uuid != libmdl::Uuid{}) {
+    mdl.coordinator.run([&] { mdl.materialRegistry.releaseMaterial(m_uuid); });
+  }
   clearSamplers();
 }
 
@@ -151,6 +176,66 @@ void MDL::clearSamplers()
   m_samplers.clear();
 }
 
+namespace {
+// A collision-free key for a resolved (sourceType, source, materialName) triple
+// so finalize can tell whether the prefetch it started still matches.
+std::string sourceKey(const std::string &sourceType,
+    const std::string &source,
+    const std::optional<std::string> &materialName)
+{
+  return sourceType + '\x1e' + source + '\x1e'
+      + materialName.value_or(std::string("\x1f"));
+}
+} // namespace
+
+void MDL::beginAsyncAcquire()
+{
+  m_pendingAcquire = {};
+  m_pendingAcquireKey.clear();
+
+  auto sourceType = getParamString("sourceType", "module");
+  auto source = getParamString("source", "::visrtx::default::diffuseWhite");
+  std::optional<std::string> materialName;
+  if (hasParam("materialName"))
+    materialName = getParamString("materialName", "main");
+  if (m_sourceHandoff) {
+    sourceType = m_sourceHandoff->sourceType;
+    source = m_sourceHandoff->source;
+    materialName = m_sourceHandoff->materialName;
+  }
+
+  // Unchanged source: syncSource() early-outs, so there is nothing to prefetch.
+  if (source == m_source && sourceType == m_sourceType
+      && materialName == m_materialName)
+    return;
+
+  const bool isMdle = libmdl::endsWith(source, ".mdle");
+  auto &mdl = *deviceState()->mdl;
+
+  // Only the common code/module paths prefetch. MDLE and error paths are rare
+  // and stay on the synchronous path in syncSource().
+  if (sourceType == "code" && (hasParam("source") || m_sourceHandoff)) {
+    m_pendingAcquire = mdl.materialRegistry.acquireMaterialAsync(
+        mdl.coordinator, source, materialName.value_or("main"), true);
+    m_pendingAcquireKey = sourceKey(sourceType, source, materialName);
+  } else if (sourceType == "module" && !isMdle) {
+    std::string moduleName;
+    std::string material;
+    if (materialName) {
+      moduleName = libmdl::normalizeModuleName(source);
+      material = *materialName;
+    } else {
+      std::tie(moduleName, material) =
+          libmdl::parseMaterialSourceName(source, &mdl.core);
+    }
+    if (!moduleName.empty() && !material.empty()) {
+      m_pendingAcquire = mdl.materialRegistry.acquireMaterialAsync(
+          mdl.coordinator, moduleName, material, false);
+      m_pendingAcquireKey = sourceKey(sourceType, source, materialName);
+    }
+  }
+}
+
 void MDL::commitParameters()
 {
   m_parameterMap.clear();
@@ -158,6 +243,10 @@ void MDL::commitParameters()
     m_parameterMap[param->first] = param->second;
   }
   Material::commitParameters();
+
+  // Start compiling now so a whole flush of materials compiles in parallel;
+  // finalize() collects the result.
+  beginAsyncAcquire();
 }
 
 void MDL::finalize()
@@ -185,8 +274,9 @@ void MDL::finalize()
   // pdf and the deposit double-counts. The light-set refresh follows (not in
   // commitParameters, where the flag would be stale on the commit that first
   // introduces or removes emission).
-  const libmdl::EmissionIR emissionIR =
-      deviceState()->mdl->materialRegistry.getEmissionIR(m_uuid);
+  auto &mdlState = *deviceState()->mdl;
+  const libmdl::EmissionIR emissionIR = mdlState.coordinator.run(
+      [&] { return mdlState.materialRegistry.getEmissionIR(m_uuid); });
   MDLValueSource values;
   values.argBlock =
       m_argumentBlockInstance ? &*m_argumentBlockInstance : nullptr;
@@ -244,20 +334,47 @@ void MDL::syncSource()
 
   auto &materialRegistry = deviceState()->mdl->materialRegistry;
   auto &samplerRegistry = deviceState()->mdl->samplerRegistry;
+  auto &coordinator = deviceState()->mdl->coordinator;
 
   auto uuid = libmdl::Uuid{};
   auto argumentBlockDescriptor = libmdl::ArgumentBlockDescriptor{};
 
   const bool isMdle = libmdl::endsWith(source, ".mdle");
 
-  if (sourceType == "code") {
+  // Consume the compile started in commitParameters when it still matches this
+  // resolved source; otherwise release its slot so a superseded prefetch never
+  // leaks, and fall through to a synchronous acquire.
+  const auto key = sourceKey(sourceType, source, materialName);
+  bool resolvedFromPrefetch = false;
+  if (m_pendingAcquire.valid()) {
+    if (m_pendingAcquireKey == key) {
+      std::tie(uuid, argumentBlockDescriptor) = collectAcquire(m_pendingAcquire);
+      resolvedFromPrefetch = true;
+      if (uuid == libmdl::Uuid{})
+        reportMessage(ANARI_SEVERITY_ERROR,
+            "MDL::syncSource(): async compile failed for '%s'",
+            source.c_str());
+    } else {
+      auto stale = collectAcquire(m_pendingAcquire);
+      if (std::get<0>(stale) != libmdl::Uuid{})
+        coordinator.run(
+            [&] { materialRegistry.releaseMaterial(std::get<0>(stale)); });
+    }
+    m_pendingAcquire = {};
+    m_pendingAcquireKey.clear();
+  }
+
+  if (resolvedFromPrefetch) {
+    // Already have (uuid, argumentBlockDescriptor) from the worker.
+  } else if (sourceType == "code") {
     if (!hasParam("source") && !m_sourceHandoff) {
       reportMessage(ANARI_SEVERITY_ERROR,
           "MDL::syncSource(): sourceType 'code' requires a 'source' parameter");
     } else {
-      std::tie(uuid, argumentBlockDescriptor) =
-          materialRegistry.acquireMaterialFromCode(
-              source, materialName.value_or("main"));
+      std::tie(uuid, argumentBlockDescriptor) = coordinator.run([&] {
+        return materialRegistry.acquireMaterialFromCode(
+            source, materialName.value_or("main"));
+      });
       if (uuid == libmdl::Uuid{})
         reportMessage(ANARI_SEVERITY_ERROR,
             "MDL::syncSource(): failed to compile inline 'code' material");
@@ -274,8 +391,8 @@ void MDL::syncSource()
           "MDL::syncSource(): MDLE modules only expose 'main', got materialName '%s'",
           materialName->c_str());
     } else {
-      std::tie(uuid, argumentBlockDescriptor) =
-          materialRegistry.acquireMaterial(source, "main");
+      std::tie(uuid, argumentBlockDescriptor) = coordinator.run(
+          [&] { return materialRegistry.acquireMaterial(source, "main"); });
       if (uuid == libmdl::Uuid{})
         reportMessage(ANARI_SEVERITY_ERROR,
             "MDL::syncSource(): failed to acquire MDLE material '%s'",
@@ -296,8 +413,9 @@ void MDL::syncSource()
           "MDL::syncSource(): could not parse material source name '%s'",
           source.c_str());
     } else {
-      std::tie(uuid, argumentBlockDescriptor) =
-          materialRegistry.acquireMaterial(moduleName, material);
+      std::tie(uuid, argumentBlockDescriptor) = coordinator.run([&] {
+        return materialRegistry.acquireMaterial(moduleName, material);
+      });
       if (uuid == libmdl::Uuid{})
         reportMessage(ANARI_SEVERITY_ERROR,
             "MDL::syncSource(): failed to acquire material '%s'",
@@ -314,8 +432,9 @@ void MDL::syncSource()
   if (uuid == libmdl::Uuid{}) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "MDL::syncSource(): falling back to ::visrtx::default::diffuseWhite");
-    std::tie(uuid, argumentBlockDescriptor) =
-        materialRegistry.acquireMaterial("::visrtx::default", "diffuseWhite");
+    std::tie(uuid, argumentBlockDescriptor) = coordinator.run([&] {
+      return materialRegistry.acquireMaterial("::visrtx::default", "diffuseWhite");
+    });
   }
 
   // Record the requested values on every path: an identical re-commit is then a
@@ -336,11 +455,11 @@ void MDL::syncSource()
   // destructor's "release exactly the current uuid" invariant never sees a
   // released-but-still-assigned window.
   if (m_uuid != libmdl::Uuid{}) {
-    materialRegistry.releaseMaterial(m_uuid);
+    coordinator.run([&] { materialRegistry.releaseMaterial(m_uuid); });
   }
   m_uuid = uuid;
-  m_argumentBlockInstance =
-      materialRegistry.createArgumentBlock(argumentBlockDescriptor);
+  m_argumentBlockInstance = coordinator.run(
+      [&] { return materialRegistry.createArgumentBlock(argumentBlockDescriptor); });
 
   clearSamplers();
 
@@ -572,9 +691,10 @@ void MDL::syncParameters()
 
 void MDL::syncImplementationIndex()
 {
-  m_implementationIndex =
-      deviceState()->mdl->materialRegistry.getMaterialImplementationIndex(
-          m_uuid);
+  auto &mdl = *deviceState()->mdl;
+  m_implementationIndex = mdl.coordinator.run([&] {
+    return mdl.materialRegistry.getMaterialImplementationIndex(m_uuid);
+  });
 }
 
 MaterialGPUData MDL::gpuData() const
