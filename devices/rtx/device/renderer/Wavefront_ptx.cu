@@ -126,20 +126,9 @@ VISRTX_GLOBAL void __miss__()
   // no-op
 }
 
-// Placeholder shading: direct-visibility matte + ambient. Moves to a dedicated
-// CUDA shade stage in slice 05d.
-VISRTX_DEVICE vec3 shadeDirect(
-    const MaterialShadingState &shadingState, const Ray &ray, const SurfaceHit &hit)
-{
-  const auto &rendererParams = frameData.renderer;
-  const vec3 tint = materialEvaluateTint(shadingState);
-  // Headlight term: |N·V| gives shape without needing a light in the scene,
-  // scaled by the ambient contribution the base renderer exposes.
-  const float ndotv = glm::abs(glm::dot(ray.dir, hit.Ns));
-  const float lighting = ndotv * rendererParams.ambientIntensity;
-  return tint * lighting * rendererParams.ambientColor;
-}
-
+// Trace-only raygen: cast the slot's camera ray, intersect, and write the hit
+// record for the CUDA shade stage. No shading callables run in this pipeline —
+// that is the whole point of the trace/shade split.
 VISRTX_GLOBAL void __raygen__()
 {
   const uint32_t slotIdx = optixGetLaunchIndex().x;
@@ -159,44 +148,14 @@ VISRTX_GLOBAL void __raygen__()
   Ray ray = makePrimaryRay(ss, cameraSampleIdx, isVeryFirstRay);
   applyCuttingPlane(frameData.renderer.cutPlane, ray);
 
-  vec3 color(0.f);
-  vec3 albedo(0.f);
-  vec3 normal(0.f);
-  float opacity = 0.f;
-  float depth = ray.t.upper;
-  uint32_t primID = ~0u;
-  uint32_t objID = ~0u;
-  uint32_t instID = ~0u;
-
-  SurfaceHit hit;
-  hit.foundHit = false;
+  WavefrontHitRecord &rec = frameData.wavefrontHits[slotIdx];
+  rec.hit.foundHit = false;
   intersectSurface(ss,
       ray,
       RayType::PRIMARY,
-      &hit,
+      &rec.hit,
       primaryRayOptiXFlags(frameData.renderer));
-
-  if (hit.foundHit) {
-    MaterialShadingState shadingState;
-    materialInitShading(&shadingState, frameData, *hit.material, hit);
-    const float alpha = materialEvaluateOpacity(shadingState);
-    color = shadeDirect(shadingState, ray, hit) * alpha;
-    albedo = materialEvaluateTint(shadingState) * alpha;
-    normal = hit.Ns;
-    opacity = alpha;
-    depth = hit.t;
-    primID = hit.primID;
-    objID = hit.objID;
-    instID = hit.instID;
-  } else if (vec3 hdri; getBackgroundLight(frameData, ray.dir, hdri)) {
-    color = hdri;
-    opacity = 1.f;
-  }
-
-  if (isVeryFirstRay)
-    setPixelIds(frameData.fb, ss.pixel, depth, primID, objID, instID);
-
-  accumPixelSample(frameData, ss.pixel, vec4(color, opacity), albedo, normal);
+  rec.rayDir = ray.dir;
 }
 
 } // namespace visrtx

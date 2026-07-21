@@ -31,6 +31,11 @@
 
 #include "WavefrontLaunch.h"
 
+#include "gpu/evalMaterialParameters.h" // getMaterialParameter, adjustedMaterialOpacity
+#include "gpu/gpu_objects.h" // FrameGPUData, WavefrontHitRecord, MaterialGPUData
+#include "gpu/gpu_util.h" // accumPixelSample, setPixelIds
+#include "gpu/renderer/common.h" // getBackgroundLight
+
 namespace visrtx {
 
 namespace {
@@ -58,6 +63,85 @@ __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
   slots[i].alive = 1;
 }
 
+// Static builtin shade. Matte evaluates its color/opacity directly (no
+// callable). Other builtin/MDL materials are not yet ported to the static path
+// and fall back to a neutral tint — the shading model here is still a
+// placeholder headlight regardless of material, so this is cosmetic until the
+// real shade lands.
+__device__ vec3 shadeHitStatic(const FrameGPUData &fd,
+    const SurfaceHit &hit,
+    const vec3 &rayDir,
+    vec3 &albedoOut,
+    vec3 &normalOut,
+    float &opacityOut)
+{
+  vec3 tint(0.8f);
+  float alpha = 1.0f;
+  vec3 shadingNormal = hit.Ns;
+
+  if (hit.material
+      && hit.material->callableBaseIndex
+          == uint32_t(SbtCallableEntryPoints::Matte)) {
+    const auto &md = hit.material->materialData.matte;
+    const vec4 color = getMaterialParameter(fd, md.color, hit);
+    const float op = getMaterialParameter(fd, md.opacity, hit).x;
+    tint = vec3(color);
+    alpha = adjustedMaterialOpacity(color.w * op, md.alphaMode, md.cutoff);
+  }
+
+  // Fall back to the geometric normal if the shading normal is degenerate.
+  if (!(glm::dot(shadingNormal, shadingNormal) > 1e-12f))
+    shadingNormal = hit.Ng;
+
+  const float ndotv = glm::abs(glm::dot(rayDir, shadingNormal));
+  const vec3 lit = tint * (ndotv * fd.renderer.ambientIntensity)
+      * fd.renderer.ambientColor;
+
+  albedoOut = tint * alpha;
+  normalOut = shadingNormal;
+  opacityOut = alpha;
+  return lit * alpha;
+}
+
+__global__ void wavefrontShadeKernel(const FrameGPUData *fd, uint32_t liveSlots)
+{
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= liveSlots)
+    return;
+
+  const WavefrontPathSlot slot = fd->wavefrontSlots[i];
+  if (!slot.alive)
+    return;
+
+  const WavefrontHitRecord &rec = fd->wavefrontHits[i];
+  const uvec2 pixel = {slot.pixel % fd->fb.size.x, slot.pixel / fd->fb.size.x};
+  const bool isVeryFirstRay = slot.sampleIdx == 0 && fd->fb.frameID == 0;
+
+  vec3 color(0.f);
+  vec3 albedo(0.f);
+  vec3 normal(0.f);
+  float opacity = 0.f;
+  float depth = 1e30f;
+  uint32_t primID = ~0u;
+  uint32_t objID = ~0u;
+  uint32_t instID = ~0u;
+
+  if (rec.hit.foundHit) {
+    color = shadeHitStatic(*fd, rec.hit, rec.rayDir, albedo, normal, opacity);
+    depth = rec.hit.t;
+    primID = rec.hit.primID;
+    objID = rec.hit.objID;
+    instID = rec.hit.instID;
+  } else if (vec3 hdri; getBackgroundLight(*fd, rec.rayDir, hdri)) {
+    color = hdri;
+    opacity = 1.f;
+  }
+
+  if (isVeryFirstRay)
+    setPixelIds(fd->fb, pixel, depth, primID, objID, instID);
+  accumPixelSample(*fd, pixel, vec4(color, opacity), albedo, normal);
+}
+
 } // namespace
 
 void wavefrontRegenerate(cudaStream_t stream,
@@ -72,6 +156,16 @@ void wavefrontRegenerate(cudaStream_t stream,
   const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontRegenerateKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
       slots, waveBase, numPixels, totalSamples, liveSlots);
+}
+
+void wavefrontShade(
+    cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots)
+{
+  if (liveSlots == 0)
+    return;
+  const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
+  wavefrontShadeKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
+      frameData, liveSlots);
 }
 
 } // namespace visrtx
