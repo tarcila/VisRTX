@@ -69,6 +69,16 @@ struct Renderer : public Object
   OptixPipeline pipeline();
   const OptixShaderBindingTable *sbt();
 
+  // Launch this renderer over the frame. The default is one megakernel
+  // optixLaunch (raygen does the whole path loop). Renderers with a different
+  // execution model (e.g. a wavefront pipeline of trace-only launches
+  // interleaved with CUDA shading kernels) override this to drive their own
+  // sequence; Frame stays agnostic to how many launches a frame takes.
+  virtual void launchFrame(cudaStream_t stream,
+      CUdeviceptr frameData,
+      size_t frameDataSize,
+      uvec2 launchSize);
+
   int spp() const;
   bool checkerboarding() const;
   bool denoise() const;
