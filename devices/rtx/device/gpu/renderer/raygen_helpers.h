@@ -79,9 +79,12 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
 
   for (int i = 0; i < frameData.renderer.numIterations; i++) {
     bool isVeryFirstRay = i == 0 && ss.frameData->fb.frameID == 0;
-    const uint32_t sampleIdx = uint32_t(ss.frameData->fb.frameID)
-            * uint32_t(rendererParams.numIterations)
-        + uint32_t(i);
+    // frameID already advances by spp (== numIterations) per launch, so
+    // `frameID + i` keeps the per-pixel sample index contiguous [0, totalSpp).
+    // Multiplying by numIterations again strides by spp^2 and breaks QMC
+    // stratification for pixelSamples > 1.
+    const uint32_t sampleIdx =
+        uint32_t(ss.frameData->fb.frameID) + uint32_t(i);
     auto ray = makePrimaryRay(ss, sampleIdx, isVeryFirstRay);
     applyCuttingPlane(rendererParams.cutPlane, ray);
     float tmax = ray.t.upper;
