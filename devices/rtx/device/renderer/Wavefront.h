@@ -62,10 +62,14 @@ struct Wavefront : public Renderer
 
   // Fixed-capacity Path Pool (resolution-independent). Mutable so the const
   // populateFrameData() can lazily allocate before publishing the pointers.
-  // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace result
-  // the CUDA shade stage consumes.
+  // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace result.
+  // m_poolShade: per-slot deferred shading state around the shadow trace.
+  // m_stage: 1-element selector switching the shared raygen between the primary
+  // and shadow traces (patched per launch on the stream).
   mutable DeviceBuffer m_poolSlots;
   mutable DeviceBuffer m_poolHits;
+  mutable DeviceBuffer m_poolShade;
+  mutable DeviceBuffer m_stage;
 };
 
 } // namespace visrtx

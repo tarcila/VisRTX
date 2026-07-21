@@ -59,11 +59,17 @@ void wavefrontRegenerate(cudaStream_t stream,
     uint64_t totalSamples,
     uint32_t liveSlots);
 
-// Shade stage: for each live slot, read its trace hit record, evaluate builtin
-// shading statically (no optixDirectCall — that is the register-isolation
-// point), and accumulate the sample into the framebuffer. Reads frameData from
-// the device pointer (a CUDA kernel cannot see the OptiX __constant__ params).
-void wavefrontShade(
+// Shade-emit stage: read each slot's trace hit record, evaluate builtin shading
+// statically (no optixDirectCall — the register-isolation point), pick a light
+// for NEE, and write the deferred shade record (unshadowed term, shadowable
+// direct term, shadow ray). Reads frameData from the device pointer (a CUDA
+// kernel cannot see the OptiX __constant__ params).
+void wavefrontShadeEmit(
+    cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots);
+
+// Resolve stage: combine the deferred shade record with the shadow-ray
+// visibility and accumulate the sample into the framebuffer.
+void wavefrontResolve(
     cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots);
 
 } // namespace visrtx
