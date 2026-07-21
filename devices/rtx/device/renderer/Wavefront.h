@@ -60,16 +60,20 @@ struct Wavefront : public Renderer
  private:
   void ensurePool() const;
 
+  int m_maxDepth{4}; // path-tracing bounce depth
+
   // Fixed-capacity Path Pool (resolution-independent). Mutable so the const
   // populateFrameData() can lazily allocate before publishing the pointers.
   // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace result.
   // m_poolShade: per-slot deferred shading state around the shadow trace.
-  // m_stage: 1-element selector switching the shared raygen between the primary
-  // and shadow traces (patched per launch on the stream).
+  // m_poolPaths: per-slot path state (throughput, continuation ray) across
+  // bounces. m_launch: 1-element (stage, bounce) selector for the shared raygen,
+  // patched per launch on the stream.
   mutable DeviceBuffer m_poolSlots;
   mutable DeviceBuffer m_poolHits;
   mutable DeviceBuffer m_poolShade;
-  mutable DeviceBuffer m_stage;
+  mutable DeviceBuffer m_poolPaths;
+  mutable DeviceBuffer m_launch;
 };
 
 } // namespace visrtx

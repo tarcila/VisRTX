@@ -145,6 +145,9 @@ __global__ void wavefrontShadeEmitKernel(
   const WavefrontPathSlot slot = fd->wavefrontSlots[i];
   if (!slot.alive)
     return;
+  WavefrontPathState &path = fd->wavefrontPaths[i];
+  if (!path.alive)
+    return;
 
   const WavefrontHitRecord &rec = fd->wavefrontHits[i];
   WavefrontShadeRecord &sr = fd->wavefrontShade[i];
@@ -187,25 +190,26 @@ __global__ void wavefrontShadeEmitKernel(
   sr.primID = rec.hit.primID;
   sr.objID = rec.hit.objID;
   sr.instID = rec.hit.instID;
+  // Offset hit point: shadow-ray origin AND the continuation-ray origin.
+  sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
   const uint32_t n = uint32_t(fd->world.numLightInstances);
   if (n == 0)
     return;
 
-  RandState rng = rec.rng;
+  RandState rng = path.rng;
   uint32_t k = uint32_t(pcg_uniform(&rng) * float(n));
   if (k >= n)
     k = n - 1u;
   const InstanceLightGPUData &li = fd->world.lightInstances[k];
   const LightGPUData &ld = fd->registry.lights[li.lightIndex];
-  const vec3 origin = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
-  const LightSample ls = sampleAnalyticLight(ld, li.xfm, origin, rng);
+  const LightSample ls = sampleAnalyticLight(ld, li.xfm, sr.shadowOrg, rng);
+  path.rng = rng; // the light pick + sample consumed the path RNG
   if (ls.pdf > 0.f && ls.dist > 0.f) {
     const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
     // Uniform pick over n lights has probability 1/n, so reweight by n.
     sr.directContrib =
         a.baseColor * ndotl * ls.radiance / ls.pdf * float(n) * a.opacity;
-    sr.shadowOrg = origin;
     sr.shadowDir = ls.dir;
     sr.shadowDist = ls.dist;
   }
@@ -253,40 +257,69 @@ __device__ bool fireflyModeIsAtomicSafe(FireflyFilterMode mode)
   return mode == FireflyFilterMode::NONE || mode == FireflyFilterMode::TONEMAP;
 }
 
-// Resolve: fold the shadow-ray visibility into the deferred shade record and
-// accumulate. The unshadowed term (ambient + emission / background) always
-// lands; the direct-light term is gated by how much of the shadow ray reached
-// the light.
+VISRTX_DEVICE void wavefrontAccumulate(const FrameGPUData &fd,
+    const uvec2 &pixel,
+    const vec4 &color,
+    const vec3 &albedo,
+    const vec3 &normal)
+{
+  if (fireflyModeIsAtomicSafe(fd.renderer.fireflyFilterMode))
+    accumPixelSampleAtomic(fd, pixel, color, albedo, normal);
+  else
+    accumPixelSample(fd, pixel, color, albedo, normal);
+}
+
+// Resolve one bounce: deposit this bounce's throughput-weighted radiance and,
+// if the path continues, sample a diffuse continuation ray. The pixel divisor
+// counts one sample per PATH, so every bounce adds to the same pixel while only
+// the first bounce contributes the coverage/AOV channels. The path terminates
+// on a miss, at max depth, or when throughput collapses.
 __global__ void wavefrontResolveKernel(
-    const FrameGPUData *fd, uint32_t liveSlots)
+    const FrameGPUData *fd, uint32_t liveSlots, uint32_t bounce, uint32_t maxDepth)
 {
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= liveSlots)
     return;
-
   const WavefrontPathSlot slot = fd->wavefrontSlots[i];
   if (!slot.alive)
+    return;
+  WavefrontPathState &path = fd->wavefrontPaths[i];
+  if (!path.alive)
     return;
 
   const WavefrontShadeRecord &sr = fd->wavefrontShade[i];
   const uvec2 pixel = {slot.pixel % fd->fb.size.x, slot.pixel / fd->fb.size.x};
-  const bool isVeryFirstRay = slot.sampleIdx == 0 && fd->fb.frameID == 0;
 
-  const vec3 color = sr.unshadowed + sr.visibility * sr.directContrib;
+  const vec3 bounceRadiance = sr.unshadowed + sr.visibility * sr.directContrib;
+  const vec3 color = path.throughput * bounceRadiance;
 
-  // First-hit AOVs (ids, depth) are written by exactly one slot per pixel — the
-  // frame's first sample — so no atomics are needed even under concurrency.
-  if (isVeryFirstRay)
-    setPixelIds(fd->fb, pixel, sr.depth, sr.primID, sr.objID, sr.instID);
+  if (bounce == 0) {
+    // First bounce owns the coverage/AOV channels and the first-hit ids.
+    if (slot.sampleIdx == 0 && fd->fb.frameID == 0)
+      setPixelIds(fd->fb, pixel, sr.depth, sr.primID, sr.objID, sr.instID);
+    wavefrontAccumulate(
+        *fd, pixel, vec4(color, sr.opacity), sr.albedo, sr.normal);
+  } else {
+    // Later bounces add radiance only — coverage and AOVs already counted.
+    wavefrontAccumulate(*fd, pixel, vec4(color, 0.f), vec3(0.f), vec3(0.f));
+  }
 
-  // Atomic scatter-add when the pool may run several samples of this pixel
-  // concurrently (the host only lifts the one-slot-per-pixel cap for the
-  // atomic-safe firefly modes); otherwise the ordinary accumulate is fine and
-  // keeps CLAMP/TRIM working.
-  if (fireflyModeIsAtomicSafe(fd->renderer.fireflyFilterMode))
-    accumPixelSampleAtomic(*fd, pixel, vec4(color, sr.opacity), sr.albedo, sr.normal);
-  else
-    accumPixelSample(*fd, pixel, vec4(color, sr.opacity), sr.albedo, sr.normal);
+  // Continue the path with a cosine-weighted diffuse bounce, or terminate.
+  if (!sr.hasHit || bounce + 1u >= maxDepth) {
+    path.alive = 0;
+    return;
+  }
+  RandState rng = path.rng;
+  const vec3 dir = sampleHemisphere(rng, sr.normal);
+  path.rng = rng;
+  // Cosine-weighted Lambertian: the cos/pdf and 1/pi fold to the albedo.
+  path.throughput *= sr.albedo;
+  path.nextOrg = sr.shadowOrg; // offset hit point recorded by shade-emit
+  path.nextDir = dir;
+  // Kill paths whose contribution can no longer matter.
+  if (fmaxf(path.throughput.x, fmaxf(path.throughput.y, path.throughput.z))
+      < 1.0e-4f)
+    path.alive = 0;
 }
 
 } // namespace
@@ -315,14 +348,17 @@ void wavefrontShadeEmit(
       frameData, liveSlots);
 }
 
-void wavefrontResolve(
-    cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots)
+void wavefrontResolve(cudaStream_t stream,
+    const FrameGPUData *frameData,
+    uint32_t liveSlots,
+    uint32_t bounce,
+    uint32_t maxDepth)
 {
   if (liveSlots == 0)
     return;
   const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontResolveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
-      frameData, liveSlots);
+      frameData, liveSlots, bounce, maxDepth);
 }
 
 } // namespace visrtx
