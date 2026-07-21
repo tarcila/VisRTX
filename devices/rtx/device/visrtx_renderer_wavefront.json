@@ -129,7 +129,7 @@
           ],
           "tags": [],
           "default": false,
-          "description": "use checkerboarding to lower frame latency"
+          "description": "use checkerboarding to lower frame latency (ignored by the wavefront renderer for now)"
         },
         {
           "name": "pixelSamples",

@@ -52,9 +52,11 @@ DECLARE_FRAME_DATA(frameData)
 
 // Build a ScreenSample for an explicit pixel (the pool decouples a slot from
 // its pixel, so we cannot use createScreenSample's optixGetLaunchIndex path).
-// Seeding mirrors createScreenSample exactly so per-pixel RNG streams match.
+// Same pixel-stream / frame-seed structure as createScreenSample, but keyed on
+// an explicit pixel and the sample's accumulated ordinal rather than the launch
+// index and bare frameID.
 VISRTX_DEVICE ScreenSample poolScreenSample(
-    const FrameGPUData &fd, uint32_t linearPixel, uint32_t sampleIdx)
+    const FrameGPUData &fd, uint32_t linearPixel, uint32_t accumSampleIdx)
 {
   ScreenSample ss;
   const uint32_t w = fd.fb.size.x;
@@ -62,13 +64,11 @@ VISRTX_DEVICE ScreenSample poolScreenSample(
   const int y = int(linearPixel / w);
   const uint64_t pixelLinear = uint64_t(linearPixel);
   const uint64_t streamId = detail::pcg_mix64(pixelLinear);
-  // Fold the per-pixel sample ordinal into the seed. The decoupled budget spends
-  // several samples per pixel across separate waves that each re-seed here; keying
-  // only on frameID would give them one correlated RNG stream. The ordinal makes
-  // each sample's stream distinct.
-  const uint64_t frameSeed = detail::pcg_mix64(
-      (uint64_t(fd.fb.frameID) << 32u) ^ (uint64_t(sampleIdx) << 16u)
-      ^ pixelLinear ^ 0xD1B54A32D192ED03ULL);
+  // Key the seed on the sample's accumulated ordinal so every sample of a pixel
+  // (across waves and progressive frames) gets a distinct RNG stream — the
+  // decoupled budget re-seeds here per sample instead of advancing one stream.
+  const uint64_t frameSeed = detail::pcg_mix64(uint64_t(accumSampleIdx)
+      ^ (pixelLinear << 1u) ^ 0xD1B54A32D192ED03ULL);
   pcg_init(&ss.rs, frameSeed, streamId);
   ss.pixel.x = x;
   ss.pixel.y = y;
@@ -147,10 +147,16 @@ VISRTX_GLOBAL void __raygen__()
   if (!slot.alive)
     return;
 
-  ScreenSample ss = poolScreenSample(frameData, slot.pixel, slot.sampleIdx);
+  // The camera QMC (Halton) index must be the sample's ordinal across the whole
+  // accumulation, not just within this launchFrame: frameID advances by spp per
+  // launch (Frame.cu), so the accumulated index is frameID + the per-pixel
+  // ordinal. Feeding only slot.sampleIdx (0..spp-1) would replay the identical
+  // sub-pixel/lens samples every progressive frame and never converge AA/DoF.
+  const uint32_t cameraSampleIdx = uint32_t(frameData.fb.frameID) + slot.sampleIdx;
+  ScreenSample ss = poolScreenSample(frameData, slot.pixel, cameraSampleIdx);
   const bool isVeryFirstRay =
       slot.sampleIdx == 0 && frameData.fb.frameID == 0;
-  Ray ray = makePrimaryRay(ss, slot.sampleIdx, isVeryFirstRay);
+  Ray ray = makePrimaryRay(ss, cameraSampleIdx, isVeryFirstRay);
   applyCuttingPlane(frameData.renderer.cutPlane, ray);
 
   vec3 color(0.f);

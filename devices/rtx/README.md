@@ -22,7 +22,8 @@ Building VisRTX requires the following:
 
 - CMake 3.17+
 - C++17 compiler
-- NVIDIA Driver 530+
+- NVIDIA Driver 570+ (required by the default OptiX 9.0; an older driver works
+  with an older `OPTIX_FETCH_VERSION`, e.g. 530+ for OptiX 7.7)
 - CUDA 12+
 - [ANARI-SDK](https://github.com/KhronosGroup/ANARI-SDK)
 

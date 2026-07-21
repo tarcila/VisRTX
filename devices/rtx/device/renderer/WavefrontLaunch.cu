@@ -38,23 +38,23 @@ namespace {
 constexpr int kThreadsPerBlock = 256;
 
 __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
-    uint32_t waveBase,
+    uint64_t waveBase,
     uint32_t numPixels,
-    uint32_t totalSamples,
+    uint64_t totalSamples,
     uint32_t liveSlots)
 {
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= liveSlots)
     return;
 
-  const uint32_t sampleId = waveBase + i;
+  const uint64_t sampleId = waveBase + i;
   if (sampleId >= totalSamples) {
     slots[i].alive = 0;
     return;
   }
 
-  slots[i].pixel = sampleId % numPixels;
-  slots[i].sampleIdx = sampleId / numPixels;
+  slots[i].pixel = uint32_t(sampleId % numPixels);
+  slots[i].sampleIdx = uint32_t(sampleId / numPixels);
   slots[i].alive = 1;
 }
 
@@ -62,9 +62,9 @@ __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
 
 void wavefrontRegenerate(cudaStream_t stream,
     WavefrontPathSlot *slots,
-    uint32_t waveBase,
+    uint64_t waveBase,
     uint32_t numPixels,
-    uint32_t totalSamples,
+    uint64_t totalSamples,
     uint32_t liveSlots)
 {
   if (liveSlots == 0)

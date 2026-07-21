@@ -52,8 +52,12 @@ void Wavefront::commitParameters()
 {
   Renderer::commitParameters();
   // Checkerboarding halves the launch dimensions; the pool's slot->pixel
-  // mapping assumes a full-frame pixel grid, so disable it for now.
+  // mapping assumes a full-frame pixel grid, so disable it for now. The base
+  // clamps m_spp to 1 whenever checkerboarding was requested, so restore the
+  // requested pixelSamples here — otherwise checkerboarding=true silently
+  // renders at 1 spp instead of just being ignored.
   m_checkerboard = false;
+  m_spp = std::max(1, getParam<int>("pixelSamples", 1));
 }
 
 void Wavefront::ensurePool() const
@@ -83,13 +87,16 @@ void Wavefront::launchFrame(cudaStream_t stream,
 
   const uint32_t samplesPerPixel = uint32_t(std::max(spp(), 1));
   const uint32_t liveSlots = std::min(kWavefrontPoolCapacity, numPixels);
-  const uint32_t totalSamples = numPixels * samplesPerPixel;
+  // 64-bit: numPixels * spp overflows uint32 for large frames (8K x high spp),
+  // and a uint32 waveBase would wrap past 2^32 mid-loop and re-enter at 0 —
+  // an infinite host loop, not merely truncated sampling.
+  const uint64_t totalSamples = uint64_t(numPixels) * samplesPerPixel;
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
 
   // Host-driven cycle loop: each wave assigns up to liveSlots samples to the
   // pool (regenerate), then traces + shades them (one OptiX launch over the
   // slots). Waves repeat until the frame's whole sample budget is dispatched.
-  for (uint32_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
+  for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
     wavefrontRegenerate(
         stream, slots, waveBase, numPixels, totalSamples, liveSlots);
     OPTIX_CHECK(optixLaunch(pipeline(),
