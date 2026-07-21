@@ -40,6 +40,7 @@
 #include "Quality.h"
 #include "Test.h"
 #include "UnknownRenderer.h"
+#include "Wavefront.h"
 
 #include "gpu/gpu_decl.h"
 #include "gpu/shadingState.h"
@@ -134,6 +135,8 @@ static Renderer *make_renderer(std::string_view subtype, DeviceGlobalState *d)
     return new Interactive(d);
   else if (subtype == "test")
     return new Test(d);
+  else if (subtype == "wavefront")
+    return new Wavefront(d);
   else if (beginsWith(subtype, "debug")) {
     auto *retval = new Debug(d);
     auto names = splitString(std::string(subtype), "_");

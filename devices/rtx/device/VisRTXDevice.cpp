@@ -64,6 +64,7 @@
 #include "renderer/Interactive.h"
 #include "renderer/Quality.h"
 #include "renderer/Test.h"
+#include "renderer/Wavefront.h"
 
 // materials
 #include "material/shaders/MatteShader.h"
@@ -446,6 +447,7 @@ VisRTXDevice::~VisRTXDevice()
   optixModuleDestroy(state.rendererModules.mdl);
 #endif // defined(USE_MDL)
   optixModuleDestroy(state.rendererModules.test);
+  optixModuleDestroy(state.rendererModules.wavefront);
 
   optixModuleDestroy(state.intersectionModules.customIntersectors);
 
@@ -782,6 +784,9 @@ DeviceInitStatus VisRTXDevice::initOptix()
           Interactive::ptx(),
           "'interactive' renderer"),
       init_module(&state.rendererModules.test, Test::ptx(), "'test' renderer"),
+      init_module(&state.rendererModules.wavefront,
+          Wavefront::ptx(),
+          "'wavefront' renderer"),
       init_module(&state.intersectionModules.customIntersectors,
           intersection_ptx(),
           "custom intersectors"),
