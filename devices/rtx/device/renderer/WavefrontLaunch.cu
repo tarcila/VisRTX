@@ -63,11 +63,47 @@ __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
   slots[i].alive = 1;
 }
 
-// Static builtin shade. Matte evaluates its color/opacity directly (no
-// callable). Other builtin/MDL materials are not yet ported to the static path
-// and fall back to a neutral tint — the shading model here is still a
-// placeholder headlight regardless of material, so this is cosmetic until the
-// real shade lands.
+// Statically-evaluated builtin surface appearance: base color, opacity and
+// emission read directly from the material data (no optixDirectCall). Covers
+// the native Matte and PhysicallyBased materials; MDL is not on the static path
+// (it needs the linking spike) and renders as a neutral surface for now.
+struct BuiltinAppearance
+{
+  vec3 baseColor{0.8f};
+  vec3 emission{0.f};
+  float opacity{1.f};
+};
+
+__device__ BuiltinAppearance evalBuiltinAppearance(
+    const FrameGPUData &fd, const SurfaceHit &hit)
+{
+  BuiltinAppearance a;
+  if (!hit.material)
+    return a;
+
+  if (hit.material->callableBaseIndex
+      == uint32_t(SbtCallableEntryPoints::Matte)) {
+    const auto &md = hit.material->materialData.matte;
+    const vec4 color = getMaterialParameter(fd, md.color, hit);
+    const float op = getMaterialParameter(fd, md.opacity, hit).x;
+    a.baseColor = vec3(color);
+    a.opacity = adjustedMaterialOpacity(color.w * op, md.alphaMode, md.cutoff);
+  } else if (hit.material->callableBaseIndex
+      == uint32_t(SbtCallableEntryPoints::PBR)) {
+    const auto &md = hit.material->materialData.physicallyBased;
+    const vec4 color = getMaterialParameter(fd, md.baseColor, hit);
+    const float op = getMaterialParameter(fd, md.opacity, hit).x;
+    a.baseColor = vec3(color);
+    a.opacity = adjustedMaterialOpacity(color.w * op, md.alphaMode, md.cutoff);
+    a.emission = vec3(getMaterialParameter(fd, md.emissive, hit));
+  }
+  return a;
+}
+
+// Direct-visibility shade: albedo lit by the renderer's ambient term plus the
+// material's own emission. The |N.V| factor is a stand-in that gives shape
+// without a light in the scene; real direct lighting (NEE) and shadows arrive
+// with the shadow-loop and bounce tickets.
 __device__ vec3 shadeHitStatic(const FrameGPUData &fd,
     const SurfaceHit &hit,
     const vec3 &rayDir,
@@ -75,32 +111,21 @@ __device__ vec3 shadeHitStatic(const FrameGPUData &fd,
     vec3 &normalOut,
     float &opacityOut)
 {
-  vec3 tint(0.8f);
-  float alpha = 1.0f;
-  vec3 shadingNormal = hit.Ns;
-
-  if (hit.material
-      && hit.material->callableBaseIndex
-          == uint32_t(SbtCallableEntryPoints::Matte)) {
-    const auto &md = hit.material->materialData.matte;
-    const vec4 color = getMaterialParameter(fd, md.color, hit);
-    const float op = getMaterialParameter(fd, md.opacity, hit).x;
-    tint = vec3(color);
-    alpha = adjustedMaterialOpacity(color.w * op, md.alphaMode, md.cutoff);
-  }
+  const BuiltinAppearance a = evalBuiltinAppearance(fd, hit);
 
   // Fall back to the geometric normal if the shading normal is degenerate.
+  vec3 shadingNormal = hit.Ns;
   if (!(glm::dot(shadingNormal, shadingNormal) > 1e-12f))
     shadingNormal = hit.Ng;
 
   const float ndotv = glm::abs(glm::dot(rayDir, shadingNormal));
-  const vec3 lit = tint * (ndotv * fd.renderer.ambientIntensity)
+  const vec3 lit = a.baseColor * (ndotv * fd.renderer.ambientIntensity)
       * fd.renderer.ambientColor;
 
-  albedoOut = tint * alpha;
+  albedoOut = a.baseColor * a.opacity;
   normalOut = shadingNormal;
-  opacityOut = alpha;
-  return lit * alpha;
+  opacityOut = a.opacity;
+  return lit * a.opacity + a.emission;
 }
 
 __global__ void wavefrontShadeKernel(const FrameGPUData *fd, uint32_t liveSlots)
