@@ -39,6 +39,8 @@
 
 namespace visrtx {
 
+struct FrameGPUData;
+
 // Fixed Path Pool capacity, in slots. Resolution-independent by design: the
 // pool processes a frame in waves of at most this many samples regardless of
 // frame size. At 12 bytes/slot this is ~12 MB.
@@ -56,5 +58,12 @@ void wavefrontRegenerate(cudaStream_t stream,
     uint32_t numPixels,
     uint64_t totalSamples,
     uint32_t liveSlots);
+
+// Shade stage: for each live slot, read its trace hit record, evaluate builtin
+// shading statically (no optixDirectCall — that is the register-isolation
+// point), and accumulate the sample into the framebuffer. Reads frameData from
+// the device pointer (a CUDA kernel cannot see the OptiX __constant__ params).
+void wavefrontShade(
+    cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots);
 
 } // namespace visrtx

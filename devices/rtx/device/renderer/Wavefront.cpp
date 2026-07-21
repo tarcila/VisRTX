@@ -65,6 +65,8 @@ void Wavefront::ensurePool() const
   // reserve() only grows, so this is a no-op after the first frame.
   m_poolSlots.reserve(
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathSlot));
+  m_poolHits.reserve(
+      size_t(kWavefrontPoolCapacity) * sizeof(WavefrontHitRecord));
 }
 
 void Wavefront::populateFrameData(FrameGPUData &fd) const
@@ -72,6 +74,7 @@ void Wavefront::populateFrameData(FrameGPUData &fd) const
   Renderer::populateFrameData(fd);
   ensurePool();
   fd.wavefrontSlots = m_poolSlots.ptrAs<WavefrontPathSlot>();
+  fd.wavefrontHits = m_poolHits.ptrAs<WavefrontHitRecord>();
 }
 
 void Wavefront::launchFrame(cudaStream_t stream,
@@ -92,10 +95,12 @@ void Wavefront::launchFrame(cudaStream_t stream,
   // an infinite host loop, not merely truncated sampling.
   const uint64_t totalSamples = uint64_t(numPixels) * samplesPerPixel;
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
+  auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
 
-  // Host-driven cycle loop: each wave assigns up to liveSlots samples to the
-  // pool (regenerate), then traces + shades them (one OptiX launch over the
-  // slots). Waves repeat until the frame's whole sample budget is dispatched.
+  // Host-driven cycle loop. Each wave: (1) regenerate assigns up to liveSlots
+  // samples to the pool; (2) a trace-only OptiX launch fills each slot's hit
+  // record — no shading in the pipeline; (3) a CUDA shade stage reads the hit
+  // records and accumulates. Waves repeat until the sample budget is spent.
   for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
     wavefrontRegenerate(
         stream, slots, waveBase, numPixels, totalSamples, liveSlots);
@@ -107,6 +112,7 @@ void Wavefront::launchFrame(cudaStream_t stream,
         liveSlots,
         1,
         1));
+    wavefrontShade(stream, frameDataPtr, liveSlots);
   }
 }
 

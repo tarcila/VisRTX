@@ -60,9 +60,12 @@ struct Wavefront : public Renderer
  private:
   void ensurePool() const;
 
-  // Fixed-capacity slot pool (resolution-independent). Mutable so the const
-  // populateFrameData() can lazily allocate it before publishing the pointer.
+  // Fixed-capacity Path Pool (resolution-independent). Mutable so the const
+  // populateFrameData() can lazily allocate before publishing the pointers.
+  // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace result
+  // the CUDA shade stage consumes.
   mutable DeviceBuffer m_poolSlots;
+  mutable DeviceBuffer m_poolHits;
 };
 
 } // namespace visrtx

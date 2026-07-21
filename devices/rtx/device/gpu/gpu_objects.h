@@ -982,6 +982,15 @@ struct FramebufferGPUData
   glm::vec2 invSize;
 };
 
+// One wavefront trace result: the surface hit plus the ray direction that
+// produced it (the shade stage needs the incident direction for shading). The
+// trace launch fills this per pool slot; the CUDA shade stage consumes it.
+struct WavefrontHitRecord
+{
+  SurfaceHit hit;
+  glm::vec3 rayDir;
+};
+
 struct FrameGPUData
 {
   FramebufferGPUData fb;
@@ -1002,11 +1011,14 @@ struct FrameGPUData
     const VolumeGPUData *volumes;
   } registry;
 
-  // Wavefront renderer Path Pool. Set only by the wavefront renderer (which is
-  // the sole reader, in its trace launch); left unset by every other renderer.
-  // No default member initializer: FrameGPUData lives in __constant__ memory,
-  // which forbids dynamic initialization.
+  // Wavefront renderer Path Pool. Set only by the wavefront renderer; left
+  // unset by every other renderer. No default member initializers: FrameGPUData
+  // lives in __constant__ memory, which forbids dynamic initialization.
+  // - wavefrontSlots: per-slot (pixel, sampleIdx) the trace launch reads.
+  // - wavefrontHits: per-slot hit record the trace launch writes and the CUDA
+  //   shade stage reads (the trace/shade split — no shading in the pipeline).
   const WavefrontPathSlot *wavefrontSlots;
+  WavefrontHitRecord *wavefrontHits;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
