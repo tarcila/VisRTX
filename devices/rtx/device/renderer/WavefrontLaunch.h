@@ -52,9 +52,9 @@ constexpr uint32_t kWavefrontPoolCapacity = 1u << 20;
 // is what keeps this slice's non-atomic accumulation correct.
 void wavefrontRegenerate(cudaStream_t stream,
     WavefrontPathSlot *slots,
-    uint32_t waveBase,
+    uint64_t waveBase,
     uint32_t numPixels,
-    uint32_t totalSamples,
+    uint64_t totalSamples,
     uint32_t liveSlots);
 
 } // namespace visrtx
