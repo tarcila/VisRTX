@@ -383,6 +383,14 @@ VISRTX_DEVICE vec3 evalGeometryLightEmission(ScreenSample &ss,
   if (md.emissionIsConstant)
     return ld.geometry.radiance;
 
+#ifdef VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION
+  // Plain-CUDA translation units (the wavefront shade stage) cannot dispatch the
+  // material emission callable, so use the light's mean radiance for non-constant
+  // emitters — exact for constant, an approximation for textured until the
+  // emission-eval stage lands. Keeps the callable path out of ptxas codegen.
+  return ld.geometry.radiance;
+#else
+
   SurfaceHit hit{};
   hit.geometry = &registry.geometries[ld.geometry.geometryIndex];
   hit.material = &md;
@@ -431,6 +439,7 @@ VISRTX_DEVICE vec3 evalGeometryLightEmission(ScreenSample &ss,
   fallback.worldToObject = glm::transpose(mat4x3(glm::affineInverse(xfm)));
   hit.instance = &fallback;
   return evaluateSurfaceEmission(*ss.frameData, md, hit, outgoingDir);
+#endif
 }
 
 // Sample a point on a triangle Geometry Light. Picks a primitive by its
