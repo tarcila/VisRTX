@@ -292,6 +292,21 @@ const OptixShaderBindingTable *Renderer::sbt()
   return &m_sbt;
 }
 
+void Renderer::launchFrame(cudaStream_t stream,
+    CUdeviceptr frameData,
+    size_t frameDataSize,
+    uvec2 launchSize)
+{
+  OPTIX_CHECK(optixLaunch(pipeline(),
+      stream,
+      frameData,
+      frameDataSize,
+      sbt(),
+      launchSize.x,
+      launchSize.y,
+      1));
+}
+
 int Renderer::spp() const
 {
   return m_spp;

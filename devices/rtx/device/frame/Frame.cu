@@ -663,14 +663,11 @@ void Frame::renderFrame()
   instrument::rangePop(); // Frame::upload()
 
   instrument::rangePush("optixLaunch()");
-  OPTIX_CHECK(optixLaunch(m_renderer->pipeline(),
-      state.stream,
+  m_renderer->launchFrame(state.stream,
       (CUdeviceptr)deviceData(),
       payloadBytes(),
-      m_renderer->sbt(),
-      checkerboarding() ? (hd.fb.size.x + 1) / 2 : hd.fb.size.x,
-      checkerboarding() ? (hd.fb.size.y + 1) / 2 : hd.fb.size.y,
-      1));
+      uvec2(checkerboarding() ? (hd.fb.size.x + 1) / 2 : hd.fb.size.x,
+          checkerboarding() ? (hd.fb.size.y + 1) / 2 : hd.fb.size.y));
   instrument::rangePop(); // optixLaunch()
 
   // Increment frameID after rendering completes
