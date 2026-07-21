@@ -992,6 +992,36 @@ struct WavefrontHitRecord
   RandState rng; // per-sample RNG stream, seeded by the trace stage for shading
 };
 
+// Deferred shading state for one pool slot. The shade-emit stage fills it (the
+// shadowable direct-light contribution plus a shadow ray toward the picked
+// light); the shadow trace stage writes `visibility`; the resolve stage folds
+// them into the accumulated color. Splitting shading around the shadow trace is
+// the wavefront shadow loop.
+struct WavefrontShadeRecord
+{
+  glm::vec3 unshadowed; // ambient + emission (or background radiance on a miss)
+  glm::vec3 directContrib; // direct lighting gated by the shadow ray
+  glm::vec3 shadowOrg;
+  glm::vec3 shadowDir;
+  float shadowDist; // <= 0: no shadow ray (fully visible)
+  glm::vec3 albedo;
+  glm::vec3 normal;
+  float opacity;
+  float depth;
+  uint32_t primID;
+  uint32_t objID;
+  uint32_t instID;
+  float visibility; // 1 unoccluded .. 0 fully blocked; set by the shadow stage
+  uint32_t hasHit; // 1 surface hit (shade), 0 miss (background in `unshadowed`)
+};
+
+// Which launch the shared wavefront raygen should perform this pass.
+enum class WavefrontStage : uint32_t
+{
+  Trace = 0, // primary rays -> hit records
+  Shadow = 1, // shadow rays -> visibility
+};
+
 struct FrameGPUData
 {
   FramebufferGPUData fb;
@@ -1020,6 +1050,8 @@ struct FrameGPUData
   //   shade stage reads (the trace/shade split — no shading in the pipeline).
   const WavefrontPathSlot *wavefrontSlots;
   WavefrontHitRecord *wavefrontHits;
+  WavefrontShadeRecord *wavefrontShade;
+  const WavefrontStage *wavefrontStage; // selects trace vs shadow in the raygen
 };
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -126,16 +126,11 @@ VISRTX_GLOBAL void __miss__()
   // no-op
 }
 
-// Trace-only raygen: cast the slot's camera ray, intersect, and write the hit
-// record for the CUDA shade stage. No shading callables run in this pipeline —
-// that is the whole point of the trace/shade split.
-VISRTX_GLOBAL void __raygen__()
+// Primary trace: cast the slot's camera ray, intersect, write the hit record
+// for the CUDA shade stage. No shading callables run here — the trace/shade
+// split is the whole point.
+VISRTX_DEVICE void traceStage(uint32_t slotIdx, const WavefrontPathSlot &slot)
 {
-  const uint32_t slotIdx = optixGetLaunchIndex().x;
-  const WavefrontPathSlot slot = frameData.wavefrontSlots[slotIdx];
-  if (!slot.alive)
-    return;
-
   // The camera QMC (Halton) index must be the sample's ordinal across the whole
   // accumulation, not just within this launchFrame: frameID advances by spp per
   // launch (Frame.cu), so the accumulated index is frameID + the per-pixel
@@ -159,6 +154,43 @@ VISRTX_GLOBAL void __raygen__()
   // Hand the sample's RNG stream to the shade stage (makePrimaryRay used Halton,
   // not ss.rs, so this is the fresh per-sample seed) for light sampling.
   rec.rng = ss.rs;
+}
+
+// Shadow trace: trace the shade stage's shadow ray toward the picked light and
+// record how much of it reaches the light (1 = unoccluded).
+VISRTX_DEVICE void shadowStage(uint32_t slotIdx)
+{
+  WavefrontShadeRecord &sr = frameData.wavefrontShade[slotIdx];
+  if (!sr.hasHit || sr.shadowDist <= 0.0f) {
+    sr.visibility = 1.0f;
+    return;
+  }
+
+  ScreenSample ss;
+  ss.frameData = &frameData;
+  ss.shadowContribWeight = 1.0f;
+
+  // The origin is already offset off the surface; stop just short of the light
+  // so an area light's own geometry doesn't self-occlude the sample.
+  constexpr float SHADOW_TMAX_SCALE = 1.0f - 1.0e-3f;
+  Ray shadowRay{sr.shadowOrg,
+      sr.shadowDir,
+      {0.0f, sr.shadowDist * SHADOW_TMAX_SCALE}};
+  const float opacity = surfaceShadowOpacity(ss, shadowRay);
+  sr.visibility = fmaxf(0.0f, 1.0f - opacity);
+}
+
+VISRTX_GLOBAL void __raygen__()
+{
+  const uint32_t slotIdx = optixGetLaunchIndex().x;
+  const WavefrontPathSlot slot = frameData.wavefrontSlots[slotIdx];
+  if (!slot.alive)
+    return;
+
+  if (*frameData.wavefrontStage == WavefrontStage::Trace)
+    traceStage(slotIdx, slot);
+  else
+    shadowStage(slotIdx);
 }
 
 } // namespace visrtx

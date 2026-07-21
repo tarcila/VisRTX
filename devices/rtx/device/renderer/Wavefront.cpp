@@ -67,6 +67,9 @@ void Wavefront::ensurePool() const
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathSlot));
   m_poolHits.reserve(
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontHitRecord));
+  m_poolShade.reserve(
+      size_t(kWavefrontPoolCapacity) * sizeof(WavefrontShadeRecord));
+  m_stage.reserve(sizeof(WavefrontStage));
 }
 
 void Wavefront::populateFrameData(FrameGPUData &fd) const
@@ -75,6 +78,8 @@ void Wavefront::populateFrameData(FrameGPUData &fd) const
   ensurePool();
   fd.wavefrontSlots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   fd.wavefrontHits = m_poolHits.ptrAs<WavefrontHitRecord>();
+  fd.wavefrontShade = m_poolShade.ptrAs<WavefrontShadeRecord>();
+  fd.wavefrontStage = m_stage.ptrAs<WavefrontStage>();
 }
 
 void Wavefront::launchFrame(cudaStream_t stream,
@@ -107,13 +112,26 @@ void Wavefront::launchFrame(cudaStream_t stream,
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
 
-  // Host-driven cycle loop. Each wave: (1) regenerate assigns up to liveSlots
-  // samples to the pool; (2) a trace-only OptiX launch fills each slot's hit
-  // record — no shading in the pipeline; (3) a CUDA shade stage reads the hit
-  // records and accumulates. Waves repeat until the sample budget is spent.
+  // Persistent host sources for the stage selector (async copies read them after
+  // launchFrame returns, so they must outlive it).
+  static const WavefrontStage kStageTrace = WavefrontStage::Trace;
+  static const WavefrontStage kStageShadow = WavefrontStage::Shadow;
+  void *stageDev = m_stage.ptr();
+  const auto setStage = [&](const WavefrontStage &s) {
+    cudaMemcpyAsync(
+        stageDev, &s, sizeof(WavefrontStage), cudaMemcpyHostToDevice, stream);
+  };
+
+  // Host-driven wavefront cycle. Each wave: regenerate assigns samples to the
+  // pool; a trace-only OptiX launch fills hit records; the CUDA shade-emit stage
+  // evaluates surfaces and emits shadow rays; a shadow OptiX launch (same
+  // pipeline, stage flag flipped) fills visibility; the CUDA resolve stage
+  // accumulates. Waves repeat until the sample budget is spent.
   for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
     wavefrontRegenerate(
         stream, slots, waveBase, numPixels, totalSamples, liveSlots);
+
+    setStage(kStageTrace);
     OPTIX_CHECK(optixLaunch(pipeline(),
         stream,
         frameData,
@@ -122,7 +140,20 @@ void Wavefront::launchFrame(cudaStream_t stream,
         liveSlots,
         1,
         1));
-    wavefrontShade(stream, frameDataPtr, liveSlots);
+
+    wavefrontShadeEmit(stream, frameDataPtr, liveSlots);
+
+    setStage(kStageShadow);
+    OPTIX_CHECK(optixLaunch(pipeline(),
+        stream,
+        frameData,
+        frameDataSize,
+        sbt(),
+        liveSlots,
+        1,
+        1));
+
+    wavefrontResolve(stream, frameDataPtr, liveSlots);
   }
 }
 
