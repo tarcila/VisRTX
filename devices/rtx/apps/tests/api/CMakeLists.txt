@@ -88,6 +88,7 @@ if (VISRTX_ENABLE_MDL_SUPPORT)
   make_test(TestMdlPipelineRebuild)
   make_test(TestMdlMaterialRegistryRelease)
   make_test(TestMdlConcurrentCompile)
+  make_test(TestMdlCompileBenchmark)
   make_test(TestMdlPtxFingerprint)
   make_test(TestEmissiveMaterialParity)
   # Silent-miscompile gate (ADR 0009): the same scene must produce byte-identical
