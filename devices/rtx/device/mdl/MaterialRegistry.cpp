@@ -147,7 +147,8 @@ bool MaterialRegistry::preloadModule(
 std::optional<MaterialRegistry::CompileProduct>
 MaterialRegistry::compileMaterial(const std::string &moduleOrSource,
     const std::string &materialName,
-    bool fromCode)
+    bool fromCode,
+    MdlCompileCoordinator *coordinator)
 {
   using mi::base::make_handle;
 
@@ -270,8 +271,13 @@ MaterialRegistry::compileMaterial(const std::string &moduleOrSource,
           moduleOwner.empty() ? std::string(moduleName) : moduleOwner;
       const char *moduleFile = module->get_filename();
       auto url = std::string(targetCode->get_texture_url(i));
-      url = m_core->resolveResource(
-          url.c_str(), ownerName, moduleFile ? moduleFile : "");
+      // The entity resolver is shared, so serialize resolution on the
+      // coordinator when this runs on a worker (inline on the coordinator).
+      auto resolve = [&] {
+        return m_core->resolveResource(
+            url.c_str(), ownerName, moduleFile ? moduleFile : "");
+      };
+      url = coordinator ? coordinator->run(resolve) : resolve();
       if (url.empty()) {
         m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
             "Failed to resolve texture resource {} for material {}",
@@ -393,7 +399,7 @@ MaterialRegistry::acquireMaterial(
     return *cached;
   if (!preloadModule(module, /*fromCode=*/false))
     return {};
-  auto product = compileMaterial(module, material, /*fromCode=*/false);
+  auto product = compileMaterial(module, material, /*fromCode=*/false, nullptr);
   if (!product)
     return {};
   return insertCompiled(fullMaterialName, std::move(*product));
@@ -414,7 +420,7 @@ MaterialRegistry::acquireMaterialFromCode(
     return *cached;
   if (!preloadModule(src, /*fromCode=*/true))
     return {};
-  auto product = compileMaterial(src, material, /*fromCode=*/true);
+  auto product = compileMaterial(src, material, /*fromCode=*/true, nullptr);
   if (!product)
     return {};
   return insertCompiled(fullMaterialName, std::move(*product));
@@ -445,7 +451,7 @@ MaterialRegistry::acquireMaterialAsync(MdlCompileCoordinator &coordinator,
     if (!coordinator.run(
             [&] { return preloadModule(moduleOrSource, fromCode); }))
       return {};
-    auto product = compileMaterial(moduleOrSource, materialName, fromCode);
+    auto product = compileMaterial(moduleOrSource, materialName, fromCode, &coordinator);
     if (!product)
       return {};
     return coordinator.run([&] {
