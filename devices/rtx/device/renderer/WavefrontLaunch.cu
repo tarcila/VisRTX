@@ -35,6 +35,7 @@
 #include "gpu/gpu_objects.h" // FrameGPUData, WavefrontHitRecord, MaterialGPUData
 #include "gpu/gpu_util.h" // accumPixelSample, setPixelIds
 #include "gpu/renderer/common.h" // getBackgroundLight
+#include "gpu/sampleLight.h" // sampleLight, LightSample
 
 namespace visrtx {
 
@@ -100,13 +101,41 @@ __device__ BuiltinAppearance evalBuiltinAppearance(
   return a;
 }
 
-// Direct-visibility shade: albedo lit by the renderer's ambient term plus the
-// material's own emission. The |N.V| factor is a stand-in that gives shape
-// without a light in the scene; real direct lighting (NEE) and shadows arrive
-// with the shadow-loop and bounce tickets.
+// Sample one analytic light. Deliberately does NOT call the shared sampleLight()
+// dispatcher: its GEOMETRY branch reaches evaluateSurfaceEmission (an
+// optixDirectCall) which ptxas cannot resolve in a plain CUDA translation unit.
+// Dispatching only the analytic types here keeps the geometry path out of
+// codegen; Geometry Lights get their own emission-eval stage (ticket 09).
+__device__ LightSample sampleAnalyticLight(
+    const LightGPUData &ld, const mat4 &xfm, const vec3 &origin, RandState &rs)
+{
+  switch (ld.type) {
+  case LightType::DIRECTIONAL:
+    return detail::sampleDirectionalLight(ld, xfm);
+  case LightType::POINT:
+    return detail::samplePointLight(ld, xfm, origin);
+  case LightType::SPHERE:
+    return detail::sampleSphereLight(ld, xfm, origin, rs);
+  case LightType::RECT:
+    return detail::sampleRectLight(ld, xfm, origin, rs);
+  case LightType::SPOT:
+    return detail::sampleSpotLight(ld, xfm, origin);
+  case LightType::RING:
+    return detail::sampleRingLight(ld, xfm, origin, rs);
+  case LightType::HDRI:
+    return detail::sampleHDRILight(ld, xfm, rs);
+  default: // GEOMETRY and anything else: not handled on the static path yet
+    return LightSample{vec3(0.f), vec3(0.f), 0.f, 0.f};
+  }
+}
+
+// Direct-visibility shade: Lambertian diffuse response to the scene's analytic
+// lights (next-event estimation) plus the renderer's ambient term and the
+// material's own emission. Lighting is UNSHADOWED for now — the wavefront shadow
+// trace stage adds occlusion next. Geometry Lights are skipped (see above).
 __device__ vec3 shadeHitStatic(const FrameGPUData &fd,
     const SurfaceHit &hit,
-    const vec3 &rayDir,
+    ScreenSample &ss,
     vec3 &albedoOut,
     vec3 &normalOut,
     float &opacityOut)
@@ -118,14 +147,26 @@ __device__ vec3 shadeHitStatic(const FrameGPUData &fd,
   if (!(glm::dot(shadingNormal, shadingNormal) > 1e-12f))
     shadingNormal = hit.Ng;
 
-  const float ndotv = glm::abs(glm::dot(rayDir, shadingNormal));
-  const vec3 lit = a.baseColor * (ndotv * fd.renderer.ambientIntensity)
-      * fd.renderer.ambientColor;
+  const vec3 origin = hit.hitpoint + hit.Ng * hit.epsilon;
+  vec3 direct(0.f);
+  for (size_t k = 0; k < fd.world.numLightInstances; ++k) {
+    const InstanceLightGPUData &li = fd.world.lightInstances[k];
+    const LightGPUData &ld = fd.registry.lights[li.lightIndex];
+    const LightSample ls = sampleAnalyticLight(ld, li.xfm, origin, ss.rs);
+    if (ls.pdf > 0.f && ls.dist > 0.f) {
+      // Lambertian diffuse, VisRTX's albedo*E convention (no 1/pi).
+      const float ndotl = fmaxf(0.f, glm::dot(shadingNormal, ls.dir));
+      direct += a.baseColor * ndotl * ls.radiance / ls.pdf;
+    }
+  }
+
+  const vec3 ambient =
+      a.baseColor * fd.renderer.ambientIntensity * fd.renderer.ambientColor;
 
   albedoOut = a.baseColor * a.opacity;
   normalOut = shadingNormal;
   opacityOut = a.opacity;
-  return lit * a.opacity + a.emission;
+  return (direct + ambient) * a.opacity + a.emission;
 }
 
 // Atomic scatter-add accumulation for concurrent same-pixel deposits (multiple
@@ -194,7 +235,12 @@ __global__ void wavefrontShadeKernel(const FrameGPUData *fd, uint32_t liveSlots)
   uint32_t instID = ~0u;
 
   if (rec.hit.foundHit) {
-    color = shadeHitStatic(*fd, rec.hit, rec.rayDir, albedo, normal, opacity);
+    ScreenSample ss;
+    ss.pixel = pixel;
+    ss.rs = rec.rng;
+    ss.frameData = fd;
+    ss.shadowContribWeight = 1.0f;
+    color = shadeHitStatic(*fd, rec.hit, ss, albedo, normal, opacity);
     depth = rec.hit.t;
     primID = rec.hit.primID;
     objID = rec.hit.objID;

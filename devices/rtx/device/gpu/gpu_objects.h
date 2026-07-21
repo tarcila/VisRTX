@@ -989,6 +989,7 @@ struct WavefrontHitRecord
 {
   SurfaceHit hit;
   glm::vec3 rayDir;
+  RandState rng; // per-sample RNG stream, seeded by the trace stage for shading
 };
 
 struct FrameGPUData
