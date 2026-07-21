@@ -156,6 +156,9 @@ VISRTX_GLOBAL void __raygen__()
       &rec.hit,
       primaryRayOptiXFlags(frameData.renderer));
   rec.rayDir = ray.dir;
+  // Hand the sample's RNG stream to the shade stage (makePrimaryRay used Halton,
+  // not ss.rs, so this is the fresh per-sample seed) for light sampling.
+  rec.rng = ss.rs;
 }
 
 } // namespace visrtx
