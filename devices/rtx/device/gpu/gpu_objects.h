@@ -989,7 +989,6 @@ struct WavefrontHitRecord
 {
   SurfaceHit hit;
   glm::vec3 rayDir;
-  RandState rng; // per-sample RNG stream, seeded by the trace stage for shading
 };
 
 // Deferred shading state for one pool slot. The shade-emit stage fills it (the
@@ -1015,11 +1014,32 @@ struct WavefrontShadeRecord
   uint32_t hasHit; // 1 surface hit (shade), 0 miss (background in `unshadowed`)
 };
 
+// Per-path state carried across bounces within one wave: the running throughput
+// (product of BSDF weights), the ray for the current bounce, the path RNG, and
+// whether the path is still active. Camera samples start fresh each wave; the
+// path is traced to the renderer's max depth by the host bounce loop.
+struct WavefrontPathState
+{
+  glm::vec3 throughput;
+  glm::vec3 nextOrg;
+  glm::vec3 nextDir;
+  RandState rng;
+  uint32_t alive;
+};
+
 // Which launch the shared wavefront raygen should perform this pass.
 enum class WavefrontStage : uint32_t
 {
-  Trace = 0, // primary rays -> hit records
+  Trace = 0, // primary/continuation rays -> hit records
   Shadow = 1, // shadow rays -> visibility
+};
+
+// Patched into the launch params before each optixLaunch to steer the shared
+// raygen: the stage and, for a trace, the current bounce (0 = camera ray).
+struct WavefrontLaunchInfo
+{
+  WavefrontStage stage;
+  uint32_t bounce;
 };
 
 struct FrameGPUData
@@ -1051,7 +1071,8 @@ struct FrameGPUData
   const WavefrontPathSlot *wavefrontSlots;
   WavefrontHitRecord *wavefrontHits;
   WavefrontShadeRecord *wavefrontShade;
-  const WavefrontStage *wavefrontStage; // selects trace vs shadow in the raygen
+  WavefrontPathState *wavefrontPaths; // per-path throughput / continuation ray
+  const WavefrontLaunchInfo *wavefrontLaunch; // stage + bounce for the raygen
 };
 
 ///////////////////////////////////////////////////////////////////////////////

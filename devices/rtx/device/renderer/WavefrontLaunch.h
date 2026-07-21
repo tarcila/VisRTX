@@ -67,9 +67,13 @@ void wavefrontRegenerate(cudaStream_t stream,
 void wavefrontShadeEmit(
     cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots);
 
-// Resolve stage: combine the deferred shade record with the shadow-ray
-// visibility and accumulate the sample into the framebuffer.
-void wavefrontResolve(
-    cudaStream_t stream, const FrameGPUData *frameData, uint32_t liveSlots);
+// Resolve stage: deposit this bounce's throughput-weighted radiance (with the
+// shadow-ray visibility) and, unless the path terminates (miss / max depth /
+// throughput collapse), sample a diffuse continuation ray for the next bounce.
+void wavefrontResolve(cudaStream_t stream,
+    const FrameGPUData *frameData,
+    uint32_t liveSlots,
+    uint32_t bounce,
+    uint32_t maxDepth);
 
 } // namespace visrtx

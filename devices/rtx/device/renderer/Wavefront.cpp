@@ -58,6 +58,7 @@ void Wavefront::commitParameters()
   // renders at 1 spp instead of just being ignored.
   m_checkerboard = false;
   m_spp = std::max(1, getParam<int>("pixelSamples", 1));
+  m_maxDepth = std::max(1, getParam<int>("maxDepth", 4));
 }
 
 void Wavefront::ensurePool() const
@@ -69,7 +70,9 @@ void Wavefront::ensurePool() const
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontHitRecord));
   m_poolShade.reserve(
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontShadeRecord));
-  m_stage.reserve(sizeof(WavefrontStage));
+  m_poolPaths.reserve(
+      size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathState));
+  m_launch.reserve(sizeof(WavefrontLaunchInfo));
 }
 
 void Wavefront::populateFrameData(FrameGPUData &fd) const
@@ -79,7 +82,8 @@ void Wavefront::populateFrameData(FrameGPUData &fd) const
   fd.wavefrontSlots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   fd.wavefrontHits = m_poolHits.ptrAs<WavefrontHitRecord>();
   fd.wavefrontShade = m_poolShade.ptrAs<WavefrontShadeRecord>();
-  fd.wavefrontStage = m_stage.ptrAs<WavefrontStage>();
+  fd.wavefrontPaths = m_poolPaths.ptrAs<WavefrontPathState>();
+  fd.wavefrontLaunch = m_launch.ptrAs<WavefrontLaunchInfo>();
 }
 
 void Wavefront::launchFrame(cudaStream_t stream,
@@ -112,48 +116,68 @@ void Wavefront::launchFrame(cudaStream_t stream,
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
 
-  // Persistent host sources for the stage selector (async copies read them after
-  // launchFrame returns, so they must outlive it).
-  static const WavefrontStage kStageTrace = WavefrontStage::Trace;
-  static const WavefrontStage kStageShadow = WavefrontStage::Shadow;
-  void *stageDev = m_stage.ptr();
-  const auto setStage = [&](const WavefrontStage &s) {
-    cudaMemcpyAsync(
-        stageDev, &s, sizeof(WavefrontStage), cudaMemcpyHostToDevice, stream);
+  // Persistent, write-once host sources for the (stage, bounce) launch selector.
+  // The async copies read them after launchFrame returns, so they must outlive
+  // it — a program-lifetime table indexed by (bounce, stage) provides a stable
+  // address per distinct value.
+  static constexpr uint32_t kMaxBounceTable = 64;
+  static WavefrontLaunchInfo sLaunchTable[kMaxBounceTable][2];
+  static const bool sLaunchTableInit = [] {
+    for (uint32_t b = 0; b < kMaxBounceTable; ++b) {
+      sLaunchTable[b][0] = {WavefrontStage::Trace, b};
+      sLaunchTable[b][1] = {WavefrontStage::Shadow, b};
+    }
+    return true;
+  }();
+  (void)sLaunchTableInit;
+
+  void *launchDev = m_launch.ptr();
+  const auto setLaunch = [&](WavefrontStage stage, uint32_t bounce) {
+    cudaMemcpyAsync(launchDev,
+        &sLaunchTable[bounce][uint32_t(stage)],
+        sizeof(WavefrontLaunchInfo),
+        cudaMemcpyHostToDevice,
+        stream);
   };
 
-  // Host-driven wavefront cycle. Each wave: regenerate assigns samples to the
-  // pool; a trace-only OptiX launch fills hit records; the CUDA shade-emit stage
-  // evaluates surfaces and emits shadow rays; a shadow OptiX launch (same
-  // pipeline, stage flag flipped) fills visibility; the CUDA resolve stage
-  // accumulates. Waves repeat until the sample budget is spent.
+  const uint32_t maxDepth =
+      uint32_t(std::min<int>(std::max(1, m_maxDepth), int(kMaxBounceTable)));
+
+  // Host-driven wavefront cycle. Each wave regenerates a batch of camera
+  // samples, then traces each sample's path to maxDepth: per bounce, a trace
+  // launch fills hit records, the CUDA shade-emit stage evaluates surfaces and
+  // emits shadow rays, a shadow launch (same pipeline, stage flag flipped) fills
+  // visibility, and the CUDA resolve stage deposits the bounce's contribution
+  // and spawns the continuation ray. Waves repeat until the budget is spent.
   for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
     wavefrontRegenerate(
         stream, slots, waveBase, numPixels, totalSamples, liveSlots);
 
-    setStage(kStageTrace);
-    OPTIX_CHECK(optixLaunch(pipeline(),
-        stream,
-        frameData,
-        frameDataSize,
-        sbt(),
-        liveSlots,
-        1,
-        1));
+    for (uint32_t bounce = 0; bounce < maxDepth; ++bounce) {
+      setLaunch(WavefrontStage::Trace, bounce);
+      OPTIX_CHECK(optixLaunch(pipeline(),
+          stream,
+          frameData,
+          frameDataSize,
+          sbt(),
+          liveSlots,
+          1,
+          1));
 
-    wavefrontShadeEmit(stream, frameDataPtr, liveSlots);
+      wavefrontShadeEmit(stream, frameDataPtr, liveSlots);
 
-    setStage(kStageShadow);
-    OPTIX_CHECK(optixLaunch(pipeline(),
-        stream,
-        frameData,
-        frameDataSize,
-        sbt(),
-        liveSlots,
-        1,
-        1));
+      setLaunch(WavefrontStage::Shadow, bounce);
+      OPTIX_CHECK(optixLaunch(pipeline(),
+          stream,
+          frameData,
+          frameDataSize,
+          sbt(),
+          liveSlots,
+          1,
+          1));
 
-    wavefrontResolve(stream, frameDataPtr, liveSlots);
+      wavefrontResolve(stream, frameDataPtr, liveSlots, bounce, maxDepth);
+    }
   }
 }
 

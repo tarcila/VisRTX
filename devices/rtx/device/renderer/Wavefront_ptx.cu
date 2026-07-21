@@ -126,24 +126,43 @@ VISRTX_GLOBAL void __miss__()
   // no-op
 }
 
-// Primary trace: cast the slot's camera ray, intersect, write the hit record
-// for the CUDA shade stage. No shading callables run here — the trace/shade
-// split is the whole point.
-VISRTX_DEVICE void traceStage(uint32_t slotIdx, const WavefrontPathSlot &slot)
+// Trace: bounce 0 generates the camera ray and initializes the path; later
+// bounces trace the continuation ray the resolve stage stored. Writes the hit
+// record for the CUDA shade stage. No shading callables run here.
+VISRTX_DEVICE void traceStage(
+    uint32_t slotIdx, const WavefrontPathSlot &slot, uint32_t bounce)
 {
-  // The camera QMC (Halton) index must be the sample's ordinal across the whole
-  // accumulation, not just within this launchFrame: frameID advances by spp per
-  // launch (Frame.cu), so the accumulated index is frameID + the per-pixel
-  // ordinal. Feeding only slot.sampleIdx (0..spp-1) would replay the identical
-  // sub-pixel/lens samples every progressive frame and never converge AA/DoF.
-  const uint32_t cameraSampleIdx = uint32_t(frameData.fb.frameID) + slot.sampleIdx;
-  ScreenSample ss = poolScreenSample(frameData, slot.pixel, cameraSampleIdx);
-  const bool isVeryFirstRay =
-      slot.sampleIdx == 0 && frameData.fb.frameID == 0;
-  Ray ray = makePrimaryRay(ss, cameraSampleIdx, isVeryFirstRay);
-  applyCuttingPlane(frameData.renderer.cutPlane, ray);
+  WavefrontPathState &path = frameData.wavefrontPaths[slotIdx];
+
+  if (bounce == 0) {
+    // The camera QMC (Halton) index must be the sample's ordinal across the
+    // whole accumulation: frameID advances by spp per launch (Frame.cu), so the
+    // accumulated index is frameID + the per-pixel ordinal. Using only
+    // slot.sampleIdx (0..spp-1) would replay identical samples every frame.
+    const uint32_t cameraSampleIdx =
+        uint32_t(frameData.fb.frameID) + slot.sampleIdx;
+    ScreenSample ss = poolScreenSample(frameData, slot.pixel, cameraSampleIdx);
+    const bool isVeryFirstRay = slot.sampleIdx == 0 && frameData.fb.frameID == 0;
+    Ray ray = makePrimaryRay(ss, cameraSampleIdx, isVeryFirstRay);
+    applyCuttingPlane(frameData.renderer.cutPlane, ray);
+
+    path.throughput = vec3(1.0f);
+    path.alive = 1;
+    path.rng = ss.rs; // makePrimaryRay used Halton, not ss.rs — fresh seed
+    path.nextOrg = ray.org;
+    path.nextDir = ray.dir;
+  }
 
   WavefrontHitRecord &rec = frameData.wavefrontHits[slotIdx];
+  if (!path.alive) {
+    rec.hit.foundHit = false;
+    return;
+  }
+
+  ScreenSample ss;
+  ss.frameData = &frameData;
+  ss.shadowContribWeight = 1.0f;
+  Ray ray{path.nextOrg, path.nextDir};
   rec.hit.foundHit = false;
   intersectSurface(ss,
       ray,
@@ -151,9 +170,6 @@ VISRTX_DEVICE void traceStage(uint32_t slotIdx, const WavefrontPathSlot &slot)
       &rec.hit,
       primaryRayOptiXFlags(frameData.renderer));
   rec.rayDir = ray.dir;
-  // Hand the sample's RNG stream to the shade stage (makePrimaryRay used Halton,
-  // not ss.rs, so this is the fresh per-sample seed) for light sampling.
-  rec.rng = ss.rs;
 }
 
 // Shadow trace: trace the shade stage's shadow ray toward the picked light and
@@ -187,8 +203,9 @@ VISRTX_GLOBAL void __raygen__()
   if (!slot.alive)
     return;
 
-  if (*frameData.wavefrontStage == WavefrontStage::Trace)
-    traceStage(slotIdx, slot);
+  const WavefrontLaunchInfo info = *frameData.wavefrontLaunch;
+  if (info.stage == WavefrontStage::Trace)
+    traceStage(slotIdx, slot, info.bounce);
   else
     shadowStage(slotIdx);
 }
