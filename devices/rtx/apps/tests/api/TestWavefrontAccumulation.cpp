@@ -45,6 +45,7 @@
 // VisRTX
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
 // std
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -201,6 +202,44 @@ int main()
         "pool is not accumulating distinct samples across waves\n",
         kSpp,
         100.0 * changedFraction);
+    status = 1;
+  }
+
+  // Atomic accumulation guard. At kSpp the pool runs ~kSpp samples of each pixel
+  // concurrently in one wave (65536 px x 16 = the 2^20 pool capacity), so this
+  // exercises the atomic scatter-add. Averaging is unbiased, so the mean lit
+  // brightness must match the 1-sample render within noise — a race that
+  // DROPPED samples would divide the same divisor into fewer deposits and
+  // darken the many-sample image.
+  auto meanLitLuminance = [](const std::vector<uint32_t> &img) {
+    double sum = 0.0;
+    size_t n = 0;
+    for (uint32_t px : img) {
+      if ((px & 0x00ffffffu) == 0)
+        continue;
+      const double r = px & 0xff, g = (px >> 8) & 0xff, b = (px >> 16) & 0xff;
+      sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      ++n;
+    }
+    return n ? sum / double(n) : 0.0;
+  };
+  const double mean1 = meanLitLuminance(oneSample);
+  const double meanN = meanLitLuminance(manySamples);
+  const double meanDrift = mean1 > 0.0 ? std::fabs(meanN - mean1) / mean1 : 1.0;
+  printf("wavefront accumulation: mean lit luminance %.2f (1 spp) vs %.2f (%d "
+         "spp), drift %.1f%%\n",
+      mean1,
+      meanN,
+      kSpp,
+      100.0 * meanDrift);
+  // 3% cleanly separates the correct atomic path (~0.8% drift, Monte Carlo
+  // noise between the 1-spp and N-spp means) from a non-atomic scatter-add,
+  // which loses ~6% of the deposits to read-modify-write races here.
+  if (meanDrift > 0.03) {
+    fprintf(stderr,
+        "FAIL: mean brightness drifted %.1f%% under concurrent accumulation — "
+        "atomic scatter-add is losing samples\n",
+        100.0 * meanDrift);
     status = 1;
   }
 

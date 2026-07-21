@@ -89,11 +89,21 @@ void Wavefront::launchFrame(cudaStream_t stream,
     return;
 
   const uint32_t samplesPerPixel = uint32_t(std::max(spp(), 1));
-  const uint32_t liveSlots = std::min(kWavefrontPoolCapacity, numPixels);
   // 64-bit: numPixels * spp overflows uint32 for large frames (8K x high spp),
   // and a uint32 waveBase would wrap past 2^32 mid-loop and re-enter at 0 —
   // an infinite host loop, not merely truncated sampling.
   const uint64_t totalSamples = uint64_t(numPixels) * samplesPerPixel;
+
+  // The atomic shade path lets a wave run several samples of one pixel
+  // concurrently, so the pool can use its full capacity. CLAMP/TRIM keep
+  // per-pixel running statistics that scatter-add would corrupt, so they stay
+  // capped to one slot per pixel per wave (distinct pixels, no concurrency).
+  const bool atomicSafe = m_fireflyFilterMode == FireflyFilterMode::NONE
+      || m_fireflyFilterMode == FireflyFilterMode::TONEMAP;
+  const uint32_t cap = atomicSafe ? kWavefrontPoolCapacity
+                                  : std::min(kWavefrontPoolCapacity, numPixels);
+  const uint32_t liveSlots =
+      uint32_t(std::min<uint64_t>(cap, totalSamples));
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
 

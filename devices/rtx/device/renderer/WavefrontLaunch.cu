@@ -128,6 +128,48 @@ __device__ vec3 shadeHitStatic(const FrameGPUData &fd,
   return lit * a.opacity + a.emission;
 }
 
+// Atomic scatter-add accumulation for concurrent same-pixel deposits (multiple
+// pool slots of one pixel shading in the same wave). Only the per-sample
+// firefly modes are handled here: NONE and TONEMAP have no per-pixel state, so
+// atomicAdd composes correctly. CLAMP/TRIM keep per-pixel running statistics
+// (Welford / top-k) that a scatter-add would corrupt, so for those modes the
+// host keeps the pool capped to one slot per pixel per wave and the shade stage
+// uses the ordinary accumPixelSample instead.
+__device__ void accumPixelSampleAtomic(const FrameGPUData &fd,
+    const uvec2 &pixel,
+    const vec4 &color,
+    const vec3 &albedo,
+    const vec3 &normal)
+{
+  const auto &fb = fd.fb;
+  const uint32_t idx = detail::pixelIndex(fb, pixel);
+
+  const vec4 c = fd.renderer.fireflyFilterMode == FireflyFilterMode::TONEMAP
+      ? detail::tonemap(color)
+      : color;
+
+  vec4 *ca = fb.buffers.colorAccumulation;
+  atomicAdd(&ca[idx].x, c.x);
+  atomicAdd(&ca[idx].y, c.y);
+  atomicAdd(&ca[idx].z, c.z);
+  atomicAdd(&ca[idx].w, c.w);
+  if (fb.buffers.albedo) {
+    atomicAdd(&fb.buffers.albedo[idx].x, albedo.x);
+    atomicAdd(&fb.buffers.albedo[idx].y, albedo.y);
+    atomicAdd(&fb.buffers.albedo[idx].z, albedo.z);
+  }
+  if (fb.buffers.normal) {
+    atomicAdd(&fb.buffers.normal[idx].x, normal.x);
+    atomicAdd(&fb.buffers.normal[idx].y, normal.y);
+    atomicAdd(&fb.buffers.normal[idx].z, normal.z);
+  }
+}
+
+__device__ bool fireflyModeIsAtomicSafe(FireflyFilterMode mode)
+{
+  return mode == FireflyFilterMode::NONE || mode == FireflyFilterMode::TONEMAP;
+}
+
 __global__ void wavefrontShadeKernel(const FrameGPUData *fd, uint32_t liveSlots)
 {
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -162,9 +204,19 @@ __global__ void wavefrontShadeKernel(const FrameGPUData *fd, uint32_t liveSlots)
     opacity = 1.f;
   }
 
+  // First-hit AOVs (ids, depth) are written by exactly one slot per pixel — the
+  // frame's first sample — so no atomics are needed even under concurrency.
   if (isVeryFirstRay)
     setPixelIds(fd->fb, pixel, depth, primID, objID, instID);
-  accumPixelSample(*fd, pixel, vec4(color, opacity), albedo, normal);
+
+  // Atomic scatter-add when the pool may run several samples of this pixel
+  // concurrently (the host only lifts the one-slot-per-pixel cap for the
+  // atomic-safe firefly modes); otherwise the ordinary accumulate is fine and
+  // keeps CLAMP/TRIM working.
+  if (fireflyModeIsAtomicSafe(fd->renderer.fireflyFilterMode))
+    accumPixelSampleAtomic(*fd, pixel, vec4(color, opacity), albedo, normal);
+  else
+    accumPixelSample(*fd, pixel, vec4(color, opacity), albedo, normal);
 }
 
 } // namespace
