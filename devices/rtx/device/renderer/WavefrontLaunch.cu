@@ -31,6 +31,14 @@
 
 #include "WavefrontLaunch.h"
 
+// The wavefront shade stage runs in plain CUDA and cannot dispatch the material
+// emission callable, so Geometry-Light NEE uses the light's mean radiance
+// (exact for constant emitters). This keeps sampleLight()'s GEOMETRY branch out
+// of ptxas codegen; without it the optixDirectCall is an unresolved symbol. Must
+// be defined before ANY include, since sampleLight.h is also pulled transitively
+// (with #pragma once, a later define would be too late).
+#define VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION
+
 #include "gpu/evalMaterialParameters.h" // getMaterialParameter, adjustedMaterialOpacity
 #include "gpu/gpu_objects.h" // FrameGPUData, WavefrontHitRecord, MaterialGPUData
 #include "gpu/gpu_util.h" // accumPixelSample, setPixelIds
@@ -101,33 +109,6 @@ __device__ BuiltinAppearance evalBuiltinAppearance(
   return a;
 }
 
-// Sample one analytic light. Deliberately does NOT call the shared sampleLight()
-// dispatcher: its GEOMETRY branch reaches evaluateSurfaceEmission (an
-// optixDirectCall) which ptxas cannot resolve in a plain CUDA translation unit.
-// Dispatching only the analytic types here keeps the geometry path out of
-// codegen; Geometry Lights get their own emission-eval stage (ticket 09).
-__device__ LightSample sampleAnalyticLight(
-    const LightGPUData &ld, const mat4 &xfm, const vec3 &origin, RandState &rs)
-{
-  switch (ld.type) {
-  case LightType::DIRECTIONAL:
-    return detail::sampleDirectionalLight(ld, xfm);
-  case LightType::POINT:
-    return detail::samplePointLight(ld, xfm, origin);
-  case LightType::SPHERE:
-    return detail::sampleSphereLight(ld, xfm, origin, rs);
-  case LightType::RECT:
-    return detail::sampleRectLight(ld, xfm, origin, rs);
-  case LightType::SPOT:
-    return detail::sampleSpotLight(ld, xfm, origin);
-  case LightType::RING:
-    return detail::sampleRingLight(ld, xfm, origin, rs);
-  case LightType::HDRI:
-    return detail::sampleHDRILight(ld, xfm, rs);
-  default: // GEOMETRY and anything else: not handled on the static path yet
-    return LightSample{vec3(0.f), vec3(0.f), 0.f, 0.f};
-  }
-}
 
 // Shade-emit: evaluate the surface, pick ONE light for next-event estimation,
 // and stash the deferred shading state — the unshadowed part (ambient +
@@ -197,14 +178,20 @@ __global__ void wavefrontShadeEmitKernel(
   if (n == 0)
     return;
 
-  RandState rng = path.rng;
-  uint32_t k = uint32_t(pcg_uniform(&rng) * float(n));
+  // sampleLight() handles every light type, including Geometry Lights (their
+  // emission is read as the light's mean radiance here — see the
+  // VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION note above).
+  ScreenSample ss;
+  ss.frameData = fd;
+  ss.rs = path.rng;
+  ss.shadowContribWeight = 1.0f;
+  uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
   if (k >= n)
     k = n - 1u;
   const InstanceLightGPUData &li = fd->world.lightInstances[k];
-  const LightGPUData &ld = fd->registry.lights[li.lightIndex];
-  const LightSample ls = sampleAnalyticLight(ld, li.xfm, sr.shadowOrg, rng);
-  path.rng = rng; // the light pick + sample consumed the path RNG
+  const LightSample ls = sampleLight(
+      ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+  path.rng = ss.rs; // the light pick + sample consumed the path RNG
   if (ls.pdf > 0.f && ls.dist > 0.f) {
     const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
     // Uniform pick over n lights has probability 1/n, so reweight by n.
