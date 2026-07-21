@@ -33,6 +33,7 @@
 
 #include "gpu/gpu_math.h"
 #include "gpu/sbt.h"
+#include "gpu/wavefrontPool.h"
 
 // optix
 #include <optix.h>
@@ -1000,6 +1001,12 @@ struct FrameGPUData
     const SpatialFieldGPUData *fields;
     const VolumeGPUData *volumes;
   } registry;
+
+  // Wavefront renderer Path Pool. Set only by the wavefront renderer (which is
+  // the sole reader, in its trace launch); left unset by every other renderer.
+  // No default member initializer: FrameGPUData lives in __constant__ memory,
+  // which forbids dynamic initialization.
+  const WavefrontPathSlot *wavefrontSlots;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

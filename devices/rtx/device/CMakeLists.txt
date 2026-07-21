@@ -172,6 +172,8 @@ set(SOURCES
   renderer/Renderer.cpp
   renderer/Test.cpp
   renderer/UnknownRenderer.cpp
+  renderer/Wavefront.cpp
+  renderer/WavefrontLaunch.cu
 
   sampler/CompressedImage2D.cpp
   sampler/Image1D.cpp
@@ -393,6 +395,7 @@ GenerateEmbeddedPTX(renderer Debug)
 GenerateEmbeddedPTX(renderer Interactive)
 GenerateEmbeddedPTX(renderer Quality)
 GenerateEmbeddedPTX(renderer Test)
+GenerateEmbeddedPTX(renderer Wavefront)
 GenerateEmbeddedPTX(geometry Intersectors)
 GenerateEmbeddedPTX(material/shaders MatteShader ENTRIES __direct__callable__evalSurfaceMaterial)
 GenerateEmbeddedPTX(material/shaders PhysicallyBasedShader ENTRIES __direct__callable__evalSurfaceMaterial)
