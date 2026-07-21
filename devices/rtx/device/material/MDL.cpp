@@ -463,6 +463,11 @@ void MDL::syncSource()
 
   clearSamplers();
 
+  // Decode this material's texture files in parallel (one material can reference
+  // many) before creating the samplers serially below.
+  samplerRegistry.stageDecodeBatch(
+      coordinator, argumentBlockDescriptor.m_defaultAndBodyTextureDescriptors);
+
   for (auto textureDesc :
       argumentBlockDescriptor.m_defaultAndBodyTextureDescriptors) {
     auto sampler = samplerRegistry.acquireSampler(textureDesc);
