@@ -91,7 +91,7 @@ find_package(glm MODULE REQUIRED)
 
 ## Get OptiX headers ##
 
-set(OPTIX_FETCH_VERSION "7.7" CACHE STRING "Version of OptiX to get")
+set(OPTIX_FETCH_VERSION "9.0" CACHE STRING "Version of OptiX to get")
 set_property(CACHE OPTIX_FETCH_VERSION
   PROPERTY STRINGS "7.7" "8.0" "8.1" "9.0")
 
