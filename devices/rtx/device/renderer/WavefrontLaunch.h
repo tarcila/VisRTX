@@ -78,18 +78,18 @@ void wavefrontResolve(cudaStream_t stream,
 
 // MDL material-sorted compaction: partition the live pool's MDL hits into a
 // packed slot-index array grouped by compiled material. `baseIndices[0..M)` is
-// each material's callableBaseIndex (the partition key); the pass writes per-
-// material `counts` and exclusive-prefix-sum `offsets`, and scatters matching
-// slot indices into `packed` at `offsets[bucket]`. `cursor` is M scratch words.
-// All outputs live on the device — the per-material shade launch reads its
-// count/offset from device memory, so no host readback / stream sync is needed.
+// each material's callableBaseIndex (the partition key). Single pass: each
+// material owns the fixed-stride region `packed[bucket * stride ..]`, and the
+// per-material atomic `cursor[bucket]` gives the append position AND is that
+// material's final slot count. All outputs live on the device — the
+// per-material shade launch reads its count from `cursor[bucket]`, so no host
+// readback / stream sync is needed. `cursor` is M words; `stride` >= liveSlots.
 void wavefrontMdlCompact(cudaStream_t stream,
     const FrameGPUData *frameData,
     const uint32_t *baseIndices,
     uint32_t numMaterials,
     uint32_t liveSlots,
-    uint32_t *counts,
-    uint32_t *offsets,
+    uint32_t stride,
     uint32_t *cursor,
     uint32_t *packed);
 

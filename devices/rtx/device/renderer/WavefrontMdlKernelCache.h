@@ -92,16 +92,16 @@ class WavefrontMdlKernelCache
 };
 
 // Launch a per-material MDL shade kernel over its compacted slot list.
-// `frameData` is the device FrameGPUData pointer; `packed` is the shared packed
-// slot-index array; `offset` / `count` point at this material's words in the
-// compaction output (read on-device, so no host readback). `gridUpperBound`
+// `frameData` is the device FrameGPUData pointer; `packed` points at this
+// material's fixed-stride region in the packed slot-index array; `count` is its
+// device-side slot count (read on-device, so no host readback).
+// `gridUpperBound`
 // (>= the material's slot count) sizes a conservative grid; threads past the
 // device-side count early-out. Enqueued on `stream`; false on a launch error.
 bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
     CUstream stream,
     CUdeviceptr frameData,
     CUdeviceptr packed,
-    CUdeviceptr offset,
     CUdeviceptr count,
     uint32_t gridUpperBound);
 
