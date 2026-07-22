@@ -79,7 +79,7 @@ void Wavefront::ensurePool() const
 }
 
 #ifdef USE_MDL
-void Wavefront::refreshMdlKernels() const
+void Wavefront::refreshMdlKernels(cudaStream_t stream) const
 {
   auto *state = deviceState();
   if (!state->mdl) {
@@ -91,6 +91,15 @@ void Wavefront::refreshMdlKernels() const
   const auto ts = registry.getLastUpdateTime();
   if (m_mdlKernelsBuilt && !(ts > m_lastMdlKernelUpdate))
     return;
+
+  // The rebuild below cuModuleUnloads the current kernels. A prior frame's
+  // shade launches on this stream may still reference them (a material commit
+  // bumps the timestamp between frames without draining the GPU), so finish
+  // that work before unloading. Only reached on a material-set change, so the
+  // sync is rare. First build (no prior kernels) has nothing in flight to wait
+  // on.
+  if (m_mdlKernelsBuilt)
+    cudaStreamSynchronize(stream);
 
   // Registry slot index i maps to callableBaseIndex = Last + i * Count (the
   // same layout the OptiX callable SBT uses), and getMaterialPtxBlobs()[i] is
@@ -149,7 +158,7 @@ void Wavefront::launchFrame(cudaStream_t stream,
 {
   ensurePool();
 #ifdef USE_MDL
-  refreshMdlKernels();
+  refreshMdlKernels(stream);
 #endif
 
   const uint32_t numPixels = launchSize.x * launchSize.y;

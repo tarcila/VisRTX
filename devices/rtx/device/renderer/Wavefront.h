@@ -71,7 +71,7 @@ struct Wavefront : public Renderer
   // registry's PTX blobs, keyed off its update timestamp (same signal the OptiX
   // pipeline rebuild uses). Full invalidate-and-rebuild on any change, so a
   // freed registry slot reused by a new material never resolves a stale kernel.
-  void refreshMdlKernels() const;
+  void refreshMdlKernels(cudaStream_t stream) const;
 
   mutable WavefrontMdlKernelCache m_mdlKernels;
   mutable helium::TimeStamp m_lastMdlKernelUpdate{};
