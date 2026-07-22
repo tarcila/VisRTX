@@ -75,8 +75,9 @@ __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
 
 // Statically-evaluated builtin surface appearance: base color, opacity and
 // emission read directly from the material data (no optixDirectCall). Covers
-// the native Matte and PhysicallyBased materials; MDL hits take the per-material
-// CUDA shade kernel instead (see isMdlMaterial / wavefrontMdlShade).
+// the native Matte and PhysicallyBased materials; MDL hits take the
+// per-material CUDA shade kernel instead (see isMdlMaterial /
+// wavefrontMdlShade).
 struct BuiltinAppearance
 {
   vec3 baseColor{0.8f};
@@ -145,6 +146,7 @@ __global__ void wavefrontShadeEmitKernel(
   sr.shadowDist = 0.f; // no shadow ray unless a light is picked
   sr.visibility = 1.f;
   sr.hasHit = rec.hit.foundHit ? 1u : 0u;
+  sr.hasSampledBounce = 0u; // builtin uses the diffuse fallback in resolve
 
   if (!rec.hit.foundHit) {
     vec3 hdri;
@@ -319,18 +321,24 @@ __global__ void wavefrontResolveKernel(const FrameGPUData *fd,
     wavefrontAccumulate(*fd, pixel, vec4(color, 0.f), vec3(0.f), vec3(0.f));
   }
 
-  // Continue the path with a cosine-weighted diffuse bounce, or terminate.
+  // Continue the path, or terminate.
   if (!sr.hasHit || bounce + 1u >= maxDepth) {
     path.alive = 0;
     return;
   }
-  RandState rng = path.rng;
-  const vec3 dir = sampleHemisphere(rng, sr.normal);
-  path.rng = rng;
-  // Cosine-weighted Lambertian: the cos/pdf and 1/pi fold to the albedo.
-  path.throughput *= sr.albedo;
+  if (sr.hasSampledBounce) {
+    // A per-material kernel (MDL) importance-sampled its own BSDF: take its
+    // direction and BSDF-over-pdf throughput factor directly.
+    path.throughput *= sr.bounceWeight;
+    path.nextDir = sr.bounceDir;
+  } else {
+    // Builtin cosine-weighted Lambertian: the cos/pdf and 1/pi fold to albedo.
+    RandState rng = path.rng;
+    path.nextDir = sampleHemisphere(rng, sr.normal);
+    path.rng = rng;
+    path.throughput *= sr.albedo;
+  }
   path.nextOrg = sr.shadowOrg; // offset hit point recorded by shade-emit
-  path.nextDir = dir;
   // Kill paths whose contribution can no longer matter.
   if (fmaxf(path.throughput.x, fmaxf(path.throughput.y, path.throughput.z))
       < 1.0e-4f)

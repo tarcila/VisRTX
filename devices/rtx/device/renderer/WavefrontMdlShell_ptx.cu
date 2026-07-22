@@ -68,11 +68,13 @@ using BsdfEvaluateData =
     mi::neuraylib::Bsdf_evaluate_data<mi::neuraylib::DF_HSM_NONE>;
 using BsdfAuxiliaryData =
     mi::neuraylib::Bsdf_auxiliary_data<mi::neuraylib::DF_HSM_NONE>;
+using BsdfSampleData = mi::neuraylib::Bsdf_sample_data;
 using EdfEvaluateData =
     mi::neuraylib::Edf_evaluate_data<mi::neuraylib::DF_HSM_NONE>;
 
 using BsdfInitFunc = mi::neuraylib::Bsdf_init_function;
 using BsdfEvaluateFunc = mi::neuraylib::Bsdf_evaluate_function;
+using BsdfSampleFunc = mi::neuraylib::Bsdf_sample_function;
 using BsdfAuxiliaryFunc = mi::neuraylib::Bsdf_auxiliary_function;
 using EdfEvaluateFunc = mi::neuraylib::Edf_evaluate_function;
 using OpacityExprFunc = mi::neuraylib::Material_function<float>::Type;
@@ -86,6 +88,7 @@ using EmissionIntensityExprFunc = mi::neuraylib::Material_function<vec3>::Type;
 // __device__) so the mangled names match the stitched material symbols.
 VISRTX_CALLABLE BsdfInitFunc mdlInit;
 VISRTX_CALLABLE BsdfEvaluateFunc mdlBsdf_evaluate;
+VISRTX_CALLABLE BsdfSampleFunc mdlBsdf_sample;
 VISRTX_CALLABLE BsdfAuxiliaryFunc mdlBsdf_auxiliary;
 VISRTX_CALLABLE EdfEvaluateFunc mdlEmission_evaluate;
 VISRTX_CALLABLE OpacityExprFunc mdlOpacity;
@@ -187,16 +190,56 @@ __device__ vec3 evalMdlBsdf(
   return make_vec3(eval.bsdf_diffuse) + make_vec3(eval.bsdf_glossy);
 }
 
+// Importance-sample the MDL BSDF for the continuation ray. Mirrors
+// MDLShader_ptx.cu's __direct_callable__nextRay: k1 = view dir, xi = 4
+// uniforms; returns the sampled direction and bsdf-over-pdf throughput factor.
+// An absorbed lobe yields a zero weight so the resolve stage kills the path.
+// Writes the bounce into the shade record for the material-agnostic resolve
+// stage.
+__device__ void sampleMdlBounce(const MDLShadingState &s,
+    const vec3 &wo,
+    RandState &rng,
+    WavefrontShadeRecord &sr)
+{
+  BsdfSampleData sd = {};
+  if (s.isFrontFace) {
+    sd.ior1 = make_float3(1.0f, 1.0f, 1.0f);
+    sd.ior2.x = MI_NEURAYLIB_BSDF_USE_MATERIAL_IOR;
+  } else {
+    sd.ior1.x = MI_NEURAYLIB_BSDF_USE_MATERIAL_IOR;
+    sd.ior2 = make_float3(1.0f, 1.0f, 1.0f);
+  }
+  sd.k1 = make_float3(normalize(wo));
+  sd.xi = make_float4(pcg_uniform(&rng),
+      pcg_uniform(&rng),
+      pcg_uniform(&rng),
+      pcg_uniform(&rng));
+
+  mdlBsdf_sample(&sd, &s.state, &s.resData, s.argBlock);
+
+  sr.hasSampledBounce = 1u;
+  // A specular lobe reports pdf 0 but a valid bsdf_over_pdf, so gate only on
+  // the absorb event, not pdf. bsdf_over_pdf already carries cos/pdf.
+  if (sd.event_type == mi::neuraylib::BSDF_EVENT_ABSORB) {
+    sr.bounceWeight = vec3(0.f);
+    sr.bounceDir = vec3(0.f, 0.f, 1.f);
+  } else {
+    sr.bounceDir = normalize(make_vec3(sd.k2));
+    sr.bounceWeight = make_vec3(sd.bsdf_over_pdf);
+  }
+}
+
 } // namespace
 
-// Per-material MDL shade kernel. Launched over the full live pool once per
-// registered compiled material; `myCallableBaseIndex` selects the slots whose
-// hit surface uses THIS compiled material (all instances of one compiled
-// material share callableBaseIndex). Writes the same WavefrontShadeRecord
-// contract as the builtin shade-emit stage, so the shared shadow-trace +
-// resolve stages need no MDL awareness. The builtin stage runs first and leaves
-// a geometry-only placeholder for MDL hits, which this kernel overwrites. Only
-// surface hits are handled here; misses stay on the builtin path.
+// Per-material MDL shade kernel. Launched once per registered compiled material
+// over that material's compacted slot list (`packed[*offset ..
+// *offset+*count)`, produced by the material-sorted compaction pass). Writes
+// the same WavefrontShadeRecord contract as the builtin shade-emit stage —
+// including the importance-sampled continuation bounce — so the shared
+// shadow-trace + resolve stages need no MDL awareness. The builtin stage runs
+// first and leaves a geometry-only placeholder for MDL hits, which this kernel
+// overwrites. Only surface hits are handled here; misses stay on the builtin
+// path.
 extern "C" __global__ void wavefrontMdlShade(const FrameGPUData *fd,
     const uint32_t *packed,
     const uint32_t *offset,
@@ -242,27 +285,34 @@ extern "C" __global__ void wavefrontMdlShade(const FrameGPUData *fd,
   sr.instID = rec.hit.instID;
   sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
+  RandState rng = path.rng;
+
+  // Next-event estimation: pick one light and evaluate the MDL BSDF toward it.
   const uint32_t n = uint32_t(fd->world.numLightInstances);
-  if (n == 0)
-    return;
+  if (n > 0) {
+    ScreenSample ss;
+    ss.frameData = fd;
+    ss.rs = rng;
+    ss.shadowContribWeight = 1.0f;
+    uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
+    if (k >= n)
+      k = n - 1u;
+    const InstanceLightGPUData &li = fd->world.lightInstances[k];
+    const LightSample ls = sampleLight(
+        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+    rng = ss.rs;
 
-  ScreenSample ss;
-  ss.frameData = fd;
-  ss.rs = path.rng;
-  ss.shadowContribWeight = 1.0f;
-  uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
-  if (k >= n)
-    k = n - 1u;
-  const InstanceLightGPUData &li = fd->world.lightInstances[k];
-  const LightSample ls = sampleLight(
-      ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-  path.rng = ss.rs;
-
-  if (ls.pdf > 0.f && ls.dist > 0.f) {
-    const vec3 f = evalMdlBsdf(s, wo, ls.dir);
-    // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
-    sr.directContrib = f * ls.radiance / ls.pdf * float(n) * opacity;
-    sr.shadowDir = ls.dir;
-    sr.shadowDist = ls.dist;
+    if (ls.pdf > 0.f && ls.dist > 0.f) {
+      const vec3 f = evalMdlBsdf(s, wo, ls.dir);
+      // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
+      sr.directContrib = f * ls.radiance / ls.pdf * float(n) * opacity;
+      sr.shadowDir = ls.dir;
+      sr.shadowDist = ls.dist;
+    }
   }
+
+  // Importance-sampled continuation bounce for the indirect path (MDL BSDF, not
+  // the resolve stage's diffuse fallback). Always sampled, independent of NEE.
+  sampleMdlBounce(s, wo, rng, sr);
+  path.rng = rng;
 }
