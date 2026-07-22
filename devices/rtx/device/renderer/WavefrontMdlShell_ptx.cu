@@ -172,8 +172,9 @@ __device__ vec3 evalMdlEmission(const MDLShadingState &s, const vec3 &wo)
 // is (diffuse + glossy); the caller weights by radiance/pdf. MDL folds the
 // cosine into the returned lobe values.
 __device__ vec3 evalMdlBsdf(
-    const MDLShadingState &s, const vec3 &wo, const vec3 &wi)
+    const MDLShadingState &s, const vec3 &wo, const vec3 &wi, float &pdfOut)
 {
+  pdfOut = 0.f;
   if (dot(wo, normalize(make_vec3(s.state.normal))) <= 0.0f)
     return vec3(0.f);
   BsdfEvaluateData eval = {};
@@ -187,6 +188,7 @@ __device__ vec3 evalMdlBsdf(
   eval.k1 = make_float3(normalize(wo));
   eval.k2 = make_float3(normalize(wi));
   mdlBsdf_evaluate(&eval, &s.state, &s.resData, s.argBlock);
+  pdfOut = eval.pdf; // solid-angle sampling density toward wi, for env MIS
   return make_vec3(eval.bsdf_diffuse) + make_vec3(eval.bsdf_glossy);
 }
 
@@ -223,9 +225,13 @@ __device__ void sampleMdlBounce(const MDLShadingState &s,
   if (sd.event_type == mi::neuraylib::BSDF_EVENT_ABSORB) {
     sr.bounceWeight = vec3(0.f);
     sr.bounceDir = vec3(0.f, 0.f, 1.f);
+    sr.bouncePdf = 0.f;
   } else {
     sr.bounceDir = normalize(make_vec3(sd.k2));
     sr.bounceWeight = make_vec3(sd.bsdf_over_pdf);
+    // Env MIS density at the next miss: a specular lobe reports pdf 0 (a delta
+    // NEE can't reach) -> +inf so the escape owns the env (w_bsdf = 1).
+    sr.bouncePdf = sd.pdf > 0.f ? sd.pdf : INFINITY;
   }
 }
 
@@ -294,6 +300,7 @@ extern "C" __global__ void wavefrontMdlShade(
     sr.hasSampledBounce = 1u;
     sr.bounceDir = rec.rayDir; // straight through, unchanged direction
     sr.bounceWeight = vec3(1.f); // no attenuation
+    sr.bouncePdf = INFINITY; // delta pass-through: escape owns the env (no NEE)
     const float side = dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
     sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
     path.rng = rng;
@@ -331,20 +338,26 @@ extern "C" __global__ void wavefrontMdlShade(
     if (k >= n)
       k = n - 1u;
     const InstanceLightGPUData &li = fd->world.lightInstances[k];
-    // The HDRI environment is captured by the BSDF-escape (a continuation ray
-    // that misses deposits the env), so it is excluded from NEE — without MIS,
-    // sampling it here too would double-count it.
-    if (fd->registry.lights[li.lightIndex].type != LightType::HDRI) {
-      const LightSample ls = sampleLight(
-          ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-      if (ls.pdf > 0.f && ls.dist > 0.f) {
-        const vec3 f = evalMdlBsdf(s, wo, ls.dir);
-        // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
-        // Cutout opacity is folded stochastically at the top, not here.
-        sr.directContrib = f * ls.radiance / ls.pdf * float(n);
-        sr.shadowDir = ls.dir;
-        sr.shadowDist = ls.dist;
+    const bool isEnv =
+        fd->registry.lights[li.lightIndex].type == LightType::HDRI;
+    const LightSample ls = sampleLight(
+        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+    if (ls.pdf > 0.f && ls.dist > 0.f) {
+      float pBsdf = 0.f;
+      const vec3 f = evalMdlBsdf(s, wo, ls.dir, pBsdf);
+      // Environment MIS: balance-heuristic weight the env NEE against the MDL
+      // BSDF pdf toward it (ls.pdf is the env importance pdf == envPdf(ls.dir),
+      // folded with the uniform 1/n env pick). Analytic lights keep w = 1.
+      float wNee = 1.f;
+      if (isEnv) {
+        const float pLight = ls.pdf / float(n);
+        wNee = pLight / (pLight + pBsdf);
       }
+      // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
+      // Cutout opacity is folded stochastically at the top, not here.
+      sr.directContrib = f * ls.radiance / ls.pdf * float(n) * wNee;
+      sr.shadowDir = ls.dir;
+      sr.shadowDist = ls.dist;
     }
     rng = ss.rs;
   }

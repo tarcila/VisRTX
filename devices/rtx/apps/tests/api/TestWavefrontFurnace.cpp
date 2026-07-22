@@ -31,12 +31,13 @@
 
 // Furnace test for environment MIS. A white (albedo 1) diffuse sphere immersed
 // in a uniform environment of radiance L must reflect exactly L (energy
-// conservation: rho * L = L), so it is INVISIBLE against the background. Any
-// deviation is a bug. In particular, if the renderer both next-event-samples
-// the environment AND deposits it again on the BSDF-escape miss without
-// multiple- importance-sampling weights, the surface receives the environment
-// twice and reads ~2x the background. This measures the sphere/background
-// ratio.
+// conservation: rho * L = L), so it is INVISIBLE against the background. The
+// wavefront samples the environment BOTH by next-event estimation (importance-
+// sampled toward the HDRI, which also casts its shadows) AND by the BSDF escape
+// (a continuation ray that misses), combined with balance-heuristic MIS so
+// neither double-counts: a missing weight reads ~(pi+1)x, a wrong pdf drifts
+// off 1.0. fireflyFilterMode=none because the tonemap firefly filter is a
+// nonlinear per-channel remap that would distort this linear energy check.
 
 // anari_cpp
 #define ANARI_EXTENSION_UTILITY_IMPL
@@ -86,10 +87,14 @@ int main()
   anari::setParameter(device, geometry, "radius", 0.9f);
   anari::commitParameters(device, geometry);
 
-  // White Lambertian: albedo 1, so outgoing radiance must equal the
-  // environment.
-  auto material = anari::newObject<anari::Material>(device, "matte");
-  anari::setParameter(device, material, "color", vec3{1.f, 1.f, 1.f});
+  // White diffuse dielectric: albedo 1, physical (1/pi) BRDF, so the outgoing
+  // radiance must equal the environment. (matte is intentionally non-physical —
+  // albedo*E, no 1/pi — so it is not the right material for an energy check.)
+  auto material = anari::newObject<anari::Material>(device, "physicallyBased");
+  anari::setParameter(device, material, "baseColor", vec3{1.f, 1.f, 1.f});
+  anari::setParameter(device, material, "metallic", 0.f);
+  anari::setParameter(device, material, "roughness", 1.f);
+  anari::setParameter(device, material, "specular", 0.f); // pure Lambertian
   anari::commitParameters(device, material);
 
   auto surface = anari::newObject<anari::Surface>(device);
@@ -131,6 +136,8 @@ int main()
 
   auto renderer = anari::newObject<anari::Renderer>(device, "wavefront");
   anari::setParameter(device, renderer, "ambientRadiance", 0.f);
+  anari::setParameter(device, renderer, "fireflyFilterMode", "none");
+  anari::setParameter(device, renderer, "maxDepth", 4);
   anari::setParameter(device, renderer, "pixelSamples", 512);
   anari::commitParameters(device, renderer);
 
