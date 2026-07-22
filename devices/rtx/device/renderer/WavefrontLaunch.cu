@@ -42,6 +42,7 @@
 #include "gpu/evalMaterialParameters.h" // getMaterialParameter, adjustedMaterialOpacity
 #include "gpu/gpu_objects.h" // FrameGPUData, WavefrontHitRecord, MaterialGPUData
 #include "gpu/gpu_util.h" // accumPixelSample, setPixelIds
+#include "gpu/physicallyBasedBsdf.h" // pbrInitState, pbrEvalNEE, pbrSampleNextRay
 #include "gpu/renderer/common.h" // getBackgroundLight
 #include "gpu/sampleLight.h" // sampleLight, LightSample
 #include "gpu/sbt.h" // SbtCallableEntryPoints
@@ -215,8 +216,71 @@ __global__ void wavefrontShadeEmitKernel(
     return;
   }
 
-  // Opaque this sample: full shading, full coverage — opacity is folded
-  // stochastically above, so no per-term opacity factor here.
+  // PhysicallyBased: evaluate the full glTF BRDF (GGX specular, metallic,
+  // Fresnel, transmission) via the shared header — the SAME code the
+  // interactive renderer's callables run. NEE uses pbrEvalNEE; the continuation
+  // bounce is importance-sampled by pbrSampleNextRay (reflection/refraction),
+  // so metallic and glass render, not just the diffuse albedo. Matte stays on
+  // the diffuse fallback below (its BSDF is Lambertian and its own nextRay is a
+  // dead ray; the resolve stage's cosine bounce gives it correct GI).
+  if (rec.hit.material->callableBaseIndex
+      == uint32_t(SbtCallableEntryPoints::PBR)) {
+    PhysicallyBasedShadingState st;
+    pbrInitState(
+        &st, fd, &rec.hit, &rec.hit.material->materialData.physicallyBased);
+    const vec3 wo = -rec.rayDir;
+
+    sr.albedo = st.baseColor;
+    sr.normal = st.normal;
+    sr.opacity = 1.f;
+    sr.unshadowed =
+        st.baseColor * fd->renderer.ambientIntensity * fd->renderer.ambientColor
+        + st.emission;
+    sr.depth = rec.hit.t;
+    sr.primID = rec.hit.primID;
+    sr.objID = rec.hit.objID;
+    sr.instID = rec.hit.instID;
+    sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
+
+    const uint32_t nPbr = uint32_t(fd->world.numLightInstances);
+    if (nPbr > 0) {
+      ScreenSample ssPbr;
+      ssPbr.frameData = fd;
+      ssPbr.rs = rng;
+      ssPbr.shadowContribWeight = 1.0f;
+      uint32_t kPbr = uint32_t(pcg_uniform(&ssPbr.rs) * float(nPbr));
+      if (kPbr >= nPbr)
+        kPbr = nPbr - 1u;
+      const InstanceLightGPUData &liPbr = fd->world.lightInstances[kPbr];
+      const LightSample lsPbr = sampleLight(ssPbr,
+          sr.shadowOrg,
+          liPbr.lightIndex,
+          liPbr.xfm,
+          liPbr.surfaceInstanceIndex);
+      rng = ssPbr.rs;
+      if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
+        // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
+        // uniform 1/n light pick.
+        sr.directContrib = pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr);
+        sr.shadowDir = lsPbr.dir;
+        sr.shadowDist = lsPbr.dist;
+      }
+    }
+
+    // Importance-sampled continuation (reflection or refraction).
+    const Ray ray{rec.hit.hitpoint, rec.rayDir};
+    const NextRay nr = pbrSampleNextRay(&st, &ray, &rng);
+    sr.hasSampledBounce = 1u;
+    sr.bounceDir = nr.direction;
+    sr.bounceWeight = nr.contributionWeight;
+    const float side = glm::dot(nr.direction, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
+    sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
+    path.rng = rng;
+    return;
+  }
+
+  // Matte, opaque this sample: full Lambertian shading, full coverage — opacity
+  // is folded stochastically above, so no per-term opacity factor here.
   const vec3 ambient =
       a.baseColor * fd->renderer.ambientIntensity * fd->renderer.ambientColor;
   sr.unshadowed = ambient + a.emission;
