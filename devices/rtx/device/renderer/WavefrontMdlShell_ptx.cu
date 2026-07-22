@@ -268,26 +268,57 @@ extern "C" __global__ void wavefrontMdlShade(
   const vec3 wo = -rec.rayDir; // toward the camera / previous vertex
   const float opacity =
       fminf(1.0f, fmaxf(0.0f, mdlOpacity(&s.state, &s.resData, s.argBlock)));
+
+  RandState rng = path.rng;
+
+  // Stochastic cutout: draw once against the MDL cutout opacity. On a
+  // transparent draw the surface is treated as absent for this sample — no
+  // shading, no coverage — and the path continues straight through so whatever
+  // is behind shows through holes. Averaged over samples this yields the
+  // authored alpha, unlike a deterministic opacity*shading dimming (which never
+  // reveals the background). Reuses the continuation machinery
+  // (bounceDir/Weight/Org).
+  if (pcg_uniform(&rng) >= opacity) {
+    sr.unshadowed = vec3(0.f);
+    sr.directContrib = vec3(0.f);
+    sr.albedo = vec3(0.f);
+    sr.normal = N;
+    sr.opacity = 0.f;
+    sr.visibility = 1.f;
+    sr.shadowDist = 0.f;
+    sr.hasHit = 1u;
+    sr.depth = rec.hit.t;
+    sr.primID = rec.hit.primID;
+    sr.objID = rec.hit.objID;
+    sr.instID = rec.hit.instID;
+    sr.hasSampledBounce = 1u;
+    sr.bounceDir = rec.rayDir; // straight through, unchanged direction
+    sr.bounceWeight = vec3(1.f); // no attenuation
+    const float side = dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
+    sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
+    path.rng = rng;
+    return;
+  }
+
+  // Opaque this sample: full shading, full coverage — the cutout opacity is
+  // already folded stochastically above, so no per-term opacity factor here.
   const vec3 albedo = evalMdlAlbedo(s);
   const vec3 emission = evalMdlEmission(s, wo);
-
   const vec3 ambient =
       albedo * fd->renderer.ambientIntensity * fd->renderer.ambientColor;
   sr.directContrib = vec3(0.f);
   sr.shadowDist = 0.f;
   sr.visibility = 1.f;
   sr.hasHit = 1u;
-  sr.unshadowed = ambient * opacity + emission;
-  sr.albedo = albedo * opacity;
+  sr.unshadowed = ambient + emission;
+  sr.albedo = albedo;
   sr.normal = N;
-  sr.opacity = opacity;
+  sr.opacity = 1.f;
   sr.depth = rec.hit.t;
   sr.primID = rec.hit.primID;
   sr.objID = rec.hit.objID;
   sr.instID = rec.hit.instID;
   sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
-
-  RandState rng = path.rng;
 
   // Next-event estimation: pick one light and evaluate the MDL BSDF toward it.
   const uint32_t n = uint32_t(fd->world.numLightInstances);
@@ -307,7 +338,8 @@ extern "C" __global__ void wavefrontMdlShade(
     if (ls.pdf > 0.f && ls.dist > 0.f) {
       const vec3 f = evalMdlBsdf(s, wo, ls.dir);
       // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
-      sr.directContrib = f * ls.radiance / ls.pdf * float(n) * opacity;
+      // Cutout opacity is folded stochastically at the top, not here.
+      sr.directContrib = f * ls.radiance / ls.pdf * float(n);
       sr.shadowDir = ls.dir;
       sr.shadowDist = ls.dist;
     }
