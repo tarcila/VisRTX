@@ -39,6 +39,8 @@
 #include "Wavefront_ptx.h"
 // std
 #include <algorithm>
+#include <cstddef>
+#include <utility>
 
 namespace visrtx {
 
@@ -76,6 +78,11 @@ void Wavefront::ensurePool() const
   m_poolPaths.reserve(
       size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathState));
   m_launch.reserve(sizeof(WavefrontLaunchInfo));
+  m_poolSlotsAlt.reserve(
+      size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathSlot));
+  m_poolPathsAlt.reserve(
+      size_t(kWavefrontPoolCapacity) * sizeof(WavefrontPathState));
+  m_aliveCount.reserve(sizeof(uint32_t));
 }
 
 #ifdef USE_MDL
@@ -181,8 +188,35 @@ void Wavefront::launchFrame(cudaStream_t stream,
   const uint32_t cap = atomicSafe ? kWavefrontPoolCapacity
                                   : std::min(kWavefrontPoolCapacity, numPixels);
   const uint32_t liveSlots = uint32_t(std::min<uint64_t>(cap, totalSamples));
-  auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
+
+  // Alive-path compaction ping-pong: `curSlots`/`curPaths` are the buffers the
+  // current bounce reads; survivors are gathered into the alternate pair, which
+  // then becomes current. The device FrameGPUData's pool pointers are patched
+  // to match (raygen reads them from __constant__, the CUDA stages from the
+  // ptr).
+  auto *baseSlots = m_poolSlots.ptrAs<WavefrontPathSlot>();
+  auto *basePaths = m_poolPaths.ptrAs<WavefrontPathState>();
+  auto *altSlots = m_poolSlotsAlt.ptrAs<WavefrontPathSlot>();
+  auto *altPaths = m_poolPathsAlt.ptrAs<WavefrontPathState>();
+  auto *aliveCount = m_aliveCount.ptrAs<uint32_t>();
+  const CUdeviceptr slotsField =
+      frameData + offsetof(FrameGPUData, wavefrontSlots);
+  const CUdeviceptr pathsField =
+      frameData + offsetof(FrameGPUData, wavefrontPaths);
+  const auto patchPoolPointers = [&](WavefrontPathSlot *s,
+                                     WavefrontPathState *p) {
+    cudaMemcpyAsync(reinterpret_cast<void *>(slotsField),
+        &s,
+        sizeof(WavefrontPathSlot *),
+        cudaMemcpyHostToDevice,
+        stream);
+    cudaMemcpyAsync(reinterpret_cast<void *>(pathsField),
+        &p,
+        sizeof(WavefrontPathState *),
+        cudaMemcpyHostToDevice,
+        stream);
+  };
 
   // Persistent, write-once host sources for the (stage, bounce) launch
   // selector. The async copies read them after launchFrame returns, so they
@@ -219,21 +253,22 @@ void Wavefront::launchFrame(cudaStream_t stream,
   // contribution and spawns the continuation ray. Waves repeat until the budget
   // is spent.
   for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
+    // Restart each wave on the base buffers at full width.
+    auto *curSlots = baseSlots;
+    auto *curPaths = basePaths;
+    auto *nextSlots = altSlots;
+    auto *nextPaths = altPaths;
+    uint32_t curLive = liveSlots;
+    patchPoolPointers(curSlots, curPaths);
     wavefrontRegenerate(
-        stream, slots, waveBase, numPixels, totalSamples, liveSlots);
+        stream, curSlots, waveBase, numPixels, totalSamples, liveSlots);
 
-    for (uint32_t bounce = 0; bounce < maxDepth; ++bounce) {
+    for (uint32_t bounce = 0; bounce < maxDepth && curLive > 0; ++bounce) {
       setLaunch(WavefrontStage::Trace, bounce);
-      OPTIX_CHECK(optixLaunch(pipeline(),
-          stream,
-          frameData,
-          frameDataSize,
-          sbt(),
-          liveSlots,
-          1,
-          1));
+      OPTIX_CHECK(optixLaunch(
+          pipeline(), stream, frameData, frameDataSize, sbt(), curLive, 1, 1));
 
-      wavefrontShadeEmit(stream, frameDataPtr, liveSlots);
+      wavefrontShadeEmit(stream, frameDataPtr, curLive);
 
 #ifdef USE_MDL
       // MDL hits were left as geometry-only placeholders by the builtin stage.
@@ -251,7 +286,7 @@ void Wavefront::launchFrame(cudaStream_t stream,
             frameDataPtr,
             m_mdlBaseIndices.ptrAs<uint32_t>(),
             numMdlMaterials,
-            liveSlots,
+            curLive,
             stride,
             cursor,
             packed);
@@ -261,24 +296,48 @@ void Wavefront::launchFrame(cudaStream_t stream,
               frameData,
               reinterpret_cast<CUdeviceptr>(packed + size_t(mi) * stride),
               reinterpret_cast<CUdeviceptr>(cursor + mi),
-              liveSlots);
+              curLive);
         }
       }
 #endif
 
       setLaunch(WavefrontStage::Shadow, bounce);
-      OPTIX_CHECK(optixLaunch(pipeline(),
-          stream,
-          frameData,
-          frameDataSize,
-          sbt(),
-          liveSlots,
-          1,
-          1));
+      OPTIX_CHECK(optixLaunch(
+          pipeline(), stream, frameData, frameDataSize, sbt(), curLive, 1, 1));
 
-      wavefrontResolve(stream, frameDataPtr, liveSlots, bounce, maxDepth);
+      wavefrontResolve(stream, frameDataPtr, curLive, bounce, maxDepth);
+
+      // Compact the survivors into the alternate buffers and shrink the next
+      // bounce to their count. Skip after the final bounce (no next launch).
+      // The count read-back is the one host sync per bounce; the loop is
+      // already serial per bounce, so it adds latency, not lost parallelism.
+      if (bounce + 1u < maxDepth) {
+        wavefrontCompactAlive(stream,
+            curSlots,
+            curPaths,
+            nextSlots,
+            nextPaths,
+            curLive,
+            aliveCount);
+        uint32_t survivors = 0;
+        cudaMemcpyAsync(&survivors,
+            aliveCount,
+            sizeof(survivors),
+            cudaMemcpyDeviceToHost,
+            stream);
+        cudaStreamSynchronize(stream);
+        std::swap(curSlots, nextSlots);
+        std::swap(curPaths, nextPaths);
+        patchPoolPointers(curSlots, curPaths);
+        curLive = survivors;
+      }
     }
   }
+
+  // Leave the device FrameGPUData pointing at the base buffers so the next
+  // wave/ frame's regenerate writes where the pool pointers expect (enqueued
+  // async; populateFrameData also resets them per frame).
+  patchPoolPointers(baseSlots, basePaths);
 }
 
 OptixModule Wavefront::optixModule() const
