@@ -75,8 +75,8 @@ __global__ void wavefrontRegenerateKernel(WavefrontPathSlot *slots,
 
 // Statically-evaluated builtin surface appearance: base color, opacity and
 // emission read directly from the material data (no optixDirectCall). Covers
-// the native Matte and PhysicallyBased materials; MDL is not on the static path
-// (it needs the linking spike) and renders as a neutral surface for now.
+// the native Matte and PhysicallyBased materials; MDL hits take the per-material
+// CUDA shade kernel instead (see isMdlMaterial / wavefrontMdlShade).
 struct BuiltinAppearance
 {
   vec3 baseColor{0.8f};
@@ -337,6 +337,87 @@ __global__ void wavefrontResolveKernel(const FrameGPUData *fd,
     path.alive = 0;
 }
 
+// Linear scan over the (small) set of registered MDL materials to find the
+// bucket for a hit's callableBaseIndex. Returns -1 for non-MDL / unregistered.
+__device__ int mdlBucketOf(const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t callableBaseIndex)
+{
+  for (uint32_t b = 0; b < numMaterials; ++b) {
+    if (baseIndices[b] == callableBaseIndex)
+      return int(b);
+  }
+  return -1;
+}
+
+// True for a live pool slot whose trace hit a surface with a registered MDL
+// material. Shared gate for the count and scatter passes so both partition
+// identically.
+__device__ bool mdlSlotBucket(const FrameGPUData &fd,
+    const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t i,
+    int &bucket)
+{
+  if (!fd.wavefrontSlots[i].alive || !fd.wavefrontPaths[i].alive)
+    return false;
+  const WavefrontHitRecord &rec = fd.wavefrontHits[i];
+  if (!rec.hit.foundHit || !rec.hit.material)
+    return false;
+  bucket = mdlBucketOf(
+      baseIndices, numMaterials, rec.hit.material->callableBaseIndex);
+  return bucket >= 0;
+}
+
+__global__ void wavefrontMdlCountKernel(const FrameGPUData *fd,
+    const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t liveSlots,
+    uint32_t *counts)
+{
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= liveSlots)
+    return;
+  int bucket = -1;
+  if (mdlSlotBucket(*fd, baseIndices, numMaterials, i, bucket))
+    atomicAdd(&counts[bucket], 1u);
+}
+
+// Exclusive prefix sum of the per-material counts into offsets, seeding cursor
+// with the same offsets for the scatter pass. numMaterials is small (the count
+// of distinct registered MDL materials), so a single thread suffices.
+__global__ void wavefrontMdlOffsetKernel(const uint32_t *counts,
+    uint32_t numMaterials,
+    uint32_t *offsets,
+    uint32_t *cursor)
+{
+  if (blockIdx.x != 0 || threadIdx.x != 0)
+    return;
+  uint32_t acc = 0;
+  for (uint32_t b = 0; b < numMaterials; ++b) {
+    offsets[b] = acc;
+    cursor[b] = acc;
+    acc += counts[b];
+  }
+}
+
+__global__ void wavefrontMdlScatterKernel(const FrameGPUData *fd,
+    const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t liveSlots,
+    uint32_t *cursor,
+    uint32_t *packed)
+{
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= liveSlots)
+    return;
+  int bucket = -1;
+  if (mdlSlotBucket(*fd, baseIndices, numMaterials, i, bucket)) {
+    const uint32_t pos = atomicAdd(&cursor[bucket], 1u);
+    packed[pos] = i;
+  }
+}
+
 } // namespace
 
 void wavefrontRegenerate(cudaStream_t stream,
@@ -374,6 +455,28 @@ void wavefrontResolve(cudaStream_t stream,
   const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontResolveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
       frameData, liveSlots, bounce, maxDepth);
+}
+
+void wavefrontMdlCompact(cudaStream_t stream,
+    const FrameGPUData *frameData,
+    const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t liveSlots,
+    uint32_t *counts,
+    uint32_t *offsets,
+    uint32_t *cursor,
+    uint32_t *packed)
+{
+  if (numMaterials == 0 || liveSlots == 0)
+    return;
+  const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
+  cudaMemsetAsync(counts, 0, size_t(numMaterials) * sizeof(uint32_t), stream);
+  wavefrontMdlCountKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
+      frameData, baseIndices, numMaterials, liveSlots, counts);
+  wavefrontMdlOffsetKernel<<<1, 1, 0, stream>>>(
+      counts, numMaterials, offsets, cursor);
+  wavefrontMdlScatterKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
+      frameData, baseIndices, numMaterials, liveSlots, cursor, packed);
 }
 
 } // namespace visrtx

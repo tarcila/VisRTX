@@ -197,26 +197,21 @@ __device__ vec3 evalMdlBsdf(
 // resolve stages need no MDL awareness. The builtin stage runs first and leaves
 // a geometry-only placeholder for MDL hits, which this kernel overwrites. Only
 // surface hits are handled here; misses stay on the builtin path.
-extern "C" __global__ void wavefrontMdlShade(
-    const FrameGPUData *fd, uint32_t myCallableBaseIndex, uint32_t liveSlots)
+extern "C" __global__ void wavefrontMdlShade(const FrameGPUData *fd,
+    const uint32_t *packed,
+    const uint32_t *offset,
+    const uint32_t *count)
 {
-  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i >= liveSlots)
+  const uint32_t t = blockIdx.x * blockDim.x + threadIdx.x;
+  if (t >= *count)
     return;
+  const uint32_t i = packed[*offset + t];
 
-  const WavefrontPathSlot slot = fd->wavefrontSlots[i];
-  if (!slot.alive)
-    return;
+  // The compaction pass already filtered to this material's live surface hits,
+  // so the per-slot alive / hit / material guards are not repeated here.
   WavefrontPathState &path = fd->wavefrontPaths[i];
-  if (!path.alive)
-    return;
-
   const WavefrontHitRecord &rec = fd->wavefrontHits[i];
   WavefrontShadeRecord &sr = fd->wavefrontShade[i];
-  if (!rec.hit.foundHit || !rec.hit.material)
-    return;
-  if (rec.hit.material->callableBaseIndex != myCallableBaseIndex)
-    return;
 
   MDLShadingState s;
   initMdlState(s, *fd, rec.hit, rec.hit.material->materialData.mdl);
