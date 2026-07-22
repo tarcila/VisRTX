@@ -47,6 +47,25 @@ make_test(TestDeviceInit)
 make_test(TestEvictGPUArray)
 make_test(TestMultiThreadedObjectCreation)
 make_test(TestSpheres)
+
+# MDL linking spike: needs NVRTC + nvJitLink + the CUDA driver API. The dev
+# shell provides nvrtc/nvJitLink (flake buildInputs); locate them on the
+# environment-provided search paths.
+find_package(CUDAToolkit QUIET)
+find_library(SPIKE_NVRTC_LIB nvrtc)
+find_path(SPIKE_NVRTC_INC nvrtc.h)
+find_library(SPIKE_NVJITLINK_LIB nvJitLink)
+find_path(SPIKE_NVJITLINK_INC nvJitLink.h)
+if(SPIKE_NVRTC_LIB AND SPIKE_NVRTC_INC AND SPIKE_NVJITLINK_LIB
+    AND SPIKE_NVJITLINK_INC AND TARGET CUDA::cuda_driver)
+  make_test(TestMdlLinkingSpike)
+  target_include_directories(TestMdlLinkingSpike PRIVATE
+    ${SPIKE_NVRTC_INC} ${SPIKE_NVJITLINK_INC})
+  target_link_libraries(TestMdlLinkingSpike PRIVATE
+    CUDA::cuda_driver ${SPIKE_NVRTC_LIB} ${SPIKE_NVJITLINK_LIB})
+else()
+  message(STATUS "Skipping TestMdlLinkingSpike (nvrtc/nvJitLink not located)")
+endif()
 make_test(TestWavefrontFirstLight)
 make_test(TestWavefrontAccumulation)
 make_test(TestWavefrontPbrMaterial)
