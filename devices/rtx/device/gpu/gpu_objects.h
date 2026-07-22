@@ -1027,6 +1027,10 @@ struct WavefrontShadeRecord
   glm::vec3 bounceWeight;
   glm::vec3 bounceOrg;
   uint32_t hasSampledBounce;
+  // Solid-angle pdf of the sampled continuation (bounceDir), forwarded by the
+  // resolve stage into WavefrontPathState::bsdfPdf for the next miss's env MIS.
+  // +inf for a delta/transmission lobe.
+  float bouncePdf;
 };
 
 // Per-path state carried across bounces within one wave: the running throughput
@@ -1040,6 +1044,11 @@ struct WavefrontPathState
   glm::vec3 nextDir;
   RandState rng;
   uint32_t alive;
+  // Solid-angle pdf of the BSDF sample that produced nextDir, for environment
+  // MIS at the next miss: the escape estimator weights the env by
+  // bsdfPdf/(bsdfPdf + envPdf). +inf for the camera ray and delta/transmission
+  // lobes (NEE can't reach them, so the escape owns the env, w_bsdf = 1).
+  float bsdfPdf;
 };
 
 // Which launch the shared wavefront raygen should perform this pass.

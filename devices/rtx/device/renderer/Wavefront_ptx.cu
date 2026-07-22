@@ -67,8 +67,8 @@ VISRTX_DEVICE ScreenSample poolScreenSample(
   // Key the seed on the sample's accumulated ordinal so every sample of a pixel
   // (across waves and progressive frames) gets a distinct RNG stream — the
   // decoupled budget re-seeds here per sample instead of advancing one stream.
-  const uint64_t frameSeed = detail::pcg_mix64(uint64_t(accumSampleIdx)
-      ^ (pixelLinear << 1u) ^ 0xD1B54A32D192ED03ULL);
+  const uint64_t frameSeed = detail::pcg_mix64(
+      uint64_t(accumSampleIdx) ^ (pixelLinear << 1u) ^ 0xD1B54A32D192ED03ULL);
   pcg_init(&ss.rs, frameSeed, streamId);
   ss.pixel.x = x;
   ss.pixel.y = y;
@@ -142,7 +142,8 @@ VISRTX_DEVICE void traceStage(
     const uint32_t cameraSampleIdx =
         uint32_t(frameData.fb.frameID) + slot.sampleIdx;
     ScreenSample ss = poolScreenSample(frameData, slot.pixel, cameraSampleIdx);
-    const bool isVeryFirstRay = slot.sampleIdx == 0 && frameData.fb.frameID == 0;
+    const bool isVeryFirstRay =
+        slot.sampleIdx == 0 && frameData.fb.frameID == 0;
     Ray ray = makePrimaryRay(ss, cameraSampleIdx, isVeryFirstRay);
     applyCuttingPlane(frameData.renderer.cutPlane, ray);
 
@@ -151,6 +152,9 @@ VISRTX_DEVICE void traceStage(
     path.rng = ss.rs; // makePrimaryRay used Halton, not ss.rs — fresh seed
     path.nextOrg = ray.org;
     path.nextDir = ray.dir;
+    // Camera ray: no preceding BSDF sample, so the env miss (background) is the
+    // escape estimator with weight 1 (env MIS balance heuristic).
+    path.bsdfPdf = INFINITY;
   }
 
   WavefrontHitRecord &rec = frameData.wavefrontHits[slotIdx];
@@ -189,9 +193,8 @@ VISRTX_DEVICE void shadowStage(uint32_t slotIdx)
   // The origin is already offset off the surface; stop just short of the light
   // so an area light's own geometry doesn't self-occlude the sample.
   constexpr float SHADOW_TMAX_SCALE = 1.0f - 1.0e-3f;
-  Ray shadowRay{sr.shadowOrg,
-      sr.shadowDir,
-      {0.0f, sr.shadowDist * SHADOW_TMAX_SCALE}};
+  Ray shadowRay{
+      sr.shadowOrg, sr.shadowDir, {0.0f, sr.shadowDist * SHADOW_TMAX_SCALE}};
   const float opacity = surfaceShadowOpacity(ss, shadowRay);
   sr.visibility = fmaxf(0.0f, 1.0f - opacity);
 }

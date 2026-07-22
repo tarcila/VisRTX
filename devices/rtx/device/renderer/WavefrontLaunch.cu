@@ -94,12 +94,12 @@ __device__ bool isMdlMaterial(const MaterialGPUData *m)
   return m && m->callableBaseIndex >= uint32_t(SbtCallableEntryPoints::Last);
 }
 
-// The environment (HDRI) is captured by the BSDF-escape: a continuation ray
-// that misses deposits getBackgroundLight(). It is therefore excluded from NEE
-// — the wavefront applies no MIS weights, so next-event-sampling the env AND
-// depositing it on escape would double-count it (a white furnace reads
-// ~(pi+1)x). Analytic and geometry lights stay in NEE (they are not reached by
-// a random BSDF bounce).
+// The HDRI environment is reachable by BOTH next-event estimation (importance-
+// sampled toward the env, which also casts its shadows) and the BSDF escape (a
+// continuation ray that misses), so its NEE and escape deposits are balance-
+// heuristic MIS-weighted to avoid double-counting. This flags the picked light
+// as the env so the shade paths apply that weight; analytic and geometry lights
+// keep w = 1 (a random BSDF bounce won't hit them).
 __device__ bool isHdriLight(const FrameGPUData &fd, DeviceObjectIndex idx)
 {
   return fd.registry.lights[idx].type == LightType::HDRI;
@@ -163,7 +163,16 @@ __global__ void wavefrontShadeEmitKernel(
   if (!rec.hit.foundHit) {
     vec3 hdri;
     if (getBackgroundLight(*fd, rec.rayDir, hdri)) {
-      sr.unshadowed = hdri;
+      // Environment MIS: this escape ray may also have been reachable by NEE,
+      // so weight the env by the balance heuristic against the NEE env density.
+      // The camera ray and delta/transmission lobes carry bsdfPdf = +inf (NEE
+      // can't reach them) -> w = 1, so the visible background is unaffected.
+      const uint32_t nLights = uint32_t(fd->world.numLightInstances);
+      const float envPickProb = nLights > 0u ? 1.f / float(nLights) : 1.f;
+      const float pLight = envPdf(*fd, rec.rayDir) * envPickProb;
+      const float wBsdf =
+          isinf(path.bsdfPdf) ? 1.f : path.bsdfPdf / (path.bsdfPdf + pLight);
+      sr.unshadowed = hdri * wBsdf;
       sr.opacity = 1.f;
     } else {
       sr.unshadowed = vec3(0.f);
@@ -221,6 +230,7 @@ __global__ void wavefrontShadeEmitKernel(
     sr.hasSampledBounce = 1u;
     sr.bounceDir = rec.rayDir; // straight through, unchanged direction
     sr.bounceWeight = vec3(1.f); // no attenuation
+    sr.bouncePdf = INFINITY; // delta pass-through: escape owns the env (no NEE)
     const float side = glm::dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
     sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
     path.rng = rng;
@@ -263,20 +273,29 @@ __global__ void wavefrontShadeEmitKernel(
       if (kPbr >= nPbr)
         kPbr = nPbr - 1u;
       const InstanceLightGPUData &liPbr = fd->world.lightInstances[kPbr];
-      if (!isHdriLight(*fd, liPbr.lightIndex)) {
-        const LightSample lsPbr = sampleLight(ssPbr,
-            sr.shadowOrg,
-            liPbr.lightIndex,
-            liPbr.xfm,
-            liPbr.surfaceInstanceIndex);
-        if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
-          // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
-          // uniform 1/n light pick.
-          sr.directContrib =
-              pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr);
-          sr.shadowDir = lsPbr.dir;
-          sr.shadowDist = lsPbr.dist;
+      const bool isEnv = isHdriLight(*fd, liPbr.lightIndex);
+      const LightSample lsPbr = sampleLight(ssPbr,
+          sr.shadowOrg,
+          liPbr.lightIndex,
+          liPbr.xfm,
+          liPbr.surfaceInstanceIndex);
+      if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
+        // Environment MIS: balance-heuristic weight the env NEE against the
+        // BRDF pdf toward it. Analytic / geometry lights keep w = 1.
+        float wNee = 1.f;
+        if (isEnv) {
+          // envPdf on both MIS sides (see the matte NEE note) for an exact
+          // partition.
+          const float pBsdf = pbrBsdfPdf(&st, wo, lsPbr.dir);
+          const float pLight = envPdf(*fd, lsPbr.dir) / float(nPbr);
+          wNee = pLight / (pLight + pBsdf);
         }
+        // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
+        // uniform 1/n light pick.
+        sr.directContrib =
+            pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr) * wNee;
+        sr.shadowDir = lsPbr.dir;
+        sr.shadowDist = lsPbr.dist;
       }
       rng = ssPbr.rs;
     }
@@ -287,6 +306,7 @@ __global__ void wavefrontShadeEmitKernel(
     sr.hasSampledBounce = 1u;
     sr.bounceDir = nr.direction;
     sr.bounceWeight = nr.contributionWeight;
+    sr.bouncePdf = nr.pdf; // env MIS at the next miss (+inf for a delta lobe)
     const float side = glm::dot(nr.direction, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
     sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
     path.rng = rng;
@@ -325,16 +345,30 @@ __global__ void wavefrontShadeEmitKernel(
   if (k >= n)
     k = n - 1u;
   const InstanceLightGPUData &li = fd->world.lightInstances[k];
-  if (!isHdriLight(*fd, li.lightIndex)) {
-    const LightSample ls = sampleLight(
-        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-    if (ls.pdf > 0.f && ls.dist > 0.f) {
-      const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
-      // Uniform pick over n lights has probability 1/n, so reweight by n.
-      sr.directContrib = a.baseColor * ndotl * ls.radiance / ls.pdf * float(n);
-      sr.shadowDir = ls.dir;
-      sr.shadowDist = ls.dist;
+  const bool isEnv = isHdriLight(*fd, li.lightIndex);
+  const LightSample ls = sampleLight(
+      ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+  if (ls.pdf > 0.f && ls.dist > 0.f) {
+    const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
+    // Environment MIS: the env is also captured by the BSDF escape, so balance-
+    // heuristic weight the NEE against the diffuse cosine-lobe pdf. Analytic /
+    // geometry lights keep w = 1 (a random bounce won't hit them). ls.pdf is
+    // the env importance pdf (== envPdf(ls.dir)); fold the uniform 1/n env
+    // pick.
+    float wNee = 1.f;
+    if (isEnv) {
+      // MIS densities use envPdf on BOTH the NEE and the escape side (not
+      // ls.pdf) so wNee + wBsdf partition to 1 exactly, independent of how
+      // closely the HDRI importance sampler tracks envPdf.
+      const float pBsdf = ndotl * kInvPi;
+      const float pLight = envPdf(*fd, ls.dir) / float(n);
+      wNee = pLight / (pLight + pBsdf);
     }
+    // Uniform pick over n lights has probability 1/n, so reweight by n.
+    sr.directContrib =
+        a.baseColor * ndotl * ls.radiance / ls.pdf * float(n) * wNee;
+    sr.shadowDir = ls.dir;
+    sr.shadowDist = ls.dist;
   }
   path.rng = ss.rs; // the light pick + sample consumed the path RNG
 }
@@ -436,19 +470,23 @@ __global__ void wavefrontResolveKernel(const FrameGPUData *fd,
     return;
   }
   if (sr.hasSampledBounce) {
-    // A per-material kernel (MDL) importance-sampled its own BSDF: take its
-    // direction, BSDF-over-pdf throughput factor, and side-aware origin (which
-    // sits past the surface for a transmission lobe) directly.
+    // A per-material kernel (PBR/MDL) importance-sampled its own BSDF: take its
+    // direction, BSDF-over-pdf throughput factor, side-aware origin, and the
+    // sampled pdf (for env MIS at the next miss).
     path.throughput *= sr.bounceWeight;
     path.nextDir = sr.bounceDir;
     path.nextOrg = sr.bounceOrg;
+    path.bsdfPdf = sr.bouncePdf;
   } else {
-    // Builtin cosine-weighted Lambertian: the cos/pdf and 1/pi fold to albedo.
+    // Builtin cosine-weighted Lambertian (matte): the cos/pdf and 1/pi fold to
+    // albedo. The env-MIS density is the cosine-lobe pdf of the sampled dir.
     RandState rng = path.rng;
-    path.nextDir = sampleHemisphere(rng, sr.normal);
+    const vec3 dir = sampleHemisphere(rng, sr.normal);
     path.rng = rng;
+    path.nextDir = dir;
     path.throughput *= sr.albedo;
     path.nextOrg = sr.shadowOrg; // +Ng-offset hit point recorded by shade-emit
+    path.bsdfPdf = fmaxf(0.f, glm::dot(sr.normal, dir)) * kInvPi;
   }
   // Kill paths whose contribution can no longer matter.
   if (fmaxf(path.throughput.x, fmaxf(path.throughput.y, path.throughput.z))
