@@ -232,6 +232,7 @@ set(SOURCES
     mdl/SamplerRegistry.cpp
     material/MDL.cpp
     material/PhysicallyBasedMDL.cpp
+    renderer/WavefrontMdlKernelCache.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp
   >
@@ -274,7 +275,18 @@ project_include_directories(
   SYSTEM
     PRIVATE
       ${PROJECT_INCLUDE_DIRS}
+      $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:${VISRTX_NVJITLINK_INCLUDE_DIR}>
 )
+
+# nvJitLink: runtime PTX->cubin linker for per-material MDL shade kernels
+# (wavefront). Provided by the flake (cudaPackages.libnvjitlink). Header+lib
+# found explicitly to match the toolchain proven by TestMdlLinkingSpike.
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  find_library(VISRTX_NVJITLINK_LIBRARY nvJitLink REQUIRED
+    HINTS ${CUDAToolkit_LIBRARY_DIR})
+  find_path(VISRTX_NVJITLINK_INCLUDE_DIR nvJitLink.h REQUIRED
+    HINTS ${CUDAToolkit_INCLUDE_DIRS})
+endif()
 
 # NOTE(jda): Order matters here! We want local headers to be preferred over
 #            external ones. Example: NanoVDB could be incidentally on an include
@@ -297,6 +309,7 @@ PRIVATE
   CUDA::cuda_driver
   $<$<BOOL:${VISRTX_ENABLE_NVTX}>:CUDA::nvToolsExt>
   $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:${VISRTX_NVJITLINK_LIBRARY}>
   $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXCore>
   $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXFormat>
   $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXGenShader>
@@ -417,6 +430,8 @@ GenerateEmbeddedPTX(spatial_field CustomFieldSampler)
 if(VISRTX_ENABLE_MDL_SUPPORT)
   GenerateEmbeddedPTX(material/shaders MDLShader ENTRIES __direct__callable__evalSurfaceMaterial)
   GenerateEmbeddedPTX(material/shaders MDLTexture)
+  # Wavefront MDL shade shell: relocatable PTX nvJitLinked per-material at commit.
+  GenerateEmbeddedPTX(renderer WavefrontMdlShell)
 endif()
 
 
