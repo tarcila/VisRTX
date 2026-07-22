@@ -77,8 +77,19 @@ struct Wavefront : public Renderer
   mutable helium::TimeStamp m_lastMdlKernelUpdate{};
   mutable bool m_mdlKernelsBuilt{false};
   // (callableBaseIndex, kernel) for each built MDL material; the shade dispatch
-  // launches one per entry over the full live pool.
+  // launches one per entry over that material's compacted slot list.
   mutable std::vector<std::pair<uint32_t, WavefrontMdlKernel>> m_mdlShaders;
+
+  // Material-sorted compaction buffers. m_mdlPacked: pool-capacity packed slot
+  // indices grouped by material. The rest are per-material (size == number of
+  // built MDL materials): m_mdlBaseIndices is the partition key (callableBase
+  // index) uploaded on refresh; m_mdlCounts/m_mdlOffsets are the compaction
+  // output; m_mdlCursor is scatter scratch.
+  mutable DeviceBuffer m_mdlPacked;
+  mutable DeviceBuffer m_mdlBaseIndices;
+  mutable DeviceBuffer m_mdlCounts;
+  mutable DeviceBuffer m_mdlOffsets;
+  mutable DeviceBuffer m_mdlCursor;
 #endif
 
   int m_maxDepth{4}; // path-tracing bounce depth

@@ -171,17 +171,19 @@ void WavefrontMdlKernelCache::release()
 bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
     CUstream stream,
     CUdeviceptr frameData,
-    uint32_t callableBaseIndex,
-    uint32_t liveSlots)
+    CUdeviceptr packed,
+    CUdeviceptr offset,
+    CUdeviceptr count,
+    uint32_t gridUpperBound)
 {
-  if (!kernel || liveSlots == 0)
+  if (!kernel || gridUpperBound == 0)
     return false;
 
   constexpr unsigned int kThreadsPerBlock = 256;
   const unsigned int blocks =
-      (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
+      (gridUpperBound + kThreadsPerBlock - 1) / kThreadsPerBlock;
 
-  void *args[] = {&frameData, &callableBaseIndex, &liveSlots};
+  void *args[] = {&frameData, &packed, &offset, &count};
   const CUresult r = cuLaunchKernel(kernel.function,
       blocks,
       1,

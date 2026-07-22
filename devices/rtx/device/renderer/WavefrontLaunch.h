@@ -76,4 +76,21 @@ void wavefrontResolve(cudaStream_t stream,
     uint32_t bounce,
     uint32_t maxDepth);
 
+// MDL material-sorted compaction: partition the live pool's MDL hits into a
+// packed slot-index array grouped by compiled material. `baseIndices[0..M)` is
+// each material's callableBaseIndex (the partition key); the pass writes per-
+// material `counts` and exclusive-prefix-sum `offsets`, and scatters matching
+// slot indices into `packed` at `offsets[bucket]`. `cursor` is M scratch words.
+// All outputs live on the device — the per-material shade launch reads its
+// count/offset from device memory, so no host readback / stream sync is needed.
+void wavefrontMdlCompact(cudaStream_t stream,
+    const FrameGPUData *frameData,
+    const uint32_t *baseIndices,
+    uint32_t numMaterials,
+    uint32_t liveSlots,
+    uint32_t *counts,
+    uint32_t *offsets,
+    uint32_t *cursor,
+    uint32_t *packed);
+
 } // namespace visrtx
