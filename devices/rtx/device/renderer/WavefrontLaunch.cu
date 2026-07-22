@@ -189,12 +189,40 @@ __global__ void wavefrontShadeEmitKernel(
 
   const BuiltinAppearance a = evalBuiltinAppearance(*fd, rec.hit);
 
+  RandState rng = path.rng;
+
+  // Stochastic cutout (matte BLEND/MASK, PBR opacity): draw once against the
+  // material opacity. A transparent draw treats the surface as absent for this
+  // sample — no shading, no coverage — and continues the ray straight through
+  // so what's behind shows through holes. Averaged over samples this yields the
+  // authored alpha, unlike an opacity*shading dimming that never reveals the
+  // background. Reuses the sampled-bounce continuation.
+  if (pcg_uniform(&rng) >= a.opacity) {
+    sr.unshadowed = vec3(0.f);
+    sr.albedo = vec3(0.f);
+    sr.normal = N;
+    sr.opacity = 0.f;
+    sr.depth = rec.hit.t;
+    sr.primID = rec.hit.primID;
+    sr.objID = rec.hit.objID;
+    sr.instID = rec.hit.instID;
+    sr.hasSampledBounce = 1u;
+    sr.bounceDir = rec.rayDir; // straight through, unchanged direction
+    sr.bounceWeight = vec3(1.f); // no attenuation
+    const float side = glm::dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
+    sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
+    path.rng = rng;
+    return;
+  }
+
+  // Opaque this sample: full shading, full coverage — opacity is folded
+  // stochastically above, so no per-term opacity factor here.
   const vec3 ambient =
       a.baseColor * fd->renderer.ambientIntensity * fd->renderer.ambientColor;
-  sr.unshadowed = ambient * a.opacity + a.emission;
-  sr.albedo = a.baseColor * a.opacity;
+  sr.unshadowed = ambient + a.emission;
+  sr.albedo = a.baseColor;
   sr.normal = N;
-  sr.opacity = a.opacity;
+  sr.opacity = 1.f;
   sr.depth = rec.hit.t;
   sr.primID = rec.hit.primID;
   sr.objID = rec.hit.objID;
@@ -203,15 +231,17 @@ __global__ void wavefrontShadeEmitKernel(
   sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
   const uint32_t n = uint32_t(fd->world.numLightInstances);
-  if (n == 0)
+  if (n == 0) {
+    path.rng = rng;
     return;
+  }
 
   // sampleLight() handles every light type, including Geometry Lights (their
   // emission is read as the light's mean radiance here — see the
   // VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION note above).
   ScreenSample ss;
   ss.frameData = fd;
-  ss.rs = path.rng;
+  ss.rs = rng;
   ss.shadowContribWeight = 1.0f;
   uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
   if (k >= n)
@@ -223,8 +253,7 @@ __global__ void wavefrontShadeEmitKernel(
   if (ls.pdf > 0.f && ls.dist > 0.f) {
     const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
     // Uniform pick over n lights has probability 1/n, so reweight by n.
-    sr.directContrib =
-        a.baseColor * ndotl * ls.radiance / ls.pdf * float(n) * a.opacity;
+    sr.directContrib = a.baseColor * ndotl * ls.radiance / ls.pdf * float(n);
     sr.shadowDir = ls.dir;
     sr.shadowDist = ls.dist;
   }
