@@ -291,10 +291,16 @@ MaterialRegistry::compileAndCacheMaterial(const std::string &fullMaterialName,
           .write(data, std::streamsize(size));
     };
     dump("material.ptx", targetCode->get_code(), targetCode->get_code_size());
-    dump("texture.ptx", reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
+    dump("texture.ptx",
+        reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
         ptx::MDLTexture.size);
     dump("stitched.ptx", ptxBlob.data(), ptxBlob.size());
   }
+
+  // Raw material PTX (pre-stitch), retained for the wavefront renderer's
+  // per-material CUDA shade kernels.
+  std::vector<char> materialPtx(targetCode->get_code(),
+      targetCode->get_code() + targetCode->get_code_size());
 
   // Find an empty slot if possible
   auto targetIt = std::find_if(std::begin(m_targetCodes),
@@ -302,9 +308,14 @@ MaterialRegistry::compileAndCacheMaterial(const std::string &fullMaterialName,
       [](const auto &v) { return v.refCount == 0; });
 
   if (targetIt == std::end(m_targetCodes)) {
-    targetIt = m_targetCodes.insert(std::end(m_targetCodes), {ptxBlob, 1});
+    TargetCode tc;
+    tc.ptxBlob = std::move(ptxBlob);
+    tc.materialPtx = std::move(materialPtx);
+    tc.refCount = 1;
+    targetIt = m_targetCodes.insert(std::end(m_targetCodes), std::move(tc));
   } else {
-    targetIt->ptxBlob = ptxBlob;
+    targetIt->ptxBlob = std::move(ptxBlob);
+    targetIt->materialPtx = std::move(materialPtx);
     targetIt->refCount = 1;
   }
   // Extract the emission IR now, while the compiled material is alive — it is

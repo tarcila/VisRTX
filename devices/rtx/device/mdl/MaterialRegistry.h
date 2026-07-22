@@ -127,6 +127,19 @@ class MaterialRegistry
     return res;
   }
 
+  // Raw per-material MDL PTX, in the same Sbt/implementation-index order as
+  // getPtxBlobs(). For the wavefront renderer's per-material CUDA shade kernels
+  // (nvJitLinked against its own shell + the texture runtime). Empty span for a
+  // released slot.
+  const std::vector<nonstd::span<const char>> getMaterialPtxBlobs() const
+  {
+    std::vector<nonstd::span<const char>> res;
+    for (const auto &target : m_targetCodes) {
+      res.push_back({target.materialPtx});
+    }
+    return res;
+  }
+
   // Per material instance data
   std::optional<libmdl::ArgumentBlockInstance> createArgumentBlock(
       const libmdl::ArgumentBlockDescriptor &uuid) const;
@@ -156,6 +169,12 @@ class MaterialRegistry
   {
     // mi::base::Handle<const mi::neuraylib::ITarget_code> targetCode;
     std::vector<char> ptxBlob;
+    // Raw MDL-generated material PTX (before stitching in the texture runtime +
+    // OptiX surface-eval shell). The wavefront renderer nvJitLinks this
+    // directly against its own CUDA shade shell; the stitched blob can't be
+    // reused there because it bundles OptiX callable code and localizes the
+    // mdl* symbols.
+    std::vector<char> materialPtx;
     int refCount{};
     // Extracted at compile time, while the compiled material is alive (it is
     // not retained past compilation); evicted with the slot on release.

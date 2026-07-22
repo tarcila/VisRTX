@@ -32,6 +32,9 @@
 #include "Wavefront.h"
 #include "WavefrontLaunch.h"
 #include "optix_visrtx.h"
+#ifdef USE_MDL
+#include "gpu/sbt.h" // SbtCallableEntryPoints, SurfaceShaderEntryPoints
+#endif
 // ptx
 #include "Wavefront_ptx.h"
 // std
@@ -75,6 +78,45 @@ void Wavefront::ensurePool() const
   m_launch.reserve(sizeof(WavefrontLaunchInfo));
 }
 
+#ifdef USE_MDL
+void Wavefront::refreshMdlKernels() const
+{
+  auto *state = deviceState();
+  if (!state->mdl) {
+    m_mdlShaders.clear();
+    return;
+  }
+
+  auto &registry = state->mdl->materialRegistry;
+  const auto ts = registry.getLastUpdateTime();
+  if (m_mdlKernelsBuilt && !(ts > m_lastMdlKernelUpdate))
+    return;
+
+  // Registry slot index i maps to callableBaseIndex = Last + i * Count (the
+  // same layout the OptiX callable SBT uses), and getMaterialPtxBlobs()[i] is
+  // that material's raw PTX. Key the kernel cache by slot index; the full
+  // rebuild below clears stale entries so a reused slot can't resolve an old
+  // kernel.
+  constexpr uint32_t kBase = uint32_t(SbtCallableEntryPoints::Last);
+  constexpr uint32_t kCount = uint32_t(SurfaceShaderEntryPoints::Count);
+
+  m_mdlKernels.release();
+  m_mdlShaders.clear();
+  const auto blobs = registry.getMaterialPtxBlobs();
+  for (size_t i = 0; i < blobs.size(); ++i) {
+    if (blobs[i].empty())
+      continue;
+    const auto kernel = m_mdlKernels.getOrBuild(uint64_t(i), blobs[i]);
+    if (!kernel)
+      continue;
+    m_mdlShaders.push_back({kBase + uint32_t(i) * kCount, kernel});
+  }
+
+  m_lastMdlKernelUpdate = ts;
+  m_mdlKernelsBuilt = true;
+}
+#endif
+
 void Wavefront::populateFrameData(FrameGPUData &fd) const
 {
   Renderer::populateFrameData(fd);
@@ -92,6 +134,9 @@ void Wavefront::launchFrame(cudaStream_t stream,
     uvec2 launchSize)
 {
   ensurePool();
+#ifdef USE_MDL
+  refreshMdlKernels();
+#endif
 
   const uint32_t numPixels = launchSize.x * launchSize.y;
   if (numPixels == 0)
@@ -111,15 +156,14 @@ void Wavefront::launchFrame(cudaStream_t stream,
       || m_fireflyFilterMode == FireflyFilterMode::TONEMAP;
   const uint32_t cap = atomicSafe ? kWavefrontPoolCapacity
                                   : std::min(kWavefrontPoolCapacity, numPixels);
-  const uint32_t liveSlots =
-      uint32_t(std::min<uint64_t>(cap, totalSamples));
+  const uint32_t liveSlots = uint32_t(std::min<uint64_t>(cap, totalSamples));
   auto *slots = m_poolSlots.ptrAs<WavefrontPathSlot>();
   auto *frameDataPtr = reinterpret_cast<const FrameGPUData *>(frameData);
 
-  // Persistent, write-once host sources for the (stage, bounce) launch selector.
-  // The async copies read them after launchFrame returns, so they must outlive
-  // it — a program-lifetime table indexed by (bounce, stage) provides a stable
-  // address per distinct value.
+  // Persistent, write-once host sources for the (stage, bounce) launch
+  // selector. The async copies read them after launchFrame returns, so they
+  // must outlive it — a program-lifetime table indexed by (bounce, stage)
+  // provides a stable address per distinct value.
   static constexpr uint32_t kMaxBounceTable = 64;
   static WavefrontLaunchInfo sLaunchTable[kMaxBounceTable][2];
   static const bool sLaunchTableInit = [] {
@@ -146,9 +190,10 @@ void Wavefront::launchFrame(cudaStream_t stream,
   // Host-driven wavefront cycle. Each wave regenerates a batch of camera
   // samples, then traces each sample's path to maxDepth: per bounce, a trace
   // launch fills hit records, the CUDA shade-emit stage evaluates surfaces and
-  // emits shadow rays, a shadow launch (same pipeline, stage flag flipped) fills
-  // visibility, and the CUDA resolve stage deposits the bounce's contribution
-  // and spawns the continuation ray. Waves repeat until the budget is spent.
+  // emits shadow rays, a shadow launch (same pipeline, stage flag flipped)
+  // fills visibility, and the CUDA resolve stage deposits the bounce's
+  // contribution and spawns the continuation ray. Waves repeat until the budget
+  // is spent.
   for (uint64_t waveBase = 0; waveBase < totalSamples; waveBase += liveSlots) {
     wavefrontRegenerate(
         stream, slots, waveBase, numPixels, totalSamples, liveSlots);
@@ -165,6 +210,18 @@ void Wavefront::launchFrame(cudaStream_t stream,
           1));
 
       wavefrontShadeEmit(stream, frameDataPtr, liveSlots);
+
+#ifdef USE_MDL
+      // MDL hits were left as geometry-only placeholders by the builtin stage;
+      // each per-compiled-material kernel overwrites its own slots' appearance
+      // and NEE. One launch per material over the full pool (in-kernel slot
+      // match by callableBaseIndex); material-sorted compaction is a later
+      // slice.
+      for (const auto &[callableBaseIndex, kernel] : m_mdlShaders) {
+        launchWavefrontMdlShade(
+            kernel, stream, frameData, callableBaseIndex, liveSlots);
+      }
+#endif
 
       setLaunch(WavefrontStage::Shadow, bounce);
       OPTIX_CHECK(optixLaunch(pipeline(),

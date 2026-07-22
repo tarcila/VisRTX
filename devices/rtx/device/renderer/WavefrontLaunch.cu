@@ -34,9 +34,9 @@
 // The wavefront shade stage runs in plain CUDA and cannot dispatch the material
 // emission callable, so Geometry-Light NEE uses the light's mean radiance
 // (exact for constant emitters). This keeps sampleLight()'s GEOMETRY branch out
-// of ptxas codegen; without it the optixDirectCall is an unresolved symbol. Must
-// be defined before ANY include, since sampleLight.h is also pulled transitively
-// (with #pragma once, a later define would be too late).
+// of ptxas codegen; without it the optixDirectCall is an unresolved symbol.
+// Must be defined before ANY include, since sampleLight.h is also pulled
+// transitively (with #pragma once, a later define would be too late).
 #define VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION
 
 #include "gpu/evalMaterialParameters.h" // getMaterialParameter, adjustedMaterialOpacity
@@ -44,6 +44,7 @@
 #include "gpu/gpu_util.h" // accumPixelSample, setPixelIds
 #include "gpu/renderer/common.h" // getBackgroundLight
 #include "gpu/sampleLight.h" // sampleLight, LightSample
+#include "gpu/sbt.h" // SbtCallableEntryPoints
 
 namespace visrtx {
 
@@ -83,6 +84,14 @@ struct BuiltinAppearance
   float opacity{1.f};
 };
 
+// MDL materials get a per-compiled-material callableBaseIndex at or above the
+// static callable block; the builtin static path only knows Matte and PBR, so
+// MDL hits are shaded by the wavefront MDL kernel instead (ticket 10).
+__device__ bool isMdlMaterial(const MaterialGPUData *m)
+{
+  return m && m->callableBaseIndex >= uint32_t(SbtCallableEntryPoints::Last);
+}
+
 __device__ BuiltinAppearance evalBuiltinAppearance(
     const FrameGPUData &fd, const SurfaceHit &hit)
 {
@@ -108,7 +117,6 @@ __device__ BuiltinAppearance evalBuiltinAppearance(
   }
   return a;
 }
-
 
 // Shade-emit: evaluate the surface, pick ONE light for next-event estimation,
 // and stash the deferred shading state — the unshadowed part (ambient +
@@ -156,10 +164,28 @@ __global__ void wavefrontShadeEmitKernel(
     return;
   }
 
-  const BuiltinAppearance a = evalBuiltinAppearance(*fd, rec.hit);
   vec3 N = rec.hit.Ns;
   if (!(glm::dot(N, N) > 1e-12f))
     N = rec.hit.Ng;
+
+  // MDL hit: write a geometry-only placeholder (black appearance, valid ids /
+  // normal / continuation origin) and let the per-material MDL kernel overwrite
+  // the appearance + NEE. If no kernel is built for it, the slot renders black
+  // rather than reading stale data.
+  if (isMdlMaterial(rec.hit.material)) {
+    sr.unshadowed = vec3(0.f);
+    sr.albedo = vec3(0.f);
+    sr.normal = N;
+    sr.opacity = 1.f;
+    sr.depth = rec.hit.t;
+    sr.primID = rec.hit.primID;
+    sr.objID = rec.hit.objID;
+    sr.instID = rec.hit.instID;
+    sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
+    return;
+  }
+
+  const BuiltinAppearance a = evalBuiltinAppearance(*fd, rec.hit);
 
   const vec3 ambient =
       a.baseColor * fd->renderer.ambientIntensity * fd->renderer.ambientColor;
@@ -261,8 +287,10 @@ VISRTX_DEVICE void wavefrontAccumulate(const FrameGPUData &fd,
 // counts one sample per PATH, so every bounce adds to the same pixel while only
 // the first bounce contributes the coverage/AOV channels. The path terminates
 // on a miss, at max depth, or when throughput collapses.
-__global__ void wavefrontResolveKernel(
-    const FrameGPUData *fd, uint32_t liveSlots, uint32_t bounce, uint32_t maxDepth)
+__global__ void wavefrontResolveKernel(const FrameGPUData *fd,
+    uint32_t liveSlots,
+    uint32_t bounce,
+    uint32_t maxDepth)
 {
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= liveSlots)
