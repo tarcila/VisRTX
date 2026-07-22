@@ -178,6 +178,11 @@ bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
   if (!kernel || gridUpperBound == 0)
     return false;
 
+  // 256 measured best. The MDL kernel is register-heavy (~70 reg/thread ->
+  // 50% occupancy at 256, per ncu), but it is compute/memory-bound, not
+  // occupancy-bound: 128/block lifts occupancy to ~58% yet runs ~18% SLOWER.
+  // A __launch_bounds__ register cap can't raise occupancy either — nvJitLink
+  // rejects an entry cap below a linked callee's regcount.
   constexpr unsigned int kThreadsPerBlock = 256;
   const unsigned int blocks =
       (gridUpperBound + kThreadsPerBlock - 1) / kThreadsPerBlock;

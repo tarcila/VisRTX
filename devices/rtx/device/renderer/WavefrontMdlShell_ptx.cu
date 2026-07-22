@@ -240,6 +240,10 @@ __device__ void sampleMdlBounce(const MDLShadingState &s,
 // first and leaves a geometry-only placeholder for MDL hits, which this kernel
 // overwrites. Only surface hits are handled here; misses stay on the builtin
 // path.
+// Register-heavy (~70 reg/thread -> 50% occupancy at 256/block, per ncu), but
+// compute/memory-bound rather than occupancy-bound: raising occupancy
+// (128/block or a __launch_bounds__ register cap) does not help — measured in
+// 10i. See launchWavefrontMdlShade for the block-size finding.
 extern "C" __global__ void wavefrontMdlShade(
     const FrameGPUData *fd, const uint32_t *packed, const uint32_t *count)
 {
