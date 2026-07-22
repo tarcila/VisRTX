@@ -32,6 +32,8 @@
 #include "WavefrontMdlKernelCache.h"
 // embedded relocatable shell PTX
 #include "WavefrontMdlShell_ptx.h"
+// MDL texture runtime PTX (shared by all materials)
+#include "mdl/ptx.h"
 // nvJitLink
 #include <nvJitLink.h>
 // std
@@ -79,9 +81,12 @@ WavefrontMdlKernel WavefrontMdlKernelCache::getOrBuild(
   if (auto it = m_kernels.find(key); it != m_kernels.end())
     return it->second;
 
-  // Link the wavefront MDL shell against this material's PTX. The material blob
-  // is self-contained (texture runtime + material code), and neither references
-  // OptiX, so nvJitLink resolves everything into a loadable cubin.
+  // Link the wavefront MDL shade shell against this material's RAW PTX plus the
+  // shared MDL texture runtime — the same three-way link the linking spike
+  // proved. None reference OptiX (the raw material code, unlike the stitched
+  // OptiX blob), so nvJitLink resolves everything into a loadable cubin. The
+  // stitched getPtxBlobs() blob can't be used here: it bundles the OptiX
+  // surface-eval callable and localizes the mdl* symbols the shell imports.
   const std::string archOpt = "-arch=sm_" + arch();
   const char *linkOpts[] = {archOpt.c_str()};
 
@@ -91,19 +96,26 @@ WavefrontMdlKernel WavefrontMdlKernelCache::getOrBuild(
     return {};
   }
 
-  bool ok = nvJitLinkAddData(linker,
-                NVJITLINK_INPUT_PTX,
-                reinterpret_cast<const char *>(WavefrontMdlShell_ptx),
-                sizeof(WavefrontMdlShell_ptx),
-                "wavefront_mdl_shell")
-      == NVJITLINK_SUCCESS;
-  ok = ok
-      && nvJitLinkAddData(linker,
-             NVJITLINK_INPUT_PTX,
-             materialPtx.data(),
-             materialPtx.size(),
-             "mdl_material")
-          == NVJITLINK_SUCCESS;
+  // nvJitLink's PTX parser expects NUL-terminated text; the shell array and the
+  // material/texture blobs have no guaranteed trailing NUL, so copy each into a
+  // std::string (whose data() is NUL-terminated). Passing a bare span fails
+  // with "does not match type NVJITLINK_INPUT_PTX".
+  const std::string shellText(
+      reinterpret_cast<const char *>(WavefrontMdlShell_ptx),
+      sizeof(WavefrontMdlShell_ptx));
+  const std::string materialText(materialPtx.data(), materialPtx.size());
+  const std::string textureText(
+      reinterpret_cast<const char *>(mdl::ptx::MDLTexture.ptr),
+      mdl::ptx::MDLTexture.size);
+
+  const auto add = [&](const std::string &ptx, const char *name) {
+    return nvJitLinkAddData(
+               linker, NVJITLINK_INPUT_PTX, ptx.data(), ptx.size(), name)
+        == NVJITLINK_SUCCESS;
+  };
+  bool ok = add(shellText, "wavefront_mdl_shell");
+  ok = ok && add(materialText, "mdl_material");
+  ok = ok && add(textureText, "mdl_texture");
 
   if (!ok || nvJitLinkComplete(linker) != NVJITLINK_SUCCESS) {
     size_t logSize = 0;
@@ -111,8 +123,10 @@ WavefrontMdlKernel WavefrontMdlKernelCache::getOrBuild(
     std::string log(logSize, '\0');
     if (logSize)
       nvJitLinkGetErrorLog(linker, log.data());
-    fprintf(stderr, "[wavefront MDL] link failed for key %llu:\n%s\n",
-        static_cast<unsigned long long>(key), log.c_str());
+    fprintf(stderr,
+        "[wavefront MDL] link failed for key %llu:\n%s\n",
+        static_cast<unsigned long long>(key),
+        log.c_str());
     nvJitLinkDestroy(&linker);
     return {};
   }
@@ -125,14 +139,17 @@ WavefrontMdlKernel WavefrontMdlKernelCache::getOrBuild(
 
   WavefrontMdlKernel kernel{};
   if (cuModuleLoadData(&kernel.module, cubin.data()) != CUDA_SUCCESS) {
-    fprintf(stderr, "[wavefront MDL] cuModuleLoadData failed for key %llu\n",
+    fprintf(stderr,
+        "[wavefront MDL] cuModuleLoadData failed for key %llu\n",
         static_cast<unsigned long long>(key));
     return {};
   }
   if (cuModuleGetFunction(&kernel.function, kernel.module, kMdlShadeKernelName)
       != CUDA_SUCCESS) {
-    fprintf(stderr, "[wavefront MDL] kernel '%s' not found for key %llu\n",
-        kMdlShadeKernelName, static_cast<unsigned long long>(key));
+    fprintf(stderr,
+        "[wavefront MDL] kernel '%s' not found for key %llu\n",
+        kMdlShadeKernelName,
+        static_cast<unsigned long long>(key));
     cuModuleUnload(kernel.module);
     return {};
   }
@@ -149,6 +166,38 @@ void WavefrontMdlKernelCache::release()
       cuModuleUnload(kernel.module);
   }
   m_kernels.clear();
+}
+
+bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
+    CUstream stream,
+    CUdeviceptr frameData,
+    uint32_t callableBaseIndex,
+    uint32_t liveSlots)
+{
+  if (!kernel || liveSlots == 0)
+    return false;
+
+  constexpr unsigned int kThreadsPerBlock = 256;
+  const unsigned int blocks =
+      (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
+
+  void *args[] = {&frameData, &callableBaseIndex, &liveSlots};
+  const CUresult r = cuLaunchKernel(kernel.function,
+      blocks,
+      1,
+      1,
+      kThreadsPerBlock,
+      1,
+      1,
+      0,
+      stream,
+      args,
+      nullptr);
+  if (r != CUDA_SUCCESS) {
+    fprintf(stderr, "[wavefront MDL] cuLaunchKernel failed (%d)\n", int(r));
+    return false;
+  }
+  return true;
 }
 
 } // namespace visrtx

@@ -33,6 +33,12 @@
 
 #include "Renderer.h"
 #include "utility/DeviceBuffer.h"
+#ifdef USE_MDL
+#include "WavefrontMdlKernelCache.h"
+// std
+#include <utility>
+#include <vector>
+#endif
 
 namespace visrtx {
 
@@ -60,15 +66,30 @@ struct Wavefront : public Renderer
  private:
   void ensurePool() const;
 
+#ifdef USE_MDL
+  // Build/refresh the per-compiled-material MDL shade kernels from the material
+  // registry's PTX blobs, keyed off its update timestamp (same signal the OptiX
+  // pipeline rebuild uses). Full invalidate-and-rebuild on any change, so a
+  // freed registry slot reused by a new material never resolves a stale kernel.
+  void refreshMdlKernels() const;
+
+  mutable WavefrontMdlKernelCache m_mdlKernels;
+  mutable helium::TimeStamp m_lastMdlKernelUpdate{};
+  mutable bool m_mdlKernelsBuilt{false};
+  // (callableBaseIndex, kernel) for each built MDL material; the shade dispatch
+  // launches one per entry over the full live pool.
+  mutable std::vector<std::pair<uint32_t, WavefrontMdlKernel>> m_mdlShaders;
+#endif
+
   int m_maxDepth{4}; // path-tracing bounce depth
 
   // Fixed-capacity Path Pool (resolution-independent). Mutable so the const
   // populateFrameData() can lazily allocate before publishing the pointers.
-  // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace result.
-  // m_poolShade: per-slot deferred shading state around the shadow trace.
-  // m_poolPaths: per-slot path state (throughput, continuation ray) across
-  // bounces. m_launch: 1-element (stage, bounce) selector for the shared raygen,
-  // patched per launch on the stream.
+  // m_poolSlots: per-slot (pixel, sampleIdx). m_poolHits: per-slot trace
+  // result. m_poolShade: per-slot deferred shading state around the shadow
+  // trace. m_poolPaths: per-slot path state (throughput, continuation ray)
+  // across bounces. m_launch: 1-element (stage, bounce) selector for the shared
+  // raygen, patched per launch on the stream.
   mutable DeviceBuffer m_poolSlots;
   mutable DeviceBuffer m_poolHits;
   mutable DeviceBuffer m_poolShade;

@@ -123,6 +123,7 @@ if (VISRTX_ENABLE_MDL_SUPPORT)
   add_test(NAME TestMdlPtxIdentity COMMAND ${CMAKE_COMMAND}
     -DTEST_BIN=$<TARGET_FILE:TestMdlPtxFingerprint>
     -P ${CMAKE_CURRENT_LIST_DIR}/mdl_ptx_identity.cmake)
+  make_test(TestWavefrontMdlMaterial)
 endif()
 make_test(TestEmissiveInteractive)
 make_test(TestEmissiveIncremental)

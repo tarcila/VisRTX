@@ -68,7 +68,8 @@ using BsdfEvaluateData =
     mi::neuraylib::Bsdf_evaluate_data<mi::neuraylib::DF_HSM_NONE>;
 using BsdfAuxiliaryData =
     mi::neuraylib::Bsdf_auxiliary_data<mi::neuraylib::DF_HSM_NONE>;
-using EdfEvaluateData = mi::neuraylib::Edf_evaluate_data<mi::neuraylib::DF_HSM_NONE>;
+using EdfEvaluateData =
+    mi::neuraylib::Edf_evaluate_data<mi::neuraylib::DF_HSM_NONE>;
 
 using BsdfInitFunc = mi::neuraylib::Bsdf_init_function;
 using BsdfEvaluateFunc = mi::neuraylib::Bsdf_evaluate_function;
@@ -79,8 +80,9 @@ using EmissionIntensityExprFunc = mi::neuraylib::Material_function<vec3>::Type;
 
 } // namespace
 
-// The compiled-material PTX defines these; nvJitLink resolves them per material.
-// Declared exactly as in MDLShader_ptx.cu (VISRTX_CALLABLE = extern "C"
+// The compiled-material PTX defines these; nvJitLink resolves them per
+// material. Declared exactly as in MDLShader_ptx.cu (VISRTX_CALLABLE = extern
+// "C"
 // __device__) so the mangled names match the stitched material symbols.
 VISRTX_CALLABLE BsdfInitFunc mdlInit;
 VISRTX_CALLABLE BsdfEvaluateFunc mdlBsdf_evaluate;
@@ -158,8 +160,7 @@ __device__ vec3 evalMdlEmission(const MDLShadingState &s, const vec3 &wo)
   EdfEvaluateData edf = {};
   edf.k1 = make_float3(wo);
   mdlEmission_evaluate(&edf, &s.state, &s.resData, s.argBlock);
-  const vec3 intensity =
-      mdlEmissionIntensity(&s.state, &s.resData, s.argBlock);
+  const vec3 intensity = mdlEmissionIntensity(&s.state, &s.resData, s.argBlock);
   return make_vec3(edf.edf) * intensity;
 }
 
@@ -188,19 +189,20 @@ __device__ vec3 evalMdlBsdf(
 
 } // namespace
 
-// Per-material MDL shade kernel. `slotIndices[0..count)` are the live pool slots
-// whose surface uses THIS compiled material (host guarantees the partition — see
-// the material-sorted dispatch). Writes the same WavefrontShadeRecord contract
-// as the builtin shade-emit stage, so the shared shadow-trace + resolve stages
-// need no MDL awareness. Only surface hits are handled here; misses stay on the
-// builtin path.
+// Per-material MDL shade kernel. Launched over the full live pool once per
+// registered compiled material; `myCallableBaseIndex` selects the slots whose
+// hit surface uses THIS compiled material (all instances of one compiled
+// material share callableBaseIndex). Writes the same WavefrontShadeRecord
+// contract as the builtin shade-emit stage, so the shared shadow-trace +
+// resolve stages need no MDL awareness. The builtin stage runs first and leaves
+// a geometry-only placeholder for MDL hits, which this kernel overwrites. Only
+// surface hits are handled here; misses stay on the builtin path.
 extern "C" __global__ void wavefrontMdlShade(
-    const FrameGPUData *fd, const uint32_t *slotIndices, uint32_t count)
+    const FrameGPUData *fd, uint32_t myCallableBaseIndex, uint32_t liveSlots)
 {
-  const uint32_t t = blockIdx.x * blockDim.x + threadIdx.x;
-  if (t >= count)
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= liveSlots)
     return;
-  const uint32_t i = slotIndices[t];
 
   const WavefrontPathSlot slot = fd->wavefrontSlots[i];
   if (!slot.alive)
@@ -212,6 +214,8 @@ extern "C" __global__ void wavefrontMdlShade(
   const WavefrontHitRecord &rec = fd->wavefrontHits[i];
   WavefrontShadeRecord &sr = fd->wavefrontShade[i];
   if (!rec.hit.foundHit || !rec.hit.material)
+    return;
+  if (rec.hit.material->callableBaseIndex != myCallableBaseIndex)
     return;
 
   MDLShadingState s;

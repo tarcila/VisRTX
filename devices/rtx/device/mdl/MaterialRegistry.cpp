@@ -338,10 +338,16 @@ MaterialRegistry::compileMaterial(const std::string &moduleOrSource,
           .write(data, std::streamsize(size));
     };
     dump("material.ptx", targetCode->get_code(), targetCode->get_code_size());
-    dump("texture.ptx", reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
+    dump("texture.ptx",
+        reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
         ptx::MDLTexture.size);
     dump("stitched.ptx", ptxBlob.data(), ptxBlob.size());
   }
+
+  // Raw material PTX (pre-stitch), retained for the wavefront renderer's
+  // per-material CUDA shade kernels.
+  std::vector<char> materialPtx(targetCode->get_code(),
+      targetCode->get_code() + targetCode->get_code_size());
 
   // Extract the emission IR now, while the compiled material is alive — it is
   // not retained. The material folds this IR against its live arguments at
@@ -350,8 +356,11 @@ MaterialRegistry::compileMaterial(const std::string &moduleOrSource,
       libmdl::buildEmissionIR(compiledMaterial.get(), transaction.get());
 
   doCommit = true;
-  return CompileProduct{
-      uuid, std::move(ptxBlob), std::move(emission), std::move(argBlockDesc)};
+  return CompileProduct{uuid,
+      std::move(ptxBlob),
+      std::move(materialPtx),
+      std::move(emission),
+      std::move(argBlockDesc)};
 }
 
 MaterialRegistry::AcquiredMaterial MaterialRegistry::insertCompiled(
@@ -376,10 +385,14 @@ MaterialRegistry::AcquiredMaterial MaterialRegistry::insertCompiled(
       [](const auto &v) { return v.refCount == 0; });
 
   if (targetIt == std::end(m_targetCodes)) {
-    targetIt = m_targetCodes.insert(
-        std::end(m_targetCodes), {std::move(product.ptxBlob), 1});
+    TargetCode tc;
+    tc.ptxBlob = std::move(product.ptxBlob);
+    tc.materialPtx = std::move(product.materialPtx);
+    tc.refCount = 1;
+    targetIt = m_targetCodes.insert(std::end(m_targetCodes), std::move(tc));
   } else {
     targetIt->ptxBlob = std::move(product.ptxBlob);
+    targetIt->materialPtx = std::move(product.materialPtx);
     targetIt->refCount = 1;
   }
   targetIt->emission = std::move(product.emission);
