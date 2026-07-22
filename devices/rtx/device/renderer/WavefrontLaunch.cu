@@ -328,17 +328,19 @@ __global__ void wavefrontResolveKernel(const FrameGPUData *fd,
   }
   if (sr.hasSampledBounce) {
     // A per-material kernel (MDL) importance-sampled its own BSDF: take its
-    // direction and BSDF-over-pdf throughput factor directly.
+    // direction, BSDF-over-pdf throughput factor, and side-aware origin (which
+    // sits past the surface for a transmission lobe) directly.
     path.throughput *= sr.bounceWeight;
     path.nextDir = sr.bounceDir;
+    path.nextOrg = sr.bounceOrg;
   } else {
     // Builtin cosine-weighted Lambertian: the cos/pdf and 1/pi fold to albedo.
     RandState rng = path.rng;
     path.nextDir = sampleHemisphere(rng, sr.normal);
     path.rng = rng;
     path.throughput *= sr.albedo;
+    path.nextOrg = sr.shadowOrg; // +Ng-offset hit point recorded by shade-emit
   }
-  path.nextOrg = sr.shadowOrg; // offset hit point recorded by shade-emit
   // Kill paths whose contribution can no longer matter.
   if (fmaxf(path.throughput.x, fmaxf(path.throughput.y, path.throughput.z))
       < 1.0e-4f)

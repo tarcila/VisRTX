@@ -313,4 +313,10 @@ extern "C" __global__ void wavefrontMdlShade(
   // the resolve stage's diffuse fallback). Always sampled, independent of NEE.
   sampleMdlBounce(s, wo, rng, sr);
   path.rng = rng;
+
+  // Offset the continuation origin to the side the sampled ray leaves on: +Ng
+  // for a reflection lobe, -Ng for a transmission lobe (dir points into the
+  // surface). Using shadowOrg's fixed +Ng offset would self-intersect glass.
+  const float side = dot(sr.bounceDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
+  sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
 }

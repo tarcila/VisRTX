@@ -1018,11 +1018,14 @@ struct WavefrontShadeRecord
 
   // Importance-sampled continuation, filled by a per-material shade kernel that
   // can sample its own BSDF (MDL). When hasSampledBounce is set, the resolve
-  // stage takes bounceDir/bounceWeight instead of its default cosine-weighted
-  // diffuse continuation. bounceWeight is the BSDF-over-pdf throughput factor;
-  // zero terminates the path (absorbed lobe).
+  // stage takes bounceDir/bounceWeight/bounceOrg instead of its default cosine-
+  // weighted diffuse continuation. bounceWeight is the BSDF-over-pdf throughput
+  // factor; zero terminates the path (absorbed lobe). bounceOrg is the ray
+  // origin offset toward the sampled hemisphere — for a transmission lobe it
+  // sits on the far side of the surface, so the ray does not self-intersect.
   glm::vec3 bounceDir;
   glm::vec3 bounceWeight;
+  glm::vec3 bounceOrg;
   uint32_t hasSampledBounce;
 };
 
