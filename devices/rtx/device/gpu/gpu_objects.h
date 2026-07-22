@@ -835,16 +835,18 @@ struct WorldGPUData
   // Power-proportional Light Pick (built in World::buildInstanceLightGPUData).
   // Normalized cumulative Pick Power over lightInstances (length
   // numLightInstances, last entry == 1); pick a slot with inverseSampleCDF.
-  // Double so a dim light's mass (below float epsilon of the total) survives the
-  // adjacent-difference of two ≈1.0 CDF values — else it is unselectable while
-  // the hit-side pNee is still positive, biasing the deposit's MIS weight. (The
-  // 24-bit pick sample floors selection at ~2^-24 regardless; the double CDF only
-  // widens which dim slots the differencing can resolve, not which are reachable.)
+  // Double so a dim light's mass (below float epsilon of the total) survives
+  // the adjacent-difference of two ≈1.0 CDF values — else it is unselectable
+  // while the hit-side pNee is still positive, biasing the deposit's MIS
+  // weight. (The 24-bit pick sample floors selection at ~2^-24 regardless; the
+  // double CDF only widens which dim slots the differencing can resolve, not
+  // which are reachable.)
   const double *lightPickCdf;
-  // Per-slot discrete pick probability power_i/total (length numLightInstances),
-  // precomputed host-side. Read this directly instead of differencing adjacent
-  // lightPickCdf entries: a standalone float represents a selected dim light's
-  // mass accurately, where the adjacent-difference of two ≈1.0 values would not.
+  // Per-slot discrete pick probability power_i/total (length
+  // numLightInstances), precomputed host-side. Read this directly instead of
+  // differencing adjacent lightPickCdf entries: a standalone float represents a
+  // selected dim light's mass accurately, where the adjacent-difference of two
+  // ≈1.0 values would not.
   const float *lightPickDelta;
   float totalLightPower; // sum of un-normalized instance Pick Powers
   float hdriPower; // subset sum over HDRI instances (env-MIS pick probability)
@@ -877,7 +879,8 @@ struct InteractiveRendererGPUData
   vec3 aoColor;
   float aoIntensity;
   float inverseVolumeSamplingRateShadows;
-  int maxSampledLights; // NEE shadow-ray budget per hit; <= 0 samples all lights
+  int maxSampledLights; // NEE shadow-ray budget per hit; <= 0 samples all
+                        // lights
 };
 
 union RendererParametersGPUData
@@ -1012,6 +1015,15 @@ struct WavefrontShadeRecord
   uint32_t instID;
   float visibility; // 1 unoccluded .. 0 fully blocked; set by the shadow stage
   uint32_t hasHit; // 1 surface hit (shade), 0 miss (background in `unshadowed`)
+
+  // Importance-sampled continuation, filled by a per-material shade kernel that
+  // can sample its own BSDF (MDL). When hasSampledBounce is set, the resolve
+  // stage takes bounceDir/bounceWeight instead of its default cosine-weighted
+  // diffuse continuation. bounceWeight is the BSDF-over-pdf throughput factor;
+  // zero terminates the path (absorbed lobe).
+  glm::vec3 bounceDir;
+  glm::vec3 bounceWeight;
+  uint32_t hasSampledBounce;
 };
 
 // Per-path state carried across bounces within one wave: the running throughput
