@@ -104,6 +104,14 @@ struct Wavefront : public Renderer
   mutable DeviceBuffer m_poolShade;
   mutable DeviceBuffer m_poolPaths;
   mutable DeviceBuffer m_launch;
+
+  // Alive-path compaction: after each bounce the surviving slots/paths are
+  // gathered into these alternate buffers (ping-pong with m_poolSlots/m_pool
+  // Paths), so later bounces launch over only the survivors. m_aliveCount is
+  // the 1-word device survivor counter, read back each bounce to size launches.
+  mutable DeviceBuffer m_poolSlotsAlt;
+  mutable DeviceBuffer m_poolPathsAlt;
+  mutable DeviceBuffer m_aliveCount;
 };
 
 } // namespace visrtx

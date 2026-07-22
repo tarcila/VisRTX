@@ -40,6 +40,7 @@
 namespace visrtx {
 
 struct FrameGPUData;
+struct WavefrontPathState;
 
 // Fixed Path Pool capacity, in slots. Resolution-independent by design: the
 // pool processes a frame in waves of at most this many samples regardless of
@@ -75,6 +76,21 @@ void wavefrontResolve(cudaStream_t stream,
     uint32_t liveSlots,
     uint32_t bounce,
     uint32_t maxDepth);
+
+// Alive-path compaction: gather the slots whose path survived this bounce into
+// a dense prefix of the destination buffers, so the next bounce launches over
+// only the survivors. Copies the cross-bounce state (slot = pixel/sample, path
+// = throughput/rng/continuation ray); the per-bounce hit/shade scratch is not
+// moved (it is rewritten next bounce over the dense front). `outCount` (1
+// device word, zeroed here) receives the survivor count — the host reads it
+// back to size the next bounce's launches.
+void wavefrontCompactAlive(cudaStream_t stream,
+    const WavefrontPathSlot *srcSlots,
+    const WavefrontPathState *srcPaths,
+    WavefrontPathSlot *dstSlots,
+    WavefrontPathState *dstPaths,
+    uint32_t inCount,
+    uint32_t *outCount);
 
 // MDL material-sorted compaction: partition the live pool's MDL hits into a
 // packed slot-index array grouped by compiled material. `baseIndices[0..M)` is

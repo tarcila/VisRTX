@@ -379,6 +379,26 @@ __device__ bool mdlSlotBucket(const FrameGPUData &fd,
   return bucket >= 0;
 }
 
+// Gather surviving (slot, path) pairs into a dense prefix of the destination
+// buffers via an atomic append cursor. A slot survives if it was live this
+// bounce and its path is still alive after resolve.
+__global__ void wavefrontCompactAliveKernel(const WavefrontPathSlot *srcSlots,
+    const WavefrontPathState *srcPaths,
+    WavefrontPathSlot *dstSlots,
+    WavefrontPathState *dstPaths,
+    uint32_t inCount,
+    uint32_t *outCount)
+{
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= inCount)
+    return;
+  if (!srcSlots[i].alive || !srcPaths[i].alive)
+    return;
+  const uint32_t pos = atomicAdd(outCount, 1u);
+  dstSlots[pos] = srcSlots[i];
+  dstPaths[pos] = srcPaths[i];
+}
+
 // Single-pass material-sorted scatter. Each material owns a fixed-stride region
 // packed[bucket * stride ..]; a per-material atomic cursor gives the append
 // position AND doubles as that material's final slot count (no separate count
@@ -439,6 +459,22 @@ void wavefrontResolve(cudaStream_t stream,
   const uint32_t blocks = (liveSlots + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontResolveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
       frameData, liveSlots, bounce, maxDepth);
+}
+
+void wavefrontCompactAlive(cudaStream_t stream,
+    const WavefrontPathSlot *srcSlots,
+    const WavefrontPathState *srcPaths,
+    WavefrontPathSlot *dstSlots,
+    WavefrontPathState *dstPaths,
+    uint32_t inCount,
+    uint32_t *outCount)
+{
+  cudaMemsetAsync(outCount, 0, sizeof(uint32_t), stream);
+  if (inCount == 0)
+    return;
+  const uint32_t blocks = (inCount + kThreadsPerBlock - 1) / kThreadsPerBlock;
+  wavefrontCompactAliveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
+      srcSlots, srcPaths, dstSlots, dstPaths, inCount, outCount);
 }
 
 void wavefrontMdlCompact(cudaStream_t stream,
