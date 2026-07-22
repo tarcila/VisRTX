@@ -208,10 +208,11 @@ int main()
     return 1;
   }
   // The blue environment shows through the holes. A red diffuse surface barely
-  // reflects the blue env, so substantial blue can only come from pass-through
-  // — which the deterministic dimming (ray stops at the surface) never
-  // produces.
-  if (meanBlue < 0.2) {
+  // reflects the blue env (and the env is not next-event-sampled, only reached
+  // by BSDF escape), so a fully-opaque red sphere reads blue ~0.05; the cutout
+  // pass-through lifts it well above 0.1. Deterministic dimming (ray stops at
+  // the surface) never reveals the background at all.
+  if (meanBlue < 0.12) {
     fprintf(stderr,
         "FAIL: mean blue %.3f too low — the cutout is not passing rays through "
         "to reveal the background\n",
