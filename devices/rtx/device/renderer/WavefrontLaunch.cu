@@ -94,6 +94,17 @@ __device__ bool isMdlMaterial(const MaterialGPUData *m)
   return m && m->callableBaseIndex >= uint32_t(SbtCallableEntryPoints::Last);
 }
 
+// The environment (HDRI) is captured by the BSDF-escape: a continuation ray
+// that misses deposits getBackgroundLight(). It is therefore excluded from NEE
+// — the wavefront applies no MIS weights, so next-event-sampling the env AND
+// depositing it on escape would double-count it (a white furnace reads
+// ~(pi+1)x). Analytic and geometry lights stay in NEE (they are not reached by
+// a random BSDF bounce).
+__device__ bool isHdriLight(const FrameGPUData &fd, DeviceObjectIndex idx)
+{
+  return fd.registry.lights[idx].type == LightType::HDRI;
+}
+
 __device__ BuiltinAppearance evalBuiltinAppearance(
     const FrameGPUData &fd, const SurfaceHit &hit)
 {
@@ -252,19 +263,22 @@ __global__ void wavefrontShadeEmitKernel(
       if (kPbr >= nPbr)
         kPbr = nPbr - 1u;
       const InstanceLightGPUData &liPbr = fd->world.lightInstances[kPbr];
-      const LightSample lsPbr = sampleLight(ssPbr,
-          sr.shadowOrg,
-          liPbr.lightIndex,
-          liPbr.xfm,
-          liPbr.surfaceInstanceIndex);
-      rng = ssPbr.rs;
-      if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
-        // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
-        // uniform 1/n light pick.
-        sr.directContrib = pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr);
-        sr.shadowDir = lsPbr.dir;
-        sr.shadowDist = lsPbr.dist;
+      if (!isHdriLight(*fd, liPbr.lightIndex)) {
+        const LightSample lsPbr = sampleLight(ssPbr,
+            sr.shadowOrg,
+            liPbr.lightIndex,
+            liPbr.xfm,
+            liPbr.surfaceInstanceIndex);
+        if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
+          // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
+          // uniform 1/n light pick.
+          sr.directContrib =
+              pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr);
+          sr.shadowDir = lsPbr.dir;
+          sr.shadowDist = lsPbr.dist;
+        }
       }
+      rng = ssPbr.rs;
     }
 
     // Importance-sampled continuation (reflection or refraction).
@@ -311,16 +325,18 @@ __global__ void wavefrontShadeEmitKernel(
   if (k >= n)
     k = n - 1u;
   const InstanceLightGPUData &li = fd->world.lightInstances[k];
-  const LightSample ls = sampleLight(
-      ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-  path.rng = ss.rs; // the light pick + sample consumed the path RNG
-  if (ls.pdf > 0.f && ls.dist > 0.f) {
-    const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
-    // Uniform pick over n lights has probability 1/n, so reweight by n.
-    sr.directContrib = a.baseColor * ndotl * ls.radiance / ls.pdf * float(n);
-    sr.shadowDir = ls.dir;
-    sr.shadowDist = ls.dist;
+  if (!isHdriLight(*fd, li.lightIndex)) {
+    const LightSample ls = sampleLight(
+        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+    if (ls.pdf > 0.f && ls.dist > 0.f) {
+      const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
+      // Uniform pick over n lights has probability 1/n, so reweight by n.
+      sr.directContrib = a.baseColor * ndotl * ls.radiance / ls.pdf * float(n);
+      sr.shadowDir = ls.dir;
+      sr.shadowDist = ls.dist;
+    }
   }
+  path.rng = ss.rs; // the light pick + sample consumed the path RNG
 }
 
 // Atomic scatter-add accumulation for concurrent same-pixel deposits (multiple

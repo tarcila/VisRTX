@@ -331,18 +331,22 @@ extern "C" __global__ void wavefrontMdlShade(
     if (k >= n)
       k = n - 1u;
     const InstanceLightGPUData &li = fd->world.lightInstances[k];
-    const LightSample ls = sampleLight(
-        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-    rng = ss.rs;
-
-    if (ls.pdf > 0.f && ls.dist > 0.f) {
-      const vec3 f = evalMdlBsdf(s, wo, ls.dir);
-      // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
-      // Cutout opacity is folded stochastically at the top, not here.
-      sr.directContrib = f * ls.radiance / ls.pdf * float(n);
-      sr.shadowDir = ls.dir;
-      sr.shadowDist = ls.dist;
+    // The HDRI environment is captured by the BSDF-escape (a continuation ray
+    // that misses deposits the env), so it is excluded from NEE — without MIS,
+    // sampling it here too would double-count it.
+    if (fd->registry.lights[li.lightIndex].type != LightType::HDRI) {
+      const LightSample ls = sampleLight(
+          ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+      if (ls.pdf > 0.f && ls.dist > 0.f) {
+        const vec3 f = evalMdlBsdf(s, wo, ls.dir);
+        // Uniform 1/n light pick -> reweight by n. MDL's f already carries cos.
+        // Cutout opacity is folded stochastically at the top, not here.
+        sr.directContrib = f * ls.radiance / ls.pdf * float(n);
+        sr.shadowDir = ls.dir;
+        sr.shadowDist = ls.dist;
+      }
     }
+    rng = ss.rs;
   }
 
   // Importance-sampled continuation bounce for the indirect path (MDL BSDF, not
