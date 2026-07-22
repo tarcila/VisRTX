@@ -40,6 +40,9 @@
 #include "libmdl/source_name_utils.h"
 #include "material/PhysicallyBasedMDL.h"
 
+#include <cstdlib>
+#include <fstream>
+
 #include <mi/base/enums.h>
 #include <mi/base/handle.h>
 #include <mi/base/ilogger.h>
@@ -277,6 +280,21 @@ MaterialRegistry::compileAndCacheMaterial(const std::string &fullMaterialName,
           reinterpret_cast<const char *>(ptx::MDLShaderEvalSurfaceMaterial.ptr),
           ptx::MDLShaderEvalSurfaceMaterial.size},
   });
+
+  // Wavefront MDL linking spike (ticket 10): dump PTX parts for the nvJitLink
+  // experiment when VISRTX_DUMP_MDL_PTX names a directory. material.ptx is the
+  // raw MDL-generated code; texture.ptx is the runtime; stitched.ptx is the
+  // full blob the OptiX pipeline consumes.
+  if (const char *dumpDir = std::getenv("VISRTX_DUMP_MDL_PTX")) {
+    auto dump = [&](const char *file, const char *data, size_t size) {
+      std::ofstream(std::string(dumpDir) + "/" + file, std::ios::binary)
+          .write(data, std::streamsize(size));
+    };
+    dump("material.ptx", targetCode->get_code(), targetCode->get_code_size());
+    dump("texture.ptx", reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
+        ptx::MDLTexture.size);
+    dump("stitched.ptx", ptxBlob.data(), ptxBlob.size());
+  }
 
   // Find an empty slot if possible
   auto targetIt = std::find_if(std::begin(m_targetCodes),
