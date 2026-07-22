@@ -122,7 +122,9 @@ void Wavefront::refreshMdlKernels(cudaStream_t stream) const
   }
 
   // Size the compaction buffers to the built-material count and upload the
-  // partition keys (each material's callableBaseIndex, in dispatch order).
+  // partition keys (each material's callableBaseIndex, in dispatch order). The
+  // packed array gives every material its own pool-capacity stride, so the
+  // single-pass scatter needs no prefix sum; m_mdlCounts is the atomic cursor.
   const uint32_t numMaterials = uint32_t(m_mdlShaders.size());
   if (numMaterials > 0) {
     std::vector<uint32_t> baseIndices(numMaterials);
@@ -130,9 +132,8 @@ void Wavefront::refreshMdlKernels(cudaStream_t stream) const
       baseIndices[i] = m_mdlShaders[i].first;
     m_mdlBaseIndices.upload(baseIndices);
     m_mdlCounts.reserve(numMaterials * sizeof(uint32_t));
-    m_mdlOffsets.reserve(numMaterials * sizeof(uint32_t));
-    m_mdlCursor.reserve(numMaterials * sizeof(uint32_t));
-    m_mdlPacked.reserve(size_t(kWavefrontPoolCapacity) * sizeof(uint32_t));
+    m_mdlPacked.reserve(
+        size_t(numMaterials) * kWavefrontPoolCapacity * sizeof(uint32_t));
   }
 
   m_lastMdlKernelUpdate = ts;
@@ -236,31 +237,30 @@ void Wavefront::launchFrame(cudaStream_t stream,
 
 #ifdef USE_MDL
       // MDL hits were left as geometry-only placeholders by the builtin stage.
-      // Compact the pool's MDL hits into per-material packed slot lists, then
-      // launch each compiled material's kernel over its own list — each
-      // overwrites its slots' appearance and NEE. count/offset are read on the
-      // device, so the dispatch stays async (no per-bounce readback).
+      // A single-pass compaction packs each material's MDL hits into its own
+      // fixed-stride region (stride = pool capacity); the per-material atomic
+      // cursor is both the append position and the slot count. Each kernel then
+      // launches over its region — count read on-device, so the dispatch stays
+      // async (no per-bounce readback).
       const uint32_t numMdlMaterials = uint32_t(m_mdlShaders.size());
       if (numMdlMaterials > 0) {
-        auto *counts = m_mdlCounts.ptrAs<uint32_t>();
-        auto *offsets = m_mdlOffsets.ptrAs<uint32_t>();
+        constexpr uint32_t stride = kWavefrontPoolCapacity;
+        auto *cursor = m_mdlCounts.ptrAs<uint32_t>();
         auto *packed = m_mdlPacked.ptrAs<uint32_t>();
         wavefrontMdlCompact(stream,
             frameDataPtr,
             m_mdlBaseIndices.ptrAs<uint32_t>(),
             numMdlMaterials,
             liveSlots,
-            counts,
-            offsets,
-            m_mdlCursor.ptrAs<uint32_t>(),
+            stride,
+            cursor,
             packed);
         for (uint32_t mi = 0; mi < numMdlMaterials; ++mi) {
           launchWavefrontMdlShade(m_mdlShaders[mi].second,
               stream,
               frameData,
-              reinterpret_cast<CUdeviceptr>(packed),
-              reinterpret_cast<CUdeviceptr>(offsets + mi),
-              reinterpret_cast<CUdeviceptr>(counts + mi),
+              reinterpret_cast<CUdeviceptr>(packed + size_t(mi) * stride),
+              reinterpret_cast<CUdeviceptr>(cursor + mi),
               liveSlots);
         }
       }

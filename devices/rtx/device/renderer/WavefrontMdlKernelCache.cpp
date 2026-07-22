@@ -172,7 +172,6 @@ bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
     CUstream stream,
     CUdeviceptr frameData,
     CUdeviceptr packed,
-    CUdeviceptr offset,
     CUdeviceptr count,
     uint32_t gridUpperBound)
 {
@@ -183,7 +182,7 @@ bool launchWavefrontMdlShade(const WavefrontMdlKernel &kernel,
   const unsigned int blocks =
       (gridUpperBound + kThreadsPerBlock - 1) / kThreadsPerBlock;
 
-  void *args[] = {&frameData, &packed, &offset, &count};
+  void *args[] = {&frameData, &packed, &count};
   const CUresult r = cuLaunchKernel(kernel.function,
       blocks,
       1,

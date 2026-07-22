@@ -240,15 +240,13 @@ __device__ void sampleMdlBounce(const MDLShadingState &s,
 // first and leaves a geometry-only placeholder for MDL hits, which this kernel
 // overwrites. Only surface hits are handled here; misses stay on the builtin
 // path.
-extern "C" __global__ void wavefrontMdlShade(const FrameGPUData *fd,
-    const uint32_t *packed,
-    const uint32_t *offset,
-    const uint32_t *count)
+extern "C" __global__ void wavefrontMdlShade(
+    const FrameGPUData *fd, const uint32_t *packed, const uint32_t *count)
 {
   const uint32_t t = blockIdx.x * blockDim.x + threadIdx.x;
   if (t >= *count)
     return;
-  const uint32_t i = packed[*offset + t];
+  const uint32_t i = packed[t];
 
   // The compaction pass already filtered to this material's live surface hits,
   // so the per-slot alive / hit / material guards are not repeated here.

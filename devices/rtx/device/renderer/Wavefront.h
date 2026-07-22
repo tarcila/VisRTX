@@ -80,16 +80,14 @@ struct Wavefront : public Renderer
   // launches one per entry over that material's compacted slot list.
   mutable std::vector<std::pair<uint32_t, WavefrontMdlKernel>> m_mdlShaders;
 
-  // Material-sorted compaction buffers. m_mdlPacked: pool-capacity packed slot
-  // indices grouped by material. The rest are per-material (size == number of
-  // built MDL materials): m_mdlBaseIndices is the partition key (callableBase
-  // index) uploaded on refresh; m_mdlCounts/m_mdlOffsets are the compaction
-  // output; m_mdlCursor is scatter scratch.
+  // Single-pass material-sorted compaction buffers. m_mdlPacked: one pool-
+  // capacity stride per built material, holding that material's packed slot
+  // indices. m_mdlBaseIndices: per-material partition key (callableBaseIndex),
+  // uploaded on refresh. m_mdlCounts: per-material atomic cursor == final slot
+  // count.
   mutable DeviceBuffer m_mdlPacked;
   mutable DeviceBuffer m_mdlBaseIndices;
   mutable DeviceBuffer m_mdlCounts;
-  mutable DeviceBuffer m_mdlOffsets;
-  mutable DeviceBuffer m_mdlCursor;
 #endif
 
   int m_maxDepth{4}; // path-tracing bounce depth
