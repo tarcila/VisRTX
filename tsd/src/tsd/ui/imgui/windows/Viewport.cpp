@@ -81,9 +81,11 @@ void Viewport::buildUI()
 {
   if (BaseViewport::viewport_isActive()) {
     BaseViewport::buildUI();
-    updateFrame();
+    if (m_renderingEnabled) {
+      updateFrame();
+      BaseViewport::camera_update();
+    }
     updateImage();
-    BaseViewport::camera_update();
   }
 
   ui_menubar();
@@ -1164,8 +1166,9 @@ void Viewport::ui_menubar_World()
 
     ImGui::BeginDisabled(!m_showWorldBounds);
     ImGui::Indent(INDENT_AMOUNT);
-    ImGui::ColorEdit4(
-        "Color##worldBounds", &m_worldBoundsColor.x, ImGuiColorEditFlags_NoInputs);
+    ImGui::ColorEdit4("Color##worldBounds",
+        &m_worldBoundsColor.x,
+        ImGuiColorEditFlags_NoInputs);
     if (ImGui::DragInt("Width##worldBounds", &m_worldBoundsWidth, 0.25f, 1, 16))
       m_worldBoundsWidth = std::max(1, m_worldBoundsWidth);
     ImGui::Unindent(INDENT_AMOUNT);
