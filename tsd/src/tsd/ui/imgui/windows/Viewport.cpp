@@ -150,7 +150,8 @@ void Viewport::buildUI()
   }
 }
 
-void Viewport::setLibrary(const std::string &libName, size_t rendererIndex)
+void Viewport::setLibrary(
+    const std::string &libName, size_t rendererIndex, bool resetInitialView)
 {
   teardownDevice();
 
@@ -161,7 +162,10 @@ void Viewport::setLibrary(const std::string &libName, size_t rendererIndex)
         libName.c_str());
   }
 
-  auto updateLibrary = [&, libName = libName, rendererIndex = rendererIndex]() {
+  auto updateLibrary = [&,
+                           libName = libName,
+                           rendererIndex = rendererIndex,
+                           resetInitialView = resetInitialView]() {
     auto &scene = appContext()->tsd.scene;
 
     auto start = std::chrono::steady_clock::now();
@@ -227,8 +231,6 @@ void Viewport::setLibrary(const std::string &libName, size_t rendererIndex)
       setSelectionVisibilityFilterEnabled(m_showOnlySelected);
 
       static bool firstFrame = true;
-      if (firstFrame && appContext()->commandLine.loadedFromStateFile)
-        firstFrame = false;
 
       tsd::core::logStatus("[viewport] setting up camera...");
 
@@ -238,11 +240,14 @@ void Viewport::setLibrary(const std::string &libName, size_t rendererIndex)
       rendering::updateManipulatorFromCamera(
           *m_camera.arcball, *m_camera.current);
 
-      if (firstFrame || m_camera.arcball->distance() == tsd::math::inf) {
+      const bool resetView = m_camera.arcball->distance() == tsd::math::inf
+          || (firstFrame && resetInitialView
+              && !appContext()->commandLine.loadedFromStateFile);
+      firstFrame = false;
+      if (resetView) {
         tsd::core::logStatus(
             "[viewport] getting scene bounds to init camera...");
         camera_resetView(true);
-        firstFrame = false;
       }
 
       tsd::core::logStatus("[viewport] setting up image pipeline...");
@@ -407,7 +412,7 @@ void Viewport::loadSettings(tsd::core::DataNode &root)
     root["anariLibrary"].getValue(ANARI_STRING, &libraryName);
     auto rendererIndex =
         root["rendererObjectIndex"].getValueOr<uint64_t>(TSD_INVALID_INDEX);
-    setLibrary(libraryName, rendererIndex);
+    setLibrary(libraryName, rendererIndex, false);
   }
 }
 
