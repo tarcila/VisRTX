@@ -63,7 +63,7 @@ void Wavefront::commitParameters()
   // renders at 1 spp instead of just being ignored.
   m_checkerboard = false;
   m_spp = std::max(1, getParam<int>("pixelSamples", 1));
-  m_maxDepth = std::max(1, getParam<int>("maxDepth", 4));
+  m_maxRayDepth = std::max(1, getParam<int>("maxRayDepth", 4));
 }
 
 void Wavefront::ensurePool() const
@@ -243,7 +243,7 @@ void Wavefront::launchFrame(cudaStream_t stream,
   };
 
   const uint32_t maxDepth =
-      uint32_t(std::min<int>(std::max(1, m_maxDepth), int(kMaxBounceTable)));
+      uint32_t(std::min<int>(std::max(1, m_maxRayDepth), int(kMaxBounceTable)));
 
   // Host-driven wavefront cycle. Each wave regenerates a batch of camera
   // samples, then traces each sample's path to maxDepth: per bounce, a trace

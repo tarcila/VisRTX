@@ -137,7 +137,7 @@ int main()
   auto renderer = anari::newObject<anari::Renderer>(device, "wavefront");
   anari::setParameter(device, renderer, "ambientRadiance", 0.f);
   anari::setParameter(device, renderer, "fireflyFilterMode", "none");
-  anari::setParameter(device, renderer, "maxDepth", 4);
+  anari::setParameter(device, renderer, "maxRayDepth", 4);
   anari::setParameter(device, renderer, "pixelSamples", 512);
   anari::commitParameters(device, renderer);
 

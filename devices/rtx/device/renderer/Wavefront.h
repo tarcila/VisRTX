@@ -90,7 +90,7 @@ struct Wavefront : public Renderer
   mutable DeviceBuffer m_mdlCounts;
 #endif
 
-  int m_maxDepth{4}; // path-tracing bounce depth
+  int m_maxRayDepth{4}; // path-tracing bounce depth (param: maxRayDepth)
 
   // Fixed-capacity Path Pool (resolution-independent). Mutable so the const
   // populateFrameData() can lazily allocate before publishing the pointers.

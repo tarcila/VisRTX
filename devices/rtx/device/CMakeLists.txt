@@ -273,7 +273,9 @@ project_include_directories(
 
 # nvJitLink: runtime PTX->cubin linker for per-material MDL shade kernels
 # (wavefront). Provided by the flake (cudaPackages.libnvjitlink). Header+lib
-# found explicitly to match the toolchain proven by TestMdlLinkingSpike.
+# found explicitly to match the toolchain proven during the MDL linking spike
+# (ticket 03); that throwaway harness has graduated into the wavefront MDL
+# API-seam tests (TestWavefrontMdl*) and been deleted.
 if(VISRTX_ENABLE_MDL_SUPPORT)
   find_library(VISRTX_NVJITLINK_LIBRARY nvJitLink REQUIRED
     HINTS ${CUDAToolkit_LIBRARY_DIR})

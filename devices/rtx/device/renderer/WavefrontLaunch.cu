@@ -189,13 +189,15 @@ __global__ void wavefrontShadeEmitKernel(
   if (!(glm::dot(N, N) > 1e-12f))
     N = rec.hit.Ng;
 
-  // MDL hit: write a geometry-only placeholder (black appearance, valid ids /
-  // normal / continuation origin) and let the per-material MDL kernel overwrite
-  // the appearance + NEE. If no kernel is built for it, the slot renders black
-  // rather than reading stale data.
+  // MDL hit: write a geometry-only placeholder (neutral matte gray
+  // appearance, valid ids / normal / continuation origin) and let the
+  // per-material MDL kernel overwrite the appearance + NEE. If no kernel is
+  // built for it yet (async link in flight), the slot renders neutral matte
+  // gray (ticket 10's no-stall placeholder) rather than reading stale data.
   if (isMdlMaterial(rec.hit.material)) {
-    sr.unshadowed = vec3(0.f);
-    sr.albedo = vec3(0.f);
+    constexpr float kNeutralGray = 0.18f; // 18% matte gray placeholder
+    sr.unshadowed = vec3(kNeutralGray);
+    sr.albedo = vec3(kNeutralGray);
     sr.normal = N;
     sr.opacity = 1.f;
     wavefrontFillHitIds(sr, rec);
@@ -577,7 +579,12 @@ void wavefrontCompactAlive(cudaStream_t stream,
     return;
   const uint32_t blocks = (inCount + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontCompactAliveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
-      bufs.srcSlots, bufs.srcPaths, bufs.dstSlots, bufs.dstPaths, inCount, bufs.outCount);
+      bufs.srcSlots,
+      bufs.srcPaths,
+      bufs.dstSlots,
+      bufs.dstPaths,
+      inCount,
+      bufs.outCount);
 }
 
 void wavefrontMdlCompact(cudaStream_t stream,

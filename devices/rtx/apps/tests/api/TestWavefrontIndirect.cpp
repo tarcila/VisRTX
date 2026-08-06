@@ -38,8 +38,8 @@
 
 // anari_cpp
 #define ANARI_EXTENSION_UTILITY_IMPL
-#include <anari/anari_cpp.hpp>
 #include <anari/anari_cpp/ext/std.h>
+#include <anari/anari_cpp.hpp>
 // VisRTX
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
 // std
@@ -98,8 +98,10 @@ static anari::Surface sphere(
 static double renderReceiverMean(anari::Device device, int maxDepth)
 {
   std::vector<anari::Surface> surfaces;
-  surfaces.push_back(sphere(device, vec3{-0.7f, 0.f, 0.f}, 0.6f, 1u)); // receiver
-  surfaces.push_back(sphere(device, vec3{0.9f, 0.f, 0.f}, 1.0f, 2u)); // reflector
+  surfaces.push_back(
+      sphere(device, vec3{-0.7f, 0.f, 0.f}, 0.6f, 1u)); // receiver
+  surfaces.push_back(
+      sphere(device, vec3{0.9f, 0.f, 0.f}, 1.0f, 2u)); // reflector
 
   auto world = anari::newObject<anari::World>(device);
   anari::setParameterArray1D(
@@ -127,8 +129,9 @@ static double renderReceiverMean(anari::Device device, int maxDepth)
 
   auto renderer = anari::newObject<anari::Renderer>(device, "wavefront");
   anari::setParameter(device, renderer, "background", vec4{0.f, 0.f, 0.f, 1.f});
-  anari::setParameter(device, renderer, "ambientRadiance", 0.f); // NEE + GI only
-  anari::setParameter(device, renderer, "maxDepth", maxDepth);
+  anari::setParameter(
+      device, renderer, "ambientRadiance", 0.f); // NEE + GI only
+  anari::setParameter(device, renderer, "maxRayDepth", maxDepth);
   anari::setParameter(device, renderer, "pixelSamples", 4);
   anari::commitParameters(device, renderer);
 
@@ -172,8 +175,9 @@ int main()
   anari::release(device, device);
 
   const double gain = direct > 0.0 ? withGI / direct - 1.0 : 0.0;
-  printf("wavefront indirect: receiver mean %.2f (direct) -> %.2f (maxDepth 4), "
-         "+%.1f%%\n",
+  printf(
+      "wavefront indirect: receiver mean %.2f (direct) -> %.2f (maxDepth 4), "
+      "+%.1f%%\n",
       direct,
       withGI,
       100.0 * gain);

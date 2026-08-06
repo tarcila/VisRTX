@@ -152,6 +152,16 @@
           "description": "ambient occlusion distance"
         },
         {
+          "name": "maxRayDepth",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 4,
+          "minimum": 1,
+          "description": "Maximum number of ray bounces (path-tracing depth); matches the quality renderer's maxRayDepth so switching subtypes needs no renderer reconfiguration"
+        },
+        {
           "name": "volumeSamplingRate",
           "types": [
             "ANARI_FLOAT32"

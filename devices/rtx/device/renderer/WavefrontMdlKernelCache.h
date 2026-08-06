@@ -59,7 +59,9 @@ struct WavefrontMdlKernel
 // generation. The current full invalidate-and-rebuild on any material-set
 // change (Wavefront::refreshMdlKernels) relinks unchanged materials too — the
 // incremental, UUID-keyed, async rebuild that avoids that is ticket 10. The
-// nvJitLink toolchain is the one proven by TestMdlLinkingSpike.
+// nvJitLink toolchain is the one proven during the MDL linking spike (ticket
+// 03); that throwaway harness has graduated into the wavefront MDL API-seam
+// tests (TestWavefrontMdl*) and been deleted.
 class WavefrontMdlKernelCache
 {
  public:

@@ -61,7 +61,7 @@ struct WavefrontLightPick
 // light is the HDRI env, and the picked index. The caller owns the n == 0
 // guard (it needs `n` for the uniform-pick reweight anyway) and the BSDF
 // evaluation / MIS weighting, which differ per material subtype.
-VISRTX_DEVICE inline WavefrontLightPick wavefrontPickLight(
+VISRTX_DEVICE WavefrontLightPick wavefrontPickLight(
     const FrameGPUData &fd, RandState &rng, const vec3 &org, uint32_t n)
 {
   WavefrontLightPick p{};
@@ -85,7 +85,7 @@ VISRTX_DEVICE inline WavefrontLightPick wavefrontPickLight(
 // no attenuation. A delta pass-through (pdf +inf) so the escape owns the
 // environment and NEE never double-counts it. The continuation origin is
 // offset to the side the ray is travelling so it does not self-intersect.
-VISRTX_DEVICE inline void wavefrontWritePassThroughBounce(
+VISRTX_DEVICE void wavefrontWritePassThroughBounce(
     WavefrontShadeRecord &sr, const WavefrontHitRecord &rec)
 {
   sr.hasSampledBounce = 1u;
@@ -99,7 +99,7 @@ VISRTX_DEVICE inline void wavefrontWritePassThroughBounce(
 // Copy the first-hit AOV identity fields (depth + object/instance/prim ids)
 // from a hit record into the shade record. The albedo/normal/opacity terms
 // differ per branch, so they stay at the call site.
-VISRTX_DEVICE inline void wavefrontFillHitIds(
+VISRTX_DEVICE void wavefrontFillHitIds(
     WavefrontShadeRecord &sr, const WavefrontHitRecord &rec)
 {
   sr.depth = rec.hit.t;
