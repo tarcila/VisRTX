@@ -46,6 +46,7 @@
 #include "gpu/renderer/common.h" // getBackgroundLight
 #include "gpu/sampleLight.h" // sampleLight, LightSample
 #include "gpu/sbt.h" // SbtCallableEntryPoints
+#include "gpu/wavefrontShade.h" // wavefrontPickLight, wavefrontWritePassThroughBounce, wavefrontFillHitIds
 
 namespace visrtx {
 
@@ -97,13 +98,10 @@ __device__ bool isMdlMaterial(const MaterialGPUData *m)
 // The HDRI environment is reachable by BOTH next-event estimation (importance-
 // sampled toward the env, which also casts its shadows) and the BSDF escape (a
 // continuation ray that misses), so its NEE and escape deposits are balance-
-// heuristic MIS-weighted to avoid double-counting. This flags the picked light
-// as the env so the shade paths apply that weight; analytic and geometry lights
-// keep w = 1 (a random BSDF bounce won't hit them).
-__device__ bool isHdriLight(const FrameGPUData &fd, DeviceObjectIndex idx)
-{
-  return fd.registry.lights[idx].type == LightType::HDRI;
-}
+// heuristic MIS-weighted to avoid double-counting. wavefrontPickLight flags the
+// picked light as the env so the shade paths apply that weight; analytic and
+// geometry lights keep w = 1 (a random BSDF bounce won't hit them). The escape
+// path below weights with envPdf directly (no light was picked).
 
 __device__ BuiltinAppearance evalBuiltinAppearance(
     const FrameGPUData &fd, const SurfaceHit &hit)
@@ -200,10 +198,7 @@ __global__ void wavefrontShadeEmitKernel(
     sr.albedo = vec3(0.f);
     sr.normal = N;
     sr.opacity = 1.f;
-    sr.depth = rec.hit.t;
-    sr.primID = rec.hit.primID;
-    sr.objID = rec.hit.objID;
-    sr.instID = rec.hit.instID;
+    wavefrontFillHitIds(sr, rec);
     sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
     return;
   }
@@ -223,16 +218,8 @@ __global__ void wavefrontShadeEmitKernel(
     sr.albedo = vec3(0.f);
     sr.normal = N;
     sr.opacity = 0.f;
-    sr.depth = rec.hit.t;
-    sr.primID = rec.hit.primID;
-    sr.objID = rec.hit.objID;
-    sr.instID = rec.hit.instID;
-    sr.hasSampledBounce = 1u;
-    sr.bounceDir = rec.rayDir; // straight through, unchanged direction
-    sr.bounceWeight = vec3(1.f); // no attenuation
-    sr.bouncePdf = INFINITY; // delta pass-through: escape owns the env (no NEE)
-    const float side = glm::dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
-    sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
+    wavefrontFillHitIds(sr, rec);
+    wavefrontWritePassThroughBounce(sr, rec);
     path.rng = rng;
     return;
   }
@@ -257,47 +244,32 @@ __global__ void wavefrontShadeEmitKernel(
     sr.unshadowed =
         st.baseColor * fd->renderer.ambientIntensity * fd->renderer.ambientColor
         + st.emission;
-    sr.depth = rec.hit.t;
-    sr.primID = rec.hit.primID;
-    sr.objID = rec.hit.objID;
-    sr.instID = rec.hit.instID;
+    wavefrontFillHitIds(sr, rec);
     sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
     const uint32_t nPbr = uint32_t(fd->world.numLightInstances);
     if (nPbr > 0) {
-      ScreenSample ssPbr;
-      ssPbr.frameData = fd;
-      ssPbr.rs = rng;
-      ssPbr.shadowContribWeight = 1.0f;
-      uint32_t kPbr = uint32_t(pcg_uniform(&ssPbr.rs) * float(nPbr));
-      if (kPbr >= nPbr)
-        kPbr = nPbr - 1u;
-      const InstanceLightGPUData &liPbr = fd->world.lightInstances[kPbr];
-      const bool isEnv = isHdriLight(*fd, liPbr.lightIndex);
-      const LightSample lsPbr = sampleLight(ssPbr,
-          sr.shadowOrg,
-          liPbr.lightIndex,
-          liPbr.xfm,
-          liPbr.surfaceInstanceIndex);
-      if (lsPbr.pdf > 0.f && lsPbr.dist > 0.f) {
+      const WavefrontLightPick pick =
+          wavefrontPickLight(*fd, rng, sr.shadowOrg, nPbr);
+      const LightSample &ls = pick.ls;
+      if (ls.pdf > 0.f && ls.dist > 0.f) {
         // Environment MIS: balance-heuristic weight the env NEE against the
         // BRDF pdf toward it. Analytic / geometry lights keep w = 1.
         float wNee = 1.f;
-        if (isEnv) {
+        if (pick.isEnv) {
           // envPdf on both MIS sides (see the matte NEE note) for an exact
           // partition.
-          const float pBsdf = pbrBsdfPdf(&st, wo, lsPbr.dir);
-          const float pLight = envPdf(*fd, lsPbr.dir) / float(nPbr);
+          const float pBsdf = pbrBsdfPdf(&st, wo, ls.dir);
+          const float pLight = envPdf(*fd, ls.dir) / float(nPbr);
           wNee = pLight / (pLight + pBsdf);
         }
         // pbrEvalNEE already folds NdotL and /pdf; reweight by nPbr for the
         // uniform 1/n light pick.
         sr.directContrib =
-            pbrEvalNEE(&st, &rec.hit, &lsPbr, &wo) * float(nPbr) * wNee;
-        sr.shadowDir = lsPbr.dir;
-        sr.shadowDist = lsPbr.dist;
+            pbrEvalNEE(&st, &rec.hit, &ls, &wo) * float(nPbr) * wNee;
+        sr.shadowDir = ls.dir;
+        sr.shadowDist = ls.dist;
       }
-      rng = ssPbr.rs;
     }
 
     // Importance-sampled continuation (reflection or refraction).
@@ -321,10 +293,7 @@ __global__ void wavefrontShadeEmitKernel(
   sr.albedo = a.baseColor;
   sr.normal = N;
   sr.opacity = 1.f;
-  sr.depth = rec.hit.t;
-  sr.primID = rec.hit.primID;
-  sr.objID = rec.hit.objID;
-  sr.instID = rec.hit.instID;
+  wavefrontFillHitIds(sr, rec);
   // Offset hit point: shadow-ray origin AND the continuation-ray origin.
   sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
@@ -337,17 +306,8 @@ __global__ void wavefrontShadeEmitKernel(
   // sampleLight() handles every light type, including Geometry Lights (their
   // emission is read as the light's mean radiance here — see the
   // VISRTX_STATIC_GEOMETRY_LIGHT_EMISSION note above).
-  ScreenSample ss;
-  ss.frameData = fd;
-  ss.rs = rng;
-  ss.shadowContribWeight = 1.0f;
-  uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
-  if (k >= n)
-    k = n - 1u;
-  const InstanceLightGPUData &li = fd->world.lightInstances[k];
-  const bool isEnv = isHdriLight(*fd, li.lightIndex);
-  const LightSample ls = sampleLight(
-      ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+  const WavefrontLightPick pick = wavefrontPickLight(*fd, rng, sr.shadowOrg, n);
+  const LightSample &ls = pick.ls;
   if (ls.pdf > 0.f && ls.dist > 0.f) {
     const float ndotl = fmaxf(0.f, glm::dot(N, ls.dir));
     // Environment MIS: the env is also captured by the BSDF escape, so balance-
@@ -356,7 +316,7 @@ __global__ void wavefrontShadeEmitKernel(
     // the env importance pdf (== envPdf(ls.dir)); fold the uniform 1/n env
     // pick.
     float wNee = 1.f;
-    if (isEnv) {
+    if (pick.isEnv) {
       // MIS densities use envPdf on BOTH the NEE and the escape side (not
       // ls.pdf) so wNee + wBsdf partition to 1 exactly, independent of how
       // closely the HDRI importance sampler tracks envPdf.
@@ -370,7 +330,7 @@ __global__ void wavefrontShadeEmitKernel(
     sr.shadowDir = ls.dir;
     sr.shadowDist = ls.dist;
   }
-  path.rng = ss.rs; // the light pick + sample consumed the path RNG
+  path.rng = rng; // the light pick + sample consumed the path RNG
 }
 
 // Atomic scatter-add accumulation for concurrent same-pixel deposits (multiple
@@ -609,19 +569,15 @@ void wavefrontResolve(cudaStream_t stream,
 }
 
 void wavefrontCompactAlive(cudaStream_t stream,
-    const WavefrontPathSlot *srcSlots,
-    const WavefrontPathState *srcPaths,
-    WavefrontPathSlot *dstSlots,
-    WavefrontPathState *dstPaths,
-    uint32_t inCount,
-    uint32_t *outCount)
+    const WavefrontCompactionBuffers &bufs,
+    uint32_t inCount)
 {
-  cudaMemsetAsync(outCount, 0, sizeof(uint32_t), stream);
+  cudaMemsetAsync(bufs.outCount, 0, sizeof(uint32_t), stream);
   if (inCount == 0)
     return;
   const uint32_t blocks = (inCount + kThreadsPerBlock - 1) / kThreadsPerBlock;
   wavefrontCompactAliveKernel<<<blocks, kThreadsPerBlock, 0, stream>>>(
-      srcSlots, srcPaths, dstSlots, dstPaths, inCount, outCount);
+      bufs.srcSlots, bufs.srcPaths, bufs.dstSlots, bufs.dstPaths, inCount, bufs.outCount);
 }
 
 void wavefrontMdlCompact(cudaStream_t stream,

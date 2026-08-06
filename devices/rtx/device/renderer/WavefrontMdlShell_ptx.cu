@@ -54,6 +54,7 @@
 #include "gpu/gpu_objects.h" // FrameGPUData, Wavefront* records, MaterialGPUData
 #include "gpu/sampleLight.h" // sampleLight, LightSample, ScreenSample
 #include "gpu/shadingState.h" // MDLShadingState, TextureHandler
+#include "gpu/wavefrontShade.h" // wavefrontPickLight, wavefrontWritePassThroughBounce, wavefrontFillHitIds
 
 #include <anari/anari_cpp/ext/linalg.h>
 #include <mi/neuraylib/target_code_types.h>
@@ -99,7 +100,7 @@ namespace {
 // Populate the MDL shading state from the hit + material data. Mirrors
 // MDLShader_ptx.cu's __direct_callable__init (single source of the ABI contract
 // between the State layout the backend generates and what we fill).
-__device__ void initMdlState(MDLShadingState &s,
+VISRTX_DEVICE void initMdlState(MDLShadingState &s,
     const FrameGPUData &fd,
     const SurfaceHit &hit,
     const MaterialGPUData::MDL &md)
@@ -144,7 +145,7 @@ __device__ void initMdlState(MDLShadingState &s,
 
 // View-independent BSDF albedo (auxiliary) for the AOV / ambient term. Matches
 // MDLShader_ptx.cu's __direct_callable__evaluateTint.
-__device__ vec3 evalMdlAlbedo(const MDLShadingState &s)
+VISRTX_DEVICE vec3 evalMdlAlbedo(const MDLShadingState &s)
 {
   BsdfAuxiliaryData aux = {};
   aux.ior1 = make_float3(1.0f, 1.0f, 1.0f);
@@ -158,7 +159,7 @@ __device__ vec3 evalMdlAlbedo(const MDLShadingState &s)
 // __direct_callable__evaluateEmission (intensity is radiant exitance, edf is
 // 1/PI for diffuse EDF; no cos/pdf factors — those are the sample-path
 // quantity).
-__device__ vec3 evalMdlEmission(const MDLShadingState &s, const vec3 &wo)
+VISRTX_DEVICE vec3 evalMdlEmission(const MDLShadingState &s, const vec3 &wo)
 {
   EdfEvaluateData edf = {};
   edf.k1 = make_float3(wo);
@@ -171,7 +172,7 @@ __device__ vec3 evalMdlEmission(const MDLShadingState &s, const vec3 &wo)
 // __direct_callable__shadeSurface: k1 = view dir, k2 = light dir, contribution
 // is (diffuse + glossy); the caller weights by radiance/pdf. MDL folds the
 // cosine into the returned lobe values.
-__device__ vec3 evalMdlBsdf(
+VISRTX_DEVICE vec3 evalMdlBsdf(
     const MDLShadingState &s, const vec3 &wo, const vec3 &wi, float &pdfOut)
 {
   pdfOut = 0.f;
@@ -198,7 +199,7 @@ __device__ vec3 evalMdlBsdf(
 // An absorbed lobe yields a zero weight so the resolve stage kills the path.
 // Writes the bounce into the shade record for the material-agnostic resolve
 // stage.
-__device__ void sampleMdlBounce(const MDLShadingState &s,
+VISRTX_DEVICE void sampleMdlBounce(const MDLShadingState &s,
     const vec3 &wo,
     RandState &rng,
     WavefrontShadeRecord &sr)
@@ -250,7 +251,7 @@ __device__ void sampleMdlBounce(const MDLShadingState &s,
 // compute/memory-bound rather than occupancy-bound: raising occupancy
 // (128/block or a __launch_bounds__ register cap) does not help — measured in
 // 10i. See launchWavefrontMdlShade for the block-size finding.
-extern "C" __global__ void wavefrontMdlShade(
+VISRTX_GLOBAL void wavefrontMdlShade(
     const FrameGPUData *fd, const uint32_t *packed, const uint32_t *count)
 {
   const uint32_t t = blockIdx.x * blockDim.x + threadIdx.x;
@@ -293,16 +294,8 @@ extern "C" __global__ void wavefrontMdlShade(
     sr.visibility = 1.f;
     sr.shadowDist = 0.f;
     sr.hasHit = 1u;
-    sr.depth = rec.hit.t;
-    sr.primID = rec.hit.primID;
-    sr.objID = rec.hit.objID;
-    sr.instID = rec.hit.instID;
-    sr.hasSampledBounce = 1u;
-    sr.bounceDir = rec.rayDir; // straight through, unchanged direction
-    sr.bounceWeight = vec3(1.f); // no attenuation
-    sr.bouncePdf = INFINITY; // delta pass-through: escape owns the env (no NEE)
-    const float side = dot(rec.rayDir, rec.hit.Ng) >= 0.f ? 1.f : -1.f;
-    sr.bounceOrg = rec.hit.hitpoint + rec.hit.Ng * (rec.hit.epsilon * side);
+    wavefrontFillHitIds(sr, rec);
+    wavefrontWritePassThroughBounce(sr, rec);
     path.rng = rng;
     return;
   }
@@ -321,27 +314,15 @@ extern "C" __global__ void wavefrontMdlShade(
   sr.albedo = albedo;
   sr.normal = N;
   sr.opacity = 1.f;
-  sr.depth = rec.hit.t;
-  sr.primID = rec.hit.primID;
-  sr.objID = rec.hit.objID;
-  sr.instID = rec.hit.instID;
+  wavefrontFillHitIds(sr, rec);
   sr.shadowOrg = rec.hit.hitpoint + rec.hit.Ng * rec.hit.epsilon;
 
   // Next-event estimation: pick one light and evaluate the MDL BSDF toward it.
   const uint32_t n = uint32_t(fd->world.numLightInstances);
   if (n > 0) {
-    ScreenSample ss;
-    ss.frameData = fd;
-    ss.rs = rng;
-    ss.shadowContribWeight = 1.0f;
-    uint32_t k = uint32_t(pcg_uniform(&ss.rs) * float(n));
-    if (k >= n)
-      k = n - 1u;
-    const InstanceLightGPUData &li = fd->world.lightInstances[k];
-    const bool isEnv =
-        fd->registry.lights[li.lightIndex].type == LightType::HDRI;
-    const LightSample ls = sampleLight(
-        ss, sr.shadowOrg, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+    const WavefrontLightPick pick =
+        wavefrontPickLight(*fd, rng, sr.shadowOrg, n);
+    const LightSample &ls = pick.ls;
     if (ls.pdf > 0.f && ls.dist > 0.f) {
       float pBsdf = 0.f;
       const vec3 f = evalMdlBsdf(s, wo, ls.dir, pBsdf);
@@ -349,7 +330,7 @@ extern "C" __global__ void wavefrontMdlShade(
       // BSDF pdf toward it (ls.pdf is the env importance pdf == envPdf(ls.dir),
       // folded with the uniform 1/n env pick). Analytic lights keep w = 1.
       float wNee = 1.f;
-      if (isEnv) {
+      if (pick.isEnv) {
         const float pLight = ls.pdf / float(n);
         wNee = pLight / (pLight + pBsdf);
       }
@@ -359,7 +340,6 @@ extern "C" __global__ void wavefrontMdlShade(
       sr.shadowDir = ls.dir;
       sr.shadowDist = ls.dist;
     }
-    rng = ss.rs;
   }
 
   // Importance-sampled continuation bounce for the indirect path (MDL BSDF, not

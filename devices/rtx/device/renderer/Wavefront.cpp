@@ -312,13 +312,9 @@ void Wavefront::launchFrame(cudaStream_t stream,
       // The count read-back is the one host sync per bounce; the loop is
       // already serial per bounce, so it adds latency, not lost parallelism.
       if (bounce + 1u < maxDepth) {
-        wavefrontCompactAlive(stream,
-            curSlots,
-            curPaths,
-            nextSlots,
-            nextPaths,
-            curLive,
-            aliveCount);
+        const WavefrontCompactionBuffers bufs{
+            curSlots, curPaths, nextSlots, nextPaths, aliveCount};
+        wavefrontCompactAlive(stream, bufs, curLive);
         uint32_t survivors = 0;
         cudaMemcpyAsync(&survivors,
             aliveCount,

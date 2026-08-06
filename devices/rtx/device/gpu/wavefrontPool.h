@@ -35,6 +35,8 @@
 
 namespace visrtx {
 
+struct WavefrontPathState; // defined in gpu_objects.h
+
 // One slot in the wavefront renderer's Path Pool. The slot->pixel mapping is
 // indirect from the start (a slot handles whichever pixel the regenerate stage
 // assigned it this wave), which is what lets the pool decouple from the frame
@@ -47,6 +49,20 @@ struct WavefrontPathSlot
   uint32_t pixel; // linear pixel index (y * width + x)
   uint32_t sampleIdx; // per-pixel QMC/RNG sample ordinal
   uint32_t alive; // 0 = no work assigned this wave, 1 = trace + shade this slot
+};
+
+// Buffers for the alive-path compaction pass: the surviving (slot, path) pairs
+// are gathered from the source pair into the destination pair, with a 1-word
+// device counter receiving the survivor count. Bundled so the compaction
+// launch signature reads as one logical operation rather than a clump of
+// pointer+count parameters that always travel together.
+struct WavefrontCompactionBuffers
+{
+  const WavefrontPathSlot *srcSlots;
+  const WavefrontPathState *srcPaths;
+  WavefrontPathSlot *dstSlots;
+  WavefrontPathState *dstPaths;
+  uint32_t *outCount; // 1 device word, zeroed by the launch
 };
 
 } // namespace visrtx

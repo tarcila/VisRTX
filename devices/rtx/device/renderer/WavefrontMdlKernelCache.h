@@ -47,19 +47,19 @@ struct WavefrontMdlKernel
 {
   CUmodule module{nullptr};
   CUfunction function{nullptr};
-  explicit operator bool() const
-  {
-    return function != nullptr;
-  }
+  explicit operator bool() const;
 };
 
 // Builds and caches per-material MDL shade kernels. At MDL material commit the
-// device hands each material's PTX blob (from MaterialRegistry::getPtxBlobs)
-// and a stable key (the compiled-material UUID) here; the cache nvJitLinks the
-// shell against it into a loadable cubin the shade stage can launch. Keyed by
-// UUID so the registry's dedup carries through (one kernel per distinct
-// compiled material). The nvJitLink toolchain is the one proven by
-// TestMdlLinkingSpike.
+// device hands each material's PTX blob (from MaterialRegistry::getMaterialPtx
+// Blobs) and a stable key (the registry slot index) here; the cache nvJitLinks
+// the shell against it into a loadable cubin the shade stage can launch. The
+// registry already dedups by compiled-material UUID (one slot per distinct
+// compiled material), so keying by slot index inherits that dedup within a
+// generation. The current full invalidate-and-rebuild on any material-set
+// change (Wavefront::refreshMdlKernels) relinks unchanged materials too — the
+// incremental, UUID-keyed, async rebuild that avoids that is ticket 10. The
+// nvJitLink toolchain is the one proven by TestMdlLinkingSpike.
 class WavefrontMdlKernelCache
 {
  public:
@@ -68,10 +68,11 @@ class WavefrontMdlKernelCache
   WavefrontMdlKernelCache(const WavefrontMdlKernelCache &) = delete;
   WavefrontMdlKernelCache &operator=(const WavefrontMdlKernelCache &) = delete;
 
-  // Return the cached kernel for `key`, or link one from `materialPtx` (the
-  // RAW MDL-generated material PTX from MaterialRegistry::getMaterialPtxBlobs)
-  // — nvJitLinked against the embedded shade shell + the shared MDL texture
-  // runtime. A null-function result is returned on link/load failure, uncached.
+  // Return the cached kernel for `key` (a registry slot index), or link one
+  // from `materialPtx` (the RAW MDL-generated material PTX from
+  // MaterialRegistry::getMaterialPtxBlobs) — nvJitLinked against the embedded
+  // shade shell + the shared MDL texture runtime. A null-function result is
+  // returned on link/load failure, uncached.
   WavefrontMdlKernel getOrBuild(
       uint64_t key, nonstd::span<const char> materialPtx);
 
@@ -79,10 +80,7 @@ class WavefrontMdlKernelCache
   void release(); // destroy all cached modules
 
   // Number of live cached kernels (for tests / diagnostics).
-  size_t size() const
-  {
-    return m_kernels.size();
-  }
+  size_t size() const;
 
  private:
   const std::string &arch(); // "89", lazily queried from the current device
@@ -90,6 +88,18 @@ class WavefrontMdlKernelCache
   std::string m_arch;
   std::unordered_map<uint64_t, WavefrontMdlKernel> m_kernels;
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline WavefrontMdlKernel::operator bool() const
+{
+  return function != nullptr;
+}
+
+inline size_t WavefrontMdlKernelCache::size() const
+{
+  return m_kernels.size();
+}
 
 // Launch a per-material MDL shade kernel over its compacted slot list.
 // `frameData` is the device FrameGPUData pointer; `packed` points at this
