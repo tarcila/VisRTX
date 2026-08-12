@@ -85,7 +85,7 @@ mark_as_advanced(VISRTX_ENABLE_HDRI_SAMPLING_DEBUG)
 
 #### Resolve common dependencies ####
 
-find_package(anari 0.15.0 REQUIRED)
+find_package(anari 0.16.0 REQUIRED)
 find_package(CUDAToolkit 12 REQUIRED)
 find_package(glm MODULE REQUIRED)
 
