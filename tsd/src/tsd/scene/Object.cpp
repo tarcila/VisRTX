@@ -1,8 +1,8 @@
 // Copyright 2024-2026 NVIDIA Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tsd/scene/AnariHandleCache.hpp"
 #include "tsd/scene/Object.hpp"
+#include "tsd/scene/AnariHandleCache.hpp"
 #include "tsd/scene/Scene.hpp"
 
 #ifndef TSD_USE_CUDA
@@ -38,10 +38,8 @@ static Any parseValue(anari::DataType type, const void *mem)
     return Any(ANARI_STRING, "");
   else if (anari::isObject(type))
     return Any(type, Any::INVALID_INDEX);
-  else if (mem)
-    return Any(type, mem);
   else
-    return {};
+    return Any(type, mem);
 }
 
 static Object *createCloneDestination(Scene &scene, const Object &source)
@@ -757,6 +755,14 @@ void parseANARIObjectInfo(
     if (o.parameter(name))
       continue;
 
+    if (anari::isObject(parameter->type)) {
+      tsd::core::logWarning(
+          "[parseANARIObjectInfo()] skipping object parameter '%s' of type %s",
+          parameter->name,
+          anari::toString(parameter->type));
+      continue;
+    }
+
     auto *description = (const char *)anariGetParameterInfo(d,
         objectType,
         subtype,
@@ -798,9 +804,9 @@ void parseANARIObjectInfo(
         ANARI_STRING_LIST);
 
     auto &p = o.addParameter(name);
-    p.setValue(Any(parameter->type, nullptr));
-    p.setDescription(description ? description : "");
     p.setValue(parseValue(parameter->type, defaultValue));
+    if (description)
+      p.setDescription(description);
     if (minValue)
       p.setMin(parseValue(parameter->type, minValue));
     if (maxValue)
@@ -814,7 +820,8 @@ void parseANARIObjectInfo(
       // Fall back to the first listed value unless the device declares a
       // default that is actually one of them: feeding an out-of-list string to
       // setValue leaves the value and its selection index desynced.
-      const char *declaredDefault = parameter->type == ANARI_STRING && defaultValue
+      const char *declaredDefault =
+          parameter->type == ANARI_STRING && defaultValue
           ? static_cast<const char *>(defaultValue)
           : nullptr;
       const bool defaultIsValid = declaredDefault
