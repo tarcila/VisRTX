@@ -126,6 +126,18 @@ inline Any::Any(T value) : Any()
   m_type = type;
 }
 
+// anari::ANARITypeFor<std::string> is ANARI_UNKNOWN -- anari_cpp only maps
+// `const char *` onto ANARI_STRING -- so every generic template above silently
+// misses std::string. Specializing here rather than adding a global
+// ANARI_TYPEFOR_SPECIALIZATION keeps the mapping from leaking into anari_cpp
+// calls that would then memcpy a std::string into device storage.
+template <>
+inline Any::Any(std::string value) : Any()
+{
+  m_string = std::move(value);
+  m_type = ANARI_STRING;
+}
+
 inline Any::Any(bool value)
 {
   uint32_t v = value;
@@ -274,6 +286,22 @@ template <>
 inline bool Any::is<bool>() const
 {
   return is(ANARI_BOOL);
+}
+
+template <>
+inline bool Any::is<std::string>() const
+{
+  return is(ANARI_STRING);
+}
+
+// getAs<>() static_asserts on ANARI_STRING because strings live outside the
+// fixed-size storage it memcpys from; route through getString() instead.
+template <>
+inline std::string Any::get<std::string>() const
+{
+  if (!is<std::string>())
+    throw std::runtime_error("get() called with invalid type on tsd::Any");
+  return getString();
 }
 
 inline bool Any::is(anari::DataType t) const

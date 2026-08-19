@@ -16,6 +16,47 @@
 
 namespace tsd::scripting {
 
+namespace {
+
+// Read USD import settings out of a Lua table. Absent keys keep their
+// defaults, so the common case stays `tsd.io.importUSD(scene, anim, file)`.
+tsd::io::UsdImportOptions usdImportOptionsFromLuaTable(
+    const sol::table &settings)
+{
+  tsd::io::UsdImportOptions retval;
+
+  if (sol::optional<sol::table> purposes = settings["purposes"]) {
+    auto readFlag = [&](const char *name, bool &out) {
+      if (sol::optional<bool> value = (*purposes)[name])
+        out = *value;
+    };
+    readFlag("default", retval.purposes.defaultPurpose);
+    readFlag("render", retval.purposes.render);
+    readFlag("proxy", retval.purposes.proxy);
+    readFlag("guide", retval.purposes.guide);
+  }
+
+  if (sol::optional<sol::table> contexts = settings["renderContexts"]) {
+    retval.renderContexts.clear();
+    for (size_t i = 1; i <= contexts->size(); ++i) {
+      if (sol::optional<std::string> value = (*contexts)[i])
+        retval.renderContexts.push_back(*value);
+    }
+  }
+
+  if (sol::optional<std::string> mode = settings["materialMode"])
+    retval.materialMode = tsd::io::usdMaterialModeFromString(*mode);
+
+  if (sol::optional<int> level = settings["refinementLevel"])
+    retval.refinementLevel = *level;
+  if (sol::optional<std::string> primPath = settings["primPath"])
+    retval.primPath = *primPath;
+
+  return retval;
+}
+
+} // namespace
+
 #define TSD_LUA_IMPORT_WRAP(import_call, filename)                             \
   try {                                                                        \
     import_call;                                                               \
@@ -98,17 +139,41 @@ void registerIOBindings(sol::state &lua)
         TSD_LUA_IMPORT_WRAP(tsd::io::import_HDRI(s, anim, f.c_str(), loc), f);
       });
 
+  // Every USD entry point folds the Stage's reported clock into the shared
+  // playback clock, the same way import_file does, so a scripted import
+  // scrubs at the Stage's own rate rather than the manager's default.
+  auto importUSD = [](scene::Scene &s,
+                       animation::AnimationManager &anim,
+                       const std::string &f,
+                       scene::LayerNodeRef loc,
+                       const tsd::io::UsdImportOptions &options) {
+    auto report = tsd::io::import_USD(s, anim, f.c_str(), loc, options);
+    tsd::io::widenAnimationClock(anim, report);
+    return report;
+  };
+
   io["importUSD"] = sol::overload(
-      [](scene::Scene &s,
+      [importUSD](scene::Scene &s,
           animation::AnimationManager &anim,
           const std::string &f) {
-        TSD_LUA_IMPORT_WRAP(tsd::io::import_USD(s, anim, f.c_str()), f);
+        TSD_LUA_IMPORT_WRAP(importUSD(s, anim, f, {}, {}), f);
       },
-      [](scene::Scene &s,
+      [importUSD](scene::Scene &s,
           animation::AnimationManager &anim,
           const std::string &f,
           scene::LayerNodeRef loc) {
-        TSD_LUA_IMPORT_WRAP(tsd::io::import_USD(s, anim, f.c_str(), loc), f);
+        TSD_LUA_IMPORT_WRAP(importUSD(s, anim, f, loc, {}), f);
+      },
+      // Settings arrive as a plain table mirroring the option names, so
+      // scripted imports can be configured without a binding per field.
+      [importUSD](scene::Scene &s,
+          animation::AnimationManager &anim,
+          const std::string &f,
+          scene::LayerNodeRef loc,
+          sol::table settings) {
+        TSD_LUA_IMPORT_WRAP(
+            importUSD(s, anim, f, loc, usdImportOptionsFromLuaTable(settings)),
+            f);
       });
 
   io["importPDB"] = sol::overload(

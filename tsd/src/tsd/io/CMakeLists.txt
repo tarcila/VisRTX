@@ -7,6 +7,7 @@ project_add_library(STATIC)
 
 project_sources(
 PRIVATE
+  UsdImport.cpp
   archives/SceneArchive.cpp
   archives/ObjectArchive.cpp
   archives/LayerSubtreeArchive.cpp
@@ -22,17 +23,20 @@ PRIVATE
   archives/detail/SubtreeArchiveDeserialization.cpp
   animation/EnSightFileBinding.cpp
   animation/SpatialFieldFileBinding.cpp
+  animation/UsdFileBinding.cpp
+  animation/UsdGeometryFileBinding.cpp
+  animation/UsdInstancerFileBinding.cpp
   exporters/NanoVdbSidecar.cpp
   exporters/SceneToUSD.cpp
   exporters/StructuredVolumeToNanoVDB.cpp
+  images/ImageCache.cpp
+  images/detail/decoders.cpp
   importers/detail/ensight_io.cpp
   importers/detail/HDRImage.cpp
   importers/detail/importer_common.cpp
   importers/detail/pbrt/PbrtLexer.cpp
   importers/detail/pbrt/PbrtParser.cpp
   importers/detail/pbrt/PbrtScene.cpp
-  importers/detail/usd/MaterialCommon.cpp
-  importers/detail/usd/OmniPbrMaterial.cpp
   importers/import_AGX.cpp
   importers/import_ASSIMP.cpp
   importers/import_AXYZ.cpp
@@ -112,12 +116,14 @@ project_link_libraries(PRIVATE tsd::nanovdb)
 
 ## Setup optional dependencies ##
 
+# PUBLIC so the test target can assert on the ASSIMP importer only where it
+# exists, the same widening TSD_USE_OIIO and TSD_USE_USD make below.
 if (TSD_USE_ASSIMP)
   find_package(assimp REQUIRED)
-  project_compile_definitions(PRIVATE -DTSD_USE_ASSIMP=1)
+  project_compile_definitions(PUBLIC -DTSD_USE_ASSIMP=1)
   project_link_libraries(PRIVATE assimp::assimp)
 else()
-  project_compile_definitions(PRIVATE -DTSD_USE_ASSIMP=0)
+  project_compile_definitions(PUBLIC -DTSD_USE_ASSIMP=0)
 endif()
 
 if (TSD_USE_HDF5)
@@ -126,6 +132,23 @@ if (TSD_USE_HDF5)
   project_link_libraries(PRIVATE HDF5::HDF5)
 else()
   project_compile_definitions(PRIVATE -DTSD_USE_HDF5=0)
+endif()
+
+# OpenUSD's Hio was the alternative here, since a USD-enabled build already
+# links it -- but base Hio decodes TIFF only through its hioOiio plugin, which
+# is not built in the OpenUSD installs this importer targets (they ship
+# hioOpenEXR and hioAvif). Going via Hio would therefore still require
+# OpenImageIO, with an extra plugin indirection in front of it, so depend on
+# OpenImageIO directly and keep the TIFF path available to non-USD builds too.
+#
+# PUBLIC so the test target can assert on the TIFF path only where a decoder
+# exists, the same widening TSD_USE_USD makes for the same reason.
+if (TSD_USE_OIIO)
+  find_package(OpenImageIO REQUIRED)
+  project_compile_definitions(PUBLIC -DTSD_USE_OIIO=1)
+  project_link_libraries(PRIVATE OpenImageIO::OpenImageIO)
+else()
+  project_compile_definitions(PUBLIC -DTSD_USE_OIIO=0)
 endif()
 
 if(TSD_USE_TORCH)
@@ -150,9 +173,59 @@ endif()
 if (TSD_USE_USD)
   find_package(OpenGL)
   find_package(X11)
-  find_package(pxr REQUIRED sdf usd usdGeom tf gf usdShade usdLux)
-  project_compile_definitions(PRIVATE -DTSD_USE_USD=1)
-  project_link_libraries(PRIVATE ${PXR_LIBRARIES})
+  # The imaging components (usdImaging/hd/hdsi/hio/pxOsd) are what the USD
+  # importer consumes: it reads OpenUSD's own resolved scene through a Hydra
+  # scene index rather than traversing schemas (ADR 0015). None of them carry a
+  # GL or X11 link dependency, so headless and CI builds are unaffected.
+  find_package(pxr REQUIRED
+    sdf usd usdGeom usdShade usdLux usdSkel usdVol
+    tf gf vt work plug
+    usdImaging hd hdsi hio pxOsd cameraUtil
+  )
+  # OpenSubdiv is required for subdivision-surface refinement; pxOsd's refiner
+  # factory includes OpenSubdiv headers that are not shipped inside the USD
+  # install, so a separate CPU-only OpenSubdiv is needed.
+  find_package(OpenSubdiv REQUIRED)
+  # PUBLIC so that consumers -- the test target in particular -- can compile
+  # conditionally against USD support. A deliberate widening of the library's
+  # interface made for testability.
+  project_compile_definitions(PUBLIC -DTSD_USE_USD=1)
+  project_link_libraries(PRIVATE ${PXR_LIBRARIES} OpenSubdiv::osdCPU)
+
+  # MaterialX passthrough needs OpenUSD's own HdMtlx document conversion, which
+  # is only present when OpenUSD was built with PXR_ENABLE_MATERIALX_SUPPORT.
+  # Detect it rather than requiring it, so installs without it still build --
+  # the importer reports the mode as unavailable and emits portable materials.
+  # pxrConfig already points MaterialX_DIR at the build OpenUSD was linked
+  # against, so no extra hint is normally needed.
+  find_package(MaterialX QUIET)
+  if (MaterialX_FOUND
+      AND EXISTS "${PXR_INCLUDE_DIRS}/pxr/imaging/hdMtlx/hdMtlx.h")
+    project_compile_definitions(PUBLIC -DTSD_USD_HAS_MATERIALX=1)
+    project_link_libraries(PRIVATE MaterialXCore MaterialXFormat)
+    message(STATUS "TSD: USD import has native MaterialX passthrough")
+  else()
+    project_compile_definitions(PUBLIC -DTSD_USD_HAS_MATERIALX=0)
+    message(STATUS
+      "TSD: OpenUSD lacks hdMtlx -- USD import will report MaterialX"
+      " passthrough as unavailable and emit portable materials instead")
+  endif()
+
+  # The USD importer's converters, which have no meaning without OpenUSD.
+  project_sources(
+  PRIVATE
+    importers/detail/usd/UsdAnimation.cpp
+    importers/detail/usd/UsdDialect.cpp
+    importers/detail/usd/UsdGeometry.cpp
+    importers/detail/usd/UsdImportContext.cpp
+    importers/detail/usd/UsdInstancing.cpp
+    importers/detail/usd/UsdLights.cpp
+    importers/detail/usd/UsdMaterials.cpp
+    importers/detail/usd/UsdSubdivision.cpp
+    importers/detail/usd/UsdVolume.cpp
+    usd/UsdResolvedGeometry.cpp
+    usd/UsdStageSession.cpp
+  )
 
   # CaseFileFormat -- SdfFileFormat plugin for EnSight .case files
   add_library(CaseFileFormat SHARED
@@ -184,7 +257,7 @@ if (TSD_USE_USD)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/usd/plugInfo.json
     DESTINATION lib/usd/CaseFileFormat/resources)
 else()
-  project_compile_definitions(PRIVATE -DTSD_USE_USD=0)
+  project_compile_definitions(PUBLIC -DTSD_USE_USD=0)
 endif()
 
 if (TSD_USE_VTK)

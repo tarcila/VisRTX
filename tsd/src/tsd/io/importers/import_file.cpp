@@ -3,8 +3,12 @@
 
 #include "tsd/io/importers.hpp"
 #include "tsd/io/importers/detail/importer_common.hpp"
+// tsd_animation
+#include "tsd/animation/AnimationManager.hpp"
 // tsd_core
 #include "tsd/core/Logging.hpp"
+// std
+#include <algorithm>
 
 namespace tsd::io {
 
@@ -106,9 +110,15 @@ void import_file(Scene &scene,
     tsd::io::import_SWC_SDF(scene, animMgr, file.c_str(), root);
   else if (f.first == ImporterType::TRK)
     tsd::io::import_TRK(scene, animMgr, file.c_str(), root);
-  else if (f.first == ImporterType::USD)
-    tsd::io::import_USD(scene, animMgr, file.c_str(), root);
-  else if (f.first == ImporterType::VTP)
+  else if (f.first == ImporterType::USD) {
+    widenAnimationClock(
+        animMgr, tsd::io::import_USD(scene, animMgr, file.c_str(), root));
+  } else if (f.first == ImporterType::USD_MTLX) {
+    UsdImportOptions options;
+    options.materialMode = UsdMaterialMode::MATERIALX;
+    widenAnimationClock(animMgr,
+        tsd::io::import_USD(scene, animMgr, file.c_str(), root, options));
+  } else if (f.first == ImporterType::VTP)
     tsd::io::import_VTP(scene, animMgr, file.c_str(), root);
   else if (f.first == ImporterType::VTU) {
     std::optional<std::string> prop;

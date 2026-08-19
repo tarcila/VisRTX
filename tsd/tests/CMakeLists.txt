@@ -21,6 +21,7 @@ project_add_executable(
   test_FlatMap.cpp
   test_Forest.cpp
   test_Geometry.cpp
+  test_ImageImport.cpp
   test_Importers.cpp
   test_LayerSubtreeArchive.cpp
   test_Manipulator.cpp
@@ -31,9 +32,19 @@ project_add_executable(
   test_ObjectArchive.cpp
   test_ObjectUsePtr.cpp
   test_Parameter.cpp
+  test_RenderIndex.cpp
   test_Scene.cpp
   test_SceneArchive.cpp
   test_Token.cpp
+  test_UsdImport.cpp
+  test_UsdImport_animation.cpp
+  test_UsdImport_geometry.cpp
+  test_UsdImport_instancing.cpp
+  test_UsdImport_lights.cpp
+  test_UsdImport_materials.cpp
+  test_UsdImport_materials_portable.cpp
+  test_UsdImport_subsets.cpp
+  test_UsdImport_volumes.cpp
 )
 if (TARGET tsd_scivis_studio_model)
   target_sources(${PROJECT_NAME} PRIVATE
@@ -73,6 +84,7 @@ add_test(NAME tsd::DataTree      COMMAND ${PROJECT_NAME} "[DataTree]"     )
 add_test(NAME tsd::FlatMap       COMMAND ${PROJECT_NAME} "[FlatMap]"      )
 add_test(NAME tsd::Forest        COMMAND ${PROJECT_NAME} "[Forest]"       )
 add_test(NAME tsd::Geometry      COMMAND ${PROJECT_NAME} "[Geometry]"     )
+add_test(NAME tsd::ImageImport   COMMAND ${PROJECT_NAME} "[ImageImport]"  )
 add_test(NAME tsd::Importers     COMMAND ${PROJECT_NAME} "[Importers]"    )
 add_test(NAME tsd::LayerSubtreeArchive
   COMMAND ${PROJECT_NAME} "[LayerSubtreeArchive]")
@@ -84,9 +96,11 @@ add_test(NAME tsd::Object        COMMAND ${PROJECT_NAME} "[Object]"       )
 add_test(NAME tsd::ObjectArchive COMMAND ${PROJECT_NAME} "[ObjectArchive]")
 add_test(NAME tsd::ObjectUsePtr  COMMAND ${PROJECT_NAME} "[ObjectUsePtr]" )
 add_test(NAME tsd::Parameter     COMMAND ${PROJECT_NAME} "[Parameter]"    )
+add_test(NAME tsd::RenderIndex   COMMAND ${PROJECT_NAME} "[RenderIndex]"  )
 add_test(NAME tsd::Scene         COMMAND ${PROJECT_NAME} "[Scene]"        )
 add_test(NAME tsd::SceneArchive  COMMAND ${PROJECT_NAME} "[SceneArchive]" )
 add_test(NAME tsd::Token         COMMAND ${PROJECT_NAME} "[Token]"        )
+add_test(NAME tsd::UsdImport     COMMAND ${PROJECT_NAME} "[UsdImport]"    )
 if (TARGET tsd_scivis_studio_model)
   add_test(NAME tsd::SciVisStudio COMMAND ${PROJECT_NAME} "[SciVisStudio]")
 endif()

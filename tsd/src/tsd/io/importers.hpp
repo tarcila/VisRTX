@@ -5,6 +5,7 @@
 
 #include "tsd/core/ColorMapUtil.hpp"
 #include "tsd/core/FlatMap.hpp"
+#include "tsd/io/UsdImport.hpp"
 #include "tsd/scene/Scene.hpp"
 // std
 #include <filesystem>
@@ -84,7 +85,7 @@ void import_SMESH(Scene &scene, tsd::animation::AnimationManager &animMgr, const
 void import_SWC(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
 void import_SWC_SDF(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
 void import_TRK(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
-void import_USD(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
+UsdImportReport import_USD(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {}, const UsdImportOptions &options = {});
 void import_VTP(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filepath, LayerNodeRef location = {});
 void import_VTU(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filepath, LayerNodeRef location, std::optional<std::string> propertyName = std::nullopt);
 void import_XYZDP(Scene &scene, tsd::animation::AnimationManager &animMgr, const char *filename, LayerNodeRef location = {});
@@ -92,7 +93,7 @@ void import_XYZDP(Scene &scene, tsd::animation::AnimationManager &animMgr, const
 // Spatial field importers //
 
 // Dispatch to the appropriate spatial field importer based on file extension.
-// Supports: .raw, .flash/.hdf5, .nvdb, .mhd, .vtu, .silo/.sil
+// Supports: .raw, .flash/.hdf5, .nvdb/.vdb, .mhd, .vtu, .silo/.sil
 // Note: .vti is not supported here; use import_volume() for VTI files.
 SpatialFieldRef import_spatial_field(Scene &scene, const char *filename, std::optional<std::string> propertyName = std::nullopt);
 
@@ -161,6 +162,7 @@ enum class ImporterType
   SWC_SDF,
   TRK,
   USD,
+  USD_MTLX, // native MaterialX materials instead of a portable mapping
   VTP,
   VTU,
   XYZDP,

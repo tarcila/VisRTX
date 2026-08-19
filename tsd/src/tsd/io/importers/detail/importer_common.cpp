@@ -8,14 +8,8 @@
 #include "tsd/core/Token.hpp"
 // tsd_io
 #include "tsd/io/importers.hpp"
-#include "tsd/io/importers/detail/dds.h"
 // mikktspace
 #include "mikktspace.h"
-// stb_image
-#include "stb_image.h"
-#ifndef _WIN32
-#include "tinyexr.h"
-#endif
 // anari
 #include <anari/anari_cpp/ext/linalg.h>
 // std
@@ -31,36 +25,35 @@
 #include <system_error>
 #include <vector>
 
-using U64Vec2 = tsd::math::vec<std::uint64_t, 2>;
-namespace anari {
-ANARI_TYPEFOR_SPECIALIZATION(U64Vec2, ANARI_UINT64_VEC2);
-}
-
 namespace tsd::io {
 
 using namespace tsd::core;
 using namespace tsd::scene;
 
-#ifdef _WIN32
-constexpr char path_sep = '\\';
-#else
-constexpr char path_sep = '/';
-#endif
+// These two used to scan for one separator character themselves, which missed
+// that Windows accepts '/' as well as '\\', and missed the bare filename --
+// 'volume.raw' has no separator at all, and reporting no file for it turned
+// every importer that guards on the result into a silent no-op for a path
+// typed relative to the cwd.
 
-std::string pathOf(const std::string &filepath)
-{
-  size_t pos = filepath.find_last_of(path_sep);
-  if (pos == std::string::npos)
-    return "";
-  return filepath.substr(0, pos + 1);
-}
-
+// The file `filepath` names, without its directory. Empty only when the path
+// names no file -- it is empty itself, or ends in a separator.
 std::string fileOf(const std::string &filepath)
 {
-  size_t pos = filepath.find_last_of(path_sep);
-  if (pos == std::string::npos)
-    return "";
-  return filepath.substr(pos + 1, filepath.size());
+  return std::filesystem::path(filepath).filename().string();
+}
+
+// The directory `filepath` names, with the trailing separator kept so callers
+// can concatenate a sibling file onto it. Empty when the path names no
+// directory.
+//
+// Taken as the prefix fileOf() left behind rather than rebuilt from
+// parent_path(), so the separator is the one the path already used and the two
+// halves always rejoin into the original. Appending the platform's own
+// separator instead would hand back '/a/b\\x.raw' for '/a/b/x.raw' on Windows.
+std::string pathOf(const std::string &filepath)
+{
+  return filepath.substr(0, filepath.size() - fileOf(filepath).size());
 }
 
 std::string extensionOf(const std::string &filepath)
@@ -94,11 +87,6 @@ std::vector<std::string> splitString(const std::string &s, char delim)
   return result;
 }
 
-std::string makeTextureCacheKey(const std::string &textureId, bool isLinear)
-{
-  return textureId + (isLinear ? "_linear" : "_srgb");
-}
-
 tsd::scene::ArrayRef readArray(
     tsd::scene::Scene &scene, anari::DataType elementType, std::FILE *fp)
 {
@@ -117,396 +105,68 @@ tsd::scene::ArrayRef readArray(
   return retval;
 }
 
-static SamplerRef makeTextureSampler(
-    Scene &scene, ArrayRef dataArray, const std::string &displayName)
+// Texture import shims ///////////////////////////////////////////////////////
+
+// These forward to tsd::io::images, which owns decoding, orientation, keying,
+// and lifetime for every image in the tree. They exist so the call sites that
+// want the whole of it -- acquire, then build a Sampler for what came back --
+// keep one signature. Like the makeImageSampler they end in, they take the
+// ImageCache alone, so no caller can put the Sampler in a Scene the image
+// never reached.
+
+namespace {
+
+ColorSpace colorSpaceOf(bool isLinear)
 {
-  auto tex = scene.createObject<Sampler>(tokens::sampler::image2D);
-
-  tex->setParameterObject("image", *dataArray);
-  tex->setParameter("inAttribute", "attribute0");
-  tex->setParameter("wrapMode1", "repeat");
-  tex->setParameter("wrapMode2", "repeat");
-  tex->setParameter("filter", "linear");
-  tex->setName(fileOf(displayName).c_str());
-
-  return tex;
+  return isLinear ? ColorSpace::LINEAR : ColorSpace::SRGB;
 }
 
-static SamplerRef makeCompressedTextureSampler(
-    Scene &scene, ArrayRef dataArray, const std::string &displayName)
-{
-  auto compressedFormat =
-      dataArray->getMetadataValue("compressedFormat").getString();
+} // namespace
 
-  auto tex = scene.createObject<Sampler>(tokens::sampler::compressedImage2D);
-  tex->setParameterObject("image", *dataArray);
-  tex->setParameter("format", compressedFormat.c_str());
-  tex->setParameter(
-      "size", dataArray->getMetadataValue("imageSize").get<U64Vec2>());
-  tex->setParameter("inAttribute", "attribute0");
-  tex->setParameter("wrapMode1", "repeat");
-  tex->setParameter("wrapMode2", "repeat");
-  tex->setParameter("filter", "linear");
-  tex->setName(fileOf(displayName).c_str());
-
-  return tex;
-}
-
-static ArrayRef importDdsTextureArray(Scene &scene,
-    const void *data,
-    size_t numBytes,
-    const std::string &textureId,
-    TextureCache &cache)
-{
-  auto dataArray = cache[textureId];
-  if (!dataArray.valid()) {
-    if (numBytes < sizeof(dds::DdsFile)) {
-      logError("[importDdsTexture] invalid DDS buffer '%s'", textureId.c_str());
-      return {};
-    }
-
-    auto dds = reinterpret_cast<const dds::DdsFile *>(data);
-    if (dds->magic != dds::DDS_MAGIC
-        || dds->header.size != sizeof(dds::DdsHeader)) {
-      logError("[importDdsTexture] invalid DDS buffer '%s'", textureId.c_str());
-      return {};
-    }
-
-    // Check if we have a dxt10 header
-    constexpr const auto baseReqFlags = dds::DDSD_CAPS | dds::DDSD_HEIGHT
-        | dds::DDSD_WIDTH | dds::DDSD_PIXELFORMAT;
-    if ((dds->header.flags & baseReqFlags) != baseReqFlags) {
-      logError("[importDdsTexture] invalid DDS buffer '%s'", textureId.c_str());
-      return {};
-    }
-
-    constexpr const auto textureReqFlags = dds::DDSCAPS_TEXTURE;
-    if ((dds->header.caps & textureReqFlags) != textureReqFlags) {
-      logError("[importDdsTexture] invalid DDS buffer '%s'", textureId.c_str());
-      return {};
-    }
-
-    Token compressedFormat = {};
-    Token format = {};
-    bool alpha = dds->header.pixelFormat.flags & dds::DDPF_ALPHAPIXELS;
-    switch (dds::getDxgiFormat(dds)) {
-    case dds::DXGI_FORMAT_BC1_UNORM: {
-      // BC1: RGB/RGBA, 1bit alpha
-      compressedFormat = alpha ? "BC1_RGBA" : "BC1_RGB";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC1_UNORM_SRGB: {
-      // BC1: RGB/RGBA, 1bit alpha
-      compressedFormat = alpha ? "BC1_RGBA_SRGB" : "BC1_RGB_SRGB";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC2_UNORM: {
-      // BC2: RGB/RGBA, 4bit alpha
-      compressedFormat = "BC2";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC2_UNORM_SRGB: {
-      // BC2: RGB/RGBA, 4bit alpha
-      compressedFormat = "BC2_SRGB";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC3_UNORM: {
-      // BC3: RGB/RGBA, 8bit alpha
-      compressedFormat = "BC3";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC3_UNORM_SRGB: {
-      // BC3: RGB/RGBA, 8bit alpha
-      compressedFormat = "BC3_SRGB";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC4_UNORM: {
-      // BC4: R/RG
-      compressedFormat = "BC4";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC4_SNORM: {
-      // BC4: R/RG
-      compressedFormat = "BC4_SNORM";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC5_UNORM: {
-      // BC5: RG/RGBA
-      compressedFormat = "BC5";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC5_SNORM: {
-      // BC5: RG/RGBA
-      compressedFormat = "BC5_SNORM";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC6H_UF16: {
-      // BC6H: RGB
-      compressedFormat = "BC6H_UFLOAT";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC6H_SF16: {
-      // BC6H: RGB
-      compressedFormat = "BC6H_SFLOAT";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC7_UNORM: {
-      // BC7: RGB/RGBA
-      compressedFormat = "BC7";
-      break;
-    }
-    case dds::DXGI_FORMAT_BC7_UNORM_SRGB: {
-      // BC7: RGB/RGBA
-      compressedFormat = "BC7_SRGB";
-      break;
-    }
-
-    default: {
-      logError("[importDdsTexture] unsupported DDS format '%c%c%c%c' for '%s'",
-          dds->header.pixelFormat.fourCC & 0xff,
-          (dds->header.pixelFormat.fourCC >> 8) & 0xff,
-          (dds->header.pixelFormat.fourCC >> 16) & 0xff,
-          (dds->header.pixelFormat.fourCC >> 24) & 0xff,
-          textureId.c_str());
-      break;
-    }
-    }
-
-    if (compressedFormat) {
-      // Simple  implementation that only handling single level mipmaps
-      // and non cubemap textures.
-      auto linearSize = dds::computeLinearSize(dds);
-
-      if ((dds->header.flags & dds::DDSD_LINEARSIZE)
-          && (linearSize != dds->header.pitchOrLinearSize)) {
-        logError(
-            "[importDdsTexture] ignoring invalid linear size %u (should be %u) for compressed texture '%s'",
-            dds->header.pitchOrLinearSize,
-            linearSize,
-            textureId.c_str());
-      }
-
-      dataArray = scene.createArray(ANARI_INT8, linearSize);
-      dataArray->setData(dds::getDataPointer(dds));
-      dataArray->setMetadataValue("compressedFormat", compressedFormat.value());
-      dataArray->setMetadataValue(
-          "imageSize", U64Vec2(dds->header.width, dds->header.height));
-      cache[textureId] = dataArray;
-    } else {
-      logError("Unspported texture format for '%s'", textureId.c_str());
-      return {};
-    }
-  }
-
-  return dataArray;
-}
-
-SamplerRef importDdsTexture(
-    Scene &scene, std::string filepath, TextureCache &cache)
-{
-  if (auto dataArray = cache[filepath]; dataArray.valid())
-    return makeCompressedTextureSampler(scene, dataArray, filepath);
-
-  std::ifstream ifs(filepath, std::ios::in | std::ios::binary);
-  if (!ifs.is_open()) {
-    logError("[importDdsTexture] failed to open file '%s'", filepath.c_str());
-    return {};
-  }
-
-  std::vector<char> buffer(
-      (std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-  auto dataArray = importDdsTextureArray(
-      scene, buffer.data(), buffer.size(), filepath, cache);
-  return dataArray ? makeCompressedTextureSampler(scene, dataArray, filepath)
-                   : SamplerRef{};
-}
-
-static ArrayRef importStbTextureArray(Scene &scene,
-    const void *data,
-    size_t numBytes,
-    const std::string &textureId,
-    TextureCache &cache,
-    bool isLinear)
-{
-  auto dataArray = cache[textureId];
-  if (!dataArray.valid()) {
-    int width, height, n;
-    if (isLinear) {
-      stbi_ldr_to_hdr_scale(1.0f);
-      stbi_ldr_to_hdr_gamma(1.0f);
-    } else {
-      stbi_ldr_to_hdr_scale(1.0f);
-      stbi_ldr_to_hdr_gamma(2.2f);
-    }
-    void *decodedData =
-        stbi_loadf_from_memory(static_cast<const stbi_uc *>(data),
-            int(numBytes),
-            &width,
-            &height,
-            &n,
-            0);
-
-    if (!decodedData || n < 1) {
-      if (!decodedData) {
-        logError(
-            "[importTexture] failed to import texture '%s'", textureId.c_str());
-      } else {
-        logWarning("[importTexture] texture '%s' with %i channels not imported",
-            textureId.c_str(),
-            n);
-      }
-      return {};
-    }
-
-    int texelType = ANARI_FLOAT32_VEC4;
-    if (n == 3)
-      texelType = ANARI_FLOAT32_VEC3;
-    else if (n == 2)
-      texelType = ANARI_FLOAT32_VEC2;
-    else if (n == 1)
-      texelType = ANARI_FLOAT32;
-
-    dataArray = scene.createArray(texelType, width, height);
-    dataArray->setData(decodedData);
-    cache[textureId] = dataArray;
-
-    stbi_image_free(decodedData);
-  }
-
-  return dataArray;
-}
-
-SamplerRef importStbTexture(
-    Scene &scene, std::string filepath, TextureCache &cache, bool isLinear)
-{
-  auto cacheKey = makeTextureCacheKey(filepath, isLinear);
-  if (auto dataArray = cache[cacheKey]; dataArray.valid())
-    return makeTextureSampler(scene, dataArray, filepath);
-
-  std::ifstream ifs(filepath, std::ios::in | std::ios::binary);
-  if (!ifs.is_open()) {
-    logError("[importTexture] failed to open texture '%s'", filepath.c_str());
-    return {};
-  }
-
-  std::vector<char> buffer(
-      (std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-  auto dataArray = importStbTextureArray(
-      scene, buffer.data(), buffer.size(), cacheKey, cache, isLinear);
-  return dataArray ? makeTextureSampler(scene, dataArray, filepath)
-                   : SamplerRef{};
-}
-
-#ifndef _WIN32
-// Follow actual HDRI importer: tinyexr is excluded on Windows; to be
-// investigated.
-static SamplerRef importExrTexture(
-    Scene &scene, const std::string &filepath, TextureCache &cache)
-{
-  // EXR is always linear (no sRGB encoding); collapse both cache buckets onto
-  // the linear key so a .exr can't be imported twice as srgb vs linear.
-  auto cacheKey = makeTextureCacheKey(filepath, /*isLinear=*/true);
-  if (auto dataArray = cache[cacheKey]; dataArray.valid())
-    return makeTextureSampler(scene, dataArray, filepath);
-
-  float *rgba = nullptr;
-  int width = 0;
-  int height = 0;
-  const char *err = nullptr;
-  int ret = LoadEXR(&rgba, &width, &height, filepath.c_str(), &err);
-  if (ret != TINYEXR_SUCCESS) {
-    logError("[importTexture] failed to load EXR '%s': %s",
-        filepath.c_str(),
-        err ? err : "unknown error");
-    if (err)
-      FreeEXRErrorMessage(err);
-    return {};
-  }
-
-  auto dataArray = scene.createArray(ANARI_FLOAT32_VEC4, width, height);
-  dataArray->setData(rgba);
-  cache[cacheKey] = dataArray;
-  free(rgba);
-
-  return makeTextureSampler(scene, dataArray, filepath);
-}
-#endif
-
-SamplerRef importTexture(
-    Scene &scene, std::string filepath, TextureCache &cache, bool isLinear)
+SamplerRef importTexture(ImageCache &cache,
+    std::string filepath,
+    bool isLinear,
+    const SamplerSettings &settings)
 {
   std::transform(
       filepath.begin(), filepath.end(), filepath.begin(), [](char c) {
         return c == '\\' ? '/' : c;
       });
 
-  auto ext = extensionOf(filepath);
-  std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
-    return std::tolower(c);
-  });
-
-  SamplerRef tex;
-  if (ext == ".dds") {
-    tex = importDdsTexture(scene, filepath, cache);
-#ifndef _WIN32
-  } else if (ext == ".exr") {
-    tex = importExrTexture(scene, filepath, cache);
-#endif
-  } else {
-    tex = importStbTexture(scene, filepath, cache, isLinear);
-  }
-
-  return tex;
+  auto image = cache.acquire({filepath, colorSpaceOf(isLinear)});
+  return makeImageSampler(cache, image, filepath, settings);
 }
 
-SamplerRef importTextureFromMemory(Scene &scene,
+SamplerRef importTextureFromMemory(ImageCache &cache,
     const std::string &cacheKey,
     const std::string &displayName,
     const void *data,
     size_t numBytes,
-    TextureCache &cache,
     bool isLinear,
-    const std::string &formatHint)
+    const std::string &formatHint,
+    const SamplerSettings &settings)
 {
-  std::string format = formatHint;
-  std::transform(
-      format.begin(), format.end(), format.begin(), [](unsigned char c) {
-        return std::tolower(c);
-      });
-
-  if (format == "dds") {
-    auto dataArray =
-        importDdsTextureArray(scene, data, numBytes, cacheKey, cache);
-    return dataArray
-        ? makeCompressedTextureSampler(scene, dataArray, displayName)
-        : SamplerRef{};
-  }
-
-  auto dataArray =
-      importStbTextureArray(scene, data, numBytes, cacheKey, cache, isLinear);
-  return dataArray ? makeTextureSampler(scene, dataArray, displayName)
-                   : SamplerRef{};
+  auto image = cache.acquire(
+      {cacheKey, colorSpaceOf(isLinear)}, data, numBytes, formatHint);
+  return makeImageSampler(cache, image, displayName, settings);
 }
 
-SamplerRef importRawTexture2D(Scene &scene,
+SamplerRef importRawTexture2D(ImageCache &cache,
     const std::string &cacheKey,
     const std::string &displayName,
     const void *data,
     size_t width,
     size_t height,
-    TextureCache &cache,
-    bool isLinear)
+    bool isLinear,
+    const SamplerSettings &settings)
 {
-  auto dataArray = cache[cacheKey];
-
-  if (!dataArray.valid()) {
-    auto format = isLinear ? ANARI_UFIXED8_VEC4 : ANARI_UFIXED8_RGBA_SRGB;
-    dataArray = scene.createArray(format, width, height);
-    dataArray->setData(data);
-    cache[cacheKey] = dataArray;
-  }
-
-  return makeTextureSampler(scene, dataArray, displayName);
+  auto image = cache.acquireDecoded({cacheKey, colorSpaceOf(isLinear)},
+      isLinear ? ANARI_UFIXED8_VEC4 : ANARI_UFIXED8_RGBA_SRGB,
+      width,
+      height,
+      RowOrder::TOP_DOWN,
+      data);
+  return makeImageSampler(cache, image, displayName, settings);
 }
 
 SamplerRef makeDefaultColorMapSampler(Scene &scene, const float2 &range)
@@ -972,17 +632,17 @@ std::vector<UserColorMap> loadUserColorMaps(
         ec.message().c_str());
   }
 
-  std::sort(files.begin(), files.end(), [](const fs::path &a,
-                                      const fs::path &b) {
-    return a.stem().string() < b.stem().string();
-  });
+  std::sort(
+      files.begin(), files.end(), [](const fs::path &a, const fs::path &b) {
+        return a.stem().string() < b.stem().string();
+      });
 
   std::vector<UserColorMap> colorMaps;
   for (const auto &file : files) {
     auto tfn = importTransferFunction(file.string());
     if (tfn.colorPoints.size() < 2) {
-      logWarning("[loadUserColorMaps] Skipping color map '%s'",
-          file.string().c_str());
+      logWarning(
+          "[loadUserColorMaps] Skipping color map '%s'", file.string().c_str());
       continue;
     }
 
@@ -991,7 +651,8 @@ std::vector<UserColorMap> loadUserColorMaps(
     colorMap.path = file;
     colorMap.colorPoints = std::move(tfn.colorPoints);
 
-    auto existing = std::find_if(colorMaps.begin(), colorMaps.end(),
+    auto existing = std::find_if(colorMaps.begin(),
+        colorMaps.end(),
         [&](const UserColorMap &other) { return other.name == colorMap.name; });
     if (existing != colorMaps.end()) {
       logStatus("[loadUserColorMaps] Replaced color map '%s' from '%s'",
@@ -1152,7 +813,9 @@ void addTransformStepBinding(tsd::animation::Animation &anim,
     const std::vector<math::mat4> &frames,
     const std::vector<float> &timeBase)
 {
-  size_t n = frames.size();
+  // Every array handed to the binding is sized by the decomposition below, so
+  // the shorter of the two inputs is what can actually be read.
+  size_t n = std::min(frames.size(), timeBase.size());
   std::vector<tsd::core::math::float4> rotation(n);
   std::vector<tsd::core::math::float3> translation(n);
   std::vector<tsd::core::math::float3> scale(n);
@@ -1180,7 +843,7 @@ void addTransformStepBinding(tsd::animation::Animation &anim,
       rotation.data(),
       translation.data(),
       scale.data(),
-      timeBase.size());
+      n);
 }
 
 } // namespace tsd::io

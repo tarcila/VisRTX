@@ -101,12 +101,90 @@ static std::string attributeNameForTexCoord(int texCoord)
   return "attribute"s + std::to_string(texCoord);
 }
 
-static SamplerRef importGLTFTexture(Scene &scene,
+// The ANARI element type that keeps a glTF image's own component type and
+// channel count. tinygltf hands back decoded texels, so unlike the shared
+// decode path nothing here expands to float or applies a gamma curve in
+// software -- the *_SRGB formats let the device apply the true sRGB EOTF.
+static anari::DataType gltfTexelType(
+    const tinygltf::Image &image, bool isLinear)
+{
+  const int channels = image.component - 1;
+  switch (image.pixel_type) {
+  case TINYGLTF_COMPONENT_TYPE_BYTE:
+    if (!isLinear)
+      logWarning("[import_GLTF] signed byte textures not supported in sRGB");
+    return ANARI_FIXED8 + channels;
+  case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+    return isLinear ? ANARI_UFIXED8 + channels
+                    : ANARI_UFIXED8_R_SRGB + channels;
+  case TINYGLTF_COMPONENT_TYPE_SHORT:
+    if (!isLinear)
+      logWarning("[import_GLTF] signed short textures not supported in sRGB");
+    return ANARI_FIXED16 + channels;
+  case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+    if (!isLinear)
+      logWarning("[import_GLTF] unsigned short textures not supported in sRGB");
+    return ANARI_UFIXED16 + channels;
+  case TINYGLTF_COMPONENT_TYPE_INT:
+    if (!isLinear)
+      logWarning("[import_GLTF] signed int textures not supported in sRGB");
+    return ANARI_FIXED32 + channels;
+  case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+    if (!isLinear)
+      logWarning("[import_GLTF] unsigned int textures not supported in sRGB");
+    return ANARI_UFIXED32 + channels;
+  case TINYGLTF_COMPONENT_TYPE_FLOAT:
+    if (!isLinear)
+      logWarning("[import_GLTF] float textures not supported in sRGB");
+    return ANARI_FLOAT32 + channels;
+  case TINYGLTF_COMPONENT_TYPE_DOUBLE:
+    if (!isLinear)
+      logWarning("[import_GLTF] double textures not supported in sRGB");
+    return ANARI_FLOAT64 + channels;
+  default:
+    logWarning("[import_GLTF] unsupported image component type texture: %d",
+        image.pixel_type);
+    return ANARI_UNKNOWN;
+  }
+}
+
+static SamplerSettings gltfSamplerSettings(
+    const tinygltf::Model &model, const tinygltf::Texture &texture)
+{
+  SamplerSettings settings;
+  if (texture.sampler < 0 || texture.sampler >= model.samplers.size())
+    return settings;
+
+  const auto &gltfSampler = model.samplers[texture.sampler];
+
+  auto wrapMode = [](int mode) -> const char * {
+    switch (mode) {
+    case TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE:
+      return "clampToEdge";
+    case TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT:
+      return "mirror";
+    default:
+      return "repeat";
+    }
+  };
+
+  settings.wrapMode1 = wrapMode(gltfSampler.wrapS);
+  settings.wrapMode2 = wrapMode(gltfSampler.wrapT);
+  settings.filter =
+      (gltfSampler.magFilter == TINYGLTF_TEXTURE_FILTER_NEAREST
+          || gltfSampler.minFilter == TINYGLTF_TEXTURE_FILTER_NEAREST)
+      ? "nearest"
+      : "linear";
+  return settings;
+}
+
+static SamplerRef importGLTFTexture(ImageCache &cache,
     const tinygltf::Model &model,
     int textureIndex,
-    TextureCache &cache,
+    // Scopes the cache id to this glTF: image names are local to a file, so
+    // two assets each naming an image "diffuse" are different images.
+    const std::string &sourcePrefix,
     bool isLinear = false,
-    bool flipNormalMapY = false,
     const char *samplerName = nullptr,
     int texCoord = 0)
 {
@@ -118,169 +196,42 @@ static SamplerRef importGLTFTexture(Scene &scene,
     return {};
 
   const auto &image = model.images[texture.source];
-
-  std::string cacheKey = image.name.empty()
+  const std::string imageId = image.name.empty()
       ? "texture_"s + std::to_string(texture.source)
       : image.name;
 
-  // Include linear/sRGB info in cache key to avoid conflicts
-  if (isLinear) {
-    cacheKey += "_linear";
-  } else {
-    cacheKey += "_srgb";
+  if (image.image.empty()) {
+    logWarning("[import_GLTF] empty image data for texture %d", textureIndex);
+    return {};
   }
 
-  // Include normal map Y flip info in cache key
-  if (flipNormalMapY) {
-    cacheKey += "_yflip";
-  }
+  const auto elementType = gltfTexelType(image, isLinear);
+  if (elementType == ANARI_UNKNOWN)
+    return {};
 
-  auto dataArray = cache[cacheKey];
+  const ImageSource source{
+      sourcePrefix + imageId, isLinear ? ColorSpace::LINEAR : ColorSpace::SRGB};
+  // tinygltf decodes through stb, which hands back the picture's first row
+  // first whatever the container stored.
+  auto decoded = cache.acquireDecoded(source,
+      elementType,
+      size_t(image.width),
+      size_t(image.height),
+      RowOrder::TOP_DOWN,
+      image.image.data());
+  if (!decoded)
+    return {};
 
-  if (!dataArray.valid()) {
-    if (image.image.empty()) {
-      logWarning("[import_GLTF] empty image data for texture %d", textureIndex);
-      return {};
-    }
-
-    switch (image.pixel_type) {
-    case TINYGLTF_COMPONENT_TYPE_BYTE: {
-      if (!isLinear)
-        logWarning("[import_GLTF] signed byte textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_FIXED8 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
-      if (isLinear)
-        dataArray = scene.createArray(
-            ANARI_UFIXED8 + (image.component - 1), image.width, image.height);
-      else
-        dataArray =
-            scene.createArray(ANARI_UFIXED8_R_SRGB + (image.component - 1),
-                image.width,
-                image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_SHORT: {
-      if (!isLinear)
-        logWarning("[import_GLTF] signed short textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_FIXED16 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
-      if (!isLinear)
-        logWarning(
-            "[import_GLTF] unsigned short textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_UFIXED16 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_INT: {
-      if (!isLinear)
-        logWarning("[import_GLTF] signed int textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_FIXED32 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
-      if (!isLinear)
-        logWarning("[import_GLTF] unsigned int textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_UFIXED32 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_FLOAT: {
-      if (!isLinear)
-        logWarning("[import_GLTF] float textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_FLOAT32 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    case TINYGLTF_COMPONENT_TYPE_DOUBLE: {
-      if (!isLinear)
-        logWarning("[import_GLTF] double textures not supported in sRGB");
-      dataArray = scene.createArray(
-          ANARI_FLOAT64 + (image.component - 1), image.width, image.height);
-      break;
-    }
-    default: {
-      logWarning("[import_GLTF] unsupported image component type texture: %d",
-          image.pixel_type);
-      return {};
-    }
-    }
-
-    auto *outData = dataArray->map();
-    std::memcpy(outData, image.image.data(), image.image.size());
-    dataArray->unmap();
-
-    cache[cacheKey] = dataArray;
-  }
-
-  auto sampler = scene.createObject<Sampler>(tokens::sampler::image2D);
-  sampler->setParameterObject("image", *dataArray);
+  auto settings = gltfSamplerSettings(model, texture);
   const auto inAttribute =
       attributeNameForTexCoord(supportedTexCoordSet(texCoord, samplerName));
-  sampler->setParameter("inAttribute", inAttribute.c_str());
+  settings.inAttribute = inAttribute.c_str();
 
-  // Apply sampler settings if available
-  if (texture.sampler >= 0 && texture.sampler < model.samplers.size()) {
-    const auto &gltfSampler = model.samplers[texture.sampler];
+  const std::string displayName = samplerName && samplerName[0] != '\0'
+      ? std::string(samplerName) + ":" + imageId
+      : imageId;
 
-    // Wrap mode
-    const char *wrapS = "repeat";
-    const char *wrapT = "repeat";
-
-    switch (gltfSampler.wrapS) {
-    case TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE:
-      wrapS = "clampToEdge";
-      break;
-    case TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT:
-      wrapS = "mirror";
-      break;
-    case TINYGLTF_TEXTURE_WRAP_REPEAT:
-      wrapS = "repeat";
-      break;
-    }
-
-    switch (gltfSampler.wrapT) {
-    case TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE:
-      wrapT = "clampToEdge";
-      break;
-    case TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT:
-      wrapT = "mirror";
-      break;
-    case TINYGLTF_TEXTURE_WRAP_REPEAT:
-      wrapT = "repeat";
-      break;
-    }
-
-    sampler->setParameter("wrapMode1", wrapS);
-    sampler->setParameter("wrapMode2", wrapT);
-
-    // Filter mode
-    const char *filter = "linear";
-    if (gltfSampler.magFilter == TINYGLTF_TEXTURE_FILTER_NEAREST
-        || gltfSampler.minFilter == TINYGLTF_TEXTURE_FILTER_NEAREST) {
-      filter = "nearest";
-    }
-    sampler->setParameter("filter", filter);
-  } else {
-    sampler->setParameter("wrapMode1", "repeat");
-    sampler->setParameter("wrapMode2", "repeat");
-    sampler->setParameter("filter", "linear");
-  }
-
-  // Set sampler name to reflect the input type if provided
-  if (samplerName && samplerName[0] != '\0') {
-    std::string fullName = std::string(samplerName) + ":" + cacheKey;
-    sampler->setName(fullName.c_str());
-  } else {
-    sampler->setName(cacheKey.c_str());
-  }
-  return sampler;
+  return makeImageSampler(cache, decoded, displayName, settings);
 }
 
 static void applyNormalTextureScale(SamplerRef sampler, float scale)
@@ -292,7 +243,7 @@ static void applyNormalTextureScale(SamplerRef sampler, float scale)
 }
 
 static std::vector<MaterialRef> importGLTFMaterials(
-    Scene &scene, const tinygltf::Model &model)
+    Scene &scene, const tinygltf::Model &model, const std::string &filename)
 {
   // This function supports the following glTF material extensions:
   // - KHR_materials_transmission: transmission factor and texture
@@ -304,7 +255,8 @@ static std::vector<MaterialRef> importGLTFMaterials(
   // - KHR_materials_iridescence: iridescence factor, IOR, thickness
 
   std::vector<MaterialRef> materials;
-  TextureCache cache;
+  ImageCache cache(&scene);
+  const auto sourcePrefix = "gltf:"s + filename + ":";
 
   for (const auto &gltfMaterial : model.materials) {
     MaterialRef material;
@@ -319,11 +271,10 @@ static std::vector<MaterialRef> importGLTFMaterials(
         pbr.baseColorFactor[2],
         pbr.baseColorFactor[3]);
 
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             pbr.baseColorTexture.index,
-            cache,
-            false,
+            sourcePrefix,
             false,
             "baseColor",
             pbr.baseColorTexture.texCoord)) {
@@ -340,12 +291,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           float3(baseColorFactor[0], baseColorFactor[1], baseColorFactor[2]));
     }
 
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             pbr.baseColorTexture.index,
-            cache,
+            sourcePrefix,
             true,
-            false,
             "opacity",
             pbr.baseColorTexture.texCoord)) {
       sampler->setParameter("outTransform",
@@ -360,12 +310,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
     // Metallic factor
     float metallicFactor = pbr.metallicFactor;
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             pbr.metallicRoughnessTexture.index,
-            cache,
+            sourcePrefix,
             true,
-            false,
             "metallic",
             pbr.metallicRoughnessTexture.texCoord)) {
       // Metallic is in the blue channel for glTF
@@ -381,12 +330,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
 
     // Roughness factor
     float roughnessFactor = pbr.roughnessFactor;
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             pbr.metallicRoughnessTexture.index,
-            cache,
+            sourcePrefix,
             true,
-            false,
             "roughness",
             pbr.metallicRoughnessTexture.texCoord)) {
       // Roughness is in the green channel for glTF
@@ -401,12 +349,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
     }
 
     // Normal map
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             gltfMaterial.normalTexture.index,
-            cache,
+            sourcePrefix,
             true,
-            false,
             "normal",
             gltfMaterial.normalTexture.texCoord)) {
       float normalScale = gltfMaterial.normalTexture.scale;
@@ -415,12 +362,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
     }
 
     // Occlusion map
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             gltfMaterial.occlusionTexture.index,
-            cache,
+            sourcePrefix,
             true,
-            false,
             "occlusion",
             gltfMaterial.occlusionTexture.texCoord)) {
       material->setParameterObject("occlusion", *sampler);
@@ -440,11 +386,10 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(emissiveStrengthExt, 1.0f, "emissiveStrength");
     }
 
-    if (auto sampler = importGLTFTexture(scene,
+    if (auto sampler = importGLTFTexture(cache,
             model,
             gltfMaterial.emissiveTexture.index,
-            cache,
-            false,
+            sourcePrefix,
             false,
             "emissive",
             gltfMaterial.emissiveTexture.texCoord)) {
@@ -487,12 +432,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           transmissionExt, -1, "transmissionTexture", "index");
       auto transmissionTexCoord = GetValueOrDefault(
           transmissionExt, 0, "transmissionTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               transmissionTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "transmission",
               transmissionTexCoord)) {
         sampler->setParameter("outTransform",
@@ -534,12 +478,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(volumeExt, -1, "thicknessTexture", "index");
       auto thicknessTexCoord =
           GetValueOrDefault(volumeExt, 0, "thicknessTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               thicknessTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "thickness",
               thicknessTexCoord)) {
         sampler->setParameter("outTransform",
@@ -584,12 +527,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(clearcoatExt, -1, "clearcoatTexture", "index");
       auto clearcoatTexCoord =
           GetValueOrDefault(clearcoatExt, 0, "clearcoatTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               clearcoatTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "clearcoat",
               clearcoatTexCoord)) {
         sampler->setParameter("outTransform",
@@ -611,12 +553,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           clearcoatExt, -1, "clearcoatRoughnessTexture", "index");
       auto clearcoatRoughnessTexCoord = GetValueOrDefault(
           clearcoatExt, 0, "clearcoatRoughnessTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               clearcoatRoughnessTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "clearcoatRoughness",
               clearcoatRoughnessTexCoord)) {
         sampler->setParameter("outTransform",
@@ -636,12 +577,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           clearcoatExt, 1.0f, "clearcoatNormalTexture", "scale");
       auto clearcoatNormalTexCoord = GetValueOrDefault(
           clearcoatExt, 0, "clearcoatNormalTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               clearcoatNormalTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "clearcoatNormal",
               clearcoatNormalTexCoord)) {
         applyNormalTextureScale(sampler, clearcoatNormalScale);
@@ -667,12 +607,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(specularExt, -1, "specularTexture", "index");
       auto specularTexCoord =
           GetValueOrDefault(specularExt, 0, "specularTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               specularTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "specular",
               specularTexCoord)) {
         sampler->setParameter("outTransform",
@@ -694,11 +633,10 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(specularExt, -1, "specularColorTexture", "index");
       auto specularColorTexCoord =
           GetValueOrDefault(specularExt, 0, "specularColorTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               specularColorTextureIndex,
-              cache,
-              false,
+              sourcePrefix,
               false,
               "specularColor",
               specularColorTexCoord)) {
@@ -732,11 +670,10 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(sheenExt, -1, "sheenColorTexture", "index");
       auto sheenColorTexCoord =
           GetValueOrDefault(sheenExt, 0, "sheenColorTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               sheenColorTextureIndex,
-              cache,
-              false,
+              sourcePrefix,
               false,
               "sheenColor",
               sheenColorTexCoord)) {
@@ -759,12 +696,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(sheenExt, -1, "sheenRoughnessTexture", "index");
       auto sheenRoughnessTexCoord =
           GetValueOrDefault(sheenExt, 0, "sheenRoughnessTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               sheenRoughnessTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "sheenRoughness",
               sheenRoughnessTexCoord)) {
         sampler->setParameter("outTransform",
@@ -797,12 +733,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           GetValueOrDefault(iridescenceExt, -1, "iridescenceTexture", "index");
       auto iridescenceTexCoord = GetValueOrDefault(
           iridescenceExt, 0, "iridescenceTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               iridescenceTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "iridescence",
               iridescenceTexCoord)) {
         sampler->setParameter("outTransform",
@@ -833,12 +768,11 @@ static std::vector<MaterialRef> importGLTFMaterials(
           iridescenceExt, -1, "iridescenceThicknessTexture", "index");
       auto iridescenceThicknessTexCoord = GetValueOrDefault(
           iridescenceExt, 0, "iridescenceThicknessTexture", "texCoord");
-      if (auto sampler = importGLTFTexture(scene,
+      if (auto sampler = importGLTFTexture(cache,
               model,
               iridescenceThicknessTextureIndex,
-              cache,
+              sourcePrefix,
               true,
-              false,
               "iridescenceThickness",
               iridescenceThicknessTexCoord)) {
         sampler->setParameter("outTransform",
@@ -1053,6 +987,8 @@ static std::vector<SurfaceRef> importGLTFMeshes(Scene &scene,
               scene.createArray(ANARI_FLOAT32_VEC2, texCoordAccessor.count);
           auto *texCoordDataOut = vertexTexCoordArray->mapAs<float2>();
           copyStridedData(model, texCoordIt->second, texCoordDataOut);
+          // glTF's `v` runs down the image, which is ANARI's convention too,
+          // so it goes through as authored.
           vertexTexCoordArray->unmap();
 
           const std::string attributeName =
@@ -1475,7 +1411,7 @@ void import_GLTF(Scene &scene,
   scene.beginLayerEditBatch();
 
   // Import materials
-  auto materials = importGLTFMaterials(scene, model);
+  auto materials = importGLTFMaterials(scene, model, filename);
 
   // Import meshes
   auto surfaces = importGLTFMeshes(scene, model, materials);

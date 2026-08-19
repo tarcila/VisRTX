@@ -5,11 +5,11 @@
 
 #include "tsd/animation/Animation.hpp"
 #include "tsd/core/ColorMapUtil.hpp"
+#include "tsd/io/images.hpp"
 #include "tsd/scene/Scene.hpp"
 // std
 #include <cstdio>
 #include <string>
-#include <unordered_map>
 #include <vector>
 #if TSD_USE_VTK
 // vtk
@@ -28,29 +28,29 @@ std::vector<std::string> splitString(const std::string &s, char delim);
 tsd::scene::ArrayRef readArray(
     tsd::scene::Scene &scene, anari::DataType elementType, std::FILE *fp);
 
-using TextureCache = std::unordered_map<std::string, tsd::scene::ArrayRef>;
-std::string makeTextureCacheKey(
-    const std::string &textureId, bool isLinear = false);
-tsd::scene::SamplerRef importTexture(tsd::scene::Scene &scene,
+// Thin shims over tsd::io::images; the Sampler lands in the Scene the given
+// ImageCache holds, so no caller can name a different one. See the note above
+// their definitions.
+tsd::scene::SamplerRef importTexture(ImageCache &cache,
     std::string filepath,
-    TextureCache &cache,
-    bool isLinear = false);
-tsd::scene::SamplerRef importTextureFromMemory(tsd::scene::Scene &scene,
+    bool isLinear = false,
+    const SamplerSettings &settings = {});
+tsd::scene::SamplerRef importTextureFromMemory(ImageCache &cache,
     const std::string &cacheKey,
     const std::string &displayName,
     const void *data,
     size_t numBytes,
-    TextureCache &cache,
     bool isLinear = false,
-    const std::string &formatHint = "");
-tsd::scene::SamplerRef importRawTexture2D(tsd::scene::Scene &scene,
+    const std::string &formatHint = "",
+    const SamplerSettings &settings = {});
+tsd::scene::SamplerRef importRawTexture2D(ImageCache &cache,
     const std::string &cacheKey,
     const std::string &displayName,
     const void *data,
     size_t width,
     size_t height,
-    TextureCache &cache,
-    bool isLinear = false);
+    bool isLinear = false,
+    const SamplerSettings &settings = {});
 
 tsd::scene::SamplerRef makeDefaultColorMapSampler(
     tsd::scene::Scene &scene, const tsd::math::float2 &range);
@@ -71,6 +71,8 @@ bool calcTangentsForTriangleMesh(const tsd::math::uint3 *indices,
     tsd::math::float4 *tangents,
     size_t numIndices,
     size_t numVertices,
+    // mikktspace wants v-up coordinates, while the coordinates importers hand
+    // ANARI run down the image, so the default reverses them back.
     bool flipTexCoordY = true,
     bool faceVaryingTangents = false);
 
