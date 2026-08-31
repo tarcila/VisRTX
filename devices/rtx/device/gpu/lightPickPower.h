@@ -103,10 +103,20 @@ VISRTX_HOST_DEVICE float lightPickPower(
         detail::affineAreaScale(xfm) / glm::max(ld.ring.oneOverArea, 1e-8f);
     return detail::pickLuminance(ld.color) * ld.ring.intensity * area * kPi;
   }
-  case LightType::HDRI:
-    // The environment's average luminance is approximated as unit; scale and
-    // tint carry the only per-light signal until a measured average lands.
-    return detail::pickLuminance(ld.color) * ld.hdri.scale * sceneCrossSection;
+  case LightType::HDRI: {
+    // Pick Power must track the environment's true flux, or NEE picks the HDRI
+    // at the wrong rate versus the other lights and injects fireflies (the
+    // deposit divides by the mismatched pickPdf). The map's solid-angle mean
+    // luminance is recovered from the CDF's pdfWeight, which already folds the
+    // equirectangular sinθ Jacobian: pdfWeight = (W·H)/(totalLum·2π²), so the
+    // mean over the sphere is meanLum = totalLum·π/(2·W·H) = 1/(4π·pdfWeight).
+    // A zero-luminance (all-black) map has pdfWeight == 0 and thus zero power —
+    // correctly never picked.
+    const float meanLuminance =
+        ld.hdri.pdfWeight > 0.0f ? 1.0f / (2.0f * kTwoPi * ld.hdri.pdfWeight) : 0.0f;
+    return detail::pickLuminance(ld.color) * ld.hdri.scale * meanLuminance
+        * sceneCrossSection;
+  }
   case LightType::GEOMETRY: {
     // Double-sided Lambertian surface: flux = L · area · π, doubled for sides.
     // This diffuse-only assumption is in lockstep with kFaithfulSet
