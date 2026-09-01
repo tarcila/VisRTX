@@ -169,9 +169,10 @@ VISRTX_DEVICE size_t pickLightInstance(const WorldGPUData &world, float u)
 }
 
 // Discrete probability that pickLightInstance selected `idx`, folded with the
-// ambient stratum so P(pick) sums to 1 across every pick candidate. lightPickDelta
-// holds power_i normalized by the double cumulative total, so folding in
-// totalLightPower/totalPower reweights it onto the ambient-inclusive partition.
+// ambient stratum so P(pick) sums to 1 across every pick candidate.
+// lightPickDelta holds power_i normalized by the double cumulative total, so
+// folding in totalLightPower/totalPower reweights it onto the ambient-inclusive
+// partition.
 VISRTX_DEVICE float instancePickProbability(
     const WorldGPUData &world, size_t idx, float totalPower)
 {
@@ -706,22 +707,22 @@ VISRTX_GLOBAL void __raygen__()
                 materialEvalBsdf(shadingState, -ray.dir, lightSample.dir);
             const vec3 directLight =
                 fCos * lightSample.radiance / lightSample.pdf;
-            // Env MIS: only the HDRI environment can also be reached by the
-            // BSDF escape, so only it gets a balance-heuristic weight. The
-            // light density uses envPdf on BOTH sides (here and at the miss),
-            // not lightSample.pdf, so wNee and wBsdf use identical pdf
-            // functions and partition to 1 exactly — unbiased regardless of how
-            // closely envPdf tracks the NEE importance pdf (the NEE estimator
-            // still divides by its true lightSample.pdf, which carries the same
-            // envPickProb, just above).
-            // Other light types: p_bsdf = 0 => w_nee = 1 (behaviour unchanged).
+            // Env MIS: the HDRI is reached by env-CDF NEE, cosine-hemisphere
+            // NEE, and the BSDF escape. Balance-heuristic weights use the same
+            // density functions on every NEE candidate: p_L =
+            // envPdf·envPickProb, p_C = (cosθ/π)·envPickProb. The escape/miss
+            // weight stays two-way (p_bsdf vs p_L only) — cosine NEE cannot
+            // generate that sample, so omitting p_C there is unbiased. Other
+            // light types: p_bsdf = 0 => w_nee = 1 (behaviour unchanged).
             float wNee = 1.0f;
             if (lightPick.isEnv) {
               const float pBsdf =
                   materialEvalPdf(shadingState, -ray.dir, lightSample.dir);
               const float pLight =
                   envPdf(frameData, lightSample.dir) * envPickProb;
-              wNee = pLight / (pLight + pBsdf);
+              const float pCosine = lightDotNs * kInvPi * envPickProb;
+              const float pSum = pLight + pBsdf + pCosine;
+              wNee = pSum > 0.0f ? pLight / pSum : 0.0f;
             } else if (lightPick.isGeometry) {
               // lightSample.pdf is the exact NEE density (solid-angle × pick
               // probability); the BSDF continuation can also hit this Geometry
@@ -754,6 +755,45 @@ VISRTX_GLOBAL void __raygen__()
                   * volumeShadowTransmittance(ss, shadowRay);
               ss.shadowContribWeight = 1.0f;
               sample.color += contribUpper * attenuation;
+            }
+          }
+        }
+
+        // Cosine-hemisphere env NEE: never below the horizon, so it carries the
+        // environment on pixels where the env-CDF draw was gated to zero. Fired
+        // only when the Light Pick selected the HDRI; joint densities fold
+        // envPickProb so the estimator stays unbiased when other lights share
+        // the pick. Independent of whether the env-CDF direction was above the
+        // horizon — that is the case this strategy exists to recover.
+        if (lightPick.isEnv) {
+          const vec3 dirC = sampleHemisphere(ss.rs, surfaceHit.Ns);
+          const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
+          vec3 envRadiance;
+          if (cosC > 0.0f && getBackgroundLight(frameData, dirC, envRadiance)) {
+            const vec3 fCos = materialEvalBsdf(shadingState, -ray.dir, dirC);
+            const float pCosine = cosC * kInvPi * envPickProb;
+            const float pLight = envPdf(frameData, dirC) * envPickProb;
+            const float pBsdf = materialEvalPdf(shadingState, -ray.dir, dirC);
+            const float pSum = pCosine + pLight + pBsdf;
+            if (pCosine > 0.0f && pSum > 0.0f) {
+              const float wC = pCosine / pSum;
+              const vec3 contribUpper = wC * sampleContribution * opacity * fCos
+                  * envRadiance / pCosine;
+              const float maxContrib = glm::max(
+                  contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
+              if (maxContrib >= SHADOW_SKIP_EPSILON) {
+                const Ray shadowRay = {
+                    shadowOrigin,
+                    dirC,
+                    {surfaceHit.epsilon, std::numeric_limits<float>::max()},
+                };
+                ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
+                const auto attenuation =
+                    surfaceShadowTransmittance(ss, shadowRay)
+                    * volumeShadowTransmittance(ss, shadowRay);
+                ss.shadowContribWeight = 1.0f;
+                sample.color += contribUpper * attenuation;
+              }
             }
           }
         }
