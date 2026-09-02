@@ -532,14 +532,17 @@ VISRTX_GLOBAL void __raygen__()
 
     auto sampleContribution = vec3(1.0f);
 
-    // The environment (visible HDRI lights) is sampled both by NEE at every
-    // scatter vertex (HDRIs are in the light list) and by a BSDF ray that
-    // escapes to it. Balance-heuristic MIS combines the two: `bsdfPdf` carries
-    // the solid-angle pdf of the bounce that produced the current ray, so the
-    // miss can weight the escape estimator by bsdfPdf/(bsdfPdf + pLight). The
+    // The environment is sampled by env-CDF NEE, cosine-hemisphere NEE, and a
+    // BSDF ray that escapes to it. Balance-heuristic MIS combines all three:
+    // `bsdfPdf` is the solid-angle pdf of the bounce that produced the current
+    // ray; the miss weights the escape by bsdfPdf/(bsdfPdf + p_L + p_C). The
     // primary ray is a delta event (the directly visible backdrop), so it
-    // starts at +inf => w_bsdf = 1.
+    // starts at +inf => w_bsdf = 1. `lastScatterNs` is the shading normal of
+    // the surface that spawned the continuation, so p_C can be evaluated at
+    // the miss with the same function the NEE side uses.
     float bsdfPdf = INFINITY;
+    vec3 lastScatterNs(0.0f);
+    bool lastScatterWasSurface = false;
 
     // Probability the power-proportional Light Pick lands on the environment,
     // matching sampleLights. Folded into the env light density on both MIS
@@ -642,6 +645,7 @@ VISRTX_GLOBAL void __raygen__()
         // point, so the continuation ray must not re-deposit it on a miss
         // (bsdfPdf = 0 => w_bsdf = 0). Env MIS for volumes is left as-is.
         bsdfPdf = 0.0f;
+        lastScatterWasSurface = false;
         ++bounceDepth;
         continue;
       }
@@ -709,11 +713,9 @@ VISRTX_GLOBAL void __raygen__()
                 fCos * lightSample.radiance / lightSample.pdf;
             // Env MIS: the HDRI is reached by env-CDF NEE, cosine-hemisphere
             // NEE, and the BSDF escape. Balance-heuristic weights use the same
-            // density functions on every NEE candidate: p_L =
-            // envPdf·envPickProb, p_C = (cosθ/π)·envPickProb. The escape/miss
-            // weight stays two-way (p_bsdf vs p_L only) — cosine NEE cannot
-            // generate that sample, so omitting p_C there is unbiased. Other
-            // light types: p_bsdf = 0 => w_nee = 1 (behaviour unchanged).
+            // density functions on every candidate: p_L = envPdf·envPickProb,
+            // p_C = (cosθ/π)·envPickProb. Other light types: p_bsdf = 0 =>
+            // w_nee = 1 (behaviour unchanged).
             float wNee = 1.0f;
             if (lightPick.isEnv) {
               const float pBsdf =
@@ -822,6 +824,9 @@ VISRTX_GLOBAL void __raygen__()
         if (shouldTerminatePath(ss, bounceDepth, sampleContribution, true))
           break;
 
+        lastScatterNs = surfaceHit.Ns;
+        lastScatterWasSurface = true;
+
         const float side = continuesThroughSurface(nextRay) ? -1.0f : 1.0f;
         ray =
             Ray{surfaceHit.hitpoint + surfaceHit.Ng * surfaceHit.epsilon * side,
@@ -829,15 +834,21 @@ VISRTX_GLOBAL void __raygen__()
       }
 
       if (!surfaceHit.foundHit && !volumeSample.didScatter) {
-        // Deposit the environment, MIS-weighted against NEE. pLight mirrors the
-        // NEE env density: the HDRI importance pdf (envPdf) folded with the
-        // same power-proportional env pick probability sampleLights applied.
-        // bsdfPdf
-        // == +inf (delta / transmission / primary ray) => w_bsdf = 1.
+        // Deposit the environment, MIS-weighted against NEE. p_L and p_C use
+        // the same functions as the NEE candidates (envPdf·envPickProb and
+        // (cosθ/π)·envPickProb at lastScatterNs). Cosine NEE's density is
+        // nonzero on the upper hemisphere, so it belongs in this denominator
+        // whenever the last scatter was a surface — omitting it inflates wBsdf
+        // on materials with a finite continuation pdf (PBR). Volume
+        // continuations set bsdfPdf = 0, so w_bsdf stays 0 regardless.
+        // bsdfPdf == +inf (delta / transmission / primary ray) => w_bsdf = 1.
         if (vec3 hdri; getBackgroundLight(frameData, ray.dir, hdri)) {
           const float pLight = envPdf(frameData, ray.dir) * envPickProb;
+          const float pCosine = (lastScatterWasSurface && !isinf(bsdfPdf))
+              ? fmaxf(0.0f, dot(ray.dir, lastScatterNs)) * kInvPi * envPickProb
+              : 0.0f;
           const float wBsdf =
-              isinf(bsdfPdf) ? 1.0f : bsdfPdf / (bsdfPdf + pLight);
+              isinf(bsdfPdf) ? 1.0f : bsdfPdf / (bsdfPdf + pLight + pCosine);
           sample.color += wBsdf * sampleContribution * hdri;
           accumulateValue(sample.opacity, 1.f, sample.opacity);
         }
