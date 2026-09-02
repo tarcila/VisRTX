@@ -427,16 +427,25 @@ endif()
 
 configure_file(visrtx_device.json.in ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json @ONLY)
 file(GLOB DEVICE_JSONS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.json")
+# generate_queries.py --json reads the *configured* copies in the build dir.
+# Passing source-relative names as DEPENDS made Ninja rerun codegen on JSON
+# edits while still parsing a stale configure_file() copy. Depend on the
+# build-dir files, and reconfigure when the source JSONs change so those
+# copies refresh first.
+set(_query_extension_jsons)
 foreach(file ${DEVICE_JSONS})
-  configure_file(${file} ${CMAKE_CURRENT_BINARY_DIR}/${file} @ONLY)
+  set(_out "${CMAKE_CURRENT_BINARY_DIR}/${file}")
+  configure_file(${file} ${_out} @ONLY)
+  list(APPEND _query_extension_jsons ${_out})
 endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DEVICE_JSONS})
 
 anari_generate_queries(
   DEVICE_TARGET ${PROJECT_NAME}
   CPP_NAMESPACE visrtx
   JSON_ROOT_LOCATION ${CMAKE_CURRENT_BINARY_DIR}
   JSON_DEFINITIONS_FILE ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json
-  JSON_EXTENSION_FILES "${DEVICE_JSONS}"
+  JSON_EXTENSION_FILES "${_query_extension_jsons}"
 )
 
 #### Install library + headers ####
