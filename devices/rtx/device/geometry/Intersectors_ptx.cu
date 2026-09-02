@@ -1188,49 +1188,75 @@ VISRTX_GLOBAL void __intersection__lightProxy()
 
   const LightProxyGPUData &proxy = world.lightProxies[proxyID];
   const LightGPUData &ld = frameData.registry.lights[proxy.lightIndex];
-  if (ld.type != LightType::RECT)
-    return;
 
   // `visible` gates CAMERA rays only. Resolved here, per primitive, so toggling
   // it never rebuilds an acceleration structure. Reflection/GI rays carry the
   // hidden bit too and are unaffected.
-  if (!ld.rect.visible
+  const bool visible =
+      ld.type == LightType::RECT ? ld.rect.visible : ld.ring.visible;
+  if (!visible
       && (optixGetRayVisibilityMask() & VISRTX_MASK_LIGHT_PROXY_HIDDEN) == 0) {
     return;
   }
 
   // The proxy AABB is in world space and the BLAS instance is identity, so the
-  // object-space ray here IS the world ray. Transform the rect into world space
-  // by its light's own instance transform -- the same xfm the NEE sampler uses.
+  // object-space ray here IS the world ray. Each light is transformed by its own
+  // instance transform -- the same xfm the NEE sampler uses.
   const vec3 org = ray::localOrigin();
   const vec3 dir = ray::localDirection();
 
-  RectLightGPUData worldRect = ld.rect;
-  worldRect.position = xfmPoint(proxy.xfm, ld.rect.position);
-  worldRect.edge1 = xfmVec(proxy.xfm, ld.rect.edge1);
-  worldRect.edge2 = xfmVec(proxy.xfm, ld.rect.edge2);
+  if (ld.type == LightType::RECT) {
+    RectLightGPUData worldRect = ld.rect;
+    worldRect.position = xfmPoint(proxy.xfm, ld.rect.position);
+    worldRect.edge1 = xfmVec(proxy.xfm, ld.rect.edge1);
+    worldRect.edge2 = xfmVec(proxy.xfm, ld.rect.edge2);
 
-  const RectIntersection isect = intersectRect(worldRect, org, dir);
-  if (!isect.hit)
-    return;
+    const RectIntersection isect = intersectRect(worldRect, org, dir);
+    if (!isect.hit)
+      return;
 
-  // Cull from the non-emitting side using the SAME side predicate NEE uses, so
-  // "which side is lit" cannot be answered two ways. A front-only light seen
-  // from behind is IGNORED rather than reported black, so it cannot occlude
-  // anything behind it.
-  const vec3 normal = normalize(cross(worldRect.edge1, worldRect.edge2));
-  // rectEmissionCosTheta takes the direction from the shaded point TO the light,
-  // which is the ray direction (normalized).
-  const float cosTheta =
-      rectEmissionCosTheta(worldRect, normal, normalize(dir));
-  if (!(cosTheta > 0.0f))
-    return;
+    // Cull from the non-emitting side using the SAME side predicate NEE uses, so
+    // "which side is lit" cannot be answered two ways. A front-only light seen
+    // from behind is IGNORED rather than reported black, so it cannot occlude
+    // anything behind it.
+    const vec3 normal = normalize(cross(worldRect.edge1, worldRect.edge2));
+    // rectEmissionCosTheta takes the direction from the shaded point TO the
+    // light, which is the ray direction (normalized).
+    const float cosTheta =
+        rectEmissionCosTheta(worldRect, normal, normalize(dir));
+    if (!(cosTheta > 0.0f))
+      return;
 
-  optixReportIntersection(isect.t,
-      HIT_KIND_FRONT,
-      bit_cast<uint32_t>(isect.uv.x),
-      bit_cast<uint32_t>(isect.uv.y),
-      proxyID);
+    optixReportIntersection(isect.t,
+        HIT_KIND_FRONT,
+        bit_cast<uint32_t>(isect.uv.x),
+        bit_cast<uint32_t>(isect.uv.y),
+        proxyID);
+  } else if (ld.type == LightType::RING) {
+    const vec3 centre = xfmPoint(proxy.xfm, ld.ring.position);
+    const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
+
+    const RingIntersection isect =
+        intersectRing(ld.ring, centre, axis, org, dir);
+    if (!isect.hit)
+      return;
+
+    // Cull where the ring does not emit -- behind the disk, or outside the cone.
+    // Uses the same falloff leaf NEE uses, so the visible disk shows exactly the
+    // attenuation the illumination has.
+    const vec3 unitDir = normalize(dir);
+    const float cosTheta = dot(axis, -unitDir);
+    if (!(cosTheta > 0.0f))
+      return;
+    if (!(ringSpotAttenuation(ld.ring, cosTheta) > 0.0f))
+      return;
+
+    optixReportIntersection(isect.t,
+        HIT_KIND_FRONT,
+        bit_cast<uint32_t>(isect.radius),
+        bit_cast<uint32_t>(0.0f),
+        proxyID);
+  }
 }
 
 } // namespace visrtx

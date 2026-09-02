@@ -735,6 +735,8 @@ struct RingLightGPUData
   float innerRadius;
   float intensity;
   float oneOverArea;
+  // Camera visibility only; see RectLightGPUData::visible.
+  bool visible;
 };
 
 struct HDRILightGPUData
