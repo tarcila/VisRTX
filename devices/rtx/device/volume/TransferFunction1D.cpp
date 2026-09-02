@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,9 +51,18 @@ void TransferFunction1D::commitParameters()
   getParam("color", ANARI_FLOAT32_VEC3, &m_uniformColor);
   getParam("color", ANARI_FLOAT32_VEC4, &m_uniformColor);
   m_opacity = getParamObject<Array1D>("opacity");
-  m_uniformOpacity = getParam<float>("opacity", 1.f) * m_uniformColor.w;
+  // Raw scalar. ANARI 1.1 §5.12.1: final α = color.w · opacity. The
+  // multiplication happens once per bin in discritizeTFData (m_tf[i].w =
+  // c.w * o); folding c.w in here would double-count whenever c.w comes
+  // from m_uniformColor.
+  m_uniformOpacity = getParam<float>("opacity", 1.f);
   m_unitDistance = getParam<float>("unitDistance", 1.f);
+  const SpatialField *previousField = m_field.get();
   m_field = getParamObject<SpatialField>("value");
+  // AABB comes from m_field. Only a field-pointer swap moves it; field
+  // data changes hit SpatialField::markFinalized.
+  if (m_field.get() != previousField)
+    deviceState()->objectUpdates.lastVolumeBLASChange = helium::newTimeStamp();
   getParam("valueRange", ANARI_FLOAT32_VEC2, &m_valueRange);
   getParam("valueRange", ANARI_FLOAT32_BOX1, &m_valueRange);
   double valueRange_d[2] = {0.0, 1.0};
@@ -71,10 +80,17 @@ void TransferFunction1D::finalize()
     return;
   }
 
+  if (m_unitDistance <= 0.f) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "unitDistance must be positive on transferFunction1D volume, "
+        "clamping to minimum");
+    m_unitDistance = 1e-6f;
+  }
+
   discritizeTFData();
   createTFTexture();
-  m_field->m_uniformGrid.computeMaxOpacities(
-      deviceState()->stream, m_textureObject, m_tfDim);
+  m_field->m_uniformGrid.computeOpacityBounds(
+      deviceState()->stream, m_textureObject, m_tfDim, m_valueRange);
   upload();
 }
 
@@ -94,7 +110,9 @@ VolumeGPUData TransferFunction1D::gpuData() const
   retval.data.tf1d.oneOverUnitDistance = 1.0f / m_unitDistance;
   retval.data.tf1d.field = m_field->index();
   retval.data.tf1d.uniformColor = vec3(m_uniformColor);
-  retval.data.tf1d.uniformOpacity = m_uniformOpacity;
+  // Fold c.w · o here for the null-tfTex fallback in classifySample (that
+  // path doesn't see discritizeTFData's per-bin fold).
+  retval.data.tf1d.uniformOpacity = m_uniformOpacity * m_uniformColor.w;
   return retval;
 }
 

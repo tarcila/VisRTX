@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@
 #include "Cone.h"
 #include "Curve.h"
 #include "Cylinder.h"
+#include "Isosurface.h"
 #include "Quad.h"
 #include "Sphere.h"
 #include "Triangle.h"
@@ -41,6 +42,7 @@
 #ifdef VISRTX_USE_NEURAL
 #include "Neural.h"
 #endif
+#include "SDF.h"
 #include "UnknownGeometry.h"
 // std
 #include <cstring>
@@ -97,6 +99,10 @@ Geometry *Geometry::createInstance(
     return new Cone(d);
   else if (subtype == "curve")
     return new Curve(d);
+  else if (subtype == "sdf")
+    return new SDF(d);
+  else if (subtype == "isosurface")
+    return new Isosurface(d);
 #ifdef VISRTX_USE_NEURAL
   else if (subtype == "neural")
     return new Neural(d);
@@ -129,7 +135,19 @@ void Geometry::commitParameters()
 void Geometry::markFinalized()
 {
   Object::markFinalized();
-  deviceState()->objectUpdates.lastBLASChange = helium::newTimeStamp();
+  deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
+}
+
+bool Geometry::isAreaSamplingSupported() const
+{
+  return false;
+}
+
+void Geometry::ensureAreaData() {}
+
+float Geometry::totalArea() const
+{
+  return 0.f;
 }
 
 GeometryGPUData Geometry::gpuData() const
@@ -145,6 +163,7 @@ GeometryGPUData Geometry::gpuData() const
   populateAttributeDataSet(m_primitiveAttributes, retval.attr);
   retval.primitiveId =
       (const uint32_t *)(m_primitiveId ? m_primitiveId->dataGPU() : nullptr);
+  retval.epsilonScale = m_epsilonScale;
 
   return retval;
 }

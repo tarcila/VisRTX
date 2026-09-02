@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -69,8 +69,18 @@ const char **VisRTXLibrary::getDeviceExtensions(const char * /*deviceType*/)
 
 // Define library entrypoint //////////////////////////////////////////////////
 
-extern "C" VISRTX_DEVICE_INTERFACE ANARI_DEFINE_LIBRARY_ENTRYPOINT(
-    visrtx, handle, scb, scbPtr)
+#ifndef VISRTX_LIBRARY_NAME
+#define VISRTX_LIBRARY_NAME visrtx
+#endif
+
+// Extra indirection forces VISRTX_LIBRARY_NAME to expand before the entrypoint
+// macro pastes it into the symbol name (## suppresses expansion of its operands).
+#define VISRTX_ENTRYPOINT_EXPAND(name, h, s, sp)                               \
+  ANARI_DEFINE_LIBRARY_ENTRYPOINT(name, h, s, sp)
+#define VISRTX_LIBRARY_ENTRYPOINT(h, s, sp)                                    \
+  VISRTX_ENTRYPOINT_EXPAND(VISRTX_LIBRARY_NAME, h, s, sp)
+
+extern "C" VISRTX_DEVICE_INTERFACE VISRTX_LIBRARY_ENTRYPOINT(handle, scb, scbPtr)
 {
   return (ANARILibrary) new visrtx::VisRTXLibrary(handle, scb, scbPtr);
 }

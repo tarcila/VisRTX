@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 #pragma once
 
 #include "geometry/Geometry.h"
+#include "light/GeometryLight.h"
 #include "material/Material.h"
 
 namespace visrtx {
@@ -54,6 +55,19 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
 
   OptixBuildInput buildInput() const;
 
+  // True when this surface is a Geometry Light: its material's emission is not
+  // provably zero (constant, sampler, or attribute bound) and its geometry can
+  // be area-sampled.
+  bool isSampleableEmitter() const;
+
+  // Geometry Light ownership. The synthesized light lives here (per ADR 0005),
+  // but the World configures its content each rebuild from current material and
+  // geometry state. ensureGeometryLight() lazily creates it; clearGeometryLight()
+  // frees it when this surface stops emitting.
+  GeometryLight *ensureGeometryLight();
+  void clearGeometryLight();
+  GeometryLight *geometryLight() const;
+
  private:
   bool geometryIsValid() const;
   bool materialIsValid() const;
@@ -61,6 +75,7 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
 
   helium::IntrusivePtr<Geometry> m_geometry;
   helium::IntrusivePtr<Material> m_material;
+  helium::IntrusivePtr<GeometryLight> m_geometryLight;
 
   OptixBuildInput m_buildInput{};
 

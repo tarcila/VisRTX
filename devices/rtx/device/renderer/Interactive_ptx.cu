@@ -1,0 +1,340 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+// visrtx
+#include "gpu/evalShading.h"
+#include "gpu/gpu_math.h"
+#include "gpu/gpu_objects.h"
+#include "gpu/gpu_util.h"
+#include "gpu/intersectRay.h"
+#include "gpu/renderer/common.h"
+#include "gpu/renderer/raygen_helpers.h"
+#include "gpu/renderer/shadowTransmittance.h"
+#include "gpu/sampleLight.h"
+#include "gpu/shadingState.h"
+#include "gpu/shading_api.h"
+
+// glm
+#include <glm/common.hpp>
+#include <glm/ext/vector_float4.hpp>
+#include <glm/geometric.hpp>
+#include <glm/vector_relational.hpp>
+
+// std
+#include <cmath>
+#include <limits>
+
+namespace visrtx {
+
+DECLARE_FRAME_DATA(frameData)
+
+// AO occlusion from surface shadow transmittance (1 = fully blocked).
+static VISRTX_DEVICE float surfaceShadowOcclusion(
+    ScreenSample &ss, const Ray &r)
+{
+  return 1.0f - luminance(surfaceShadowTransmittance(ss, r));
+}
+
+// Interactive shading policy for templated rendering loop //////////////////
+
+struct InteractiveShadingPolicy
+{
+  static VISRTX_DEVICE vec3 shadeSurface(
+      const MaterialShadingState &shadingState,
+      ScreenSample &ss,
+      const Ray &ray,
+      const SurfaceHit &hit)
+  {
+    const auto &rendererParams = frameData.renderer;
+    const auto &interactiveParams = rendererParams.params.interactive;
+    auto &world = frameData.world;
+
+    // AO modulates only the ambient term below, so the shadow-ray batch is
+    // pure waste when ambient can't contribute.
+    const bool ambientVisible = rendererParams.ambientIntensity > 0.f
+        && luminance(rendererParams.ambientColor) > 0.f;
+    const float aoFactor = (ambientVisible && interactiveParams.aoSamples > 0)
+        ? computeAO(ss,
+              ray,
+              hit,
+              rendererParams.occlusionDistance,
+              interactiveParams.aoSamples,
+              &surfaceShadowOcclusion)
+        : 1.f;
+
+    vec3 contrib = materialEvaluateEmission(shadingState, -ray.dir);
+
+    // AO modulates ONLY the ambient (sky) term. Direct lights carry their own
+    // shadow attenuation and emission is never occluded, so scaling the whole
+    // contribution by aoFactor (as before) blacked out surfaces enclosed by
+    // geometry.
+    contrib += aoFactor * rendererParams.ambientColor
+        * rendererParams.ambientIntensity * materialEvaluateTint(shadingState);
+
+    const vec3 shadowOrigin = shadingHitpoint(hit) + hit.Ng * hit.epsilon;
+
+    // One light instance's NEE contribution, scaled by `weight`. `weight` is 1
+    // when every light is sampled and 1/(K*pPick) when a stochastic subset is
+    // drawn, so the accumulated image converges to the full deterministic sum.
+    auto addLightContribution = [&](size_t i, float weight) {
+      const auto &light = world.lightInstances[i];
+      const auto lightSample = sampleLight(ss,
+          shadowOrigin,
+          light.lightIndex,
+          light.xfm,
+          light.surfaceInstanceIndex);
+
+      if (lightSample.pdf == 0.0f)
+        return;
+
+      const LightType lightType =
+          frameData.registry.lights[light.lightIndex].type;
+
+      // A Geometry Light's sampled point is on real emissive geometry; stop the
+      // shadow ray short of it or it self-occludes on that surface.
+      const float shadowDist = lightType == LightType::GEOMETRY
+          ? lightSample.dist * (1.0f - GEOMETRY_LIGHT_SHADOW_EPSILON)
+          : lightSample.dist;
+      const Ray shadowRay = {
+          shadowOrigin,
+          lightSample.dir,
+          {hit.epsilon, shadowDist},
+      };
+
+      // Surface shadows are tinted (vec3); volume shadows stay scalar.
+      const vec3 surfaceTransmittance =
+          surfaceShadowTransmittance(ss, shadowRay);
+      const float volumeTransmittance =
+          1.0f - volumeShadowOpacity(ss, shadowRay);
+      const vec3 attenuation = surfaceTransmittance * volumeTransmittance;
+
+      if (glm::all(
+              glm::lessThanEqual(attenuation, vec3(MIN_CONTRIBUTION_EPSILON))))
+        return;
+
+      vec3 thisLightContrib =
+          materialShadeSurface(shadingState, hit, lightSample, -ray.dir);
+
+      // Environment MIS (balance heuristic): the HDRI is the only light the
+      // indirect bounce's escape can also reach, so combine the NEE and escape
+      // estimators instead of summing them (which double-counted the env).
+      // pLight = envPdf independent of the pick, and the 1/(K*pPick) reweight
+      // keeps E[stochastic] == the all-lights sum, so this stays MIS-consistent
+      // whether we sample all lights or a subset. Non-env lights keep wNee = 1.
+      if (lightType == LightType::HDRI) {
+        const float pLight = envPdf(frameData, lightSample.dir);
+        const float pBsdf =
+            materialEvalPdf(shadingState, -ray.dir, lightSample.dir);
+        thisLightContrib *= pLight / (pLight + pBsdf);
+      }
+
+      contrib += weight * thisLightContrib * attenuation;
+    };
+
+    // `maxSampledLights` caps the shadow-ray budget per hit. When the scene has
+    // more light instances than the cap, importance-sample that many via the
+    // world's Pick-Power CDF instead of looping all of them; otherwise keep the
+    // exact all-lights sum (pixel-identical to an unlimited budget).
+    const size_t numLights = world.numLightInstances;
+    const int maxSampled = interactiveParams.maxSampledLights;
+    const bool sampleAllLights =
+        maxSampled <= 0 || numLights <= size_t(maxSampled);
+
+    if (sampleAllLights) {
+      for (size_t i = 0; i < numLights; i++)
+        addLightContribution(i, 1.0f);
+    } else {
+      const int numPicks = maxSampled;
+      // A zero total Pick Power (every light dark) leaves the CDF unnormalized;
+      // fall back to a uniform pick to avoid a divide-by-zero, matching Quality.
+      const bool haveCdf = world.totalLightPower > 0.0f;
+      for (int s = 0; s < numPicks; s++) {
+        const float u = pcg_uniform(&ss.rs);
+        size_t idx;
+        float pPick;
+        if (haveCdf) {
+          idx = glm::min(size_t(detail::inverseSampleCDF(
+                             world.lightPickCdf, int(numLights), u)),
+              numLights - 1);
+          // Precomputed per-slot mass (power_i/total). Read raw: this pick pool
+          // has no ambient stratum, unlike Quality's instancePickProbability.
+          pPick = world.lightPickDelta[idx];
+        } else {
+          idx = glm::min(size_t(u * float(numLights)), numLights - 1);
+          pPick = 1.0f / float(numLights);
+        }
+        if (pPick > 0.0f)
+          addLightContribution(idx, 1.0f / (float(numPicks) * pPick));
+      }
+    }
+
+    // Single indirect bounce — REFLECTION only. Transmission/refraction is
+    // owned by the flat compositing loop, so a through-surface continuation is
+    // discarded here to avoid double-counting the transmitted background.
+    NextRay nextRay = materialNextRay(shadingState, ray, ss.rs);
+    if (!continuesThroughSurface(nextRay)
+        && glm::any(glm::greaterThan(
+            nextRay.contributionWeight, glm::vec3(MIN_CONTRIBUTION_EPSILON)))) {
+      Ray bounceRay = {
+          hit.hitpoint + hit.Ng * hit.epsilon, normalize(nextRay.direction)};
+
+      SurfaceHit bounceHit;
+      bounceHit.foundHit = false;
+      intersectSurface(ss, bounceRay, RayType::PRIMARY, &bounceHit);
+
+      if (bounceHit.foundHit) {
+        MaterialShadingState bounceShadingState;
+        materialInitShading(
+            &bounceShadingState, frameData, *bounceHit.material, bounceHit);
+
+        auto sampleDir = randomDir(ss.rs, bounceHit.Ns);
+        auto cosineT = dot(bounceHit.Ns, sampleDir);
+        auto color = materialEvaluateTint(bounceShadingState) * cosineT
+            * rendererParams.ambientColor * rendererParams.ambientIntensity;
+
+        // An emitter reached only by the reflection bounce: deposit its
+        // emission so it appears in reflections and lights via the forward
+        // path. Guarded to UNREGISTERED emitters — a registered (sampleable)
+        // one is already covered by the NEE loop above, so depositing here too
+        // would double- count it. Matches the ADR 0007 "miss = variance" goal
+        // for Interactive.
+        if (!bounceHit.material->emissionIsSampleable)
+          color += materialEvaluateEmission(bounceShadingState, -bounceRay.dir);
+        contrib += color * nextRay.contributionWeight;
+      } else {
+        vec3 hdri;
+        if (getBackgroundLight(frameData, bounceRay.dir, hdri)) {
+          // Env MIS escape side: weight the BSDF-sampled escape by the same
+          // balance heuristic as the NEE loop (pLight = envPdf, no
+          // 1/numLights). A delta / through-surface lobe reports +inf => wBsdf
+          // = 1; here the bounce is reflection-only so nextRay.pdf is finite.
+          const float pLight = envPdf(frameData, bounceRay.dir);
+          const float wBsdf =
+              isinf(nextRay.pdf) ? 1.0f : nextRay.pdf / (nextRay.pdf + pLight);
+          contrib += wBsdf * hdri * nextRay.contributionWeight;
+        }
+      }
+    }
+
+    return contrib;
+  }
+};
+
+// OptiX programs /////////////////////////////////////////////////////////////
+
+VISRTX_GLOBAL void __closesthit__shadow()
+{
+  // no-op
+}
+
+VISRTX_GLOBAL void __miss__shadow()
+{
+  // no-op
+}
+
+VISRTX_GLOBAL void __anyhit__shadow()
+{
+  auto &rendererParams = frameData.renderer.params;
+
+  if (ray::isIntersectingSurfaces()) {
+    ray::cullCutPlane();
+    SurfaceHit hit;
+    ray::populateSurfaceHit(hit);
+
+    auto &transmittance = ray::rayData<vec3>();
+
+    // Fully opaque material: skip the init/opacity callable chain.
+    if (hit.material->isFullyOpaque) {
+      transmittance = vec3(0.0f);
+      optixTerminateRay();
+      return;
+    }
+
+    MaterialShadingState shadingState;
+    materialInitShading(&shadingState, frameData, *hit.material, hit);
+    const float alpha = materialEvaluateOpacity(shadingState);
+    const vec3 T = materialEvaluateTransmission(shadingState);
+
+    transmittance *= (1.0f - alpha * (1.0f - T));
+
+    if (glm::all(
+            glm::lessThanEqual(transmittance, vec3(1.f - OPACITY_THRESHOLD))))
+      optixTerminateRay();
+    else
+      optixIgnoreIntersection();
+  } else {
+    // Volume shadows are a separate trace with a scalar float payload
+    // (volumeShadowOpacity); not interchangeable with the vec3 surface payload
+    // above. See gpu/renderer/shadowTransmittance.h.
+    auto &attenuation = ray::rayData<float>();
+    VolumeHit hit;
+    ray::populateVolumeHit(hit);
+    rayMarchVolume(ray::screenSample(),
+        hit,
+        attenuation,
+        rendererParams.interactive.inverseVolumeSamplingRateShadows);
+    if (attenuation < OPACITY_THRESHOLD)
+      optixIgnoreIntersection();
+  }
+}
+
+VISRTX_GLOBAL void __anyhit__shading()
+{
+  ray::cullbackFaces();
+  ray::cullCutPlane();
+}
+
+VISRTX_GLOBAL void __closesthit__shading()
+{
+  ray::populateHit();
+}
+
+VISRTX_GLOBAL void __miss__shading()
+{
+  if (ray::isIntersectingSurfaces()) {
+    auto &hit = ray::rayData<SurfaceHit>();
+    hit.foundHit = false;
+  } else {
+    auto &hit = ray::rayData<VolumeHit>();
+    hit.foundHit = false;
+  }
+}
+
+VISRTX_GLOBAL void __raygen__()
+{
+  auto ss = createScreenSample(frameData);
+  if (pixelOutOfFrame(ss.pixel, frameData.fb))
+    return;
+
+  renderPixel<InteractiveShadingPolicy>(frameData, ss);
+}
+
+} // namespace visrtx

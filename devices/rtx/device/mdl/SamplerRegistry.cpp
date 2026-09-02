@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,7 @@
 #include "sampler/Image3D.h"
 
 #include <anari/frontend/anari_enums.h>
+#include <cassert>
 #include <helium/utility/IntrusivePtr.h>
 #include <mi/base/enums.h>
 #include <mi/base/handle.h>
@@ -256,11 +257,19 @@ Sampler *SamplerRegistry::loadFromDDS(
           filePath);
     }
 
+    // Move the file bytes to the heap and hand them to the array (CAPTURED)
+    // instead of borrowing the soon-freed local `buffer` (SHARED), which would
+    // force helium to privatize a host copy + log "making private copy of
+    // shared host array". appMemory is an offset into the buffer, so the array
+    // can't own it directly; pass the owning vector as deleterPtr and free that.
+    auto *owned = new std::vector<char>(std::move(buffer));
     Array1DMemoryDescriptor desc = {
         {
             dds::getDataPointer(dds),
-            nullptr,
-            nullptr,
+            [](const void *userPtr, const void * /*appMemory*/) {
+              delete static_cast<const std::vector<char> *>(userPtr);
+            },
+            owned,
             ANARI_UINT8,
         },
         static_cast<uint64_t>(linearSize),
@@ -276,17 +285,28 @@ Sampler *SamplerRegistry::loadFromDDS(
     image2d->setParam("size", U64Vec2(dds->header.width, dds->header.height));
     array1d->refDec(helium::PUBLIC);
 
+    // Registry-internal objects never pass through anariCommitParameters(),
+    // so nothing ever captures their committed snapshot — a later buffered
+    // re-commit (change-observer notification) would run under a
+    // ReadCommittedScope against an EMPTY snapshot and lose every parameter.
+    // Mirror staging into the snapshot explicitly.
+    image2d->snapshotParameters();
     image2d->commitParameters();
     image2d->finalize();
     tex = image2d;
   } else if (format) {
     anari::DataType texelType = ANARI_UNKNOWN;
 
+    // See the compressed branch: own the file bytes (CAPTURED) rather than
+    // borrowing the local buffer, to avoid the per-texture privatize copy.
+    auto *owned = new std::vector<char>(std::move(buffer));
     Array2DMemoryDescriptor desc = {
         {
             dds::getDataPointer(dds),
-            nullptr,
-            nullptr,
+            [](const void *userPtr, const void * /*appMemory*/) {
+              delete static_cast<const std::vector<char> *>(userPtr);
+            },
+            owned,
             ANARI_UFIXED8_VEC4,
         },
         dds->header.width,
@@ -296,11 +316,14 @@ Sampler *SamplerRegistry::loadFromDDS(
     auto array2d = new Array2D(m_deviceState, desc);
     array2d->commitParameters();
     array2d->finalize();
-    array2d->uploadArrayData();
+    // No uploadArrayData(): the linear device buffer is never sampled. Image2D
+    // builds its cudaArray from the host data, so uploading a redundant linear
+    // copy just doubles this texture's VRAM footprint.
     auto image2d = new Image2D(m_deviceState);
     image2d->setParam("image", array2d);
     array2d->refDec(helium::PUBLIC);
 
+    image2d->snapshotParameters(); // see the compressed-path comment above
     image2d->commitParameters();
     image2d->finalize();
     tex = image2d;
@@ -354,10 +377,18 @@ Sampler *SamplerRegistry::loadFromImage(
         : (colorSpace == libmdl::ColorSpace::Linear ? ANARI_UFIXED8
                                                     : ANARI_UFIXED8_R_SRGB);
 
+  // Hand the stb_image allocation to the Array2D (CAPTURED ownership) instead
+  // of borrowing it (SHARED). Borrowing forces helium to privatize a host copy
+  // when the public ref is dropped while the sampler still references it -- a
+  // per-texture deep copy + "making private copy of shared host array" warning,
+  // and it also leaked `data` (nothing freed the stb buffer). With a deleter
+  // the array owns and frees it: no copy, no warning, no leak.
   Array2DMemoryDescriptor desc = {
       {
           data,
-          nullptr,
+          [](const void * /*userPtr*/, const void *appMemory) {
+            stbi_image_free(const_cast<void *>(appMemory));
+          },
           nullptr,
           texelType,
       },
@@ -367,10 +398,13 @@ Sampler *SamplerRegistry::loadFromImage(
 
   auto array2d = new Array2D(m_deviceState, desc);
   array2d->commitParameters();
-  array2d->uploadArrayData();
   array2d->finalize();
+  // No uploadArrayData(): the linear device buffer is never sampled. Image2D
+  // builds its cudaArray from the host data, so uploading a redundant linear
+  // copy just doubles this texture's VRAM footprint.
   auto image2d = new Image2D(m_deviceState);
   image2d->setParam("image", array2d);
+  image2d->snapshotParameters(); // see the compressed-path comment above
   image2d->commitParameters();
   image2d->finalize();
   array2d->refDec(helium::PUBLIC);
@@ -428,10 +462,16 @@ Sampler *SamplerRegistry::loadFromTextureDesc(
       texelType = ANARI_UFIXED8_VEC3;
     }
 
+    // df_data is MDL-SDK-owned, process-stable built-in table data shared
+    // across materials (the registry caches the sampler by this data pointer).
+    // Borrowing it with a null deleter (SHARED) made helium privatize a
+    // redundant host copy + log "making private copy of shared host array". A
+    // no-op deleter marks it CAPTURED so no copy is made; we must NOT free
+    // SDK-owned memory, hence the empty deleter rather than free/delete.
     Array3DMemoryDescriptor desc = {
         {
             textureDesc.bsdf.data,
-            nullptr,
+            [](const void *, const void *) {},
             nullptr,
             texelType,
         },
@@ -445,6 +485,7 @@ Sampler *SamplerRegistry::loadFromTextureDesc(
     array3d->uploadArrayData();
     auto image3d = new Image3D(m_deviceState);
     image3d->setParam("image", array3d);
+    image3d->snapshotParameters(); // see the compressed-path comment above
     image3d->commitParameters();
     image3d->finalize();
     array3d->refDec(helium::PUBLIC);
@@ -455,12 +496,24 @@ Sampler *SamplerRegistry::loadFromTextureDesc(
   return {};
 }
 
+// The same image file can be requested in different color spaces (e.g. a map
+// used as both sRGB base color and raw data). The decoded sampler differs, so
+// the color space must be part of the cache key.
+static std::string samplerCacheKey(
+    std::string_view url, libmdl::ColorSpace colorSpace)
+{
+  return (colorSpace == libmdl::ColorSpace::sRGB ? "srgb:" : "linear:")
+      + std::string(url);
+}
+
 Sampler *SamplerRegistry::acquireSampler(
     const std::string &filePath, libmdl::ColorSpace colorSpace)
 {
-  if (auto it = m_dbToSampler.find(filePath); it != end(m_dbToSampler)) {
-    it->second->refInc();
-    return it->second;
+  auto key = samplerCacheKey(filePath, colorSpace);
+  if (auto it = m_dbToSampler.find(key); it != end(m_dbToSampler)) {
+    it->second.acquires++;
+    it->second.sampler->refInc();
+    return it->second.sampler;
   }
 
   auto sampler = loadFromFile(filePath, colorSpace);
@@ -468,7 +521,7 @@ Sampler *SamplerRegistry::acquireSampler(
     sampler->refInc();
     sampler->refDec(helium::PUBLIC); // Drop the implicit public refcount that
                                      // we don't rely on.
-    m_dbToSampler.insert({filePath, sampler});
+    m_dbToSampler.insert({key, {sampler, 1}});
   } else {
     m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
         "Unable to create sampler for texture `{}`",
@@ -481,9 +534,11 @@ Sampler *SamplerRegistry::acquireSampler(
 Sampler *SamplerRegistry::acquireSampler(
     const libmdl::TextureDescriptor &textureDesc)
 {
-  if (auto it = m_dbToSampler.find(textureDesc.url); it != end(m_dbToSampler)) {
-    it->second->refInc();
-    return it->second;
+  auto key = samplerCacheKey(textureDesc.url, textureDesc.colorSpace);
+  if (auto it = m_dbToSampler.find(key); it != end(m_dbToSampler)) {
+    it->second.acquires++;
+    it->second.sampler->refInc();
+    return it->second.sampler;
   }
 
   auto sampler = loadFromTextureDesc(textureDesc);
@@ -491,7 +546,7 @@ Sampler *SamplerRegistry::acquireSampler(
     sampler->refInc();
     sampler->refDec(helium::PUBLIC); // Drop the implicit public refcount that
                                      // we don't rely on.
-    m_dbToSampler.insert({textureDesc.url, sampler});
+    m_dbToSampler.insert({key, {sampler, 1}});
   } else {
     m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
         "Unable to create sampler for texture db name `{}`",
@@ -505,13 +560,20 @@ bool SamplerRegistry::releaseSampler(const Sampler *sampler)
 {
   if (auto it = std::find_if(std::begin(m_dbToSampler),
           std::end(m_dbToSampler),
-          [sampler](const auto &p) { return p.second == sampler; });
+          [sampler](const auto &p) { return p.second.sampler == sampler; });
       it != std::end(m_dbToSampler)) {
-    auto useCount = it->second->useCount(helium::INTERNAL);
-    it->second->refDec();
-    if (useCount == 1) {
-      // Our counter dropped to 1 pre-refDec, no one else is using the
-      // sampler.
+    // A double-release while other acquires are outstanding would silently
+    // corrupt the count (early erase + a leaked reference for the wronged
+    // holder) — fail fast in debug builds.
+    assert(it->second.acquires > 0);
+    it->second.acquires--;
+    it->second.sampler->refDec();
+    if (it->second.acquires == 0) {
+      // Last REGISTRY acquire gone: drop the cache entry now, whether or not
+      // another holder (deferred commit buffer, ...) keeps the object alive a
+      // little longer. Deciding from the object's refcount instead left this
+      // entry dangling once that holder dropped the true last reference —
+      // use-after-free on the next same-key acquire.
       m_dbToSampler.erase(it);
       return true;
     }

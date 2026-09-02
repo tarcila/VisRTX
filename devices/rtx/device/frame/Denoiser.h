@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,17 +41,22 @@ struct Denoiser : public Object
   Denoiser(DeviceGlobalState *s);
   ~Denoiser() override;
 
-  void setup(
-      uvec2 size, HostDeviceArray<uint8_t> &pixelBuffer, ANARIDataType format);
+  void setup(uvec2 size,
+      HostDeviceArray<uint8_t> &outputBuffer,
+      ANARIDataType format,
+      DeviceBuffer &input,
+      DeviceBuffer &albedo,
+      DeviceBuffer &normal);
   void cleanup();
 
   void launch();
+  void convertOutput();
 
   void *mapColorBuffer();
   void *mapGPUColorBuffer();
 
  private:
-  void init();
+  void init(const DeviceBuffer &accumAlbedo, const DeviceBuffer &accumNormal);
 
   // Data //
 
@@ -60,12 +65,19 @@ struct Denoiser : public Object
   OptixDenoiser m_denoiser{nullptr};
   OptixDenoiserParams m_params{};
   OptixDenoiserGuideLayer m_guideLayer{};
-  OptixDenoiserLayer m_layer;
+  OptixDenoiserLayer m_layer{};
 
   HostDeviceArray<uint8_t> *m_pixelBuffer{nullptr};
 
   DeviceBuffer m_state;
   DeviceBuffer m_scratch;
+  DeviceBuffer m_intensity; // whole-frame HDR autoexposure, shared by all tiles
+  DeviceBuffer m_averageColor; // whole-frame AOV exposure, shared by all tiles
+  uint32_t m_tileW{0};
+  uint32_t m_tileH{0};
+  uint32_t m_overlap{0};
+  bool m_usingAlbedo{false};
+  bool m_usingNormal{false};
 
   // This buffer is only used when format != ANARI_FLOAT32_VEC4
   HostDeviceArray<uint32_t> m_uintPixels;

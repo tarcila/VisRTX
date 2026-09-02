@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,14 @@
 #include "array/ObjectArray.h"
 #include "gpu/gpu_objects.h"
 #include "optix_visrtx.h"
+#include "surface/Surface.h"
 #include "utility/AnariTypeHelpers.h"
+#include "world/Group.h"
+
+#include <glm/gtc/matrix_inverse.hpp>
+#include <cassert>
+#include <cmath>
+#include <set>
 
 #ifdef USE_MDL
 #include "geometry/ComputeTangent.h"
@@ -66,8 +73,7 @@ static std::vector<OptixBuildInput> createOBI(
   OptixBuildInput buildInput{};
 
   buildInput.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
-  buildInput.instanceArray.instances =
-      numInstances > 0 ? (CUdeviceptr)optixInstancesDevice.data() : 0;
+  buildInput.instanceArray.instances = (CUdeviceptr)optixInstancesDevice.data();
   buildInput.instanceArray.numInstances = numInstances;
 
   return {buildInput};
@@ -86,6 +92,10 @@ World::World(DeviceGlobalState *d)
   m_zeroInstance = new Instance(d);
 
   m_zeroInstance->setParamDirect("group", m_zeroGroup.ptr);
+  // Internal objects never pass through anariCommitParameters(): mirror
+  // staging into the committed snapshot so a later buffered re-commit
+  // (running under a ReadCommittedScope) doesn't read an empty one.
+  m_zeroInstance->snapshotParameters();
   m_zeroInstance->commitParameters();
   m_zeroInstance->finalize();
 
@@ -110,6 +120,20 @@ bool World::getProperty(const std::string_view &name,
     auto bounds = m_surfaceBounds;
     bounds.extend(m_volumeBounds);
     std::memcpy(ptr, &bounds, sizeof(bounds));
+    return true;
+  }
+
+  // Light instances after the build: authored lights plus synthesized Geometry
+  // Lights (m_instanceLightGPUData). The framebuffer cannot distinguish a
+  // non-emissive surface from a zero-radiance light, so tests assert the
+  // exclusion here.
+  if (name == "numLightInstances" && type == ANARI_UINT32) {
+    if (flags & ANARI_WAIT) {
+      deviceState()->commitBuffer.flush();
+      rebuildWorld();
+    }
+    const auto count = uint32_t(m_instanceLightGPUData.size());
+    std::memcpy(ptr, &count, sizeof(count));
     return true;
   }
 
@@ -156,7 +180,14 @@ void World::finalize()
     m_zeroGroup->removeParam("light");
 
   m_zeroInstance->setParam("id", getParam<uint32_t>("id", ~0u));
+  m_zeroInstance->snapshotParameters(); // internal object, see World()
+  // Re-commit explicitly: the zero instance observes nothing, so no buffered
+  // re-commit would ever consume the staged id (it stayed at the ctor default
+  // before this).
+  m_zeroInstance->commitParameters();
+  m_zeroInstance->finalize();
 
+  m_zeroGroup->snapshotParameters(); // internal object, see World()
   m_zeroGroup->commitParameters();
   m_zeroGroup->finalize();
 
@@ -193,7 +224,14 @@ WorldGPUData World::gpuData() const
   retval.lightInstances = m_instanceLightGPUData.dataDevice();
   retval.numLightInstances = m_instanceLightGPUData.size();
 
-  retval.hdri = m_hdri;
+  retval.hdriLightInstances = m_instanceHdriLightGPUData.dataDevice();
+  retval.numHdriLightInstances = m_instanceHdriLightGPUData.size();
+
+  retval.lightPickCdf = m_lightPickCdf.dataDevice();
+  retval.lightPickDelta = m_lightPickDelta.dataDevice();
+  retval.totalLightPower = m_totalLightPower;
+  retval.hdriPower = m_hdriPower;
+  retval.sceneRadius = m_sceneRadius;
 
   return retval;
 }
@@ -202,7 +240,11 @@ void World::rebuildWorld()
 {
   const auto &state = *deviceState();
 
-  if (state.objectUpdates.lastBLASChange >= m_objectUpdates.lastBLASCheck) {
+  const auto &updates = state.objectUpdates;
+  const auto lastCheck = m_objectUpdates.lastBLASCheck;
+  if (updates.lastSurfaceBLASChange >= lastCheck
+      || updates.lastVolumeBLASChange >= lastCheck
+      || updates.lastLightSetChange >= lastCheck) {
     m_objectUpdates.lastTLASBuild = 0; // BLAS changed, so need to build TLAS
     rebuildBLASs();
   }
@@ -254,7 +296,6 @@ void World::populateOptixInstances()
   m_numCurveInstances = 0;
   m_numUserInstances = 0;
   m_numVolumeInstances = 0;
-  m_numLightInstances = 0;
 
   std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
     const auto *group = inst->group();
@@ -267,8 +308,6 @@ void World::populateOptixInstances()
       m_numUserInstances += numTransforms;
     if (group->containsVolumes())
       m_numVolumeInstances += numTransforms;
-    if (group->containsLights())
-      m_numLightInstances += numTransforms;
   });
 
   m_optixSurfaceInstances.resize(
@@ -372,8 +411,6 @@ void World::buildInstanceSurfaceGPUData()
     retval.attrUniform[4] = ua.color.value_or(vec4(0, 0, 0, 1));
     retval.attrUniformPresent[4] = ua.color.has_value();
 
-    // FIXME: Fill up retval.attrUniformArray and
-    // retval.attrUniformArrayPresent from ua
     constexpr const auto setupUniformArray =
         [](const helium::IntrusivePtr<Array1D> &array) -> AttributeData {
       AttributeData ad = {};
@@ -409,26 +446,43 @@ void World::buildInstanceSurfaceGPUData()
 
     for (size_t t = 0; t < inst->numTransforms(); t++) {
       auto id = inst->userID(t);
+
+      const mat4 o2wMat4 = mat4(inst->xfm(t));
+      const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
+      const mat3x4 w2o =
+          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+
+      auto assignXfm = [&](InstanceSurfaceGPUData &g) {
+        g.objectToWorld = o2w;
+        g.worldToObject = w2o;
+      };
+
       if (group->containsTriangleGeometry()) {
-        sd[instID++] =
+        sd[instID] =
             makeInstanceGPUData(group->surfaceTriangleGPUIndices().data(),
                 inst->uniformAttributes(),
                 id,
                 t);
+        assignXfm(sd[instID]);
+        ++instID;
       }
       if (group->containsCurveGeometry()) {
-        sd[instID++] =
+        sd[instID] =
             makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
                 inst->uniformAttributes(),
                 id,
                 t);
+        assignXfm(sd[instID]);
+        ++instID;
       }
       if (group->containsUserGeometry()) {
-        sd[instID++] =
+        sd[instID] =
             makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
                 inst->uniformAttributes(),
                 id,
                 t);
+        assignXfm(sd[instID]);
+        ++instID;
       }
     }
   });
@@ -446,38 +500,243 @@ void World::buildInstanceVolumeGPUData()
     auto *vd = m_instanceVolumeGPUData.dataHost();
     for (size_t t = 0; t < inst->numTransforms(); t++) {
       auto id = inst->userID(t);
-      if (group->containsVolumes())
-        vd[instID++] = {group->volumeGPUIndices().data(), id};
+      if (!group->containsVolumes())
+        continue;
+
+      const mat4 o2wMat4 = mat4(inst->xfm(t));
+      const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
+      const mat3x4 w2o =
+          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+
+      InstanceVolumeGPUData g;
+      g.objectToWorld = o2w;
+      g.worldToObject = w2o;
+      g.volumes = group->volumeGPUIndices().data();
+      g.id = id;
+      vd[instID++] = g;
     }
   });
 
   m_instanceVolumeGPUData.upload();
 }
 
+size_t World::countGeometryLights(Group *group) const
+{
+  size_t n = 0;
+  for (auto *surface : group->surfacesTriangle())
+    if (surface->geometryLight())
+      ++n;
+  for (auto *surface : group->surfacesUser())
+    if (surface->geometryLight())
+      ++n;
+  return n;
+}
+
+void World::synthesizeGeometryLights()
+{
+  // Configure or drop each candidate surface's Geometry Light from current
+  // material + geometry state. Runs over triangle and user (custom-primitive,
+  // e.g. sphere) surfaces; isSampleableEmitter gates out non-area-samplable ones.
+  // Object-space, so done once per group; the fill pass instances it per
+  // transform like an authored light. The light carries the material's mean
+  // radiance (Pick Power); the sampler evaluates the material at the sampled
+  // point when its emission is not constant.
+  auto configure = [](Surface *surface) {
+    if (surface->isSampleableEmitter()) {
+      auto *geometry = surface->geometry();
+      geometry->ensureAreaData();
+      const float area = geometry->totalArea();
+      if (area > 0.0f) {
+        surface->ensureGeometryLight()->configure(geometry->index(),
+            surface->material()->index(),
+            surface->material()->emissionAverage(),
+            area);
+        return;
+      }
+    }
+    surface->clearGeometryLight();
+  };
+
+  std::set<Group *> visited;
+  for (auto *inst : m_instances) {
+    auto *group = inst->group();
+    if (!visited.insert(group).second)
+      continue;
+    for (auto *surface : group->surfacesTriangle())
+      configure(surface);
+    for (auto *surface : group->surfacesUser())
+      configure(surface);
+  }
+}
+
 void World::buildInstanceLightGPUData()
 {
-  m_instanceLightGPUData.resize(m_numLightInstances);
+  synthesizeGeometryLights();
 
-  m_hdri = -1;
+  // Calculate total lights (authored + synthesized Geometry Lights)
+  size_t totalLights = 0;
+  size_t totalHdriLights = 0;
+  size_t authoredLights = 0;
+  size_t geometryLights = 0;
 
-  int instID = 0;
   std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
     auto *group = inst->group();
-    auto *li = m_instanceLightGPUData.dataHost();
-    if (!group->containsLights())
-      return;
-
     group->rebuildLights();
-    const auto lgi = group->lightGPUIndices();
+    const auto &lights = group->lights();
+    const size_t numTransforms = inst->numTransforms();
 
-    if (m_hdri == -1)
-      m_hdri = group->firstHDRI();
+    authoredLights += lights.size() * numTransforms;
+    geometryLights += countGeometryLights(group) * numTransforms;
 
-    for (size_t t = 0; t < inst->numTransforms(); t++)
-      li[instID++] = {lgi.data(), lgi.size(), mat4(inst->xfm(t))};
+    // Count HDRI lights separately
+    for (auto *light : lights) {
+      if (light->isHDRI())
+        totalHdriLights += numTransforms;
+    }
   });
 
+  totalLights = authoredLights + geometryLights;
+
+  reportMessage(ANARI_SEVERITY_DEBUG,
+      "visrtx::World light list: %zu total (%zu authored, %zu geometry; %zu HDRI)",
+      totalLights,
+      authoredLights,
+      geometryLights,
+      totalHdriLights);
+
+  // Allocate the instance-data, HDRI, and pick arrays.
+  m_instanceLightGPUData.resize(totalLights);
+  m_instanceHdriLightGPUData.resize(totalHdriLights);
+  m_lightPickCdf.resize(totalLights);
+  m_lightPickDelta.resize(totalLights);
+
+  // Bounding-sphere radius over the committed scene, sizing the infinite
+  // lights' Pick Power. Fall back to unit radius so an empty scene still
+  // weights them nonzero.
+  box3 sceneBounds = m_surfaceBounds;
+  if (!empty(m_volumeBounds)) {
+    if (empty(sceneBounds))
+      sceneBounds = m_volumeBounds;
+    else {
+      sceneBounds.lower = glm::min(sceneBounds.lower, m_volumeBounds.lower);
+      sceneBounds.upper = glm::max(sceneBounds.upper, m_volumeBounds.upper);
+    }
+  }
+  m_sceneRadius = empty(sceneBounds)
+      ? 1.0f
+      : 0.5f * glm::length(sceneBounds.upper - sceneBounds.lower);
+  if (m_sceneRadius <= 0.0f)
+    m_sceneRadius = 1.0f;
+
+  size_t lightIndex = 0;
+  size_t hdriIndex = 0;
+  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid out
+  // per (instance, transform) as [triangle?][curve?][user?]. Tracking the same
+  // cursor here recovers each Geometry Light's surface-instance index without a
+  // side table.
+  size_t surfaceInstanceCursor = 0;
+
+  // Filled with each instance's raw Pick Power, then normalized into the
+  // cumulative CDF in place once the total is known.
+  auto *pickCdf = m_lightPickCdf.dataHost();
+  auto *pickDelta = m_lightPickDelta.dataHost();
+  m_totalLightPower = 0.0f;
+  m_hdriPower = 0.0f;
+
+  std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
+    auto *group = inst->group();
+    group->rebuildLights();
+
+    auto *lights = m_instanceLightGPUData.dataHost();
+    auto *hdris = m_instanceHdriLightGPUData.dataHost();
+
+    auto appendLight = [&](Light *light,
+                           const mat4 &xfm,
+                           DeviceObjectIndex surfaceInstanceIndex) {
+      // Sanitize: a NaN/Inf/negative Pick Power (bad param, degenerate xfm)
+      // would corrupt the cumulative CDF and make cub::LowerBound undefined.
+      // Clamp to 0 so the light is simply never picked. `!(power > 0)` catches
+      // NaN.
+      const float raw = light->pickPower(xfm, m_sceneRadius);
+      const float power = (raw > 0.0f && std::isfinite(raw)) ? raw : 0.0f;
+      pickCdf[lightIndex] = power;
+      m_totalLightPower += power;
+      lights[lightIndex++] = {light->index(), xfm, surfaceInstanceIndex};
+      return power;
+    };
+
+    for (size_t t = 0; t < inst->numTransforms(); t++) {
+      const mat4 xfm = mat4(inst->xfm(t));
+
+      // This transform's surface-instance slot indices, in the same order the
+      // surface-instance array was built (triangle, then curve, then user).
+      DeviceObjectIndex triangleSI = -1, userSI = -1;
+      if (group->containsTriangleGeometry())
+        triangleSI = DeviceObjectIndex(surfaceInstanceCursor++);
+      if (group->containsCurveGeometry())
+        ++surfaceInstanceCursor;
+      if (group->containsUserGeometry())
+        userSI = DeviceObjectIndex(surfaceInstanceCursor++);
+
+      for (auto *light : group->lights()) {
+        const float power = appendLight(light, xfm, -1);
+        // HDRI lights also go into hdriLights
+        if (light->isHDRI()) {
+          m_hdriPower += power;
+          hdris[hdriIndex++] = {light->index(), xfm, -1};
+        }
+      }
+
+      // Synthesized Geometry Lights, instanced exactly like authored lights but
+      // carrying their surface-instance index for instance-attribute emission.
+      for (auto *surface : group->surfacesTriangle()) {
+        if (auto *gl = surface->geometryLight())
+          appendLight(gl, xfm, triangleSI);
+      }
+      for (auto *surface : group->surfacesUser()) {
+        if (auto *gl = surface->geometryLight())
+          appendLight(gl, xfm, userSI);
+      }
+    }
+  });
+
+  // Tripwire: the surface-instance cursor is a hand-mirror of
+  // buildInstanceSurfaceGPUData's layout with no shared source of truth. If the
+  // two ever drift, a Geometry Light would index the wrong (or an out-of-range)
+  // surface instance and emit silently wrong radiance — catch it here.
+  assert(surfaceInstanceCursor == m_instanceSurfaceGPUData.size());
+
+  // Turn the per-instance Pick Powers into a normalized cumulative CDF in
+  // place. Accumulate and normalize in double, dividing by the DOUBLE
+  // cumulative total (not the float m_totalLightPower): normalizing by the
+  // float total can push the last entry above 1.0 when float lost a dim light's
+  // mass, leaving trailing dim lights unselectable while their hit-side pNee
+  // stays positive — bias. The double total makes the last entry exactly 1.0
+  // and preserves those masses. A zero total (every light dark) leaves the CDF
+  // unused: uniform pick.
+  // All-dark: pickDelta is zeroed here and pickCdf stays at its zero raw powers
+  // (never renormalized), so the uniform-pick fallback reads neither.
+  std::fill(pickDelta, pickDelta + totalLights, 0.0f);
+  if (m_totalLightPower > 0.0f) {
+    double total = 0.0;
+    for (size_t i = 0; i < totalLights; ++i)
+      total += pickCdf[i];
+    const double invTotal = total > 0.0 ? 1.0 / total : 0.0;
+    double cumulative = 0.0;
+    for (size_t i = 0; i < totalLights; ++i) {
+      // delta from the raw power (still in pickCdf[i]) before it is overwritten
+      // by the cumulative value; storing the mass directly as float avoids the
+      // adjacent-difference of two ≈1.0 doubles the kernel used to do.
+      pickDelta[i] = float(pickCdf[i] * invTotal);
+      cumulative += pickCdf[i];
+      pickCdf[i] = cumulative * invTotal;
+    }
+  }
+
   m_instanceLightGPUData.upload();
+  m_instanceHdriLightGPUData.upload();
+  m_lightPickCdf.upload();
+  m_lightPickDelta.upload();
 }
 
 } // namespace visrtx

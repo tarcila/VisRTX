@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -64,7 +64,18 @@ class SamplerRegistry
   libmdl::Core *m_core = {};
   DeviceGlobalState *m_deviceState = {};
 
-  std::unordered_map<std::string, Sampler *> m_dbToSampler;
+  struct CacheEntry
+  {
+    Sampler *sampler{nullptr};
+    // The registry's own outstanding acquires. The entry is erased when THIS
+    // hits zero — never inferred from the object's refcount: other holders
+    // (e.g. the deferred commit buffer) can outlive the final release, and a
+    // count-snapshot heuristic leaves a dangling cache pointer once they drop
+    // theirs — a use-after-free on the next same-key acquire (heap corruption
+    // that surfaced as an optixPipelineDestroy crash under material churn).
+    int acquires{0};
+  };
+  std::unordered_map<std::string, CacheEntry> m_dbToSampler;
 
   Sampler *loadFromFile(
       const std::string_view &filePath, libmdl::ColorSpace colorSpace);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -50,12 +50,21 @@ struct Cylinder : public Geometry
 
   int optixGeometryType() const override;
 
+  // Build the per-primitive area CDF and object-space total area (lateral +
+  // enabled caps) used to sample this geometry as a Geometry Light. Lazy: only
+  // Emissive Surfaces call it. Mirrors Triangle/Sphere.
+  bool isAreaSamplingSupported() const override;
+  void ensureAreaData() override;
+  float totalArea() const override;
+
  private:
   GeometryGPUData gpuData() const override;
+  void buildAreaData();
 
   helium::ChangeObserverPtr<Array1D> m_index;
   helium::ChangeObserverPtr<Array1D> m_radius;
   helium::ChangeObserverPtr<Array1D> m_vertex;
+  helium::ChangeObserverPtr<Array1D> m_vertexCaps;
   GeometryAttributes m_vertexAttributes;
 
   HostDeviceArray<box3> m_aabbs;
@@ -63,7 +72,13 @@ struct Cylinder : public Geometry
 
   float m_globalRadius{1.f};
 
-  bool m_caps{false};
+  uint8_t m_defaultCapFlags{0};
+
+  // Geometry Light sampling data, built lazily by ensureAreaData(); see Triangle.
+  HostDeviceArray<float> m_primAreaCdf;
+  float m_totalArea{0.f};
+  bool m_areaDataValid{false};
+  bool m_areaDataWanted{false};
 };
 
 } // namespace visrtx

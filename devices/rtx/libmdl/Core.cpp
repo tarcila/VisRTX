@@ -1,7 +1,8 @@
-// Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "Core.h"
+#include "MDLBackendConfig.h"
 
 #include <fmt/core.h>
 #include <fmt/std.h>
@@ -12,7 +13,9 @@
 #include <mi/base/types.h>
 #include <mi/neuraylib/factory.h>
 #include <mi/neuraylib/iarray.h>
+#include <mi/neuraylib/icompiled_material.h>
 #include <mi/neuraylib/idatabase.h>
+#include <mi/neuraylib/iexpression.h>
 #include <mi/neuraylib/ifunction_definition.h>
 #include <mi/neuraylib/ilogging_configuration.h>
 #include <mi/neuraylib/imaterial_instance.h>
@@ -20,7 +23,6 @@
 #include <mi/neuraylib/imdl_backend_api.h>
 #include <mi/neuraylib/imdl_compiler.h>
 #include <mi/neuraylib/imdl_configuration.h>
-#include <mi/neuraylib/imdl_distiller_api.h>
 #include <mi/neuraylib/imdl_entity_resolver.h>
 #include <mi/neuraylib/imdl_execution_context.h>
 #include <mi/neuraylib/imdl_factory.h>
@@ -36,10 +38,14 @@
 #include <mi/neuraylib/itype.h>
 #include <mi/neuraylib/ivalue.h>
 #include <mi/neuraylib/iversion.h>
+
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
 #include <string>
 
 #ifdef MI_PLATFORM_WINDOWS
-#define WINDOWS_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 static_assert(sizeof(HMODULE) <= sizeof(void *));
 
@@ -152,13 +158,6 @@ Core::Core(mi::neuraylib::INeuray *neuray, mi::base::ILogger *logger)
           mi::base::MESSAGE_SEVERITY_WARNING, "Failed to load the dds plugin");
     }
 
-    if (mi::Sint32 res = pluginConf->load_plugin_library(
-            "mdl_distiller" MI_BASE_DLL_FILE_EXT);
-        res != 0) {
-      logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
-          "Failed to load the mdl_distiller plugin");
-    }
-
     m_neuray->start();
   }
 
@@ -228,51 +227,79 @@ mi::neuraylib::ITransaction *Core::createTransaction(
   return scope->create_transaction();
 }
 
-void Core::addBuiltinModule(
-    std::string_view moduleName, std::string_view moduleSource)
+mi::Sint32 Core::loadModuleSource(std::string_view moduleName,
+    std::string_view moduleSource,
+    mi::neuraylib::ITransaction *transaction)
 {
   auto impexpApi = make_handle(
       m_neuray->get_api_component<mi::neuraylib::IMdl_impexp_api>());
-
   auto executionContext =
       make_handle(m_mdlFactory->clone(m_executionContext.get()));
 
+  auto result = impexpApi->load_module_from_string(transaction,
+      std::string(moduleName).c_str(),
+      std::string(moduleSource).c_str(),
+      executionContext.get());
+
+  if (result < 0)
+    logExecutionContextMessages(executionContext.get());
+
+  return result;
+}
+
+const mi::neuraylib::IModule *Core::loadModuleFromString(
+    std::string_view moduleName,
+    std::string_view moduleSource,
+    mi::neuraylib::ITransaction *transaction)
+{
+  if (loadModuleSource(moduleName, moduleSource, transaction) < 0)
+    return nullptr;
+  return accessModule(moduleName, transaction);
+}
+
+const mi::neuraylib::IModule *Core::accessModule(
+    std::string_view moduleName, mi::neuraylib::ITransaction *transaction)
+{
+  auto dbName = make_handle(
+      m_mdlFactory->get_db_module_name(std::string(moduleName).c_str()));
+  return transaction->access<mi::neuraylib::IModule>(dbName->get_c_str());
+}
+
+void Core::addBuiltinModule(
+    std::string_view moduleName, std::string_view moduleSource)
+{
   auto transaction = make_handle(createTransaction());
   nonstd::scope_exit finalizeTransaction(
       [transaction]() { transaction->commit(); });
 
-  auto result = impexpApi->load_module_from_string(
-    transaction.get(),
-    std::string(moduleName).c_str(),
-    std::string(moduleSource).c_str(),
-    executionContext.get()
-  );
+  auto result = loadModuleSource(moduleName, moduleSource, transaction.get());
 
   switch (result) {
-    case 0: {
-      logMessage(mi::base::MESSAGE_SEVERITY_INFO,
-          "Added builtin module {} from source", moduleName);
-      break;
-    }
-    case 1: {
-      logMessage(mi::base::MESSAGE_SEVERITY_INFO,
-          "Builtin module {} already exists",
-          moduleName);
-      break;
-    }
-    case -1:
-      logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
-          "Invalid name {} or module source for builtin", moduleName);
-      break;
-    case -2:
-      logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
-          "Ignoring builtin {} would shadow a file based definition", moduleName);
-      break;
-    default:
-      logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
-          "Unknown error while adding builtin module {}", moduleName);
-      logExecutionContextMessages(executionContext.get());
-      break;
+  case 0:
+    logMessage(mi::base::MESSAGE_SEVERITY_INFO,
+        "Added builtin module {} from source",
+        moduleName);
+    break;
+  case 1:
+    logMessage(mi::base::MESSAGE_SEVERITY_INFO,
+        "Builtin module {} already exists",
+        moduleName);
+    break;
+  case -1:
+    logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
+        "Invalid name {} or module source for builtin",
+        moduleName);
+    break;
+  case -2:
+    logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
+        "Ignoring builtin {} would shadow a file based definition",
+        moduleName);
+    break;
+  default:
+    logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
+        "Unknown error while adding builtin module {}",
+        moduleName);
+    break;
   }
 }
 
@@ -286,9 +313,10 @@ const mi::neuraylib::IModule *Core::loadModule(
 
   // If that fails, try and resolve it as a file name.
   // First considering  the module name from the MDL file name.
-  if (auto name = make_handle(impexpApi->get_mdl_module_name(moduleName.c_str()));
+  if (auto name =
+          make_handle(impexpApi->get_mdl_module_name(moduleName.c_str()));
       name.is_valid_interface()) {
-      moduleName = name->get_c_str();
+    moduleName = name->get_c_str();
   } else {
     // Check if this is a single MDL name, such as OmniPBR.mdl and
     // resolve it to its equivalent module name, such as ::OmniPBR.
@@ -301,7 +329,6 @@ const mi::neuraylib::IModule *Core::loadModule(
       moduleName.clear();
     }
   }
-
 
   if (moduleName.empty()) {
     logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
@@ -316,13 +343,81 @@ const mi::neuraylib::IModule *Core::loadModule(
 
   if (impexpApi->load_module(
           transaction, moduleName.c_str(), executionContext.get())
-      < 0)
-    return {};
+      < 0) {
+    // A scene may ship a .mdl without its resources (e.g. a vMaterials module
+    // copied without its ./textures), so the local copy fails to compile. A
+    // complete copy usually exists on the MDL search path -- recover it by
+    // canonical name before giving up.
+    return loadModuleByCanonicalName(moduleOrFileName, transaction);
+  }
 
   // Get the database name for the module we loaded
   auto moduleDbName = make_handle(
       m_mdlFactory->get_db_module_name(std::string(moduleName).c_str()));
   return transaction->access<mi::neuraylib::IModule>(moduleDbName->get_c_str());
+}
+
+const mi::neuraylib::IModule *Core::loadModuleByCanonicalName(
+    std::string_view filePath, mi::neuraylib::ITransaction *transaction)
+{
+  std::string path(filePath);
+  if (path.find('/') == std::string::npos)
+    return {}; // already a module name, nothing to recover
+
+  auto impexpApi = make_handle(
+      m_neuray->get_api_component<mi::neuraylib::IMdl_impexp_api>());
+  auto mdlConfiguration = make_handle(
+      m_neuray->get_api_component<mi::neuraylib::IMdl_configuration>());
+
+  // If the failing path passes through a directory whose basename matches a
+  // search root (e.g. ".../vMaterials_2/Concrete/Concrete_Precast.mdl" with a
+  // "/data/mdl/vMaterials_2" root), the canonical module name is the tail after
+  // it ("::Concrete::Concrete_Precast"). Loading that by name lets the entity
+  // resolver pick a complete copy on the search path.
+  auto pathsCount = mdlConfiguration->get_mdl_paths_length();
+  for (auto i = decltype(pathsCount)(0); i < pathsCount; ++i) {
+    auto rootName = std::filesystem::path(
+        make_handle(mdlConfiguration->get_mdl_path(i))->get_c_str())
+                        .filename()
+                        .string();
+    if (rootName.empty())
+      continue;
+
+    auto marker = "/" + rootName + "/";
+    auto pos = path.rfind(marker);
+    if (pos == std::string::npos)
+      continue;
+
+    auto tail = path.substr(pos + marker.size());
+    if (auto n = tail.size(); n > 4 && tail.substr(n - 4) == ".mdl")
+      tail = tail.substr(0, n - 4);
+    if (tail.empty())
+      continue;
+
+    std::string moduleName = "::";
+    for (char c : tail)
+      moduleName += (c == '/') ? "::"s : std::string(1, c);
+
+    auto executionContext =
+        make_handle(m_mdlFactory->clone(m_executionContext.get()));
+    if (impexpApi->load_module(
+            transaction, moduleName.c_str(), executionContext.get())
+        < 0)
+      continue;
+
+    auto moduleDbName =
+        make_handle(m_mdlFactory->get_db_module_name(moduleName.c_str()));
+    if (auto *module = transaction->access<mi::neuraylib::IModule>(
+            moduleDbName->get_c_str())) {
+      logMessage(mi::base::MESSAGE_SEVERITY_INFO,
+          "Recovered '{}' from the MDL search path as '{}'",
+          path,
+          moduleName);
+      return module;
+    }
+  }
+
+  return {};
 }
 
 const mi::neuraylib::IFunction_definition *Core::getFunctionDefinition(
@@ -386,23 +481,6 @@ mi::neuraylib::ICompiled_material *Core::getCompiledMaterial(
   return compiledMaterial;
 }
 
-mi::neuraylib::ICompiled_material *Core::getDistilledToDiffuseMaterial(
-    const mi::neuraylib::ICompiled_material *compiledMaterial)
-{
-  auto distiller_api = make_handle(
-      m_neuray->get_api_component<mi::neuraylib::IMdl_distiller_api>());
-  mi::Sint32 result = 0;
-  auto distilledMaterial = distiller_api->distill_material(
-      compiledMaterial, "diffuse", nullptr, &result);
-  if (result != 0) {
-    logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
-        "Failed to distill material: %i\n",
-        result);
-  }
-
-  return distilledMaterial;
-}
-
 const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
     const mi::neuraylib::ICompiled_material *compiledMaterial,
     mi::neuraylib::ITransaction *transaction)
@@ -415,28 +493,27 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
   auto executionContext =
       make_handle(m_mdlFactory->clone(m_executionContext.get()));
 
-  // ANARI attributes 0 to 3
-  const int numTextureSpaces = 4;
-  // Number of actually supported textures. MDL's default, let's assume this is
-  // enough for now
-  const int numTextureResults = 32;
-
   ptxBackend->set_option(
-      "num_texture_spaces", std::to_string(numTextureSpaces).c_str());
+      "num_texture_spaces", std::to_string(kNumTextureSpaces).c_str());
   ptxBackend->set_option(
-      "num_texture_results", std::to_string(numTextureResults).c_str());
+      "num_texture_results", std::to_string(kNumTextureResults).c_str());
   ptxBackend->set_option_binary("llvm_renderer_module", nullptr, 0);
   ptxBackend->set_option("visible_functions", "");
 
-  ptxBackend->set_option("sm_version", "52");
+  ptxBackend->set_option("sm_version", VISRTX_MDL_SM_VERSION);
   ptxBackend->set_option("tex_lookup_call_mode", "direct_call");
   ptxBackend->set_option("lambda_return_mode", "value");
   ptxBackend->set_option("texture_runtime_with_derivs", "off");
   ptxBackend->set_option("inline_aggressively", "on");
   ptxBackend->set_option("opt_level", "2");
   ptxBackend->set_option("enable_exceptions", "off");
+  // Generate the BSDF auxiliary function (albedo + normal) so the albedo AOV /
+  // denoiser guide reads a faithful diffuse+glossy albedo straight from the
+  // compiled material, instead of distilling to a `diffuse` proxy.
+  ptxBackend->set_option("enable_auxiliary", "on");
 
-  // For now, only consider surface scattering.
+  // Generate init, surface scattering, surface emission
+  // (emission/intensity/mode), volume scattering and cutout opacity.
   static mi::neuraylib::Target_function_description materialFunctions[] = {
       {"init", "mdlInit"},
       {"thin_walled", "mdlThinWalled"},
@@ -445,30 +522,22 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
       {"surface.emission.emission", "mdlEmission"},
       {"surface.emission.intensity", "mdlEmissionIntensity"},
       {"surface.emission.mode", "mdlEmissionMode"},
-  };
 
-  static mi::neuraylib::Target_function_description diffuseMaterialFunctions[] =
-      {
-          // Special case for tint. We want to be able to only evluate the base
-          // color for simpler light interaction.
-          {"surface.scattering.tint", "mdlTint"},
-          {"geometry.cutout_opacity", "mdlOpacity"},
-      };
+      {"volume.scattering_coefficient", "mdlTransmission"},
+
+      {"geometry.cutout_opacity", "mdlOpacity"},
+  };
 
   // Generate target code for the compiled material
   auto linkUnit = make_handle(
       ptxBackend->create_link_unit(transaction, executionContext.get()));
+
+  // Add main material functions. `surface.scattering` also emits the BSDF
+  // auxiliary function (mdlBsdf_auxiliary: albedo + normal) because
+  // enable_auxiliary is on.
   linkUnit->add_material(compiledMaterial,
       std::data(materialFunctions),
       std::size(materialFunctions),
-      executionContext.get());
-
-  auto distilledToDiffuseMaterial =
-      make_handle(getDistilledToDiffuseMaterial(compiledMaterial));
-
-  linkUnit->add_material(distilledToDiffuseMaterial.get(),
-      std::data(diffuseMaterialFunctions),
-      std::size(diffuseMaterialFunctions),
       executionContext.get());
 
   if (!logExecutionContextMessages(executionContext.get()))
@@ -476,9 +545,8 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
 
   auto targetCode =
       ptxBackend->translate_link_unit(linkUnit.get(), executionContext.get());
-  if (!logExecutionContextMessages(executionContext.get())) {
+  if (!logExecutionContextMessages(executionContext.get()))
     return {};
-  }
 
   return targetCode;
 }
@@ -541,16 +609,21 @@ auto Core::setMdlResourceSearchPaths(nonstd::span<std::filesystem::path> paths)
   }
 }
 
-auto Core::resolveResource(
-    std::string_view resourceId, std::string_view ownerId) -> std::string
+auto Core::resolveResource(std::string_view resourceId,
+    std::string_view ownerName,
+    std::string_view ownerFilePath) -> std::string
 {
   auto mdlConfiguration = make_handle(
       m_neuray->get_api_component<mi::neuraylib::IMdl_configuration>());
   auto entityResolver = make_handle(mdlConfiguration->get_entity_resolver());
+  // Relative resource paths (e.g. "Textures/foo.png") resolve against the
+  // owner module. ownerName is the owner's absolute *name*, ownerFilePath its
+  // on-disk path; the latter lets resolution work without relying on the MDL
+  // search paths. They occupy distinct argument slots and must not be swapped.
   auto resolvedResource = make_handle(
       entityResolver->resolve_resource(std::string(resourceId).c_str(),
-          ownerId.empty() ? nullptr : std::string(ownerId).c_str(),
-          nullptr,
+          ownerFilePath.empty() ? nullptr : std::string(ownerFilePath).c_str(),
+          ownerName.empty() ? nullptr : std::string(ownerName).c_str(),
           0,
           0));
 
@@ -587,7 +660,8 @@ auto Core::resolveModule(std::string_view moduleId) -> std::string
     return resolvedModule->get_module_name();
   } else {
     logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
-        "Failed to resolve module `{}` using entityResolver\n", moduleId);
+        "Failed to resolve module `{}` using entityResolver\n",
+        moduleId);
   }
 
   return {};

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,9 +36,9 @@ macro(make_test TEST_NAME)
   project_add_executable(${PROJECT_NAME}.cpp)
   project_link_libraries(
   PRIVATE
+    visrtx::stb_image
     anari_library_visrtx
     anari::anari_static
-    visrtx::stb_image
   )
   add_test(NAME ${PROJECT_NAME} COMMAND ${PROJECT_NAME})
 endmacro()
@@ -47,4 +47,106 @@ make_test(TestDeviceInit)
 make_test(TestEvictGPUArray)
 make_test(TestMultiThreadedObjectCreation)
 make_test(TestSpheres)
+make_test(TestCylinderCaps)
+make_test(TestConeApex)
+make_test(TestConeCylinderTransforms)
+make_test(TestConeCylinderDegenerate)
+make_test(TestConeCylinderTransparency)
+make_test(TestRotatedSphereShading)
+make_test(TestIsosurfaceRamp)
+make_test(TestPrimitiveInterior)
+make_test(TestGroundSphereShadows)
+make_test(TestPowerLightPick)
+make_test(TestPowerLightPickEnv)
+make_test(TestEmissiveGeometryLight)
+make_test(TestEmissiveSphereLight)
+make_test(TestEmissiveInstanceScale)
+make_test(TestEmissiveSphereInstanceScale)
+make_test(TestEmissiveCylinderConeLight)
+# These interleave attribute-driven emission cases, and MDL does not support
+# attributes — native-PBR only. (Textured emission itself works on the MDL
+# wrapper too; TestEmissiveMaterialParity covers it in that config.)
+if (NOT VISRTX_USE_MDL_FOR_PHYSICALLY_BASED)
+  make_test(TestEmissiveTexturedLight)
+  make_test(TestEmissiveInstanceAttribute)
+endif()
+make_test(TestPbrSpecularDefault)
+make_test(TestSamplerAlphaFill)
+make_test(TestEmissionRadianceScale)
+make_test(TestEmissiveRecommit)
+# The raw `mdl` material type and the `physicallyBasedMDL` subtype only exist
+# with MDL support compiled in.
+if (VISRTX_ENABLE_MDL_SUPPORT)
+  target_compile_definitions(
+    TestEmissiveRecommit PRIVATE VISRTX_TEST_MDL_WRAPPER)
+  # Adds the physicallyBasedMDL leg, so the module's specular default is
+  # exercised even when the physicallyBased backend is native CUDA.
+  target_compile_definitions(
+    TestPbrSpecularDefault PRIVATE VISRTX_TEST_MDL_WRAPPER)
+  make_test(TestEmissiveMdlLight)
+  make_test(TestEmissionDescriptorPolicy)
+  make_test(TestMdlPipelineRebuild)
+  make_test(TestMdlMaterialRegistryRelease)
+  make_test(TestEmissiveMaterialParity)
+endif()
+make_test(TestEmissiveInteractive)
+make_test(TestEmissiveIncremental)
 
+
+make_test(TestEmissiveInstanceRotatedScale)
+
+if(VISRTX_ENABLE_MATERIALX_SUPPORT)
+  make_test(TestMaterialXStandardSurfaceInline)
+  make_test(TestMaterialXSearchPaths)
+  target_compile_definitions(TestMaterialXSearchPaths PRIVATE
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  make_test(TestMaterialXRootChangeTexture)
+  target_compile_definitions(TestMaterialXRootChangeTexture PRIVATE
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  make_test(TestMaterialXOutageRecovery)
+  target_compile_definitions(TestMaterialXOutageRecovery PRIVATE
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  make_test(TestMaterialXNoDeviceCommit)
+  make_test(TestMaterialXParamOverride)
+  target_compile_definitions(TestMaterialXParamOverride PRIVATE
+    MATERIALX_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data")
+  make_test(TestMaterialXMaterial)
+  # USE_MATERIALX gates the VISRTX_MATERIAL_MATERIALX flag in
+  # fillExtensionStruct (visrtx_extensions.h); the test asserts the device
+  # advertises it, so it must be compiled MaterialX-aware.
+  target_compile_definitions(TestMaterialXMaterial PRIVATE
+    USE_MATERIALX
+    MATERIALX_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data")
+  make_test(TestMaterialXMultiAndConcurrent)
+  target_compile_definitions(TestMaterialXMultiAndConcurrent PRIVATE
+    MATERIALX_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data")
+  make_test(TestMaterialXTranscoder)
+  make_test(TestMaterialXRender)
+  make_test(TestMaterialXTexturedInput)
+  make_test(TestMaterialXWiredTexture)
+  make_test(TestMaterialXNodeDefAutoInstantiate)
+  target_compile_definitions(TestMaterialXNodeDefAutoInstantiate PRIVATE
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  target_compile_definitions(TestMaterialXRender PRIVATE
+    MATERIALX_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data")
+  # Compile Transcoder.cpp directly INTO the test. anari_library_visrtx is built
+  # SHARED with hidden visibility (device/CMakeLists.txt CMAKE_CXX_VISIBILITY_PRESET
+  # hidden), and the transcoder free functions carry no VISRTX_DEVICE_INTERFACE
+  # export macro, so they are NOT linkable from the shared object. Building the .cpp
+  # into the test keeps it self-contained.
+  target_sources(TestMaterialXTranscoder PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device/materialx/Transcoder.cpp)
+  target_compile_definitions(TestMaterialXTranscoder PRIVATE
+    MATERIALX_TEST_DATA_DIR="${CMAKE_CURRENT_LIST_DIR}/data"
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  target_link_libraries(TestMaterialXTranscoder PRIVATE
+    MaterialXCore MaterialXFormat MaterialXGenShader MaterialXGenMdl
+    nonstd::span-lite)
+  target_include_directories(TestMaterialXTranscoder PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+  make_test(TestMaterialXAutoInstTexture)
+  target_compile_definitions(TestMaterialXAutoInstTexture PRIVATE
+    MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}")
+  make_test(TestMaterialXInlineDocument)
+  make_test(TestEmissiveMaterialXParity)
+endif()

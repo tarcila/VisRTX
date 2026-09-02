@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,7 +63,7 @@ void Surface::finalize()
 void Surface::markFinalized()
 {
   Object::markFinalized();
-  deviceState()->objectUpdates.lastBLASChange = helium::newTimeStamp();
+  deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
 }
 
 bool Surface::isValid() const
@@ -94,6 +94,35 @@ const Material *Surface::material() const
 bool Surface::isVisible() const
 {
   return m_visible;
+}
+
+bool Surface::isSampleableEmitter() const
+{
+  return m_material && m_material->emissionIsSampleable() && m_geometry
+      && m_geometry->isAreaSamplingSupported();
+}
+
+GeometryLight *Surface::ensureGeometryLight()
+{
+  if (!m_geometryLight) {
+    m_geometryLight = new GeometryLight(deviceState());
+    // RefCounted starts at PUBLIC=1; the IntrusivePtr owns the only reference we
+    // need. Drop the birth PUBLIC ref so clearGeometryLight() actually frees the
+    // light and releases its registry.lights slot (mirrors World.cpp's zero
+    // group/instance).
+    m_geometryLight->refDec(helium::RefType::PUBLIC);
+  }
+  return m_geometryLight.ptr;
+}
+
+void Surface::clearGeometryLight()
+{
+  m_geometryLight = nullptr;
+}
+
+GeometryLight *Surface::geometryLight() const
+{
+  return m_geometryLight.ptr;
 }
 
 OptixBuildInput Surface::buildInput() const

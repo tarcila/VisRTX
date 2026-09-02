@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,30 +36,31 @@
 
 namespace visrtx {
 
+constexpr int MACROCELL_SIZE = 8;
+
 struct UniformGrid
 {
-  void init(ivec3 dims, box3 worldBounds);
+  void init(ivec3 dims, box3 objectBounds);
 
-  void buildGrid(const SpatialFieldGPUData &sfgd);
+  void computeValueRanges(const SpatialFieldGPUData &sfgd);
 
   void cleanup();
   UniformGridData gpuData() const;
-  void computeMaxOpacities(CUstream stream,
+  // Compute both per-cell min and max opacity over the TF in one scan. Min is
+  // used as a constant lower bound for residual / decomposition tracking; max
+  // is the Woodcock majorant.
+  void computeOpacityBounds(CUstream stream,
       cudaTextureObject_t cm,
       size_t cmSize,
       box1 cmRange = {0.f, 1.f});
 
-  // min/max value ranges
+  size_t numCells() const;
+
   box1 *m_valueRanges = nullptr;
-
-  // Majorants/max opacities
-  float *m_maxOpacities = nullptr;
-
-  // Number of MCs
+  float2 *m_opacityBounds = nullptr; // .x = min, .y = max
   ivec3 m_dims;
-
-  // World bounds the grid spans
-  box3 m_worldBounds;
+  ivec3 m_fieldDims;
+  box3 m_objectBounds;
 };
 
 } // namespace visrtx

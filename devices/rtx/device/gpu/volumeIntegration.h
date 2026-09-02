@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,278 +31,85 @@
 
 #pragma once
 
-#include <texture_types.h>
-#include "gpu/dda.h"
-#include "gpu/gpu_debug.h"
+// Renderer-side volume integration dispatch. Heavy Woodcock bodies live as
+// per-sampler direct-callables in `spatial_field/*Sampler_ptx.cu`; wrappers
+// here are `optixDirectCall` shims (one call per ray segment).
+//
+// RAY_TYPE-templated outer loops stay here — they invoke
+// `intersectVolume<RAY_TYPE>` then dispatch per-segment via the same shim.
+
+#include "gpu/gpu_decl.h"
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
-#include "gpu/sampleSpatialField.h"
-#include "nanovdb/NanoVDB.h"
+#include "gpu/intersectRay.h"
+#include "gpu/sbt.h"
+#include "gpu/shadingState.h"
+
+// optix
+#include <optix_device.h>
+#include <limits>
 
 namespace visrtx {
 
-namespace detail {
-
-VISRTX_DEVICE vec4 classifySample(const VolumeGPUData &v, float s)
+// Helpers //
+VISRTX_DEVICE const SpatialFieldGPUData &getSpatialFieldData(
+    const FrameGPUData &frameData, DeviceObjectIndex idx)
 {
-  vec4 retval(0.f);
-  switch (v.type) {
-  case VolumeType::TF1D: {
-    if (v.data.tf1d.tfTex) {
-      float coord = position(s, v.data.tf1d.valueRange);
-      retval = make_vec4(tex1D<::float4>(v.data.tf1d.tfTex, coord));
-    } else
-      retval = vec4(v.data.tf1d.uniformColor, v.data.tf1d.uniformOpacity);
-    break;
-  }
-  default:
-    break;
-  }
-  return retval;
+  return frameData.registry.fields[idx];
 }
 
-template <typename Sampler>
-VISRTX_DEVICE void _rayMarchVolume(ScreenSample &ss,
+// ---------------------------------------------------------------------------
+// Per-segment dispatch wrappers. Resolve sampler callable base offset,
+// invoke per-variant Woodcock body. One direct-call amortised over the
+// 10–100 candidates running inside the callable.
+// ---------------------------------------------------------------------------
+
+VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
     const VolumeHit &hit,
-    box1 interval,
-    vec3 *color,
-    float &opacity,
-    float invSamplingRate)
-{
-  const auto &volume = *hit.volume;
-  /////////////////////////////////////////////////////////////////////////////
-  // TODO: need to generalize
-  auto &svv = volume.data.tf1d;
-  auto &field = getSpatialFieldData(*ss.frameData, svv.field);
-  /////////////////////////////////////////////////////////////////////////////
-
-  Sampler sampler(field);
-
-  const float stepSize = volume.stepSize * invSamplingRate;
-  const float exponent = stepSize * svv.oneOverUnitDistance;
-  interval.lower += stepSize * curand_uniform(&ss.rs); // jitter
-
-  float transmittance = 1.f;
-  while (opacity < 0.99f && size(interval) >= 0.f) {
-    const vec3 p = hit.localRay.org + hit.localRay.dir * interval.lower;
-
-    const float s = sampler(p);
-    if (!glm::isnan(s)) {
-      const vec4 co = detail::classifySample(volume, s);
-      const float stepTransmittance = glm::pow(1.f - co.w, exponent);
-
-      if (color)
-        *color += transmittance * (1.f - stepTransmittance) * vec3(co);
-      opacity += transmittance * (1.f - stepTransmittance);
-
-      transmittance *= stepTransmittance;
-    }
-
-    interval.lower += stepSize;
-  }
-}
-
-VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
-    const VolumeHit &hit,
-    vec3 *color,
-    float &opacity,
-    float invSamplingRate)
-{
-  const auto &volume = *hit.volume;
-  /////////////////////////////////////////////////////////////////////////////
-  // TODO: need to generalize
-  auto &svv = volume.data.tf1d;
-  auto &field = getSpatialFieldData(*ss.frameData, svv.field);
-  /////////////////////////////////////////////////////////////////////////////
-  const float stepSize = volume.stepSize;
-  box1 interval = hit.localRay.t;
-  const float depth = interval.lower;
-  interval.lower += stepSize * curand_uniform(&ss.rs); // jitter
-
-  switch (field.type) {
-  case SpatialFieldType::STRUCTURED_REGULAR: {
-    _rayMarchVolume<SpatialFieldSampler<cudaTextureObject_t>>(
-        ss, hit, interval, color, opacity, invSamplingRate);
-    break;
-  }
-  case SpatialFieldType::NANOVDB_REGULAR: {
-    switch (field.data.nvdbRegular.gridType) {
-    case nanovdb::GridType::Fp4: {
-      _rayMarchVolume<NvdbSpatialFieldSampler<nanovdb::Fp4>>(
-          ss, hit, interval, color, opacity, invSamplingRate);
-      break;
-    }
-    case nanovdb::GridType::Fp8: {
-      _rayMarchVolume<NvdbSpatialFieldSampler<nanovdb::Fp8>>(
-          ss, hit, interval, color, opacity, invSamplingRate);
-      break;
-    }
-    case nanovdb::GridType::Fp16: {
-      _rayMarchVolume<NvdbSpatialFieldSampler<nanovdb::Fp16>>(
-          ss, hit, interval, color, opacity, invSamplingRate);
-      break;
-    }
-    case nanovdb::GridType::FpN: {
-      _rayMarchVolume<NvdbSpatialFieldSampler<nanovdb::FpN>>(
-          ss, hit, interval, color, opacity, invSamplingRate);
-      break;
-    }
-    case nanovdb::GridType::Float: {
-      _rayMarchVolume<NvdbSpatialFieldSampler<float>>(
-          ss, hit, interval, color, opacity, invSamplingRate);
-      break;
-    }
-    default:
-      break;
-    }
-    break;
-  }
-  default:
-    break;
-  }
-
-  return depth;
-}
-
-template <typename Sampler>
-VISRTX_DEVICE float _sampleDistance(ScreenSample &ss,
-    const VolumeHit &hit,
-    vec3 *albedo,
+    vec3 &albedo,
     float &extinction,
-    float &tr)
+    bool &didScatter,
+    vec3 *normal = nullptr)
 {
-  const auto &volume = *hit.volume;
-  /////////////////////////////////////////////////////////////////////////////
-  // TODO: need to generalize
-  auto &svv = volume.data.tf1d;
-  auto &field = getSpatialFieldData(*ss.frameData, svv.field);
-  /////////////////////////////////////////////////////////////////////////////
-
-  Sampler sampler(field);
-
-  const float stepSize = volume.stepSize;
-  float t_out = hit.localRay.t.upper;
-  tr = 1.f;
-
-  Ray objRay = hit.localRay;
-  objRay.org += hit.localRay.dir * hit.localRay.t.lower;
-  objRay.t.lower -= hit.localRay.t.lower;
-  objRay.t.upper -= hit.localRay.t.lower;
-
-  auto woodcockFunc = [&](const int leafID, float t0, float t1) {
-    const float majorant = field.grid.maxOpacities[leafID];
-    float t = t0;
-
-    while (1) {
-      if (majorant <= 0.f)
-        break;
-
-      t -= logf(1.f - curand_uniform(&ss.rs)) / majorant * stepSize;
-
-      if (t >= t1)
-        break;
-
-      const vec3 p =
-          hit.localRay.org + hit.localRay.dir * (t + hit.localRay.t.lower);
-      const float s = sampler(p);
-      if (!glm::isnan(s)) {
-        const vec4 co = detail::classifySample(volume, s);
-        *albedo = vec3(co);
-        extinction = co.w;
-        float u = curand_uniform(&ss.rs);
-        if (extinction >= u * majorant) {
-          tr = 0.f;
-          t_out = t;
-          return false; // stop traversal
-        }
-      }
-    }
-
-    return true; // cont. traversal to the next spat. partition
-  };
-
-  if (debug()) {
-    printf("DDA with ray org: (%f,%f,%f), dir: (%f,%f,%f), [t0,t1]: %f,%f\n",
-        objRay.org.x,
-        objRay.org.y,
-        objRay.org.z,
-        objRay.dir.x,
-        objRay.dir.y,
-        objRay.dir.z,
-        hit.localRay.t.lower,
-        hit.localRay.t.upper);
-  }
-
-  dda3(objRay, field.grid.dims, field.grid.worldBounds, woodcockFunc);
-  return t_out + hit.localRay.t.lower;
+  const auto &field =
+      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
+          + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
+      &ss,
+      &hit,
+      &albedo,
+      &extinction,
+      &didScatter,
+      normal);
 }
 
-VISRTX_DEVICE float sampleDistance(ScreenSample &ss,
-    const VolumeHit &hit,
-    vec3 *albedo,
-    float &extinction,
-    float &tr)
+VISRTX_DEVICE void ratioTrackTransmittanceVolume(
+    ScreenSample &ss, const VolumeHit &hit, vec3 &attenuation)
 {
-  const auto &volume = *hit.volume;
-  /////////////////////////////////////////////////////////////////////////////
-  // TODO: need to generalize
-  auto &svv = volume.data.tf1d;
-  auto &field = getSpatialFieldData(*ss.frameData, svv.field);
-  /////////////////////////////////////////////////////////////////////////////
-
-  switch (field.type) {
-  case SpatialFieldType::STRUCTURED_REGULAR: {
-    return _sampleDistance<SpatialFieldSampler<cudaTextureObject_t>>(
-        ss, hit, albedo, extinction, tr);
-    break;
-  }
-  case SpatialFieldType::NANOVDB_REGULAR: {
-    switch (field.data.nvdbRegular.gridType) {
-    case nanovdb::GridType::Fp4: {
-      return _sampleDistance<NvdbSpatialFieldSampler<nanovdb::Fp4>>(
-          ss, hit, albedo, extinction, tr);
-      break;
-    }
-    case nanovdb::GridType::Fp8: {
-      return _sampleDistance<NvdbSpatialFieldSampler<nanovdb::Fp8>>(
-          ss, hit, albedo, extinction, tr);
-      break;
-    }
-    case nanovdb::GridType::Fp16: {
-      return _sampleDistance<NvdbSpatialFieldSampler<nanovdb::Fp16>>(
-          ss, hit, albedo, extinction, tr);
-      break;
-    }
-    case nanovdb::GridType::FpN: {
-      return _sampleDistance<NvdbSpatialFieldSampler<nanovdb::FpN>>(
-          ss, hit, albedo, extinction, tr);
-      break;
-    }
-    case nanovdb::GridType::Float: {
-      return _sampleDistance<NvdbSpatialFieldSampler<float>>(
-          ss, hit, albedo, extinction, tr);
-      break;
-    }
-    default:
-      break;
-    }
-    break;
-  }
-  default:
-    break;
-  }
-
-  return hit.localRay.t.upper;
+  const auto &field =
+      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+  optixDirectCall<void>(uint32_t(field.samplerCallableIndex)
+          + uint32_t(SpatialFieldSamplerEntryPoints::RatioTrackTransmittance),
+      &ss,
+      &hit,
+      &attenuation);
 }
-
-} // namespace detail
 
 VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
     const VolumeHit &hit,
     float &opacity,
     float invSamplingRate)
 {
-  return detail::rayMarchVolume(ss, hit, nullptr, opacity, invSamplingRate);
+  const auto &field =
+      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
+          + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
+      &ss,
+      &hit,
+      (vec3 *)nullptr,
+      (vec3 *)nullptr,
+      &opacity,
+      invSamplingRate);
 }
 
 VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
@@ -311,8 +118,23 @@ VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
     float &opacity,
     float invSamplingRate)
 {
-  return detail::rayMarchVolume(ss, hit, &color, opacity, invSamplingRate);
+  const auto &field =
+      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
+          + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
+      &ss,
+      &hit,
+      &color,
+      (vec3 *)nullptr,
+      &opacity,
+      invSamplingRate);
 }
+
+// ---------------------------------------------------------------------------
+// RAY_TYPE-templated outer loops. Surface / shadow / AOV pass each picks
+// up its own `intersectVolume<RAY_TYPE>` overload; per-segment dispatch
+// goes through the wrappers above.
+// ---------------------------------------------------------------------------
 
 template <typename RAY_TYPE>
 VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
@@ -323,32 +145,60 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     vec3 &color,
     float &opacity,
     uint32_t &objID,
-    uint32_t &instID)
+    uint32_t &instID,
+    vec3 *normal = nullptr)
 {
   VolumeHit hit;
   ray.t.upper = tfar;
-  float depth = tfar;
-  bool firstHit = true;
+  float depth = std::numeric_limits<float>::max();
+  if (normal)
+    *normal = vec3(0.f);
+
+  constexpr float OPACITY_THRESHOLD = 0.99f;
 
   do {
     hit.foundHit = false;
     intersectVolume(ss, ray, type, &hit);
     if (!hit.foundHit)
       break;
-    else if (firstHit) {
+
+    // Save where this volume ends, so
+    hit.localRay.t.upper = glm::min(tfar, hit.localRay.t.upper);
+
+    // Ray march through this volume segment
+    vec3 thisNormal(0.f);
+    const auto &field =
+        getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+    float thisDepth =
+        optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
+                + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
+            &ss,
+            &hit,
+            &color,
+            normal ? &thisNormal : (vec3 *)nullptr,
+            &opacity,
+            invSamplingRate);
+
+    // Track closest intersection depth
+    if (thisDepth < depth) {
+      depth = thisDepth;
       objID = hit.volume->id;
       instID = hit.instance->id;
-      firstHit = false;
+      if (normal)
+        *normal = thisNormal;
     }
-    depth = min(depth, hit.localRay.t.lower);
-    hit.localRay.t.upper = glm::min(tfar, hit.localRay.t.upper);
-    detail::rayMarchVolume(ss, hit, &color, opacity, invSamplingRate);
-    ray.t.lower = hit.localRay.t.upper + 1e-3f;
-  } while (opacity < 0.99f);
+
+    if (ray.t.lower < hit.localRay.t.upper)
+      ray.t.lower = hit.localRay.t.upper;
+    else
+      break;
+
+  } while (opacity < OPACITY_THRESHOLD);
 
   return depth;
 }
 
+// Samples the first accepted Woodcock event across intersected volume segments.
 template <typename RAY_TYPE>
 VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
     Ray ray,
@@ -356,14 +206,21 @@ VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
     float tfar,
     vec3 &albedo,
     float &extinction,
-    float &transmittance,
+    bool &didScatter,
     uint32_t &objID,
-    uint32_t &instID)
+    uint32_t &instID,
+    vec3 *normal = nullptr)
 {
   VolumeHit hit;
   ray.t.upper = tfar;
   float depth = tfar;
-  transmittance = 1.f;
+  albedo = vec3(0.f);
+  extinction = 0.f;
+  didScatter = false;
+  objID = ~0u;
+  instID = ~0u;
+  if (normal)
+    *normal = vec3(0.f);
 
   while (true) {
     hit.foundHit = false;
@@ -372,17 +229,35 @@ VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
       break;
     hit.localRay.t.upper = glm::min(tfar, hit.localRay.t.upper);
     vec3 alb(0.f);
-    float ext = 0.f, tr = 0.f;
-    float d = detail::sampleDistance(ss, hit, &alb, ext, tr);
-    if (d < depth) {
+    vec3 norm(0.f);
+    float ext = 0.f;
+    bool segmentDidScatter = false;
+    const auto &fld =
+        getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
+    float d = optixDirectCall<float>(uint32_t(fld.samplerCallableIndex)
+            + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
+        &ss,
+        &hit,
+        &alb,
+        &ext,
+        &segmentDidScatter,
+        normal ? &norm : (vec3 *)nullptr);
+    if (segmentDidScatter) {
       depth = d;
       albedo = alb;
       extinction = ext;
-      transmittance = tr;
+      didScatter = true;
       objID = hit.volume->id;
       instID = hit.instance->id;
+      if (normal)
+        *normal = norm;
+      break;
     }
-    ray.t.lower = hit.localRay.t.upper + 1e-3f;
+
+    if (ray.t.lower < hit.localRay.t.upper)
+      ray.t.lower = hit.localRay.t.upper;
+    else
+      break;
   }
 
   return depth;

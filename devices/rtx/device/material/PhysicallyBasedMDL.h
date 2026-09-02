@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- 
+
 #pragma once
 
 #include "MDL.h"
@@ -41,8 +41,23 @@ struct PhysicallyBasedMDL : public MDL
 
   void commitParameters() override;
 
+  bool emissionIsConstant() const override;
+  bool emissionIsSampleable() const override;
+  vec3 emissionAverage() const override;
+
  private:
   void translateAndRemoveParameter(std::string_view paramName);
+
+  // Captured by mirroring the parameter translation (see commitParameters):
+  // a freshly committed pre-translate `emissive` key determines the binding;
+  // the post-translate `emissive.value`/`emissive.texture` keys cover later
+  // commits that don't re-set it (no MDL introspection).
+  // A nonzero constant is a Geometry Light with an exact Pick Power; a bound
+  // sampler is one with the live sampler-mean as Pick Power, the device
+  // evaluating the compiled EDF at the synthetic next-event hit (ADR 0006).
+  bool m_emissionIsConstant{false};
+  vec3 m_emissionRadiance{0.f};
+  helium::ChangeObserverPtr<Sampler> m_emissiveSampler;
 };
 
 } // namespace visrtx

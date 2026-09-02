@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,8 @@ static DebugMethod methodFromString(const std::string &name)
     return DebugMethod::OBJ_INDEX;
   else if (name == "instIndex")
     return DebugMethod::INST_INDEX;
+  else if (name == "materialId")
+    return DebugMethod::MAT_ID;
   else if (name == "Ng")
     return DebugMethod::NG;
   else if (name == "Ng.abs")
@@ -83,8 +85,10 @@ static DebugMethod methodFromString(const std::string &name)
     return DebugMethod::GEOMETRY_ATTRIBUTE_3;
   else if (name == "geometry.color")
     return DebugMethod::GEOMETRY_ATTRIBUTE_COLOR;
+  else if (name == "baseColor")
+    return DebugMethod::BASE_COLOR;
   else
-    return DebugMethod::PRIM_ID; // match default value
+    return DebugMethod::BASE_COLOR; // match default value
 }
 
 Debug::Debug(DeviceGlobalState *s) : Renderer(s) {}
@@ -92,7 +96,7 @@ Debug::Debug(DeviceGlobalState *s) : Renderer(s) {}
 void Debug::commitParameters()
 {
   Renderer::commitParameters();
-  m_method = methodFromString(getParamString("method", "primID"));
+  m_method = methodFromString(getParamString("method", "baseColor"));
   m_sampleLimit = 1; // single-shot renderer
   m_denoise = false; // never denoise
 }

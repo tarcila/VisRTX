@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,9 +28,5 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 project(visrtxCompileShaders LANGUAGES CXX)
-add_executable(${PROJECT_NAME} main.cpp)
-target_link_libraries(${PROJECT_NAME}
-PRIVATE
-  anari_library_visrtx
-  anari::anari_static
-)
+project_add_executable(main.cpp)
+project_link_libraries(PRIVATE anari_library_visrtx anari::anari_static)

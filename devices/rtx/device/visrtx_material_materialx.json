@@ -1,0 +1,34 @@
+{
+    "info" : {
+        "name" : "VISRTX_MATERIAL_MATERIALX",
+        "type" : "extension",
+        "dependencies" : []
+    },
+    "objects" : [
+        {
+            "type" : "ANARI_MATERIAL",
+            "name" : "materialx",
+            "description" : "MaterialX (.mtlx) material object",
+            "parameters" : [
+                {
+                    "name": "source",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "description": "A .mtlx document: a file path when sourceType is documentFile, or inline .mtlx XML text when sourceType is documentInline"
+                },
+                {
+                    "name": "sourceType",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "description": "How `source` is interpreted: documentFile (default, a path) or documentInline (inline .mtlx XML text)"
+                },
+                {
+                    "name": "materialName",
+                    "types": ["ANARI_STRING"],
+                    "tags": [],
+                    "description": "Optional. Selects a material within the document (see the `materialNames` property). When unset and several exist, the first is used"
+                }
+            ]
+        }
+    ]
+}

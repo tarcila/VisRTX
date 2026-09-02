@@ -1,5 +1,5 @@
-﻿/*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,13 @@
 #include "anari_library_visrtx_export.h"
 
 // std
+#include <algorithm>
 #include <cstdlib>
+#include <cstring>
+#ifdef USE_NVML
 // nvml
 #include <nvml.h>
+#endif
 
 #include <anari/frontend/anari_enums.h>
 #include <optix_types.h>
@@ -55,16 +59,26 @@
 // PTX //
 
 // renderers
-#include "renderer/AmbientOcclusion.h"
 #include "renderer/Debug.h"
-#include "renderer/DiffusePathTracer.h"
-#include "renderer/DirectLight.h"
-#include "renderer/Raycast.h"
+#include "renderer/Fast.h"
+#include "renderer/Interactive.h"
+#include "renderer/Quality.h"
 #include "renderer/Test.h"
 
 // materials
 #include "material/shaders/MatteShader.h"
 #include "material/shaders/PhysicallyBasedShader.h"
+#ifdef USE_MATERIALX
+#include "materialx/Transcoder.h"
+#endif // defined(USE_MATERIALX)
+
+// spatial field samplers
+#include "spatial_field/NvdbRectilinearSampler.h"
+#include "spatial_field/NvdbRegularSampler.h"
+#include "spatial_field/StructuredRectilinearSampler.h"
+#include "spatial_field/StructuredRegularSampler.h"
+// custom field sampler (from devices/visrtx)
+#include "spatial_field/CustomFieldSampler.h"
 
 // MDL
 #ifdef USE_MDL
@@ -407,6 +421,14 @@ VisRTXDevice::~VisRTXDevice()
 
   auto &state = *deviceState();
 
+  // The deferred commit buffer can hold the LAST reference to objects; clear
+  // it while every subsystem those destructors touch is still alive — an MDL
+  // material dying here releases its samplers into the registry, so the MDL
+  // teardown below must come after (also what empties the registry before its
+  // "not empty on destruction" check).
+  state.commitBuffer.clear();
+  state.uploadBuffer.clear();
+
 #ifdef USE_MDL
   if (m_mdlInitStatus == DeviceInitStatus::SUCCESS) {
     state.mdl.reset();
@@ -414,16 +436,12 @@ VisRTXDevice::~VisRTXDevice()
   }
 #endif // defined(USE_MDL)
 
-  state.commitBuffer.clear();
-  state.uploadBuffer.clear();
-
   CUDA_SYNC_CHECK();
 
   optixModuleDestroy(state.rendererModules.debug);
-  optixModuleDestroy(state.rendererModules.raycast);
-  optixModuleDestroy(state.rendererModules.ambientOcclusion);
-  optixModuleDestroy(state.rendererModules.diffusePathTracer);
-  optixModuleDestroy(state.rendererModules.directLight);
+  optixModuleDestroy(state.rendererModules.fast);
+  optixModuleDestroy(state.rendererModules.quality);
+  optixModuleDestroy(state.rendererModules.interactive);
 #ifdef USE_MDL
   optixModuleDestroy(state.rendererModules.mdl);
 #endif // defined(USE_MDL)
@@ -495,41 +513,11 @@ void VisRTXDevice::deviceCommitParameters()
   }
 
 #ifdef USE_MDL
-  if (m_mdlInitStatus == DeviceInitStatus::SUCCESS) {
-    auto paths = getParamString("mdlSearchPaths", "");
-    auto mdlSearchPaths = std::vector<std::filesystem::path>{};
-
-#if defined(WIN32)
-    constexpr char sep = ';';
-#else
-    constexpr char sep = ':';
-#endif
-
-    for (auto it = cbegin(paths);;) {
-      while (it != cend(paths) && *it == sep)
-        ++it;
-      if (it == cend(paths))
-        break;
-      auto endOfPathIt = std::find(it, cend(paths), sep);
-      mdlSearchPaths.emplace_back(it, endOfPathIt);
-      it = endOfPathIt;
-    }
-    deviceState()->mdl->core.setMdlSearchPaths(mdlSearchPaths);
-
-    paths = getParamString("mdlResourceSearchPaths", "");
-    mdlSearchPaths = std::vector<std::filesystem::path>{};
-
-    for (auto it = cbegin(paths);;) {
-      while (it != cend(paths) && *it == sep)
-        ++it;
-      if (it == cend(paths))
-        break;
-      auto endOfPathIt = std::find(it, cend(paths), sep);
-      mdlSearchPaths.emplace_back(it, endOfPathIt);
-      it = endOfPathIt;
-    }
-    deviceState()->mdl->core.setMdlResourceSearchPaths(mdlSearchPaths);
-  }
+  // Re-apply on commit so a changed mdlSearchPaths/mdlResourceSearchPaths param
+  // takes effect. initMDL() also calls this, which covers the lazy-init path
+  // where deviceCommitParameters runs before MDL is initialized.
+  if (m_mdlInitStatus == DeviceInitStatus::SUCCESS)
+    syncMdlSearchPaths();
 #endif // defined(USE_MDL)
 }
 
@@ -537,13 +525,12 @@ int VisRTXDevice::deviceGetProperty(const char *name,
     ANARIDataType type,
     void *mem,
     uint64_t size,
-    uint32_t /*flags*/)
+    uint32_t flags)
 {
   std::string_view prop = name;
   if (prop == "version" && type == ANARI_INT32) {
-    int version = VISRTX_VERSION_MAJOR * 10000 + VISRTX_VERSION_MINOR * 100
-        + VISRTX_VERSION_PATCH;
-    helium::writeToVoidP(mem, version);
+    helium::writeToVoidP(
+        mem, VISRTX_VERSION_MAJOR * 10000 + VISRTX_VERSION_MINOR * 100 + 0);
     return 1;
   } else if (prop == "version.major" && type == ANARI_INT32) {
     helium::writeToVoidP(mem, VISRTX_VERSION_MAJOR);
@@ -552,7 +539,7 @@ int VisRTXDevice::deviceGetProperty(const char *name,
     helium::writeToVoidP(mem, VISRTX_VERSION_MINOR);
     return 1;
   } else if (prop == "version.patch" && type == ANARI_INT32) {
-    helium::writeToVoidP(mem, VISRTX_VERSION_PATCH);
+    helium::writeToVoidP(mem, 0);
     return 1;
   } else if (prop == "extension" && type == ANARI_STRING_LIST) {
     helium::writeToVoidP(mem, query_extensions());
@@ -567,6 +554,35 @@ int VisRTXDevice::deviceGetProperty(const char *name,
     helium::writeToVoidP(mem, uint64_t(std::numeric_limits<uint32_t>::max()));
     return 1;
   }
+#ifdef USE_MDL
+  // Registry acquire/release balance seam: live compiled-material slots.
+  // Reflects flushed state only — the deferred commit buffer can hold the last
+  // reference to a material, so WAIT flushes it (the World properties' idiom).
+  if (prop == "numRegisteredMdlMaterials" && type == ANARI_UINT32) {
+    auto &state = *deviceState();
+    if (flags & ANARI_WAIT)
+      state.commitBuffer.flush();
+    const uint32_t count = state.mdl
+        ? uint32_t(state.mdl->materialRegistry.numRegisteredMaterials())
+        : 0u;
+    helium::writeToVoidP(mem, count);
+    return 1;
+  }
+#endif // defined(USE_MDL)
+#ifdef USE_MATERIALX
+  // Observability seam for the ADR 0008 search chain: which distribution root
+  // won. Empty string = unresolved. Lets apps (and tests) verify an explicit
+  // materialxSearchPaths took effect instead of a silent fallback.
+  if (prop == "materialx.distributionRoot" && type == ANARI_STRING) {
+    const auto root = deviceState()->materialx.root.string();
+    const auto n = std::min<uint64_t>(size, root.size() + 1);
+    if (n > 0) {
+      std::memcpy(mem, root.c_str(), n);
+      static_cast<char *>(mem)[n - 1] = '\0';
+    }
+    return 1;
+  }
+#endif // defined(USE_MATERIALX)
   return 0;
 }
 
@@ -605,6 +621,7 @@ DeviceInitStatus VisRTXDevice::initOptix()
         ANARI_SEVERITY_DEBUG, "VisRTX using CUDA %i.%i", major, minor);
   }
 
+#ifdef USE_NVML
   {
     char driverVersion[80]; // Buffer to store driver version
 
@@ -641,6 +658,7 @@ DeviceInitStatus VisRTXDevice::initOptix()
     }
     nvmlShutdown();
   }
+#endif
 
   OPTIX_CHECK_RETURN_VALUE(optixInit(), DeviceInitStatus::FAILURE);
   setCUDADevice();
@@ -718,22 +736,12 @@ DeviceInitStatus VisRTXDevice::initOptix()
     // as those will be out of scope as soon as we exit the function, thereby
     // creating dandling references to those parameters if we do not capture by
     // value.
-    auto f = std::async([&, module, ptx, name]() {
+    auto f = std::async([&, module, ptx, name]() -> void {
       reportMessage(ANARI_SEVERITY_INFO, "Compiling OptiX module: %s", name);
 
       std::string log(2048, '\n');
       size_t sizeof_log = log.size();
 
-#if OPTIX_VERSION < 70700
-      OPTIX_CHECK(optixModuleCreateFromPTX(state.optixContext,
-          &moduleCompileOptions,
-          &pipelineCompileOptions,
-          (const char *)ptx.ptr,
-          ptx.size,
-          log.data(),
-          &sizeof_log,
-          &module));
-#else
       OPTIX_CHECK(optixModuleCreate(state.optixContext,
           &moduleCompileOptions,
           &pipelineCompileOptions,
@@ -742,31 +750,27 @@ DeviceInitStatus VisRTXDevice::initOptix()
           log.data(),
           &sizeof_log,
           module));
-#endif
 
       if (sizeof_log > 1)
         reportMessage(ANARI_SEVERITY_DEBUG, "PTX Compile Log:\n%s", log.data());
     });
+
 #ifndef VISRTX_PARALLEL_MODULE_BUILD
     f.wait();
 #endif
+
     return f;
   };
 
   auto compileTasks = std::array{
       init_module(
           &state.rendererModules.debug, Debug::ptx(), "'debug' renderer"),
+      init_module(&state.rendererModules.fast, Fast::ptx(), "'fast' renderer"),
       init_module(
-          &state.rendererModules.raycast, Raycast::ptx(), "'raycast' renderer"),
-      init_module(&state.rendererModules.ambientOcclusion,
-          AmbientOcclusion::ptx(),
-          "'ao' renderer"),
-      init_module(&state.rendererModules.diffusePathTracer,
-          DiffusePathTracer::ptx(),
-          "'dpt' renderer"),
-      init_module(&state.rendererModules.directLight,
-          DirectLight::ptx(),
-          "'default' renderer"),
+          &state.rendererModules.quality, Quality::ptx(), "'quality' renderer"),
+      init_module(&state.rendererModules.interactive,
+          Interactive::ptx(),
+          "'interactive' renderer"),
       init_module(&state.rendererModules.test, Test::ptx(), "'test' renderer"),
       init_module(&state.intersectionModules.customIntersectors,
           intersection_ptx(),
@@ -776,6 +780,22 @@ DeviceInitStatus VisRTXDevice::initOptix()
       init_module(&state.materialShaders.physicallyBased,
           PhysicallyBasedShader::ptx(),
           "'physicallyBased' shader"),
+      init_module(&state.fieldSamplers.structuredRegular,
+          StructuredRegularSampler::ptx(),
+          "'structuredRegular' field sampler"),
+      init_module(&state.fieldSamplers.nvdb,
+          NvdbRegularSampler::ptx(),
+          "'nvdb' field sampler"),
+      init_module(&state.fieldSamplers.structuredRectilinear,
+          StructuredRectilinearSampler::ptx(),
+          "'structuredRectilinear' field sampler"),
+      init_module(&state.fieldSamplers.nvdbRectilinear,
+          NvdbRectilinearSampler::ptx(),
+          "'nanovdbRectilinear' field sampler"),
+      // Custom field sampler module (from devices/visrtx)
+      init_module(&state.fieldSamplers.customField,
+          CustomFieldSampler::ptx(),
+          "'customField' sampler"),
   };
 
   for (auto &f : compileTasks)
@@ -815,7 +835,89 @@ DeviceInitStatus VisRTXDevice::initMDL()
     return DeviceInitStatus::FAILURE;
   }
 
+  // Set search paths now so MaterialX/MDL materials resolve their imports even
+  // when the app never commits the device (the lazy-init path otherwise leaves
+  // the MaterialX support-module path unset → generated MDL fails to compile).
+  syncMdlSearchPaths();
+
   return DeviceInitStatus::SUCCESS;
+}
+
+void VisRTXDevice::syncMdlSearchPaths()
+{
+  const auto parsePaths = [&](const char *param) {
+    auto paths = getParamString(param, "");
+#if defined(WIN32)
+    constexpr char sep = ';';
+#else
+    constexpr char sep = ':';
+#endif
+    std::vector<std::filesystem::path> result;
+    for (auto it = cbegin(paths);;) {
+      while (it != cend(paths) && *it == sep)
+        ++it;
+      if (it == cend(paths))
+        break;
+      auto endOfPathIt = std::find(it, cend(paths), sep);
+      result.emplace_back(it, endOfPathIt);
+      it = endOfPathIt;
+    }
+    return result;
+  };
+
+  auto mdlSearchPaths = parsePaths("mdlSearchPaths");
+#ifdef USE_MATERIALX
+  // Resolve the MaterialX distribution at runtime (ADR 0008): explicit param ->
+  // MATERIALX_SEARCH_PATH -> MaterialX self-discovery -> compile-time last
+  // resort. Re-resolved on every device commit so a changed param takes effect.
+  auto explicitRoots = parsePaths("materialxSearchPaths");
+  auto resolved = materialx::resolveDistributionRoot(explicitRoots);
+  auto &distribution = deviceState()->materialx;
+  if (distribution.root != resolved.root) {
+    ++distribution.generation;
+    // helium's commit buffer filters no-op commits (lastParameterChanged <=
+    // lastCommitted), so an untouched committed material would never evaluate
+    // the new generation. Push every live materialx material back through the
+    // buffer; each retranscodes against the new root on the next flush.
+    for (auto *m : distribution.consumers) {
+      // A created-but-never-committed material has nothing to retranscode —
+      // pushing it would commit half-staged params and report errors on a
+      // correct program. Its own first commit sees the new generation.
+      if (m->lastCommitted() == 0)
+        continue;
+      m->markParameterChanged();
+      deviceState()->commitBuffer.addObjectToCommit(m);
+    }
+  }
+  distribution.root = resolved.root;
+  distribution.trace = std::move(resolved.trace);
+  if (distribution.root.empty()) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "MaterialX: no distribution found; set the materialxSearchPaths device "
+        "parameter or MATERIALX_SEARCH_PATH.%s",
+        distribution.trace.c_str());
+  } else {
+    // Falling past an explicitly-set param is not silent: the app asked for
+    // specific roots and is getting a different distribution (ADR 0008).
+    if (!explicitRoots.empty()
+        && resolved.source != materialx::DistributionRoot::Source::Explicit) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "MaterialX: no materialxSearchPaths entry holds a distribution; "
+          "using %s: %s%s",
+          materialx::sourceName(resolved.source),
+          distribution.root.string().c_str(),
+          distribution.trace.c_str());
+    }
+    // setMdlSearchPaths replaces (not appends) — union before the single call
+    // so the distribution's MDL implementation modules (::materialx::*) stay
+    // resolvable.
+    mdlSearchPaths.emplace_back(distribution.root / "libraries" / "mdl");
+  }
+#endif // defined(USE_MATERIALX)
+  deviceState()->mdl->core.setMdlSearchPaths(mdlSearchPaths);
+
+  auto resourceSearchPaths = parsePaths("mdlResourceSearchPaths");
+  deviceState()->mdl->core.setMdlResourceSearchPaths(resourceSearchPaths);
 }
 #endif // defined(USE_MDL)
 

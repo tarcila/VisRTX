@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,11 +55,19 @@ VISRTX_DEVICE ScreenSample createScreenSample(const FrameGPUData &frameData)
   const int x = computePixelX(launchIdx.x, frameData.fb.checkerboardID);
   const int y = computePixelY(launchIdx.y, frameData.fb.checkerboardID);
   const int w = frameData.fb.size.x;
-  curand_init(y * w + x, 0, frameData.fb.frameID * 512, &ss.rs);
+  // Hash the pixel/frame keys before PCG seeding. Adjacent PCG streams with
+  // tiny seeds expose visible structure when AO consumes only a few samples.
+  const uint64_t pixelLinear = uint64_t(y) * uint64_t(w) + uint64_t(x);
+  const uint64_t streamId = detail::pcg_mix64(pixelLinear);
+  const uint64_t frameSeed =
+      detail::pcg_mix64((uint64_t(frameData.fb.frameID) << 32u) ^ pixelLinear
+          ^ 0xD1B54A32D192ED03ULL);
+  pcg_init(&ss.rs, frameSeed, streamId);
 
   ss.pixel.x = x;
   ss.pixel.y = y;
   ss.frameData = &frameData;
+  ss.shadowContribWeight = 1.0f;
 
   return ss;
 }

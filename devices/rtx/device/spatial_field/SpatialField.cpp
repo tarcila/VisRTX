@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,8 +30,11 @@
  */
 
 #include "SpatialField.h"
+#include "SpatialFieldRegistry.h"
 // specific types
+#include "NvdbRectilinearField.h"
 #include "NvdbRegularField.h"
+#include "StructuredRectilinearField.h"
 #include "StructuredRegularField.h"
 #include "UnknownSpatialField.h"
 
@@ -46,18 +49,30 @@ SpatialField::SpatialField(DeviceGlobalState *s)
 void SpatialField::markFinalized()
 {
   Object::markFinalized();
-  deviceState()->objectUpdates.lastBLASChange = helium::newTimeStamp();
+  deviceState()->objectUpdates.lastVolumeBLASChange = helium::newTimeStamp();
 }
 
 SpatialField *SpatialField::createInstance(
     std::string_view subtype, DeviceGlobalState *d)
 {
+  // Try built-in types first
   if (subtype == "structuredRegular")
     return new StructuredRegularField(d);
+  else if (subtype == "structuredRectilinear")
+    return new StructuredRectilinearField(d);
   else if (subtype == "nanovdb")
     return new NvdbRegularField(d);
-  else
-    return new UnknownSpatialField(subtype, d);
+  else if (subtype == "nanovdbRectilinear")
+    return new NvdbRectilinearField(d);
+  
+  // Try registry for custom field types (registered at static init time)
+  std::string subtypeStr(subtype);
+  if (auto* customField = SpatialFieldRegistry::instance().create(d, subtypeStr)) {
+    return customField;
+  }
+  
+  // Unknown type
+  return new UnknownSpatialField(subtype, d);
 }
 
 } // namespace visrtx

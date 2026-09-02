@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,7 @@
 
 #include "CDF.h"
 
+#include "gpu/gpu_math.h"
 #include "utility/DeviceBuffer.h"
 
 // anari
@@ -44,6 +45,7 @@
 #include <thrust/device_ptr.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
 #include <thrust/reduce.h>
 #include <thrust/scan.h>
 #include <thrust/transform.h>
@@ -77,7 +79,7 @@ void computeWeightedLuminance(
         // Scale distribution by the sine to get the sampling uniform. (Avoid
         // sampling more values near the poles.) See Physically Based Rendering
         // v2, chapter 14.6.5 on Infinite Area Lights, page 728.
-        auto sinTheta = sinf(float(M_PI) * (y + 0.5f) / height);
+        auto sinTheta = sinf(kPi * (y + 0.5f) / height);
         auto rowEnvMapPtr = envMapBegin + y * width;
         auto rowLuminancePtr = luminanceBegin + y * width;
         for (auto i = 0; i < width; i++) {
@@ -121,36 +123,69 @@ void computeConditionalCDFs(
 {
   using thrust::device_pointer_cast;
 
-  for (int y = 0; y < height; ++y) {
-    auto luminanceRow = device_pointer_cast(luminance + y * width);
-    auto conditionalCdfRow = device_pointer_cast(conditionalCdf + y * width);
-    thrust::inclusive_scan(
-        luminanceRow, luminanceRow + width, conditionalCdfRow);
+  // Segmented inclusive scan: key = row index (`i / width`), so the running
+  // sum resets at every row boundary. One launch family independent of
+  // `height`.
+  const auto keys = thrust::make_transform_iterator(
+      thrust::counting_iterator<int>(0),
+      [width] __host__ __device__(int i) { return i / width; });
+
+  thrust::inclusive_scan_by_key(keys,
+      keys + width * height,
+      device_pointer_cast(luminance),
+      device_pointer_cast(conditionalCdf));
+}
+
+void normalizeCDF(thrust::device_ptr<float> cdf, int n)
+{
+  if (n <= 0)
+    return;
+  const float total = cdf[n - 1];
+  if (total > 0.0f) {
+    thrust::transform(
+        cdf, cdf + n, cdf, [total] __device__(float x) { return x / total; });
+  } else {
+    // Empty distribution; fill with uniform values so sampling doesn't walk off
+    // the end.
+    thrust::fill(cdf, cdf + n, 1.0f);
   }
 }
 
 void normalizeMarginalCDF(float *marginalCdf, int height)
 {
-  using thrust::device_pointer_cast;
+  normalizeCDF(thrust::device_pointer_cast(marginalCdf), height);
+}
 
-  auto cdf = device_pointer_cast(marginalCdf);
-  thrust::transform(cdf,
-      cdf + height,
-      cdf,
-      [total = cdf[height - 1]] __device__(float x) { return x / total; });
+__global__ void normalizeConditionalCDFsKernel(float *cdf, int width)
+{
+  // One block per row. Read the row total (cdf[width-1] = sum after the
+  // inclusive scan) into shared memory, then normalize each element in
+  // parallel. Empty rows (total ≤ 0) fill with 1.0 so a downstream sampler
+  // walks the row uniformly instead of running off the end.
+  const int y = blockIdx.x;
+  const int tid = threadIdx.x;
+  float *row = cdf + y * width;
+
+  __shared__ float s_total;
+  if (tid == 0)
+    s_total = row[width - 1];
+  __syncthreads();
+
+  const bool empty = !(s_total > 0.0f);
+  const float invTotal = empty ? 0.0f : 1.0f / s_total;
+
+  for (int x = tid; x < width; x += blockDim.x)
+    row[x] = empty ? 1.0f : row[x] * invTotal;
 }
 
 void normalizeConditionalCDFs(float *d_conditional_cdf, int width, int height)
 {
-  using thrust::device_pointer_cast;
-
-  for (int y = 0; y < height; ++y) {
-    auto cdfRow = device_pointer_cast(d_conditional_cdf + y * width);
-    thrust::transform(
-        cdfRow, cdfRow + width, cdfRow, [total = cdfRow[width - 1]] __device__(float x) {
-          return x / total;
-        });
-  }
+  // One block per row, all `height` rows in parallel.
+  if (width <= 0 || height <= 0)
+    return;
+  constexpr int kThreadsPerBlock = 256;
+  normalizeConditionalCDFsKernel<<<height, kThreadsPerBlock>>>(
+      d_conditional_cdf, width);
 }
 
 } // namespace
@@ -172,22 +207,24 @@ float generateCDFTables(const float *luminanceImage,
   computeRowSums(luminanceImage, rowSums.ptrAs<float>(), width, height);
   computeMarginalCDF(
       rowSums.ptrAs<const float>(), marginalCdf->ptrAs<float>(), height);
-  computeConditionalCDFs(luminanceImage,
-      conditionalCdf->ptrAs<float>(),
-      width,
-      height);
-  
+  computeConditionalCDFs(
+      luminanceImage, conditionalCdf->ptrAs<float>(), width, height);
+
   // Compute pdfWeight
-  
+
   // Not the best, but accumulation operations of cdfs accumulate error.
   // Lets recompute the total luminance from the luminance array
   // to avoid this.
-  auto totalLuminance = reduce(
-      device_pointer_cast(luminanceImage),
-          device_pointer_cast(luminanceImage) + width * height);
+  auto totalLuminance = reduce(device_pointer_cast(luminanceImage),
+      device_pointer_cast(luminanceImage) + width * height);
 
-  float angularArea = 4.0f * float(M_PI) / (width * height);
-  float weight = 1.0f / (totalLuminance * angularArea);
+  // Equirectangular Jacobian |dω/d(u,v)| = 2π²·sinθ; the sinθ weighting is
+  // already folded into the CDF luminance, so the per-pixel area factor is
+  // 2π²/(W·H) and pdf_ω = (L/totalL) · (W·H)/(2π²).
+  // A zero-luminance map produces an inf weight; return 0 instead.
+  const float equirectJacobian = 2.0f * kPi * kPi / (width * height);
+  const float weight =
+      totalLuminance > 0.0f ? 1.0f / (totalLuminance * equirectJacobian) : 0.0f;
 
   // Normalize both tables
   normalizeMarginalCDF(marginalCdf->ptrAs<float>(), height);
@@ -211,8 +248,11 @@ float generateCDFTables(const glm::vec3 *rgbImage,
 
   computeWeightedLuminance(rgbImage, luminance.ptrAs<float>(), width, height);
 
-  return generateCDFTables(
-      luminance.ptrAs<const float>(), width, height, marginalCdf, conditionalCdf);
+  return generateCDFTables(luminance.ptrAs<const float>(),
+      width,
+      height,
+      marginalCdf,
+      conditionalCdf);
 }
 
 } // namespace visrtx

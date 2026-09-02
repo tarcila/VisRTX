@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,6 +72,13 @@ struct Group : public Object
   Span<DeviceObjectIndex> lightGPUIndices() const;
 
   DeviceObjectIndex firstHDRI() const;
+  const std::vector<Light *> &lights() const;
+
+  // Triangle surfaces, the Stage 1 candidates for Geometry Light synthesis.
+  const std::vector<Surface *> &surfacesTriangle() const;
+  // Custom-primitive surfaces (spheres, cylinders, cones, …); the area-samplable
+  // ones (Stage 1.5: Sphere) are also Geometry Light candidates.
+  const std::vector<Surface *> &surfacesUser() const;
 
   void rebuildSurfaceBVHs();
   void rebuildVolumeBVH();

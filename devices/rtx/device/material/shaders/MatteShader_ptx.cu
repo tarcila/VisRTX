@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,16 +45,21 @@ VISRTX_CALLABLE void __direct_callable__init(MatteShadingState *shadingState,
   float opacity = getMaterialParameter(*fd, md->opacity, *hit).x;
 
   shadingState->baseColor = vec3(color);
+  shadingState->normal = hit->Ns;
   shadingState->opacity =
       adjustedMaterialOpacity(color.w * opacity, md->alphaMode, md->cutoff);
+
+  // Fall back to the geometric normal if hit->Ns is NaN (e.g. coincident
+  // curve control points) or zero-length. Negated comparison catches both
+  // since NaN compares false to anything.
+  if (!(glm::dot(shadingState->normal, shadingState->normal) > 1e-12f))
+    shadingState->normal = hit->Ng;
 }
 
 VISRTX_CALLABLE NextRay __direct_callable__nextRay(
-    const MatteShadingState *shadingState,
-    const Ray *ray,
-    RandState *rs)
+    const MatteShadingState *, const Ray *, RandState *)
 {
-  return NextRay{vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 0.0f, 0.0f)};
+  return NextRay{vec3(0.0f), vec3(0.0f), 0.0f};
 }
 
 VISRTX_CALLABLE
@@ -70,9 +75,23 @@ float __direct_callable__evaluateOpacity(const MatteShadingState *shadingState)
 }
 
 VISRTX_CALLABLE
-vec3 __direct_callable__evaluateEmission(const MatteShadingState *shadingState, const vec3* outgoingDir)
+vec3 __direct_callable__evaluateEmission(
+    const MatteShadingState *shadingState, const vec3 *outgoingDir)
 {
   return vec3(0.0f, 0.0f, 0.0f);
+}
+
+VISRTX_CALLABLE
+vec3 __direct_callable__evaluateTransmission(
+    const MatteShadingState *shadingState)
+{
+  return vec3(0.0f);
+}
+
+VISRTX_CALLABLE
+vec3 __direct_callable__evaluateNormal(const MatteShadingState *shadingState)
+{
+  return shadingState->normal;
 }
 
 // Signature must match the call inside shaderMatteSurface in MatteShader.cuh.
@@ -83,5 +102,15 @@ VISRTX_CALLABLE vec3 __direct_callable__shadeSurface(
     const vec3 *outgoingDir)
 {
   float NdotL = fmaxf(0.0f, dot(hit->Ns, lightSample->dir));
-  return shadingState->baseColor * float(M_1_PI) * NdotL * lightSample->radiance / lightSample->pdf;
+  return shadingState->baseColor * kInvPi * NdotL * lightSample->radiance
+      / lightSample->pdf;
+}
+
+// Matte has no continuation ray (nextRay returns a dead ray), so its BSDF can
+// never produce the environment direction: report pdf 0 so env MIS leaves NEE
+// owning the environment (w_nee = 1), matching the pre-MIS behavior.
+VISRTX_CALLABLE float __direct_callable__evaluatePdf(
+    const MatteShadingState *, const vec3 *, const vec3 *)
+{
+  return 0.0f;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,8 @@
 #include <helium/utility/IntrusivePtr.h>
 #include "Geometry.h"
 #include "array/Array1D.h"
+#include "utility/DeviceBuffer.h"
+#include "utility/HostDeviceArray.h"
 
 namespace visrtx {
 
@@ -50,9 +52,29 @@ struct Triangle : public Geometry
 
   int optixGeometryType() const override;
 
+  // Build the per-primitive area CDF and object-space total area used to sample
+  // this geometry as a Geometry Light. Lazy: only Emissive Surfaces call it, so
+  // ordinary meshes never pay for it. Re-uploads GPU data to publish the CDF.
+  bool isAreaSamplingSupported() const override;
+  void ensureAreaData() override;
+  float totalArea() const override;
+
  private:
   GeometryGPUData gpuData() const override;
   void cleanup();
+  void buildAreaData();
+
+  // Build the GPU-side staging for one authored tangent array into 'converted':
+  // VEC4 input is read zero-copy (buffer left empty); VEC3 input is padded to
+  // vec4 (sign defaulted to +1); unsupported element types are reported and
+  // leave the buffer empty so resolveTangentPtr() emits no tangents. Called per
+  // array during finalize().
+  // Returns true if a valid tangent is useable, either directly, or converted
+  bool prepareTangentArray(const helium::IntrusivePtr<Array1D> &tangents,
+      DeviceBuffer &converted,
+      const char *paramName);
+
+  void generateVertexTangents(DeviceBuffer &generated);
 
   helium::ChangeObserverPtr<Array1D> m_index;
   helium::ChangeObserverPtr<Array1D> m_vertex;
@@ -63,9 +85,26 @@ struct Triangle : public Geometry
   helium::IntrusivePtr<Array1D> m_vertexTangent;
   helium::IntrusivePtr<Array1D> m_vertexTangentFV;
 
+  // Finalized per-vertex tangents (vec4). Empty when vertex.tangent is VEC4
+  // (read zero-copy), or when it is absent/unusable and a usable
+  // faceVarying.tangent took priority, or when auto-generation was attempted
+  // but failed. Non-empty when holding VEC3->vec4 padded tangents, or
+  // auto-generated tangents produced because no tangents were authored.
+  DeviceBuffer m_vertexTangentFinalized;
+  // Finalized faceVarying tangents. Empty if input is already VEC4
+  DeviceBuffer m_vertexTangentFVFinalized;
+
   CUdeviceptr m_vertexBufferPtr{};
 
   bool m_cullBackfaces{false};
+
+  // Geometry Light sampling data, built lazily by ensureAreaData(). The CDF is
+  // the normalized cumulative object-space area over primitives. m_areaDataWanted
+  // persists across recommits so a re-finalize rebuilds it order-independently.
+  HostDeviceArray<float> m_primAreaCdf;
+  float m_totalArea{0.f};
+  bool m_areaDataValid{false};
+  bool m_areaDataWanted{false};
 };
 
 } // namespace visrtx

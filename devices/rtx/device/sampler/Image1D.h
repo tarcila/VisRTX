@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,12 +51,12 @@ struct Image1D : public Sampler
  private:
   SamplerGPUData gpuData() const override;
 
-  void cleanup();
+  void cleanupImageCudaArray();
+  void cleanupImageTextureObjects();
 
   std::string m_filter;
   std::string m_wrap1;
   helium::ChangeObserverPtr<Array1D> m_image;
-  helium::TimeStamp m_imageLastUpdated{};
 
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};

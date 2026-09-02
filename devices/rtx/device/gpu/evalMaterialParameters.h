@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -314,6 +314,10 @@ VISRTX_DEVICE vec4 evaluateImageTextureSampler(
   default:
     break;
   }
+
+  if (sampler.numChannels < 4)
+    retval.w = 1.0f;
+
   return sampler.outTransform * retval + sampler.outOffset;
 }
 
@@ -340,6 +344,10 @@ VISRTX_DEVICE vec4 evaluateImageTexelSampler(
   default:
     break;
   }
+
+  if (sampler.numChannels < 4)
+    retval.w = 1.0f;
+
   return sampler.outTransform * retval + sampler.outOffset;
 }
 
@@ -377,6 +385,10 @@ VISRTX_DEVICE vec4 evaluateSampler(
   default:
     break;
   }
+
+  if (sampler.numChannels < 4)
+    retval.w = 1.0f;
+  
   return sampler.outTransform * retval + sampler.outOffset;
 }
 

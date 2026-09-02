@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,6 +65,8 @@ struct World : public Object
   void buildInstanceSurfaceGPUData();
   void buildInstanceVolumeGPUData();
   void buildInstanceLightGPUData();
+  void synthesizeGeometryLights();
+  size_t countGeometryLights(Group *group) const;
   void cleanup();
 
   helium::ChangeObserverPtr<ObjectArray> m_zeroSurfaceData;
@@ -81,7 +83,6 @@ struct World : public Object
   size_t m_numCurveInstances{0};
   size_t m_numUserInstances{0};
   size_t m_numVolumeInstances{0};
-  size_t m_numLightInstances{0};
 
   box3 m_surfaceBounds;
   box3 m_volumeBounds;
@@ -111,7 +112,15 @@ struct World : public Object
   // Lights //
 
   HostDeviceArray<InstanceLightGPUData> m_instanceLightGPUData;
-  DeviceObjectIndex m_hdri{-1};
+  HostDeviceArray<InstanceLightGPUData> m_instanceHdriLightGPUData;
+
+  // Power-proportional Light Pick, rebuilt with the light instances.
+  HostDeviceArray<double> m_lightPickCdf;
+  // Per-slot discrete pick probability (power_i/total), parallel to m_lightPickCdf.
+  HostDeviceArray<float> m_lightPickDelta;
+  float m_totalLightPower{0.f};
+  float m_hdriPower{0.f};
+  float m_sceneRadius{0.f};
 };
 
 } // namespace visrtx

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,6 +43,33 @@ struct Material : public RegisteredObject<MaterialGPUData>
 
   static Material *createInstance(
       std::string_view subtype, DeviceGlobalState *d);
+
+  // Emissive Surface support, decided from committed material state alone, never
+  // from rendering.
+  // - emissionIsConstant: emission is a nonzero constant (not attribute- or
+  //   sampler-bound); emissionAverage() IS that constant, exactly, and the NEE
+  //   fast-path uses it to skip a per-sample material eval.
+  // - emissionIsSampleable: emission is not provably zero (constant, sampler, or
+  //   attribute bound with a nonzero average). This is the Geometry Light gate,
+  //   broadened past constant emission in Stage 2.
+  // - emissionAverage: mean emitted radiance, used only to size Pick Power
+  //   (variance, never bias); zero average ⇒ zero pick weight.
+  virtual bool emissionIsConstant() const;
+  virtual bool emissionIsSampleable() const;
+  virtual vec3 emissionAverage() const;
+
+ protected:
+  // Bump the world's light-set timestamp iff this material's Geometry Light
+  // eligibility or average radiance changed since the last commit, so emissive
+  // edits rebuild the light set while ordinary edits (roughness, color) stay
+  // free. Subclasses call this once their emission state is resolved: native
+  // PBR at the end of commitParameters(); the MDL family at the end of
+  // finalize(), where the compile-time emission classification is known.
+  void refreshEmissionLightSet();
+
+ private:
+  bool m_emissionWasSampleable{false};
+  vec3 m_lastEmissionAverage{0.f};
 };
 
 // Inlined helper functions ///////////////////////////////////////////////////
@@ -71,6 +98,18 @@ inline AlphaMode alphaModeFromString(const std::string &s)
     return AlphaMode::MASK;
   else
     return AlphaMode::OPAQUE;
+}
+
+// Inline VALUE with channel ≥ 1 — no sampler/attribute can lower it.
+inline bool isStaticOne(const MaterialParameter &mp, int channel = 0)
+{
+  return mp.type == MaterialParameterType::VALUE && mp.value[channel] >= 1.0f;
+}
+
+// Inline VALUE clamped to 0. Used to gate the static-opaque shortcut.
+inline bool isStaticZero(const MaterialParameter &mp, int channel = 0)
+{
+  return mp.type == MaterialParameterType::VALUE && mp.value[channel] <= 0.0f;
 }
 
 } // namespace visrtx

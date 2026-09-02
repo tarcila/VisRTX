@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -52,8 +52,11 @@
 #include "mdl/SamplerRegistry.h"
 #endif // defined(USE_MDL)
 // std
+#include <filesystem>
 #include <optional>
+#include <set>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #ifdef OPAQUE
@@ -145,6 +148,8 @@ constexpr int ATTRIBUTE_VALUES = 4;
   }
 
 VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box1, ANARI_FLOAT32_BOX1);
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box2, ANARI_FLOAT32_BOX2);
+VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box3, ANARI_FLOAT32_BOX3);
 
 namespace visrtx {
 
@@ -170,10 +175,9 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
   struct RendererModules
   {
     OptixModule debug{nullptr};
-    OptixModule raycast{nullptr};
-    OptixModule ambientOcclusion{nullptr};
-    OptixModule diffusePathTracer{nullptr};
-    OptixModule directLight{nullptr};
+    OptixModule fast{nullptr};
+    OptixModule interactive{nullptr};
+    OptixModule quality{nullptr};
     OptixModule test{nullptr};
 #ifdef USE_MDL
     OptixModule mdl{nullptr};
@@ -193,9 +197,20 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
     OptixModule physicallyBased{nullptr};
   } materialShaders;
 
+  struct SpatialFieldModules
+  {
+    OptixModule structuredRegular{nullptr};
+    OptixModule nvdb{nullptr};
+    OptixModule structuredRectilinear{nullptr};
+    OptixModule nvdbRectilinear{nullptr};
+    OptixModule customField{nullptr};
+  } fieldSamplers;
+
   struct ObjectUpdates
   {
-    helium::TimeStamp lastBLASChange{0};
+    helium::TimeStamp lastSurfaceBLASChange{0};
+    helium::TimeStamp lastVolumeBLASChange{0};
+    helium::TimeStamp lastLightSetChange{0};
     helium::TimeStamp lastTLASChange{0};
   } objectUpdates;
 
@@ -233,6 +248,23 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
   };
   std::optional<MDL> mdl;
 #endif // defined(USE_MDL)
+
+#ifdef USE_MATERIALX
+  // MaterialX distribution resolved at runtime (ADR 0008); re-resolved on
+  // device commit. `root` empty = unresolved; `trace` names the chain misses.
+  // `generation` bumps whenever the resolved root changes so committed
+  // materials know their generated MDL is stale (MaterialX::needsRetranscode).
+  // `consumers` = live materialx materials: helium's commit buffer filters
+  // no-op commits, so a generation bump must push each one back through it or
+  // an untouched material would never observe the new root.
+  struct MaterialXDistribution
+  {
+    std::filesystem::path root;
+    std::string trace;
+    uint64_t generation{0};
+    std::set<helium::BaseObject *> consumers;
+  } materialx;
+#endif // defined(USE_MATERIALX)
   // Helper methods //
 
   DeviceGlobalState(ANARIDevice d);

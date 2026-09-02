@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include "gpu/gpu_math.h"
 #include "spatial_field/SpatialField.h"
 
 #include "array/Array1D.h"
@@ -61,6 +62,9 @@ struct NvdbRegularField : public SpatialField
   box3 m_bounds;
   vec3 m_voxelSize;
   std::string m_filter;
+  bool m_cellCentered{true};
+  box3 m_roi{box3(vec3(std::numeric_limits<float>::lowest()),
+                  vec3(std::numeric_limits<float>::max()))};
   helium::ChangeObserverPtr<Array1D> m_data;
   std::optional<nanovdb::GridMetaData> m_gridMetadata;
   DeviceBuffer m_deviceBuffer;

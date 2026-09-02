@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,7 @@
 #include "optix_visrtx.h"
 
 #include "libmdl/ArgumentBlockInstance.h"
+#include "libmdl/EmissionDescriptor.h"
 #include "sampler/Sampler.h"
 
 #include <optional>
@@ -53,12 +54,41 @@ struct MDL : public Material
   void commitParameters() override;
   void finalize() override;
 
+  // A raw `mdl` material publishes an emission descriptor folded from its IR
+  // against its live arguments (ADR 0007). The renderer policy registers the
+  // surface slot as a Geometry Light iff it is non-null and faithfully
+  // NEE-evaluable (diffuse, radiant-exitance, non-negative, no geometric-state
+  // dependence). emissionAverage returns the non-negative meanPositive
+  // magnitude that weights the Light Pick. emissionIsConstant stays false: the
+  // EDF path is always taken and the average only weights the pick.
+  bool emissionIsSampleable() const override;
+  vec3 emissionAverage() const override;
+
   // Handle source changes
   void syncSource();
   // Update actual implementation index to use for the material.
   void syncImplementationIndex();
   // Handle argument block update
   void syncParameters();
+
+ protected:
+  // Source handoff for subclasses that GENERATE their MDL source during
+  // commitParameters (MaterialX). This is the ONLY channel for the generated
+  // code — subclasses must NOT write it into source/sourceType/materialName:
+  // under helium snapshot-commit staged writes are invisible to the getters
+  // syncSource uses until the NEXT flush (the raw document path would compile
+  // as MDL code), and overwriting `source` destroys the app's document for
+  // later retranscodes. The app's params stay authoritative; subclasses
+  // re-populate this override every commit and syncSource prefers it when
+  // set. materialName nullopt = no selection (mirrors an absent
+  // "materialName" param).
+  struct SourceHandoff
+  {
+    std::string sourceType;
+    std::string source;
+    std::optional<std::string> materialName;
+  };
+  std::optional<SourceHandoff> m_sourceHandoff;
 
  private:
   MaterialGPUData gpuData() const override;
@@ -70,13 +100,16 @@ struct MDL : public Material
 
   std::string m_source;
   std::string m_sourceType;
-  struct SamplerDesc {
-    Sampler* sampler;
+  std::optional<std::string> m_materialName;
+  struct SamplerDesc
+  {
+    Sampler *sampler = nullptr;
     std::string name;
-    bool isFromRegistry;
-    bool operator==(const SamplerDesc &other) const {
-      return sampler == other.sampler && name == other.name &&
-             isFromRegistry == other.isFromRegistry;
+    bool isFromRegistry = false;
+    bool operator==(const SamplerDesc &other) const
+    {
+      return sampler == other.sampler && name == other.name
+          && isFromRegistry == other.isFromRegistry;
     }
   };
   std::vector<SamplerDesc> m_samplers;
@@ -84,6 +117,9 @@ struct MDL : public Material
   libmdl::Uuid m_uuid{};
   mdl::MaterialRegistry::ImplementationIndex m_implementationIndex{};
   std::optional<libmdl::ArgumentBlockInstance> m_argumentBlockInstance;
+  // Folded at finalize from the registry's compile-time IR (keyed by m_uuid)
+  // against this instance's live arguments and samplers.
+  libmdl::EmissionDescriptor m_emissionDescriptor;
 };
 
 } // namespace visrtx

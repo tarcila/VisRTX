@@ -1,7 +1,8 @@
-// Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "Core.h"
+#include "source_name_utils.h"
 
 #include <mi/base/enums.h>
 #include <mi/base/handle.h>
@@ -47,7 +48,7 @@ std::tuple<std::string, std::string> parseMaterialSourceName(
     // input already has ::main attached (optional)
     if (p_last != std::string::npos) {
       potential_path = name.substr(0, p_last);
-      potential_material_name = name.substr(p_last + 2, name.size() - p_last);
+      potential_material_name = name.substr(p_last + 2);
     }
 
     // is it an mdle?
@@ -72,11 +73,10 @@ std::tuple<std::string, std::string> parseMaterialSourceName(
         "The provided name '{}' is not an absolute fully-qualified"
         " material name, a leading '::' has been added.",
         name);
-    outModuleName = "::";
   }
 
-  outModuleName.append(name.substr(0, p_last));
-  outMaterialName = name.substr(p_last + 2, name.size() - p_last);
+  outModuleName = normalizeModuleName(name.substr(0, p_last));
+  outMaterialName = name.substr(p_last + 2);
   return {outModuleName, outMaterialName};
 }
 

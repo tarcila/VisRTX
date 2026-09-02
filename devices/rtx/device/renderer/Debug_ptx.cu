@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,14 +30,14 @@
  */
 
 #include "DebugMethod.h"
+#include "gpu/evalShading.h"
+#include "gpu/intersectRay.h"
+#include "gpu/renderer/common.h"
+#include "gpu/renderer/raygen_helpers.h"
+#include "gpu/shadingState.h"
 #include "gpu/shading_api.h"
 
 namespace visrtx {
-
-enum class RayType
-{
-  DEBUG
-};
 
 struct SurfaceRayData : public SurfaceHit
 {
@@ -50,6 +50,21 @@ struct VolumeRayData : public VolumeHit
 };
 
 DECLARE_FRAME_DATA(frameData)
+
+struct BaseColorShadingPolicy
+{
+  static VISRTX_DEVICE vec3 shadeSurface(
+      const MaterialShadingState &shadingState,
+      ScreenSample &ss,
+      const Ray &ray,
+      const SurfaceHit &hit)
+  {
+    auto baseColor = materialEvaluateTint(shadingState);
+    const auto lighting =
+        glm::abs(glm::dot(ray.dir, hit.Ns)) * frameData.renderer.ambientColor;
+    return baseColor * lighting;
+  }
+};
 
 VISRTX_DEVICE void handleSurfaceHit()
 {
@@ -78,6 +93,13 @@ VISRTX_DEVICE void handleSurfaceHit()
   case DebugMethod::INST_INDEX:
     rd.outColor = makeRandomColor(ray::instID());
     break;
+  case DebugMethod::MAT_ID: {
+    const auto &ss = ray::screenSample();
+    const auto &fd = *ss.frameData;
+    const auto &sd = ray::surfaceData(fd);
+    rd.outColor = makeRandomColor(sd.material);
+    break;
+  }
   case DebugMethod::RAY_UVW:
     rd.outColor = ray::uvw(rd.geometry->type);
     break;
@@ -182,6 +204,12 @@ VISRTX_DEVICE void handleVolumeHit()
 
 VISRTX_GLOBAL void __closesthit__()
 {
+  const auto method =
+      static_cast<DebugMethod>(frameData.renderer.params.debug.method);
+  if (method == DebugMethod::BASE_COLOR) {
+    ray::populateHit();
+    return;
+  }
   if (ray::isIntersectingSurfaces())
     handleSurfaceHit();
   else
@@ -198,9 +226,20 @@ VISRTX_GLOBAL void __raygen__()
   auto ss = createScreenSample(frameData);
   if (pixelOutOfFrame(ss.pixel, frameData.fb))
     return;
-  auto ray = makePrimaryRay(ss, true /*pixel centered*/);
 
-  auto color = vec3(getBackgroundImage(frameData.renderer, ss.screen));
+  const auto method =
+      static_cast<DebugMethod>(frameData.renderer.params.debug.method);
+  if (method == DebugMethod::BASE_COLOR) {
+    renderPixel<BaseColorShadingPolicy>(frameData, ss);
+    return;
+  }
+
+  auto ray = makePrimaryRay(ss, 0u, true /*pixel centered*/);
+
+  vec3 color{0.f};
+  if (vec3 hdri; getBackgroundLight(frameData, ray.dir, hdri)) {
+    color = hdri;
+  }
   auto depth = ray.t.upper;
   auto normal = ray.dir;
   uint32_t primID = ~0u;
@@ -208,10 +247,10 @@ VISRTX_GLOBAL void __raygen__()
   uint32_t instID = ~0u;
 
   SurfaceRayData srd{};
-  intersectSurface(ss, ray, RayType::DEBUG, &srd);
+  intersectSurface(ss, ray, RayType::PRIMARY, &srd);
 
   VolumeRayData vrd{};
-  intersectVolume(ss, ray, RayType::DEBUG, &vrd);
+  intersectVolume(ss, ray, RayType::PRIMARY, &vrd);
 
   if (srd.foundHit && vrd.foundHit) {
     const bool volumeFirst = vrd.localRay.t.lower < srd.t;
@@ -246,15 +285,9 @@ VISRTX_GLOBAL void __raygen__()
     instID = vrd.instance->id;
   }
 
-  accumResults(frameData,
-      ss.pixel,
-      vec4(color, 1.f),
-      depth,
-      color,
-      normal,
-      primID,
-      objID,
-      instID);
+  setPixelIds(frameData.fb, ss.pixel, depth, primID, objID, instID);
+
+  accumPixelSample(frameData, ss.pixel, vec4(color, 1.f), color, normal);
 }
 
 } // namespace visrtx

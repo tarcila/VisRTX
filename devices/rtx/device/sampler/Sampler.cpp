@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,6 +65,29 @@ Sampler *Sampler::createInstance(std::string_view subtype, DeviceGlobalState *d)
     return new UnknownSampler(subtype, d);
 }
 
+vec4 Sampler::averageValue() const
+{
+  return vec4(1.f);
+}
+
+#if defined(USE_MDL)
+libmdl::ResourceStats Sampler::emissionStats() const
+{
+  // A sampler that cannot reduce its texels proves nothing: not zero (maxAbs
+  // nonzero), not non-negative (minValue negative), unit magnitude proxy. Its
+  // emission stays register-ineligible via the policy's sign gate —
+  // forward-only, unbiased — until a real reduction (Image2D) is available.
+  libmdl::ResourceStats s;
+  s.valid = true;
+  s.maxAbs = {1.f, 1.f, 1.f};
+  s.meanPositive = {1.f, 1.f, 1.f};
+  s.minValue = {-1.f, -1.f, -1.f};
+  s.transferPreservesZero = false;
+  s.finite = true;
+  return s;
+}
+#endif
+
 void Sampler::commitParameters()
 {
   m_inAttribute = getParamString("inAttribute", "attribute0");
@@ -79,6 +102,7 @@ SamplerGPUData Sampler::gpuData() const
 {
   SamplerGPUData retval;
   retval.attribute = attributeFromString(m_inAttribute);
+  retval.numChannels = uint32_t(numChannels());
   retval.inTransform = m_inTransform;
   retval.inOffset = m_inOffset;
   retval.outTransform = m_outTransform;

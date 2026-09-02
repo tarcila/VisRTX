@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,21 +31,22 @@
 
 #pragma once
 
+#include "gpu/halton.h"
 #include "gpu_objects.h"
 
 namespace visrtx {
 
-VISRTX_DEVICE Ray cameraCreateRay(const CameraGPUData *c, vec2 screen, vec2 r)
+VISRTX_DEVICE Ray cameraCreateRay(const CameraGPUData &c, vec2 screen, vec2 r)
 {
   Ray ray;
 
-  screen.x = glm::mix(c->region[0], c->region[2], screen.x);
-  screen.y = glm::mix(c->region[1], c->region[3], screen.y);
+  screen.x = glm::mix(c.region[0], c.region[2], screen.x);
+  screen.y = glm::mix(c.region[1], c.region[3], screen.y);
 
-  switch (c->type) {
+  switch (c.type) {
   case CameraType::PERSPECTIVE: {
-    const auto &p = c->perspective;
-    ray.org = c->pos;
+    const auto &p = c.perspective;
+    ray.org = c.pos;
     ray.dir = p.dir_00 + screen.x * p.dir_du + screen.y * p.dir_dv;
 
     if (p.scaledAperture > 0.f) {
@@ -59,8 +60,8 @@ VISRTX_DEVICE Ray cameraCreateRay(const CameraGPUData *c, vec2 screen, vec2 r)
     break;
   }
   case CameraType::ORTHOGRAPHIC: {
-    const auto &o = c->orthographic;
-    ray.dir = c->dir;
+    const auto &o = c.orthographic;
+    ray.dir = c.dir;
     ray.org = o.pos_00 + screen.x * o.pos_du + screen.y * o.pos_dv;
     break;
   }
@@ -71,10 +72,19 @@ VISRTX_DEVICE Ray cameraCreateRay(const CameraGPUData *c, vec2 screen, vec2 r)
   return ray;
 }
 
-VISRTX_DEVICE Ray makePrimaryRay(ScreenSample &ss, bool centerPixel = false)
+// sampleIdx is a (frame-counter × spp_loop) ordinal advancing once per
+// camera sample within the frame's accumulation; combined with a
+// per-pixel hash offset it indexes a Halton 4D point used for
+// sub-pixel jitter (dims 0/1) + lens aperture (dims 2/3). Halton at
+// the camera level converges the AA / DoF integrals strictly faster
+// than uniform random — see gpu/halton.h.
+VISRTX_DEVICE Ray makePrimaryRay(
+    ScreenSample &ss, uint32_t sampleIdx, bool centerPixel = false)
 {
-  const ::float4 r = curand_uniform4(&ss.rs);
-  ss.screen = (centerPixel ? vec2(ss.pixel.x, ss.pixel.y)
+  const uint32_t haltonIdx =
+      sampleIdx + haltonPixelHash(ss.pixel.x, ss.pixel.y);
+  const ::float4 r = halton4D(haltonIdx);
+  ss.screen = (centerPixel ? vec2(ss.pixel.x + 0.5f, ss.pixel.y + 0.5f)
                            : vec2(ss.pixel.x + r.x, ss.pixel.y + r.y))
       * ss.frameData->fb.invSize;
   return cameraCreateRay(ss.frameData->camera, ss.screen, {r.z, r.w});

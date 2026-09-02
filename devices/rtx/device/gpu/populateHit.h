@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -197,6 +197,14 @@ VISRTX_DEVICE const VolumeGPUData &volumeData(const FrameGPUData &frameData)
   return frameData.registry.volumes[idx];
 }
 
+VISRTX_DEVICE const SpatialFieldGPUData &fieldData(
+    const FrameGPUData &frameData, const VolumeGPUData &volumeData)
+{
+  // Currently only TF1D volume type is supported, so assume this is what we
+  // have
+  return frameData.registry.fields[volumeData.data.tf1d.field];
+}
+
 VISRTX_DEVICE void computeTangentSpace(
     const GeometryGPUData &ggd, uint32_t primID, SurfaceHit &hit)
 {
@@ -217,40 +225,54 @@ VISRTX_DEVICE void computeTangentSpace(
     if (!optixIsFrontFaceHit())
       hit.Ng = -hit.Ng;
 
+    vec3 n0, n1, n2;
+    bool hasVertexNormals = true;
     if (ggd.tri.vertexNormalsFV != nullptr) {
-      const uvec3 idx = uvec3(0, 1, 2) + (hit.primID * 3);
-
-      const vec3 n0 = ggd.tri.vertexNormalsFV[idx.x];
-      const vec3 n1 = ggd.tri.vertexNormalsFV[idx.y];
-      const vec3 n2 = ggd.tri.vertexNormalsFV[idx.z];
-      hit.Ns = b.x * n0 + b.y * n1 + b.z * n2;
+      const uvec3 nidx = uvec3(0, 1, 2) + (hit.primID * 3);
+      n0 = ggd.tri.vertexNormalsFV[nidx.x];
+      n1 = ggd.tri.vertexNormalsFV[nidx.y];
+      n2 = ggd.tri.vertexNormalsFV[nidx.z];
     } else if (ggd.tri.vertexNormals != nullptr) {
-      const vec3 n0 = ggd.tri.vertexNormals[idx.x];
-      const vec3 n1 = ggd.tri.vertexNormals[idx.y];
-      const vec3 n2 = ggd.tri.vertexNormals[idx.z];
+      n0 = ggd.tri.vertexNormals[idx.x];
+      n1 = ggd.tri.vertexNormals[idx.y];
+      n2 = ggd.tri.vertexNormals[idx.z];
+    } else {
+      hasVertexNormals = false;
+    }
+
+    if (hasVertexNormals)
       hit.Ns = b.x * n0 + b.y * n1 + b.z * n2;
-    } else
+    else
       hit.Ns = hit.Ng;
 
     hit.Ns = normalize(hit.Ns);
 
-    if (ggd.tri.vertexTangentsFV != nullptr) {
-      const uvec3 idx = uvec3(0, 1, 2) + (hit.primID * 3);
+    const bool hasTangentsFV = ggd.tri.vertexTangentsFV != nullptr;
+    const bool hasTangentsV = ggd.tri.vertexTangents != nullptr;
+    if (hasTangentsFV || hasTangentsV) {
+      const uvec3 tIdx =
+          hasTangentsFV ? uvec3(0, 1, 2) + (hit.primID * 3) : idx;
+      const vec4 *tArr =
+          hasTangentsFV ? ggd.tri.vertexTangentsFV : ggd.tri.vertexTangents;
+      const vec4 t0 = tArr[tIdx.x];
+      const vec4 t1 = tArr[tIdx.y];
+      const vec4 t2 = tArr[tIdx.z];
 
-      const vec3 t0 = ggd.tri.vertexTangentsFV[idx.x];
-      const vec3 t1 = ggd.tri.vertexTangentsFV[idx.y];
-      const vec3 t2 = ggd.tri.vertexTangentsFV[idx.z];
-      const float handedness = ggd.tri.vertexTangentsFV[idx.x].w;
+      // At UV mirror seams the sign flips between adjacent vertices;
+      // barycentric-summing the signs and applying a single sign at the
+      // hit point would carve seam edges into the tangent frame.
+      // Build each vertex's bitangent with its own sign and normal,
+      // then blend B and T independently — same convention
+      // as glTF Sample Renderer, PBRT, Filament.
+      const vec3 N0 = hasVertexNormals ? n0 : hit.Ng;
+      const vec3 N1 = hasVertexNormals ? n1 : hit.Ng;
+      const vec3 N2 = hasVertexNormals ? n2 : hit.Ng;
+      const vec3 B0 = t0.w * cross(N0, vec3(t0));
+      const vec3 B1 = t1.w * cross(N1, vec3(t1));
+      const vec3 B2 = t2.w * cross(N2, vec3(t2));
+
       hit.tU = normalize(b.x * vec3(t0) + b.y * vec3(t1) + b.z * vec3(t2));
-      hit.tV = handedness * normalize(cross(hit.Ns, hit.tU));
-    } else if (ggd.tri.vertexTangents != nullptr) {
-      const vec3 t0 = ggd.tri.vertexTangents[idx.x];
-      const vec3 t1 = ggd.tri.vertexTangents[idx.y];
-      const vec3 t2 = ggd.tri.vertexTangents[idx.z];
-      const float handedness = ggd.tri.vertexTangents[idx.x].w;
-
-      hit.tU = normalize(b.x * t0 + b.y * t1 + b.z * t2);
-      hit.tV = handedness * normalize(cross(hit.Ns, hit.tU));
+      hit.tV = normalize(b.x * B0 + b.y * B1 + b.z * B2);
     } else {
       auto tangentSpace = computeOrthonormalBasis(hit.Ng);
       hit.tU = tangentSpace[0];
@@ -284,12 +306,30 @@ VISRTX_DEVICE void computeTangentSpace(
     break;
   }
   case GeometryType::SPHERE:
+  case GeometryType::ISOSURFACE:
   case GeometryType::CONE:
   case GeometryType::NEURAL:
-  case GeometryType::CYLINDER: {
-    hit.Ng = hit.Ns = vec3(bit_cast<float>(optixGetAttribute_1()),
+  case GeometryType::CYLINDER:
+  case GeometryType::SDF: {
+    vec3 n = vec3(bit_cast<float>(optixGetAttribute_1()),
         bit_cast<float>(optixGetAttribute_2()),
         bit_cast<float>(optixGetAttribute_3()));
+    // Analytic intersectors report entry AND exit crossings with the OUTWARD
+    // (object-space) normal; orient it toward the ray and record facing.
+    // Do the facing test in WORLD space — transform the normal to world and
+    // compare to the world ray direction — rather than reconstructing the
+    // object-space ray direction as worldToObject * worldDir. That
+    // reconstruction does not round-trip optixGetObjectRayDirection() for
+    // rotated/sheared instances, so the flip boundary landed in the wrong place
+    // and half the surface got an inward normal, rendering black (issue #336).
+    // Isosurface/SDF/neural normals already face the ray, so this leaves them
+    // on isFrontFace == true unchanged.
+    const vec3 worldN = make_vec3(
+        optixTransformNormalFromObjectToWorldSpace((::float3 &)n));
+    hit.isFrontFace = dot(worldN, ray::direction()) < 0.f;
+    if (!hit.isFrontFace)
+      n = -n;
+    hit.Ng = hit.Ns = n;
     auto tangentSpace = computeOrthonormalBasis(hit.Ng);
     hit.tU = tangentSpace[0];
     hit.tV = tangentSpace[1];
@@ -343,6 +383,29 @@ VISRTX_DEVICE void cullbackFaces()
     optixIgnoreIntersection();
 }
 
+VISRTX_DEVICE void cullCutPlane()
+{
+  auto &ss = screenSample();
+  auto &fd = *ss.frameData;
+  const auto &cp = fd.renderer.cutPlane;
+  if (cp == vec4(0.f))
+    return;
+  const vec3 N(cp.x, cp.y, cp.z);
+  const vec3 hitPos = hitpoint();
+  if (glm::dot(N, hitPos) + cp.w < 0.f)
+    optixIgnoreIntersection();
+}
+
+// hit.epsilon floor for analytic primitives, in units of the geometry's
+// object-space coordinate scale (GeometryGPUData::epsilonScale). The
+// intersectors' quadratics run at that scale, so their fp noise band is
+// ~tens of ulps OF THAT SCALE; a secondary ray must clear it or phantom
+// self-hits shadow the surface (acne rings on large ground spheres).
+// epsilonFrom alone under-lifts wherever the hitpoint's own coordinates are
+// small (e.g. near the origin on a giant sphere centered at -r*Y). ~64 fp32
+// ulps.
+constexpr float kAnalyticEpsilonScale = 0x1.p-17f;
+
 VISRTX_DEVICE void populateSurfaceHit(SurfaceHit &hit)
 {
   const auto &ss = ray::screenSample();
@@ -362,22 +425,37 @@ VISRTX_DEVICE void populateSurfaceHit(SurfaceHit &hit)
   hit.hitpoint = ray::hitpoint();
   hit.uvw = ray::uvw(gd.type);
   hit.primID = ray::primID();
+  if (gd.type == GeometryType::ISOSURFACE)
+    hit.primID = optixGetHitKind();
   hit.objID = sd.id;
   hit.instID = isd.id;
   hit.epsilon = epsilonFrom(ray::hitpoint(), ray::direction(), ray::t());
+  if (gd.epsilonScale > 0.f) {
+    // Object-space scale -> world units via the object->world distance ratio
+    // along the ray (same construction as the isosurface branch below).
+    const vec3 wdir = ray::direction();
+    const vec3 odir = mat3(hit.instance->worldToObject) * wdir;
+    hit.epsilon = fmaxf(hit.epsilon,
+        gd.epsilonScale * kAnalyticEpsilonScale * length(wdir) / length(odir));
+  }
+  if (gd.type == GeometryType::ISOSURFACE) {
+    // Isosurface hits lie on a voxel-resolution surface — exact voxel faces for
+    // the nearest voxel-DDA, bisection-localized for the marched linear/custom
+    // path. Either way the surface has voxel-scale relief, so a secondary ray
+    // offset by less than a voxel grazes into adjacent voxels and self-occludes
+    // (AO/shadow acne; on blocky nearest surfaces, a per-voxel waffle).
+    // stepSize is half the smallest voxel, so 2*stepSize lifts the ray clear by
+    // one. stepSize is object-space but hit.epsilon is world-space, so under a
+    // scaled instance scale the lift by the object->world distance ratio along
+    // the ray: |worldDir|/|objDir|. optixGetObjectRayDirection is illegal in
+    // closest-hit, so derive objDir from the stored worldToObject linear map
+    // instead.
+    const vec3 wdir = ray::direction();
+    const vec3 odir = mat3(hit.instance->worldToObject) * wdir;
+    hit.epsilon = fmaxf(hit.epsilon,
+        2.f * gd.isosurface.stepSize * length(wdir) / length(odir));
+  }
   ray::computeTangentSpace(gd, ray::primID(), hit);
-
-  const auto &handle = optixGetTransformListHandle(0);
-  const ::float4 *tW = optixGetInstanceTransformFromHandle(handle);
-  const ::float4 *tO = optixGetInstanceInverseTransformFromHandle(handle);
-
-  hit.objectToWorld[0] = bit_cast<vec4>(tW[0]);
-  hit.objectToWorld[1] = bit_cast<vec4>(tW[1]);
-  hit.objectToWorld[2] = bit_cast<vec4>(tW[2]);
-
-  hit.worldToObject[0] = bit_cast<vec4>(tO[0]);
-  hit.worldToObject[1] = bit_cast<vec4>(tO[1]);
-  hit.worldToObject[2] = bit_cast<vec4>(tO[2]);
 }
 
 VISRTX_DEVICE void populateVolumeHit(VolumeHit &hit)
@@ -390,9 +468,6 @@ VISRTX_DEVICE void populateVolumeHit(VolumeHit &hit)
   hit.foundHit = true;
   hit.volume = &ray::volumeData(fd);
   hit.instance = &ivd;
-
-  hit.lastVolID = ray::objID();
-  hit.lastInstID = ray::instID();
 
   const auto ro = optixGetWorldRayOrigin();
   hit.localRay.org = make_vec3(optixTransformPointFromWorldToObjectSpace(ro));

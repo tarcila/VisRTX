@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,14 @@
  */
 
 #include "StructuredRegularField.h"
+
+#include "gpu/gpu_decl.h"
+#include "gpu/shadingState.h"
+
+// anari
+#include <anari/anari_cpp/Traits.h>
 #include "utility/AnariTypeHelpers.h"
+
 // std
 #include <algorithm>
 #include <limits>
@@ -91,8 +98,16 @@ void StructuredRegularField::commitParameters()
 {
   m_origin = getParam<vec3>("origin", vec3(0.f));
   m_spacing = getParam<vec3>("spacing", vec3(1.f));
+
+  auto dataCentering = getParamString("dataCentering", "node");
+  m_cellCentered = (dataCentering == "cell");
   m_filter = getParamString("filter", "linear");
   m_data = getParamObject<Array3D>("data");
+
+  // ROI in object space (default: full range)
+  m_roi = getParam<box3>("roi",
+      box3(vec3(std::numeric_limits<float>::lowest()),
+          vec3(std::numeric_limits<float>::max())));
 }
 
 void StructuredRegularField::finalize()
@@ -150,7 +165,7 @@ void StructuredRegularField::finalize()
       m_filter == "nearest" ? cudaFilterModePoint : cudaFilterModeLinear;
   texDesc.readMode =
       isFloat(format) ? cudaReadModeElementType : cudaReadModeNormalizedFloat;
-  texDesc.normalizedCoords = 1;
+  texDesc.normalizedCoords = 0;
 
   cudaCreateTextureObject(&m_textureObject, &resDesc, &texDesc, nullptr);
 
@@ -168,8 +183,13 @@ box3 StructuredRegularField::bounds() const
   if (!isValid())
     return {box3(vec3(0.f), vec3(1.f))};
   auto dims = m_data->size();
+  // Node-centered: index space [0, dims-1], cell-centered: index space [0,
+  // dims]
+  float extentX = m_cellCentered ? float(dims.x) : float(dims.x - 1);
+  float extentY = m_cellCentered ? float(dims.y) : float(dims.y - 1);
+  float extentZ = m_cellCentered ? float(dims.z) : float(dims.z - 1);
   return box3(
-      m_origin, m_origin + ((vec3(dims.x, dims.y, dims.z) - 1.f) * m_spacing));
+      m_origin, m_origin + (vec3(extentX, extentY, extentZ) * m_spacing));
 }
 
 float StructuredRegularField::stepSize() const
@@ -181,13 +201,20 @@ SpatialFieldGPUData StructuredRegularField::gpuData() const
 {
   SpatialFieldGPUData sf;
   auto dims = m_data->size();
-  sf.type = SpatialFieldType::STRUCTURED_REGULAR;
+  sf.samplerCallableIndex = SbtCallableEntryPoints::SpatialFieldSamplerRegular;
   sf.data.structuredRegular.texObj = m_textureObject;
   sf.data.structuredRegular.origin = m_origin;
-  sf.data.structuredRegular.spacing = m_spacing;
-  sf.data.structuredRegular.invSpacing =
-      vec3(1.f) / (m_spacing * vec3(dims.x, dims.y, dims.z));
+  sf.data.structuredRegular.invSpacing = 1.0f / m_spacing;
+  sf.data.structuredRegular.dims = ivec3(dims.x, dims.y, dims.z);
+  sf.data.structuredRegular.cellCentered = m_cellCentered;
+  sf.data.structuredRegular.filter = m_filter == "nearest"
+      ? SpatialFieldFilter::Nearest
+      : SpatialFieldFilter::Linear;
   sf.grid = m_uniformGrid.gpuData();
+
+  sf.roi.lower = m_roi.lower;
+  sf.roi.upper = m_roi.upper;
+
   return sf;
 }
 
@@ -206,9 +233,7 @@ void StructuredRegularField::buildGrid()
 {
   auto dims = m_data->size();
   m_uniformGrid.init(ivec3(dims.x, dims.y, dims.z), bounds());
-
-  size_t numVoxels = (dims.x - 1) * size_t(dims.y - 1) * (dims.z - 1);
-  m_uniformGrid.buildGrid(gpuData());
+  m_uniformGrid.computeValueRanges(gpuData());
 }
 
 } // namespace visrtx

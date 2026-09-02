@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,10 @@
 
 #include "Denoiser.h"
 #include "gpu/gpu_util.h"
+#include "utility/DeviceBuffer.h"
 #include "utility/instrument.h"
+// optix
+#include <optix_denoiser_tiling.h>
 // thrust
 #include <thrust/device_ptr.h>
 #include <thrust/transform.h>
@@ -48,44 +51,79 @@ Denoiser::~Denoiser()
     OPTIX_CHECK(optixDenoiserDestroy(m_denoiser));
 }
 
-void Denoiser::setup(
-    uvec2 size, HostDeviceArray<uint8_t> &pixelBuffer, ANARIDataType format)
+void Denoiser::setup(uvec2 size,
+    HostDeviceArray<uint8_t> &outputBuffer,
+    ANARIDataType format,
+    DeviceBuffer &input,
+    DeviceBuffer &albedo,
+    DeviceBuffer &normal)
 {
-  init();
+  init(albedo, normal);
   auto &state = *deviceState();
 
-  m_pixelBuffer = &pixelBuffer;
+  m_pixelBuffer = &outputBuffer;
 
   m_format = format;
 
-  OptixDenoiserSizes sizes;
-  OPTIX_CHECK(
-      optixDenoiserComputeMemoryResources(m_denoiser, size.x, size.y, &sizes));
+  // OptiX builds an internal tensor whose element count must fit in a uint32.
+  // At full-frame resolution large frames overflow that cap, so denoise in
+  // overlapping tiles (optixUtilDenoiserInvokeTiled). kMaxTile keeps the
+  // per-tile tensor well under the limit; frames smaller than a tile collapse
+  // to a single full-frame invoke with no overhead.
+  constexpr uint32_t kMaxTile = 2048;
+  m_tileW = std::min<uint32_t>(kMaxTile, size.x);
+  m_tileH = std::min<uint32_t>(kMaxTile, size.y);
 
+  OptixDenoiserSizes sizes;
+  OPTIX_CHECK(optixDenoiserComputeMemoryResources(
+      m_denoiser, m_tileW, m_tileH, &sizes));
+
+  m_overlap = sizes.overlapWindowSizeInPixels;
   m_state.reserve(sizes.stateSizeInBytes);
-  m_scratch.reserve(sizes.withoutOverlapScratchSizeInBytes);
+  m_scratch.reserve(std::max(sizes.withOverlapScratchSizeInBytes,
+      std::max(sizes.computeIntensitySizeInBytes,
+          sizes.computeAverageColorSizeInBytes)));
+  m_intensity.reserve(sizeof(float));
+  m_averageColor.reserve(3 * sizeof(float));
 
   if (format != ANARI_FLOAT32_VEC4)
     m_uintPixels.resize(size_t(size.x) * size_t(size.y));
   else
     m_uintPixels.clear();
 
+  // Setup must be sized for the largest padded tile the tiled invoke feeds.
   OPTIX_CHECK(optixDenoiserSetup(m_denoiser,
       state.stream,
-      size.x,
-      size.y,
+      m_tileW + 2 * m_overlap,
+      m_tileH + 2 * m_overlap,
       (CUdeviceptr)m_state.ptr(),
       m_state.bytes(),
       (CUdeviceptr)m_scratch.ptr(),
       m_scratch.bytes()));
 
-  m_layer.input.data = (CUdeviceptr)pixelBuffer.dataDevice();
+  m_layer.input.data = (CUdeviceptr)input.ptr();
   m_layer.input.width = size.x;
   m_layer.input.height = size.y;
   m_layer.input.pixelStrideInBytes = 0;
   m_layer.input.rowStrideInBytes = 4 * sizeof(float) * size.x;
   m_layer.input.format = OPTIX_PIXEL_FORMAT_FLOAT4;
-  std::memcpy(&m_layer.output, &m_layer.input, sizeof(m_layer.output));
+
+  m_layer.output = m_layer.input;
+  m_layer.output.data = (CUdeviceptr)outputBuffer.dataDevice();
+
+  m_guideLayer.albedo.data = (CUdeviceptr)albedo.ptr();
+  m_guideLayer.albedo.width = size.x;
+  m_guideLayer.albedo.height = size.y;
+  m_guideLayer.albedo.pixelStrideInBytes = 3 * sizeof(float);
+  m_guideLayer.albedo.rowStrideInBytes = 3 * sizeof(float) * size.x;
+  m_guideLayer.albedo.format = OPTIX_PIXEL_FORMAT_FLOAT3;
+
+  m_guideLayer.normal.data = (CUdeviceptr)normal.ptr();
+  m_guideLayer.normal.width = size.x;
+  m_guideLayer.normal.height = size.y;
+  m_guideLayer.normal.pixelStrideInBytes = 3 * sizeof(float);
+  m_guideLayer.normal.rowStrideInBytes = 3 * sizeof(float) * size.x;
+  m_guideLayer.normal.format = OPTIX_PIXEL_FORMAT_FLOAT3;
 }
 
 void Denoiser::cleanup()
@@ -98,44 +136,67 @@ void Denoiser::launch()
 {
   auto &state = *deviceState();
 
+  // Tiled invoke normalizes each tile independently unless handed whole-frame
+  // HDR exposure values. Compute them over the full input and share them so
+  // adjacent tiles do not self-expose and seam.
+  OPTIX_CHECK(optixDenoiserComputeIntensity(m_denoiser,
+      state.stream,
+      &m_layer.input,
+      (CUdeviceptr)m_intensity.ptr(),
+      (CUdeviceptr)m_scratch.ptr(),
+      m_scratch.bytes()));
+  m_params.hdrIntensity = (CUdeviceptr)m_intensity.ptr();
+
+  OPTIX_CHECK(optixDenoiserComputeAverageColor(m_denoiser,
+      state.stream,
+      &m_layer.input,
+      (CUdeviceptr)m_averageColor.ptr(),
+      (CUdeviceptr)m_scratch.ptr(),
+      m_scratch.bytes()));
+  m_params.hdrAverageColor = (CUdeviceptr)m_averageColor.ptr();
+
   instrument::rangePush("optixDenoiserInvoke()");
-  OPTIX_CHECK(optixDenoiserInvoke(m_denoiser,
+  OPTIX_CHECK(optixUtilDenoiserInvokeTiled(m_denoiser,
       state.stream,
       &m_params,
       (CUdeviceptr)m_state.ptr(),
-      static_cast<unsigned int>(m_state.bytes()),
+      m_state.bytes(),
       &m_guideLayer,
       &m_layer,
       1,
-      0, // input offset X
-      0, // input offset y
       (CUdeviceptr)m_scratch.ptr(),
-      static_cast<unsigned int>(m_scratch.bytes())));
+      m_scratch.bytes(),
+      m_overlap,
+      m_tileW,
+      m_tileH));
   instrument::rangePop(); // optixDenoiserInvoke()
+}
 
-  if (m_format != ANARI_FLOAT32_VEC4) {
-    instrument::rangePush("denoiser transform pixels");
-    auto numPixels =
-        size_t(m_layer.output.width) * size_t(m_layer.output.height);
-    auto begin = thrust::device_ptr<vec4>((vec4 *)m_pixelBuffer->dataDevice());
-    auto end = begin + numPixels;
-    if (m_format == ANARI_UFIXED8_RGBA_SRGB) {
-      thrust::transform(thrust::cuda::par.on(state.stream),
-          begin,
-          end,
-          thrust::device_pointer_cast<uint32_t>(m_uintPixels.dataDevice()),
-          [] __device__(const vec4 &in) {
-            return glm::packUnorm4x8(glm::convertLinearToSRGB(in));
-          });
-    } else {
-      thrust::transform(thrust::cuda::par.on(state.stream),
-          begin,
-          end,
-          thrust::device_pointer_cast<uint32_t>(m_uintPixels.dataDevice()),
-          [] __device__(const vec4 &in) { return glm::packUnorm4x8(in); });
-    }
-    instrument::rangePop(); // denoiser transform pixels
+void Denoiser::convertOutput()
+{
+  if (m_format == ANARI_FLOAT32_VEC4)
+    return;
+  auto &state = *deviceState();
+  instrument::rangePush("denoiser transform pixels");
+  auto numPixels = size_t(m_layer.output.width) * size_t(m_layer.output.height);
+  auto begin = thrust::device_ptr<vec4>((vec4 *)m_pixelBuffer->dataDevice());
+  auto end = begin + numPixels;
+  if (m_format == ANARI_UFIXED8_RGBA_SRGB) {
+    thrust::transform(thrust::cuda::par.on(state.stream),
+        begin,
+        end,
+        thrust::device_pointer_cast<uint32_t>(m_uintPixels.dataDevice()),
+        [] __device__(const vec4 &in) {
+          return glm::packUnorm4x8(glm::convertLinearToSRGB(in));
+        });
+  } else {
+    thrust::transform(thrust::cuda::par.on(state.stream),
+        begin,
+        end,
+        thrust::device_pointer_cast<uint32_t>(m_uintPixels.dataDevice()),
+        [] __device__(const vec4 &in) { return glm::packUnorm4x8(in); });
   }
+  instrument::rangePop(); // denoiser transform pixels
 }
 
 void *Denoiser::mapColorBuffer()
@@ -155,21 +216,32 @@ void *Denoiser::mapGPUColorBuffer()
                                         : (void *)m_uintPixels.dataDevice();
 }
 
-void Denoiser::init()
+void Denoiser::init(
+    const DeviceBuffer &accumAlbedo, const DeviceBuffer &accumNormal)
 {
-  if (m_denoiser)
-    return;
+  const bool useAlbedo = accumAlbedo.ptr() != nullptr;
+  const bool useNormal = accumNormal.ptr() != nullptr;
 
-  auto &state = *deviceState();
+  if (m_denoiser
+      && (m_usingAlbedo != useAlbedo || m_usingNormal != useNormal)) {
+    OPTIX_CHECK(optixDenoiserDestroy(m_denoiser));
+    m_denoiser = {};
+  }
+
+  m_usingAlbedo = useAlbedo;
+  m_usingNormal = useNormal;
 
   OptixDenoiserOptions options = {};
-  options.guideAlbedo = 0;
-  options.guideNormal = 0;
+  options.guideAlbedo = m_usingAlbedo;
+  options.guideNormal = m_usingNormal;
 
-  OPTIX_CHECK(optixDenoiserCreate(state.optixContext,
-      OPTIX_DENOISER_MODEL_KIND_LDR,
-      &options,
-      &m_denoiser));
+  if (!m_denoiser) {
+    auto &state = *deviceState();
+    OPTIX_CHECK(optixDenoiserCreate(state.optixContext,
+        OPTIX_DENOISER_MODEL_KIND_AOV,
+        &options,
+        &m_denoiser));
+  }
 }
 
 } // namespace visrtx

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,38 +32,49 @@
 #pragma once
 
 #include "gpu_decl.h"
+#include "gpu_math.h"
 #include "gpu_objects.h"
 
 #ifdef USE_MDL
 #include <mi/neuraylib/target_code_types.h>
+#include "libmdl/MDLBackendConfig.h"
 #endif
+
+// nanovdb
+#include <nanovdb/NanoVDB.h>
+#include <nanovdb/math/Math.h>
+#include <nanovdb/math/SampleFromVoxels.h>
+
+// cuda
+#include <texture_types.h>
 
 namespace visrtx {
 
-// Must match the order in which the shaders are pushed to the SBT in
-// Renderer.cpp
-enum class SurfaceShaderEntryPoints
+enum NextRayFlags : uint32_t
 {
-  Initialize = 0,
-  EvaluateNextRay,
-  EvaluateTint,
-  EvaluateOpacity,
-  EvaluateEmission,
-  Shade,
-  Count
+  NEXT_RAY_NONE = 0u,
+  NEXT_RAY_CONTINUES_THROUGH_SURFACE = 1u << 0
 };
 
-// Describes the next ray to be traced, as a result of the EvaluateNextRay call
+// Describes the next ray to be traced, as a result of the EvaluateNextRay call.
 struct NextRay
 {
   vec3 direction;
   vec3 contributionWeight;
+  // Solid-angle pdf of `direction`, used for balance-heuristic environment MIS.
+  // +inf marks a lobe whose env contribution the escape estimator owns outright
+  // (primary ray, transmission); 0 marks a dead ray. Must equal the value the
+  // material's EvaluatePdf callable returns for the same direction on the
+  // reflection side, so NEE-side and escape-side MIS weights partition to 1.
+  float pdf{INFINITY};
+  uint32_t flags{NEXT_RAY_NONE};
 };
 
 // Matte
 struct MatteShadingState
 {
   vec3 baseColor;
+  vec3 normal;
   float opacity;
 };
 
@@ -76,8 +87,26 @@ struct PhysicallyBasedShadingState
   float metallic;
   float roughness;
   float transmission;
-  float ior;
+  // Refraction ratio n1/n2 from the incident side: init() stores 1/md->ior
+  // for front-facing hits and md->ior for back-facing hits, so this can be
+  // plugged directly into glm::refract and Schlick's F0 formula.
+  float eta;
   vec3 emission;
+
+  float occlusion;
+  float specular;
+  vec3 specularColor;
+  float clearcoat;
+  float clearcoatRoughness;
+  vec3 clearcoatNormal;
+  float thickness;
+  float attenuationDistance;
+  vec3 attenuationColor;
+  vec3 sheenColor;
+  float sheenRoughness;
+  float iridescence;
+  float iridescenceIor;
+  float iridescenceThickness;
 };
 
 #ifdef USE_MDL
@@ -88,30 +117,32 @@ struct PhysicallyBasedShadingState
 struct TextureHandler : mi::neuraylib::Texture_handler_base
 {
   const visrtx::FrameGPUData *fd;
-  visrtx::DeviceObjectIndex samplers[32];
+  const visrtx::DeviceObjectIndex *samplers;
   unsigned int numSamplers;
 };
 
 using ShadingStateMaterial = mi::neuraylib::Shading_state_material;
 using ResourceData = mi::neuraylib::Resource_data;
 
-struct alignas(8)  MDLShadingState
+// 16-byte aligned: MDL's generated PTX writes textureResults with 16-byte
+// vector stores (st.local.v4.f32). An under-aligned (8-byte) local instance
+// makes those stores misaligned -> illegal __local__ access -> the render
+// kernel faults and the frame's completion event never signals.
+struct alignas(16) MDLShadingState
 {
-  const char * argBlock;
+  const char *argBlock;
 
   ShadingStateMaterial state;
   TextureHandler textureHandler;
   ResourceData resData;
 
-  glm::mat3x4 objectToWorld;
-  glm::mat3x4 worldToObject;
-
-  // The maximum number of samplers we support.
-  // See MDLCompiler.cpp numTextureSpaces and numTextureResults.
-  glm::vec4 textureResults[32];
-  glm::vec3 textureCoords[4];
-  glm::vec3 textureTangentsU[4];
-  glm::vec3 textureTangentsV[4];
+  // Sized to match the MDL backend's num_texture_spaces / num_texture_results
+  // options — see libmdl/MDLBackendConfig.h. The two sides must agree because
+  // MDL's generated PTX indexes these arrays directly.
+  alignas(16) glm::vec4 textureResults[libmdl::kNumTextureResults];
+  glm::vec3 textureCoords[libmdl::kNumTextureSpaces];
+  glm::vec3 textureTangentsU[libmdl::kNumTextureSpaces];
+  glm::vec3 textureTangentsV[libmdl::kNumTextureSpaces];
 
   bool isFrontFace;
 };
@@ -131,6 +162,114 @@ struct MaterialShadingState
   } data;
 
   VISRTX_DEVICE MaterialShadingState() = default;
+};
+
+// Structured Regular Sampler State
+struct StructuredRegularSamplerState
+{
+  cudaTextureObject_t texObj;
+  vec3 origin;
+  vec3 invSpacing;
+  vec3 offset;
+  ivec3 dims; // voxel (texel) counts — drives the isosurface voxel-DDA
+  SpatialFieldFilter filter;
+};
+
+// Structured Rectilinear Sampler State
+struct StructuredRectilinearSamplerState
+{
+  cudaTextureObject_t texObj;
+  vec3 dims;
+  vec3 offset;
+  cudaTextureObject_t axisLUT[3]; // object -> index (sampling)
+  cudaTextureObject_t invAxisLUT[3]; // index -> object (isosurface voxel-DDA)
+  vec3 axisBoundsMin;
+  vec3 axisBoundsMax;
+  vec3 invAvgVoxelSpacing;
+  SpatialFieldFilter filter;
+};
+
+// NanoVDB Sampler States
+template <typename T>
+struct NvdbRegularSamplerState
+{
+  using GridType = nanovdb::Grid<nanovdb::NanoTree<T>>;
+  // Purposefully use ReadAccessor<> as below instead of default
+  // GridType::ReadAccessor. Keeps less cache state that we never hit anyway.
+  using AccessorType = nanovdb::ReadAccessor<T, 0, -1, -1>;
+  using NearestSamplerType = nanovdb::math::SampleFromVoxels<AccessorType, 0>;
+  using LinearSamplerType = nanovdb::math::SampleFromVoxels<AccessorType, 1>;
+
+  const GridType *grid;
+  AccessorType accessor;
+  union
+  {
+    NearestSamplerType nearestSampler;
+    LinearSamplerType linearSampler;
+  };
+  nanovdb::Vec3f offsetDown;
+  nanovdb::Vec3f offsetUp;
+  nanovdb::Vec3f scale;
+  nanovdb::Vec3f indexMin;
+  nanovdb::Vec3f indexMax;
+  nanovdb::Vec3f invTwoVoxelSize;
+  SpatialFieldFilter filter;
+};
+
+// NanoVDB Rectilinear Sampler States
+template <typename T>
+struct NvdbRectilinearSamplerState
+{
+  using GridType = nanovdb::Grid<nanovdb::NanoTree<T>>;
+  // Purposefully use ReadAccessor<> as below instead of default
+  // GridType::ReadAccessor. Keeps less cache state that we never hit anyway.
+  using AccessorType = nanovdb::ReadAccessor<T, 0, -1, -1>;
+  using NearestSamplerType = nanovdb::math::SampleFromVoxels<AccessorType, 0>;
+  using LinearSamplerType = nanovdb::math::SampleFromVoxels<AccessorType, 1>;
+
+  const GridType *grid;
+  AccessorType accessor;
+  union
+  {
+    NearestSamplerType nearestSampler;
+    LinearSamplerType linearSampler;
+  };
+  nanovdb::Vec3f offsetDown;
+  nanovdb::Vec3f offsetUp;
+  nanovdb::Vec3f scaleDown;
+  nanovdb::Vec3f scaleUp;
+  nanovdb::Vec3f indexMin;
+  nanovdb::Vec3f indexMax;
+  cudaTextureObject_t axisLUT[3];
+  cudaTextureObject_t invAxisLUT[3]; // rect index -> uniform index (voxel-DDA)
+  nanovdb::Vec3f invAvgVoxelSize;
+  // Per-axis affine uniform-index -> world map (axis-aligned grids), so the
+  // isosurface DDA can place voxel-boundary planes in object space.
+  vec3 worldOrigin;
+  vec3 worldVoxelStep;
+  SpatialFieldFilter filter;
+};
+
+struct VolumeSamplingState
+{
+  VISRTX_DEVICE VolumeSamplingState() {};
+
+  union
+  {
+    StructuredRegularSamplerState structuredRegular;
+    NvdbRegularSamplerState<nanovdb::Fp4> nvdbFp4;
+    NvdbRegularSamplerState<nanovdb::Fp8> nvdbFp8;
+    NvdbRegularSamplerState<nanovdb::Fp16> nvdbFp16;
+    NvdbRegularSamplerState<nanovdb::FpN> nvdbFpN;
+    NvdbRegularSamplerState<float> nvdbFloat;
+    StructuredRectilinearSamplerState structuredRectilinear;
+    NvdbRectilinearSamplerState<nanovdb::Fp4> nvdbRectilinearFp4;
+    NvdbRectilinearSamplerState<nanovdb::Fp8> nvdbRectilinearFp8;
+    NvdbRectilinearSamplerState<nanovdb::Fp16> nvdbRectilinearFp16;
+    NvdbRectilinearSamplerState<nanovdb::FpN> nvdbRectilinearFpN;
+    NvdbRectilinearSamplerState<float> nvdbRectilinearFloat;
+    CustomFieldData custom; // For custom spatial fields
+  };
 };
 
 // #endif

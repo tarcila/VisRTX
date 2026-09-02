@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 #pragma once
@@ -30,7 +30,10 @@
 #include <fmt/format.h>
 #endif
 
+#include <array>
 #include <filesystem>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace visrtx::libmdl {
@@ -57,6 +60,17 @@ class Core
   // Add builtin modules to the global scope
   void addBuiltinModule(
       std::string_view moduleName, std::string_view moduleSource);
+
+  // Load an MDL module from in-memory source into `transaction` and return it.
+  // Returns null on failure (diagnostics are logged). Mirrors loadModule.
+  const mi::neuraylib::IModule *loadModuleFromString(
+      std::string_view moduleName,
+      std::string_view moduleSource,
+      mi::neuraylib::ITransaction *transaction);
+
+  // Access an already-loaded module by its MDL name within `transaction`.
+  const mi::neuraylib::IModule *accessModule(
+      std::string_view moduleName, mi::neuraylib::ITransaction *transaction);
 
   // The main neuray interface can only be acquired once. Make sure it can be
   // shared if taken from there. The original subsystem keeps the ownership of
@@ -102,6 +116,15 @@ class Core
   const mi::neuraylib::IModule *loadModule(std::string_view moduleOrFileName,
       mi::neuraylib::ITransaction *transaction);
 
+  // Fallback for a path-based load that failed (e.g. a scene shipped a .mdl
+  // without its ./textures). If the path passes through a directory whose
+  // basename matches an MDL search root, derive the canonical module name from
+  // the tail and load it by name so the entity resolver finds a complete copy
+  // on the search path with resources co-located. Returns null if nothing
+  // matches or the named module still fails.
+  const mi::neuraylib::IModule *loadModuleByCanonicalName(
+      std::string_view filePath, mi::neuraylib::ITransaction *transaction);
+
   const mi::neuraylib::IFunction_definition *getFunctionDefinition(
       const mi::neuraylib::IModule *module,
       std::string_view functionName,
@@ -110,19 +133,24 @@ class Core
   mi::neuraylib::ICompiled_material *getCompiledMaterial(
       const mi::neuraylib::IFunction_definition *,
       bool classCompilation = true);
-  mi::neuraylib::ICompiled_material *getDistilledToDiffuseMaterial(
-      const mi::neuraylib::ICompiled_material *compiledMaterial);
 
   const mi::neuraylib::ITarget_code *getPtxTargetCode(
       const mi::neuraylib::ICompiled_material *compiledMaterial,
       mi::neuraylib::ITransaction *transaction);
 
-  std::string resolveResource(
-      std::string_view resourceId, std::string_view ownerId = {});
+  std::string resolveResource(std::string_view resourceId,
+      std::string_view ownerName = {},
+      std::string_view ownerFilePath = {});
   std::string resolveModule(std::string_view moduleId);
 
  private:
   Core(mi::neuraylib::INeuray *neuray, mi::base::ILogger *logger);
+
+  // Raw load_module_from_string wrapper. Returns the MDL result code:
+  // 0 = loaded, 1 = already present (both success), < 0 = failure (logged).
+  mi::Sint32 loadModuleSource(std::string_view moduleName,
+      std::string_view moduleSource,
+      mi::neuraylib::ITransaction *transaction);
 
   using DllHandle = void *;
   DllHandle m_dllHandle;

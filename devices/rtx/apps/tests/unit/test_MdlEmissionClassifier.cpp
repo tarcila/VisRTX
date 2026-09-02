@@ -1,0 +1,500 @@
+/*
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+// Device-free unit tests for the MDL emission classifier (ADR 0007). libmdl is
+// a standalone static library (no CUDA/OptiX/GPU), so the static IR pass and
+// the descriptor fold are exercised on the host against inline .mdl snippets —
+// the same compile flow the device runs in
+// MaterialRegistry::acquireMaterialFromCode, minus the device. Only the MDL SDK
+// shared library must be discoverable at runtime; if it is not, the test SKIPs
+// (return code 77, wired in CMake).
+//
+// runIR covers the owned IR (topology, semantics, deps, shared temporaries);
+// runFold covers the three-valued descriptor fold (verdict, edfKinds,
+// magnitude, mode, sign, geometric-state dependence) against a fake value
+// source.
+
+#include "libmdl/Core.h"
+#include "libmdl/EmissionDescriptor.h"
+#include "libmdl/EmissionFold.h"
+#include "libmdl/EmissionIR.h"
+#include "libmdl/source_name_utils.h"
+
+#include <mi/base/handle.h>
+
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <limits>
+#include <map>
+#include <string>
+#include <string_view>
+
+using visrtx::libmdl::Core;
+using visrtx::libmdl::makeInlineModuleName;
+
+namespace {
+
+int g_failures = 0;
+
+#define CHECK(cond)                                                            \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);              \
+      ++g_failures;                                                            \
+    }                                                                          \
+  } while (0)
+
+constexpr int kSkipReturnCode = 77;
+
+bool approxEqual(float a, float b, float tol = 1e-4f)
+{
+  return std::fabs(a - b) <= tol * std::max(1.0f, std::fabs(b));
+}
+
+// Compile `source`'s `material emissive(...)`, keeping it alive via `keepAlive`
+// (the IR builder and fold need the compiled material live during the call).
+void compileMaterial(Core &core,
+    mi::neuraylib::ITransaction *txn,
+    std::string_view source,
+    mi::base::Handle<mi::neuraylib::ICompiled_material> &keepAlive)
+{
+  using mi::base::make_handle;
+  const auto moduleName = makeInlineModuleName(source);
+  auto module = make_handle(core.loadModuleFromString(moduleName, source, txn));
+  if (!module.is_valid_interface()) {
+    std::printf("FAIL could not load inline module\n");
+    ++g_failures;
+    return;
+  }
+  auto fnDef =
+      make_handle(core.getFunctionDefinition(module.get(), "emissive", txn));
+  if (!fnDef.is_valid_interface()) {
+    std::printf("FAIL could not find material 'emissive'\n");
+    ++g_failures;
+    return;
+  }
+  keepAlive = make_handle(core.getCompiledMaterial(fnDef.get()));
+  if (!keepAlive.is_valid_interface()) {
+    std::printf("FAIL could not compile material\n");
+    ++g_failures;
+  }
+}
+
+// intensity = color(2.0) * math::PI folds to a body-literal constant: emitted
+// radiance = intensity / PI = 2.0 per channel.
+const char *kConstLiteral = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive() = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: color(2.0) * math::PI)));
+)mdl";
+
+// A parameter with a default stays symbolic under class compilation, so the
+// intensity does not fold; the single-factor walk records a Parameter recipe
+// with scale = PI * (1/PI) = 1.
+const char *kParamDriven = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive(color value = color(3.0)) = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: value * math::PI)));
+)mdl";
+
+// Textured intensity: tex::lookup_color(tex) with tex a symbolic parameter →
+// Texture recipe.
+const char *kTextured = R"mdl(mdl 1.6;
+import ::df::*;
+import ::tex::*;
+export material emissive(uniform texture_2d tex = texture_2d()) = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: tex::lookup_color(tex: tex, coord: float2(0.0)))));
+)mdl";
+
+// No emission: emission defaults to edf() (a constant invalid-df), not a
+// df::diffuse_edf direct call.
+const char *kNoEmission = R"mdl(mdl 1.6;
+import ::df::*;
+export material emissive() = material(
+    surface: material_surface(
+        scattering: df::diffuse_reflection_bsdf()));
+)mdl";
+
+// Diffuse EDF but power intensity mode — the classifier only handles
+// radiant-exitance, so this is rejected.
+const char *kPowerMode = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive() = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: color(2.0) * math::PI,
+            mode: intensity_power)));
+)mdl";
+
+// A let-shared subexpression: `k` is referenced twice, so class compilation
+// stores it as a single temporary. The IR must resolve both references to the
+// same node.
+const char *kSharedTemporary = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive(color value = color(2.0)) = let {
+    color k = value * math::PI;
+} in material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: k + k)));
+)mdl";
+
+using visrtx::libmdl::buildEmissionIR;
+using visrtx::libmdl::ConstantKind;
+using visrtx::libmdl::EmissionIR;
+using visrtx::libmdl::EmissionNodeKind;
+using Semantic = visrtx::libmdl::Semantic;
+
+const visrtx::libmdl::EmissionNode &node(const EmissionIR &ir, int i)
+{
+  return ir.nodes[std::size_t(i)];
+}
+
+bool hasParamNamed(const EmissionIR &ir, const char *name)
+{
+  for (const auto &n : ir.nodes)
+    if (n.parameterName == name)
+      return true;
+  return false;
+}
+
+void runIR(Core &core, mi::neuraylib::ITransaction *txn)
+{
+  using mi::base::make_handle;
+  mi::base::Handle<mi::neuraylib::ICompiled_material> keepAlive;
+
+  auto buildIR = [&](std::string_view src) {
+    compileMaterial(core, txn, src, keepAlive); // reuse the compile flow
+    return buildEmissionIR(keepAlive.get(), txn);
+  };
+
+  {
+    auto ir = buildIR(kConstLiteral);
+    CHECK(!ir.empty());
+    CHECK(ir.surface.edfRoot >= 0);
+    CHECK(node(ir, ir.surface.edfRoot).kind == EmissionNodeKind::Call);
+    CHECK(node(ir, ir.surface.edfRoot).semantic
+        == Semantic::DS_INTRINSIC_DF_DIFFUSE_EDF);
+    CHECK(ir.surface.intensityRoot >= 0);
+    CHECK(ir.emissionDeps.empty()); // body-literal: no argument deps
+  }
+
+  {
+    auto ir = buildIR(kParamDriven);
+    CHECK(node(ir, ir.surface.edfRoot).semantic
+        == Semantic::DS_INTRINSIC_DF_DIFFUSE_EDF);
+    CHECK(!ir.emissionDeps.empty());
+    CHECK(hasParamNamed(ir, "value"));
+  }
+
+  {
+    auto ir = buildIR(kTextured);
+    bool foundTexture = false;
+    for (const auto &n : ir.nodes) {
+      if (n.kind == EmissionNodeKind::Texture && n.parameterName == "tex")
+        foundTexture = true;
+    }
+    CHECK(foundTexture);
+    CHECK(hasParamNamed(ir, "tex"));
+    CHECK(!ir.emissionDeps.empty());
+  }
+
+  {
+    auto ir = buildIR(kNoEmission);
+    CHECK(ir.surface.edfRoot >= 0);
+    CHECK(node(ir, ir.surface.edfRoot).kind == EmissionNodeKind::Constant);
+    CHECK(node(ir, ir.surface.edfRoot).constantKind == ConstantKind::InvalidDf);
+  }
+
+  {
+    // k + k: the two operands of the addition must resolve to the SAME node
+    // index (shared temporary), proving CSE-identity is preserved.
+    auto ir = buildIR(kSharedTemporary);
+    const auto &intensity = node(ir, ir.surface.intensityRoot);
+    CHECK(intensity.kind == EmissionNodeKind::Call);
+    CHECK(intensity.operands.size() == 2);
+    if (intensity.operands.size() == 2)
+      CHECK(intensity.operands[0] == intensity.operands[1]);
+  }
+}
+
+// Purely negative constant emission: nonzero (an emitter) but sign is Unknown,
+// so the policy must not register it (its all-negative NEE term would be
+// dropped while the forward deposit is MIS-downweighted).
+const char *kNegativeConst = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive() = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: color(-2.0) * math::PI)));
+)mdl";
+
+// Intensity reads state::normal (via length) — a geometric-state quantity the
+// synthetic hit fabricates. Must set dependsOnGeometricState.
+const char *kStateNormal = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+import ::state::*;
+export material emissive() = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: color(math::length(state::normal())) * math::PI)));
+)mdl";
+
+// A textured lookup whose COORD reads state::position (not texture_coordinate)
+// is unfaithful at the synthetic hit — must set dependsOnGeometricState even
+// though a texture_coordinate-driven lookup does not.
+const char *kTexturedStateCoord = R"mdl(mdl 1.6;
+import ::df::*;
+import ::tex::*;
+import ::state::*;
+export material emissive(uniform texture_2d tex = texture_2d()) = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::diffuse_edf(),
+            intensity: tex::lookup_color(
+                tex: tex,
+                coord: float2(state::position().x, state::position().y)))));
+)mdl";
+
+using visrtx::libmdl::EmissionSign;
+using visrtx::libmdl::EmissionValueSource;
+using visrtx::libmdl::EmissionVerdict;
+using visrtx::libmdl::foldEmissionDescriptor;
+using visrtx::libmdl::IntensityMode;
+using visrtx::libmdl::NullValueSource;
+using visrtx::libmdl::ResourceStats;
+
+// Map-backed value source for the fold vectors, keyed by parameter name.
+struct MapValueSource : EmissionValueSource
+{
+  std::map<std::string, std::array<float, 3>> colors;
+  std::map<std::string, ResourceStats> resByParam;
+
+  bool color(const std::string &name, std::array<float, 3> &o) const override
+  {
+    auto it = colors.find(name);
+    if (it == colors.end())
+      return false;
+    o = it->second;
+    return true;
+  }
+  bool boolean(const std::string &, bool &) const override
+  {
+    return false;
+  }
+  bool resourceByName(const std::string &, ResourceStats &) const override
+  {
+    return false;
+  }
+  bool resourceByParam(const std::string &name, ResourceStats &o) const override
+  {
+    auto it = resByParam.find(name);
+    if (it == resByParam.end())
+      return false;
+    o = it->second;
+    return true;
+  }
+};
+
+// A normalized_mix of two diffuse EDFs. The EDF leaves nest inside the
+// df_component[] array, so the fold must deep-scan to see them: the mix must
+// NOT fold to ProvablyNull, and its kind must be Diffuse.
+const char *kMixDiffuse = R"mdl(mdl 1.6;
+import ::df::*;
+import ::math::*;
+export material emissive() = material(
+    surface: material_surface(
+        emission: material_emission(
+            emission: df::normalized_mix(
+                df::edf_component[](
+                    df::edf_component(0.5, df::diffuse_edf()),
+                    df::edf_component(0.5, df::diffuse_edf()))),
+            intensity: color(2.0) * math::PI)));
+)mdl";
+
+void runFold(Core &core, mi::neuraylib::ITransaction *txn)
+{
+  mi::base::Handle<mi::neuraylib::ICompiled_material> keepAlive;
+  NullValueSource none;
+
+  auto irOf = [&](std::string_view src) {
+    compileMaterial(core, txn, src, keepAlive);
+    return buildEmissionIR(keepAlive.get(), txn);
+  };
+
+  { // constant literal: radiance = 2.0 per channel
+    auto ir = irOf(kConstLiteral);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyEmissive);
+    CHECK(hasKind(d.edfKinds, visrtx::libmdl::EdfKind::Diffuse));
+    CHECK(d.mode == IntensityMode::RadiantExitance);
+    CHECK(d.sign == EmissionSign::ProvablyNonnegative);
+    CHECK(!d.dependsOnGeometricState);
+    CHECK(approxEqual(d.magnitude[0], 2.0f));
+  }
+
+  { // parameter with a known live value ⇒ magnitude tracks it
+    auto ir = irOf(kParamDriven);
+    MapValueSource vs;
+    vs.colors[std::string("value")] = {3.0f, 3.0f, 3.0f};
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyEmissive);
+    CHECK(d.sign == EmissionSign::ProvablyNonnegative);
+    CHECK(approxEqual(d.magnitude[0], 3.0f));
+  }
+
+  { // parameter with unknown value ⇒ Unknown verdict, unit-proxy magnitude
+    auto ir = irOf(kParamDriven);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.verdict == EmissionVerdict::Unknown);
+    CHECK(approxEqual(d.magnitude[0], 1.0f));
+  }
+
+  { // no emission ⇒ ProvablyNull
+    auto ir = irOf(kNoEmission);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyNull);
+  }
+
+  { // power mode ⇒ described, mode Power
+    auto ir = irOf(kPowerMode);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.mode == IntensityMode::Power);
+  }
+
+  { // bound texture, nonzero mean ⇒ Unknown verdict, magnitude from
+    // meanPositive
+    auto ir = irOf(kTextured);
+    MapValueSource vs;
+    ResourceStats s;
+    s.valid = true;
+    s.maxAbs = {5.0f, 5.0f, 5.0f};
+    s.meanPositive = {4.0f, 4.0f, 4.0f};
+    s.minValue = {0.0f, 0.0f, 0.0f};
+    s.transferPreservesZero = true;
+    vs.resByParam[std::string("tex")] = s;
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.verdict == EmissionVerdict::Unknown);
+    CHECK(d.sign == EmissionSign::ProvablyNonnegative);
+    CHECK(!d.dependsOnGeometricState);
+    CHECK(approxEqual(d.magnitude[0], 4.0f * 0.31830988f));
+  }
+
+  { // all-black bound texture (maxAbs 0, T(0)=0) ⇒ ProvablyNull
+    auto ir = irOf(kTextured);
+    MapValueSource vs;
+    ResourceStats s;
+    s.valid = true;
+    s.maxAbs = {0.0f, 0.0f, 0.0f};
+    s.meanPositive = {0.0f, 0.0f, 0.0f};
+    s.minValue = {0.0f, 0.0f, 0.0f};
+    s.transferPreservesZero = true;
+    vs.resByParam[std::string("tex")] = s;
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyNull);
+  }
+
+  { // unbound texture ⇒ lookup folds to 0 ⇒ ProvablyNull
+    auto ir = irOf(kTextured);
+    MapValueSource vs;
+    ResourceStats s;
+    s.valid = false;
+    vs.resByParam[std::string("tex")] = s;
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyNull);
+  }
+
+  { // negative constant: emitter but sign Unknown ⇒ not registerable
+    auto ir = irOf(kNegativeConst);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.verdict == EmissionVerdict::ProvablyEmissive);
+    CHECK(d.sign == EmissionSign::Unknown);
+    CHECK(approxEqual(d.magnitude[0], 0.0f)); // meanPositive of a negative is 0
+  }
+
+  { // intensity reads state::normal ⇒ dependsOnGeometricState
+    auto ir = irOf(kStateNormal);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.dependsOnGeometricState);
+  }
+
+  { // texture coord reads state::position ⇒ dependsOnGeometricState
+    auto ir = irOf(kTexturedStateCoord);
+    MapValueSource vs;
+    ResourceStats s;
+    s.valid = true;
+    s.maxAbs = {5.0f, 5.0f, 5.0f};
+    s.meanPositive = {4.0f, 4.0f, 4.0f};
+    s.minValue = {0.0f, 0.0f, 0.0f};
+    vs.resByParam[std::string("tex")] = s;
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.dependsOnGeometricState);
+  }
+
+  { // normalized_mix of diffuse EDFs: leaves nest in the component array, so a
+    // shallow scan would wrongly prove Null. Must stay emissive + Diffuse.
+    auto ir = irOf(kMixDiffuse);
+    auto d = foldEmissionDescriptor(ir, none).surface;
+    CHECK(d.verdict != EmissionVerdict::ProvablyNull);
+    CHECK(hasKind(d.edfKinds, visrtx::libmdl::EdfKind::Diffuse));
+  }
+
+  { // non-finite live argument value ⇒ sign fails closed (never registers an
+    // inf/NaN Pick Power); the light still arrives via the forward path.
+    auto ir = irOf(kParamDriven);
+    MapValueSource vs;
+    const float inf = std::numeric_limits<float>::infinity();
+    vs.colors[std::string("value")] = {inf, inf, inf};
+    auto d = foldEmissionDescriptor(ir, vs).surface;
+    CHECK(d.sign == EmissionSign::Unknown);
+  }
+}
+
+} // namespace
+
+int main()
+{
+  using mi::base::make_handle;
+
+  try {
+    Core core;
+    auto scope = core.createScope("MdlEmissionClassifierTestScope");
+    auto txn = make_handle(core.createTransaction(scope));
+    runIR(core, txn.get());
+    runFold(core, txn.get());
+    txn->commit();
+    core.removeScope(scope);
+  } catch (const std::exception &e) {
+    std::printf("SKIP MDL SDK unavailable: %s\n", e.what());
+    return kSkipReturnCode;
+  }
+
+  if (g_failures) {
+    std::printf("%d check(s) failed\n", g_failures);
+    return 1;
+  }
+  std::printf("all checks passed\n");
+  return 0;
+}

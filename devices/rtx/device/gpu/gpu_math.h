@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,6 +43,13 @@
 #include <limits>
 
 namespace visrtx {
+
+// Float π. Bare M_PI is double — silently promotes whole expressions;
+// Ada runs DP at ~1/32 float throughput.
+inline constexpr float kPi = 3.14159265358979323846f;
+inline constexpr float kTwoPi = 6.28318530717958647692f;
+inline constexpr float kInvPi = 0.31830988618379067154f;
+inline constexpr float kInvTwoPi = 0.15915494309189533577f;
 
 using glm::fquat;
 using glm::ivec1;
@@ -119,9 +126,6 @@ struct VolumeGPUData;
 
 struct SurfaceHit
 {
-  mat3x4 worldToObject;
-  mat3x4 objectToWorld;
-
   vec3 hitpoint;
   float t;
   vec3 Ng;
@@ -133,21 +137,22 @@ struct SurfaceHit
   vec3 tU;
   float epsilon;
   vec3 tV;
-  bool isFrontFace;
-  bool foundHit;
+  bool isFrontFace : 1;
+  bool foundHit : 1;
 
   const InstanceSurfaceGPUData *instance{nullptr};
   const GeometryGPUData *geometry{nullptr};
   const MaterialGPUData *material{nullptr};
+
+  VISRTX_DEVICE SurfaceHit() : isFrontFace(false), foundHit(false) {}
 };
 
 struct VolumeHit
 {
-  Ray localRay;
   const VolumeGPUData *volume{nullptr};
   const InstanceVolumeGPUData *instance{nullptr};
-  uint32_t lastVolID{~0u};
-  uint32_t lastInstID{~0u};
+  Ray localRay;
+
   bool foundHit;
 };
 
@@ -258,7 +263,7 @@ VISRTX_HOST_DEVICE vec2 sphericalCoordsFromDirection(vec3 dir)
 {
   float theta = acosf(glm::clamp(dir.z, -1.0f, 1.0f));
   float p = atan2f(dir.y, dir.x);
-  float phi = p < 0.f ? p + 2.f * float(M_PI) : p;
+  float phi = p < 0.f ? p + kTwoPi : p;
 
   return vec2(theta, phi);
 }
@@ -295,7 +300,7 @@ VISRTX_HOST_DEVICE bool intersectBox(
 VISRTX_HOST_DEVICE vec2 uniformSampleDisk(float radius, const vec2 &s)
 {
   const float r = sqrtf(s.x) * radius;
-  const float phi = 2.f * float(M_PI) * s.y;
+  const float phi = kTwoPi * s.y;
   return vec2{r * cosf(phi), r * sinf(phi)};
 }
 
@@ -304,7 +309,7 @@ VISRTX_HOST_DEVICE vec3 uniformSampleCone(
     vec3 s) // rand uniforms in [0,1)
 {
   // Sample direction in cone
-  float phi = 2.0f * M_PI * s.x;
+  float phi = kTwoPi * s.x;
   float cosTheta = (1.0f - s.y) + s.y * cosThetaMax;
   float sinTheta = sqrtf(1.0f - cosTheta * cosTheta);
 
@@ -322,6 +327,16 @@ VISRTX_HOST_DEVICE vec3 xfmVec(const mat4 &m, const vec3 &p)
 VISRTX_HOST_DEVICE vec3 xfmPoint(const mat4 &m, const vec3 &p)
 {
   return m * vec4(p, 1.0f);
+}
+
+// mat3x4 stores OptiX-style affine rows: glm column i = OptiX row i =
+// (m_{i,0}, m_{i,1}, m_{i,2}, m_{i,3}). The transform is
+//   out_i = sum_j m_{i,j} * p_j + m_{i,3}.
+VISRTX_HOST_DEVICE vec3 xfmPoint(const mat3x4 &m, const vec3 &p)
+{
+  return vec3(glm::dot(vec3(m[0]), p) + m[0].w,
+      glm::dot(vec3(m[1]), p) + m[1].w,
+      glm::dot(vec3(m[2]), p) + m[2].w);
 }
 
 } // namespace visrtx

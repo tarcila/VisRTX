@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,8 @@
 #include "array/Array2D.h"
 #include "utility/CudaImageTexture.h"
 
+#include <array>
+
 namespace visrtx {
 
 struct Image2D : public Sampler
@@ -47,20 +49,54 @@ struct Image2D : public Sampler
   bool isValid() const override;
 
   int numChannels() const override;
+  vec4 averageValue() const override;
+#if defined(USE_MDL)
+  libmdl::ResourceStats emissionStats() const override;
+#endif
+
+  cudaTextureObject_t textureObject() const;
 
  private:
   SamplerGPUData gpuData() const override;
 
-  void cleanup();
+  // Single-pass texel reduction feeding both the emissive Pick Power and the
+  // MDL emission classifier from one scan (replacing the former separate
+  // averageValue and emissionStats scans). Pick Power reads meanPositive — the
+  // same non-negative magnitude proxy the classifier uses — so a signed texel
+  // never inflates or cancels an emitter's picked power.
+  struct TextureReduction
+  {
+    // Per channel; unit default so an un-reduced emitter is still picked.
+    std::array<float, 3> maxAbs{{1.f, 1.f, 1.f}}; // maxAbs==0 ⇒ exact zero
+    std::array<float, 3> meanPositive{{1.f, 1.f, 1.f}}; // magnitude / Pick Power
+    std::array<float, 3> minValue{{-1.f, -1.f, -1.f}}; // minValue>=0 ⇒ nonneg
+    bool transferPreservesZero{false}; // T(0)==0 unless a nonzero border color
+    bool finite{true};
+    bool valid{false}; // false ⇒ unbound/unsupported ⇒ classifier Unknown
+  };
+
+  // Lazy, memoized against the image data stamp: computed on the first query
+  // and reused until the bound image's texels actually change. Non-emissive
+  // samplers never query it and so never scan.
+  const TextureReduction &textureReduction() const;
+  TextureReduction computeTextureReduction() const;
+
+  void cleanupImageCudaArray();
+  void cleanupImageTextureObjects();
 
   std::string m_filter;
   std::string m_wrap1;
   std::string m_wrap2;
   helium::ChangeObserverPtr<Array2D> m_image;
-  helium::TimeStamp m_imageLastUpdated{};
 
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};
+
+  // Memoized reduction, filled lazily from the const query and guarded on the
+  // image's lastDataModified stamp: a no-op recommit (filter/wrap change, scene
+  // churn) does not rescan. mutable: filled from the const query.
+  mutable TextureReduction m_reduction;
+  mutable helium::TimeStamp m_reductionStamp{0};
 };
 
 } // namespace visrtx

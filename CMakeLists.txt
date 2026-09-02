@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,14 +38,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 ## Establish project ##
 
-project(VisRTX LANGUAGES C CXX)
+project(VisRTX VERSION 26.09 LANGUAGES C CXX)
 
 enable_testing()
-
-## Options ####################################################################
-
-option(VISRTX_BUILD_TSD "Build TSD sample applications" OFF)
-mark_as_advanced(VISRTX_BUILD_TSD)
 
 ## Build targets ##############################################################
 
@@ -53,6 +48,3 @@ option(VISRTX_BUILD_RTX_DEVICE "Build CUDA/OptiX device" ON)
 option(VISRTX_BUILD_GL_DEVICE "Build OpenGL device" ON)
 
 add_subdirectory(devices)
-if (VISRTX_BUILD_TSD)
-  add_subdirectory(tsd)
-endif()

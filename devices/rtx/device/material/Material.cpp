@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,9 @@
 #include "MDL.h"
 #include "PhysicallyBasedMDL.h"
 #endif // defined(USE_MDL)
+#ifdef USE_MATERIALX
+#include "MaterialX.h"
+#endif // defined(USE_MATERIALX)
 
 #include <string>
 
@@ -50,6 +53,33 @@ Material::Material(DeviceGlobalState *s)
     : RegisteredObject<MaterialGPUData>(ANARI_MATERIAL, s)
 {
   setRegistry(s->registry.materials);
+}
+
+bool Material::emissionIsConstant() const
+{
+  return false;
+}
+
+bool Material::emissionIsSampleable() const
+{
+  return false;
+}
+
+vec3 Material::emissionAverage() const
+{
+  return vec3(0.f);
+}
+
+void Material::refreshEmissionLightSet()
+{
+  const bool nowSampleable = emissionIsSampleable();
+  const vec3 nowAverage = emissionAverage();
+  if (nowSampleable != m_emissionWasSampleable
+      || (nowSampleable && nowAverage != m_lastEmissionAverage)) {
+    deviceState()->objectUpdates.lastLightSetChange = helium::newTimeStamp();
+  }
+  m_emissionWasSampleable = nowSampleable;
+  m_lastEmissionAverage = nowAverage;
 }
 
 Material *Material::createInstance(
@@ -67,9 +97,18 @@ Material *Material::createInstance(
     return new PBR(d);
 #endif
 #ifdef USE_MDL
+  else if (subtype == "physicallyBasedMDL")
+    if (d->mdl)
+      return new PhysicallyBasedMDL(d);
+    else
+      return new PBR(d);
   else if (subtype == "mdl" && d->mdl)
     return new MDL(d);
 #endif // defined(USE_MDL)
+#ifdef USE_MATERIALX
+  else if (subtype == "materialx" && d->mdl)
+    return new MaterialX(d);
+#endif // defined(USE_MATERIALX)
   else
     return new UnknownMaterial(subtype, d);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -99,12 +99,8 @@ void HDRI::finalize()
 
     cleanup();
 
-    cudaArray_t cuArray = {};
     const bool isFp = isFloat(m_radiance->elementType());
-    if (isFp)
-      cuArray = m_radiance->acquireCUDAArrayFloat();
-    else
-      cuArray = m_radiance->acquireCUDAArrayUint8();
+    cudaArray_t cuArray = m_radiance->acquireCUDAArray();
 
     m_size = {m_radiance->size(0), m_radiance->size(1)};
 
@@ -164,10 +160,7 @@ void HDRI::cleanup()
 {
   if (m_radiance && m_radianceTex) {
     cudaDestroyTextureObject(m_radianceTex);
-    if (isFloat(m_radiance->elementType()))
-      m_radiance->releaseCUDAArrayFloat();
-    else
-      m_radiance->releaseCUDAArrayUint8();
+    m_radiance->releaseCUDAArray();
   }
 
 #ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG

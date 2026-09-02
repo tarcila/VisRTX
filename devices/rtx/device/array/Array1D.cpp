@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -90,47 +90,31 @@ const void *Array1D::end(AddressSpace as) const
   return p + (s * m_end);
 }
 
-cudaArray_t Array1D::acquireCUDAArrayFloat()
+cudaArray_t Array1D::acquireCUDAArray()
 {
-  if (!m_cuArrayFloat)
-    makeCudaArrayFloat(m_cuArrayFloat, *this, {totalSize(), 1});
-  m_arrayRefCountFloat++;
-  return m_cuArrayFloat;
+  if (!m_cuArray)
+    makeCudaArray(m_cuArray, *this, {totalSize(), 1});
+  m_arrayRefCount++;
+  return m_cuArray;
 }
 
-void Array1D::releaseCUDAArrayFloat()
+void Array1D::releaseCUDAArray()
 {
-  m_arrayRefCountFloat--;
-  if (m_arrayRefCountFloat == 0) {
-    cudaFreeArray(m_cuArrayFloat);
-    m_cuArrayFloat = {};
-  }
-}
+  if (m_arrayRefCount == 0)
+    return;
 
-cudaArray_t Array1D::acquireCUDAArrayUint8()
-{
-  if (!m_cuArrayUint8)
-    makeCudaArrayUint8(m_cuArrayUint8, *this, {totalSize(), 1});
-  m_arrayRefCountUint8++;
-  return m_cuArrayUint8;
-}
-
-void Array1D::releaseCUDAArrayUint8()
-{
-  m_arrayRefCountUint8--;
-  if (m_arrayRefCountUint8 == 0) {
-    cudaFreeArray(m_cuArrayUint8);
-    m_cuArrayUint8 = {};
+  m_arrayRefCount--;
+  if (m_arrayRefCount == 0) {
+    cudaFreeArray(m_cuArray);
+    m_cuArray = {};
   }
 }
 
 void Array1D::uploadArrayData() const
 {
   Array::uploadArrayData();
-  if (m_cuArrayFloat)
-    makeCudaArrayFloat(m_cuArrayFloat, *this, {totalSize(), 1});
-  if (m_cuArrayUint8)
-    makeCudaArrayUint8(m_cuArrayUint8, *this, {totalSize(), 1});
+  if (m_cuArray)
+    makeCudaArray(m_cuArray, *this, {totalSize(), 1});
 }
 
 } // namespace visrtx

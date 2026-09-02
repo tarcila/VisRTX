@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,8 @@ Image1D::Image1D(DeviceGlobalState *d) : Sampler(d), m_image(this) {}
 
 Image1D::~Image1D()
 {
-  cleanup();
+  cleanupImageTextureObjects();
+  cleanupImageCudaArray();
 }
 
 void Image1D::commitParameters()
@@ -46,9 +47,10 @@ void Image1D::commitParameters()
   m_filter = getParamString("filter", "linear");
   m_wrap1 = getParamString("wrapMode", "clampToEdge");
   auto *oldImage = m_image.get();
-  m_image = getParamObject<Array1D>("image");
-  if (oldImage != m_image.get())
-    m_imageLastUpdated = {};
+  auto *newImage = getParamObject<Array1D>("image");
+  if (oldImage != newImage)
+    cleanupImageCudaArray();
+  m_image = newImage;
 }
 
 void Image1D::finalize()
@@ -68,24 +70,17 @@ void Image1D::finalize()
     return;
   }
 
-  auto imageDataModified = m_image->lastDataModified();
-  if (m_imageLastUpdated != imageDataModified) {
-    m_imageLastUpdated = imageDataModified;
+  const bool isFp = isFloat(m_image->elementType());
+  cudaArray_t cuArray = m_image->acquireCUDAArray();
 
-    cleanup();
+  cleanupImageTextureObjects();
 
-    cudaArray_t cuArray = {};
-    bool isFp = isFloat(m_image->elementType());
-    if (isFp) {
-      cuArray = m_image->acquireCUDAArrayFloat();
-    } else {
-      cuArray = m_image->acquireCUDAArrayUint8();
-    }
-    m_texture = makeCudaTextureObject1D(
-        cuArray, !isFp, m_filter, m_wrap1, m_borderColor);
-    m_texels = makeCudaTexelObject1D(
-        cuArray, !isFp, "nearest", m_wrap1, m_borderColor);
-  }
+  // sRGB data is kept as raw bytes; the sampler does sRGB->linear in hardware.
+  const bool sRGB = isSrgb8(m_image->elementType());
+  m_texture = makeCudaTextureObject1D(
+      cuArray, !isFp, m_filter, m_wrap1, m_borderColor, sRGB);
+  m_texels =
+      makeCudaTexelObject1D(cuArray, !isFp, "nearest", m_wrap1, m_borderColor);
 
   upload();
 }
@@ -113,17 +108,20 @@ SamplerGPUData Image1D::gpuData() const
   return retval;
 }
 
-void Image1D::cleanup()
+void Image1D::cleanupImageCudaArray()
 {
-  if (m_image && m_texture) {
-    cudaDestroyTextureObject(m_texels);
-    cudaDestroyTextureObject(m_texture);
-    if (isFloat(m_image->elementType())) {
-      m_image->releaseCUDAArrayFloat();
-    } else {
-      m_image->releaseCUDAArrayUint8();
-    }
-  }
+  if (!m_image)
+    return;
+
+  m_image->releaseCUDAArray();
+}
+
+void Image1D::cleanupImageTextureObjects()
+{
+  cudaDestroyTextureObject(m_texels);
+  cudaDestroyTextureObject(m_texture);
+  m_texels = {};
+  m_texture = {};
 }
 
 } // namespace visrtx

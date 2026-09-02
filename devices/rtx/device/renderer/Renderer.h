@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,7 +72,10 @@ struct Renderer : public Object
   int spp() const;
   bool checkerboarding() const;
   bool denoise() const;
-  bool tonemap() const;
+  int denoiseStart() const;
+  bool denoiseUsingAlbedo() const;
+  bool denoiseUsingNormal() const;
+  FireflyFilterMode fireflyFilterMode() const;
   int sampleLimit() const;
 
   static Renderer *createInstance(
@@ -81,16 +84,23 @@ struct Renderer : public Object
  protected:
   vec4 m_bgColor{0.f, 0.f, 0.f, 1.f};
   int m_spp{1};
-  int m_maxRayDepth{0};
   vec3 m_ambientColor{1.f};
   float m_ambientIntensity{0.f};
   float m_occlusionDistance{1e20f};
   bool m_checkerboard{false};
   bool m_denoise{false};
-  bool m_tonemap{true}; // enable internal tonemapping during sample accumulation
+  int m_denoiseStart{0};
+  bool m_denoiseAlbedo{false};
+  bool m_denoiseNormal{false};
+  FireflyFilterMode m_fireflyFilterMode{FireflyFilterMode::TONEMAP};
+  float m_fireflyFilterSigma{8.f}; // CLAMP mode: k in cap = mean + k*stddev
+  int m_fireflyFilterWarmup{4}; // CLAMP mode: samples before the Welford cap
+  int m_fireflyFilterTrim{4}; // TRIM mode: brightest samples tracked/tested (ESD bound)
   int m_sampleLimit{0};
   bool m_cullTriangleBF{false};
+  bool m_premultiplyBackground{false};
   float m_volumeSamplingRate{1.f};
+  vec4 m_cutPlane{0.f};
 
   helium::ChangeObserverPtr<Array2D> m_backgroundImage;
   cudaTextureObject_t m_backgroundTexture{};
@@ -103,6 +113,9 @@ struct Renderer : public Object
   std::vector<OptixProgramGroup> m_missPGs;
   std::vector<OptixProgramGroup> m_hitgroupPGs;
   std::vector<OptixProgramGroup> m_materialPGs;
+  // Modules compiled from the MDL material registry's PTX blobs; owned here
+  // (the device-global shading modules are owned by DeviceGlobalState).
+  std::vector<OptixModule> m_mdlModules;
   DeviceBuffer m_raygenRecordsBuffer;
   DeviceBuffer m_missRecordsBuffer;
   DeviceBuffer m_hitgroupRecordsBuffer;
@@ -111,6 +124,11 @@ struct Renderer : public Object
 
  private:
   void initOptixPipeline();
+  // Destroy the pipeline and everything initOptixPipeline created for it
+  // (program groups, per-material MDL modules). Rebuilds — triggered by MDL
+  // material-library updates — previously overwrote the handles and leaked
+  // the old driver objects.
+  void releasePipeline();
   void cleanup();
 
   HitgroupFunctionNames m_defaultHitgroupNames;

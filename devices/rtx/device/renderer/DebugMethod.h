@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,6 +41,7 @@ enum class DebugMethod
   PRIM_INDEX,
   OBJ_INDEX,
   INST_INDEX,
+  MAT_ID,
   NG,
   NG_ABS,
   NS,
@@ -58,6 +59,7 @@ enum class DebugMethod
   GEOMETRY_ATTRIBUTE_2,
   GEOMETRY_ATTRIBUTE_3,
   GEOMETRY_ATTRIBUTE_COLOR,
+  BASE_COLOR,
 
 };
 

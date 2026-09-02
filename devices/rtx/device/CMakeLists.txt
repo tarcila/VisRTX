@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,20 +37,18 @@ project(anari_library_visrtx VERSION ${PROJECT_VERSION} LANGUAGES CXX CUDA)
 
 #### Compilation setup ####
 
-if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  if (CMAKE_VERSION VERSION_LESS "3.23")
-    set(CMAKE_CUDA_ARCHITECTURES OFF)
-  else()
-    set(CMAKE_CUDA_ARCHITECTURES all-major)
-  endif()
-endif()
-
 set(VISRTX_CUDA_COMPILE_OPTIONS
   "--expt-relaxed-constexpr" "--extended-lambda" # Lambdas from device code
+  # Routes sinf/cosf/expf etc. through the SFU instead of libm argument
+  # reduction (which uses double internally and trips OptiX's double-
+  # precision warning). Slight accuracy loss in transcendentals.
+  "--use_fast_math"
   # Silence the spamming of glm warning about `__host__ annotation is ignored on a function("vec") that is explicitly defaulted on its first declaration`
   "-Xcudafe=--diag_suppress=20012"
   # Silence the multitude of warnings about deprecated/to be removed GPU architectures
   "-Wno-deprecated-gpu-targets"
+  # CUDA 13+ CCCL requires MSVC standard conforming preprocessor
+  "$<$<CXX_COMPILER_ID:MSVC>:-Xcompiler=/Zc:preprocessor>"
   # Debug info support
   "$<$<CONFIG:DEBUG>:-O0;-lineinfo>" # -G would be nice for debug, but does not work with glm...
   "$<$<CONFIG:RELWITHDEBINFO>:-lineinfo>"
@@ -85,7 +83,9 @@ function(embed_resource resource_file_name source_file_name variable_name)
       -DSOURCE_FILE=${source_file_name}
       -DVARIABLE_NAME=${variable_name}
       -P ${CMAKE_CURRENT_LIST_DIR}/../cmake/embed_resource.cmake
-    DEPENDS ${resource_file_name}
+    DEPENDS
+      ${resource_file_name}
+      ${CMAKE_CURRENT_LIST_DIR}/../cmake/embed_resource.cmake
     COMMENT "Embedding ${resource_file_name} into ${source_file_name}"
     VERBATIM
   )
@@ -100,12 +100,12 @@ endfunction()
 project_add_library(SHARED)
 
 if(VISRTX_ENABLE_MDL_SUPPORT)
-    embed_resource(
+  embed_resource(
       ${CMAKE_CURRENT_BINARY_DIR}/../shaders/visrtx/default.mdl
       "${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp"
       "VISRTX_DEFAULT_MDL"
     )
-    embed_resource(
+  embed_resource(
       ${CMAKE_CURRENT_BINARY_DIR}/../shaders/visrtx/physically_based.mdl
       "${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp"
       "VISRTX_PHYSICALLY_BASED_MDL"
@@ -138,7 +138,10 @@ set(SOURCES
   geometry/Curve.cpp
   geometry/Cylinder.cpp
   geometry/Geometry.cpp
+  geometry/SDF.cpp
   $<$<BOOL:${VISRTX_ENABLE_NEURAL}>:geometry/Neural.cpp>
+  geometry/Isosurface.cpp
+  geometry/IsosurfaceBricks.cu
   geometry/Quad.cpp
   geometry/Sphere.cu
   geometry/Triangle.cpp
@@ -146,6 +149,7 @@ set(SOURCES
 
   light/sampling/CDF.cu
   light/Directional.cpp
+  light/GeometryLight.cpp
   light/HDRI.cpp
   light/Light.cpp
   light/Point.cpp
@@ -161,11 +165,10 @@ set(SOURCES
   material/shaders/MatteShader.cpp
   material/shaders/PhysicallyBasedShader.cpp
 
-  renderer/AmbientOcclusion.cpp
+  renderer/Fast.cpp
   renderer/Debug.cpp
-  renderer/DiffusePathTracer.cpp
-  renderer/DirectLight.cpp
-  renderer/Raycast.cpp
+  renderer/Interactive.cpp
+  renderer/Quality.cpp
   renderer/Renderer.cpp
   renderer/Test.cpp
   renderer/UnknownRenderer.cpp
@@ -176,14 +179,25 @@ set(SOURCES
   sampler/Image3D.cpp
   sampler/PrimitiveSampler.cpp
   sampler/Sampler.cpp
+  sampler/TextureStats.cu
   sampler/TransformSampler.cpp
   sampler/UnknownSampler.cpp
 
   spatial_field/SpatialField.cpp
+  spatial_field/NvdbRectilinearField.cpp
   spatial_field/NvdbRegularField.cpp
+  spatial_field/StructuredRectilinearField.cpp
   spatial_field/StructuredRegularField.cpp
   spatial_field/UnknownSpatialField.cpp
+  spatial_field/NvdbRectilinearSampler.cpp
+  spatial_field/NvdbRegularSampler.cpp
+  spatial_field/StructuredRectilinearSampler.cpp
+  spatial_field/StructuredRegularSampler.cpp
   spatial_field/space_skipping/UniformGrid.cu
+  spatial_field/space_skipping/UniformGridCustom.cu
+  spatial_field/CustomFieldSampler.cpp
+  spatial_field/CustomField.cpp
+  spatial_field/RegisterCustomFields.cpp
 
   surface/Surface.cpp
 
@@ -211,6 +225,10 @@ set(SOURCES
     ${CMAKE_CURRENT_BINARY_DIR}/mdl/default.mdl.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/mdl/physically_based.mdl.cpp
   >
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:
+    materialx/Transcoder.cpp
+    material/MaterialX.cpp
+  >
 )
 
 if(VISRTX_ENABLE_MDL_SUPPORT)
@@ -232,6 +250,9 @@ generate_export_header(${PROJECT_NAME}
   EXPORT_MACRO_NAME "VISRTX_DEVICE_INTERFACE"
 )
 
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  OUTPUT_NAME anari_library_${VISRTX_LIBRARY_NAME})
+
 project_include_directories(
 PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
@@ -245,35 +266,45 @@ project_include_directories(
       ${PROJECT_INCLUDE_DIRS}
 )
 
+# NOTE(jda): Order matters here! We want local headers to be preferred over
+#            external ones. Example: NanoVDB could be incidentally on an include
+#            path from another target dependency, but we want to make sure ours
+#            is always used.
 project_link_libraries(
+PRIVATE
+  visrtx::glm
+  visrtx::fmt
+  visrtx::nanovdb
+  OptiX::OptiX
+  nonstd::expected-lite
+  nonstd::scope-lite
+  nonstd::span-lite
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:stb_image>
 PUBLIC
   anari::anari_headers
 PRIVATE
   anari::helium
-  OptiX::OptiX
   CUDA::cuda_driver
-  CUDA::curand
-  CUDA::nvml
-  visrtx::glm
-  visrtx::fmt
-  visrtx::nanovdb
-  nonstd::expected-lite
-  nonstd::scope-lite
-  nonstd::span-lite
   $<$<BOOL:${VISRTX_ENABLE_NVTX}>:CUDA::nvToolsExt>
   $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
-  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:stb_image>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXCore>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXFormat>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXGenShader>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MaterialXGenMdl>
 )
 
+math(EXPR VISRTX_VERSION_MAJOR_INT "${PROJECT_VERSION_MAJOR} + 0")
+math(EXPR VISRTX_VERSION_MINOR_INT "${PROJECT_VERSION_MINOR} + 0")
 project_compile_definitions(
 PRIVATE
-  VISRTX_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-  VISRTX_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-  VISRTX_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+  VISRTX_VERSION_MAJOR=${VISRTX_VERSION_MAJOR_INT}
+  VISRTX_VERSION_MINOR=${VISRTX_VERSION_MINOR_INT}
   $<$<BOOL:${VISRTX_ENABLE_NVTX}>:USE_NVTX>
   $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:USE_MDL>
   $<$<BOOL:${VISRTX_ENABLE_NEURAL}>:VISRTX_USE_NEURAL>
   $<$<BOOL:${VISRTX_ENABLE_HDRI_SAMPLING_DEBUG}>:VISRTX_ENABLE_HDRI_SAMPLING_DEBUG>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:USE_MATERIALX>
+  $<$<BOOL:${VISRTX_ENABLE_MATERIALX_SUPPORT}>:MATERIALX_LIBRARIES_DIR="${MATERIALX_LIBRARIES_DIR}">
 )
 
 if(NOT WIN32)
@@ -284,6 +315,14 @@ if(NOT WIN32)
 endif()
 
 project_compile_definitions(PRIVATE anari_library_visrtx_EXPORTS)
+
+set_source_files_properties(VisRTXLibrary.cpp PROPERTIES
+  COMPILE_DEFINITIONS VISRTX_LIBRARY_NAME=${VISRTX_LIBRARY_NAME})
+
+if (VISRTX_ENABLE_NVML)
+  project_link_libraries(PRIVATE CUDA::nvml)
+  project_compile_definitions(PRIVATE USE_NVML)
+endif()
 
 #### Generate OptiX programs as embedded PTX ####
 
@@ -315,14 +354,15 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
   )
 
   add_library(${INPUT_TARGET} OBJECT ${INPUT_CU_FILE})
+
+  # NOTE(jda): Order also matters here for the same reason as above.
   target_link_libraries(${INPUT_TARGET}
   PRIVATE
-    anari::anari
-    anari::helium
-    OptiX::OptiX
-    CUDA::curand
     visrtx::glm
     visrtx::nanovdb
+    OptiX::OptiX
+    anari::anari_headers
+    anari::helium
     $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:libmdl>
   )
   target_include_directories(${INPUT_TARGET}
@@ -331,17 +371,13 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
     ${CMAKE_CURRENT_LIST_DIR}
   )
 
-  if(VISRTX_ENABLE_NEURAL)
-    set(CUDA_ARCHS 89-virtual)
-  elseif(${CUDAToolkit_VERSION_MAJOR} GREATER 12)
-    set(CUDA_ARCHS 75-virtual)
-  else()
-    set(CUDA_ARCHS 52-virtual)
-  endif()
-
+  # OptiX rewrites module PTX for the actual GPU, so a virtual target at the
+  # floor runs on everything above it. Pinned rather than inherited from
+  # CMAKE_CUDA_ARCHITECTURES: a -real override there is valid for the host
+  # kernels but would emit cubins OptiX cannot load.
   set_target_properties(${INPUT_TARGET} PROPERTIES
     CUDA_PTX_COMPILATION ON
-    CUDA_ARCHITECTURES ${CUDA_ARCHS}
+    CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH}-virtual
   )
 
   EmbedPTX(
@@ -351,15 +387,19 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
   )
 endfunction()
 
-GenerateEmbeddedPTX(renderer AmbientOcclusion)
+GenerateEmbeddedPTX(renderer Fast)
 GenerateEmbeddedPTX(renderer Debug)
-GenerateEmbeddedPTX(renderer DiffusePathTracer)
-GenerateEmbeddedPTX(renderer DirectLight)
-GenerateEmbeddedPTX(renderer Raycast)
+GenerateEmbeddedPTX(renderer Interactive)
+GenerateEmbeddedPTX(renderer Quality)
 GenerateEmbeddedPTX(renderer Test)
 GenerateEmbeddedPTX(geometry Intersectors)
 GenerateEmbeddedPTX(material/shaders MatteShader ENTRIES __direct__callable__evalSurfaceMaterial)
 GenerateEmbeddedPTX(material/shaders PhysicallyBasedShader ENTRIES __direct__callable__evalSurfaceMaterial)
+GenerateEmbeddedPTX(spatial_field NvdbRegularSampler)
+GenerateEmbeddedPTX(spatial_field NvdbRectilinearSampler)
+GenerateEmbeddedPTX(spatial_field StructuredRegularSampler)
+GenerateEmbeddedPTX(spatial_field StructuredRectilinearSampler)
+GenerateEmbeddedPTX(spatial_field CustomFieldSampler)
 if(VISRTX_ENABLE_MDL_SUPPORT)
   GenerateEmbeddedPTX(material/shaders MDLShader ENTRIES __direct__callable__evalSurfaceMaterial)
   GenerateEmbeddedPTX(material/shaders MDLTexture)
@@ -368,9 +408,27 @@ endif()
 
 #### Query code generation ####
 
-file(GLOB DEVICE_JSONS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.json")
+# Leading-comma fragment appended after the last static entry; empty list -> empty fragment.
+set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST "")
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_material_mdl)
+endif()
+if(VISRTX_ENABLE_MATERIALX_SUPPORT)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_material_materialx)
+endif()
+if(VISRTX_ENABLE_NEURAL)
+  list(APPEND VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST visrtx_geometry_neural)
+endif()
+set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES "")
+if(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST)
+  list(JOIN VISRTX_OPTIONAL_DEVICE_DEPENDENCIES_LIST "\",\n      \"" _joined_optional_deps)
+  set(VISRTX_OPTIONAL_DEVICE_DEPENDENCIES ",\n      \"${_joined_optional_deps}\"")
+endif()
+
+configure_file(visrtx_device.json.in ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json @ONLY)
+file(GLOB DEVICE_JSONS CONFIGURE_DEPENDS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.json")
 foreach(file ${DEVICE_JSONS})
-  file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${file} INPUT ${file})
+  configure_file(${file} ${CMAKE_CURRENT_BINARY_DIR}/${file} @ONLY)
 endforeach()
 
 anari_generate_queries(
@@ -378,7 +436,7 @@ anari_generate_queries(
   CPP_NAMESPACE visrtx
   JSON_ROOT_LOCATION ${CMAKE_CURRENT_BINARY_DIR}
   JSON_DEFINITIONS_FILE ${CMAKE_CURRENT_BINARY_DIR}/visrtx_device.json
-  JSON_EXTENSION_FILES ${DEVICE_JSONS}
+  JSON_EXTENSION_FILES "${DEVICE_JSONS}"
 )
 
 #### Install library + headers ####

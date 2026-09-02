@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,17 +55,11 @@ VISRTX_GLOBAL void __raygen__()
   auto ss = createScreenSample(frameData);
   if (pixelOutOfFrame(ss.pixel, frameData.fb))
     return;
-  auto ray = makePrimaryRay(ss);
+  auto ray = makePrimaryRay(ss, 0u);
 
-  accumResults(frameData,
-      ss.pixel,
-      vec4(ray.dir, 1.f),
-      1.f,
-      ray.dir,
-      -ray.dir,
-      ~0u,
-      ~0u,
-      ~0u);
+  setPixelIds(frameData.fb, ss.pixel, 1.0f, ~0u, ~0u, ~0u);
+
+  accumPixelSample(frameData, ss.pixel, vec4(ray.dir, 1.f), ray.dir, -ray.dir);
 }
 
 } // namespace visrtx

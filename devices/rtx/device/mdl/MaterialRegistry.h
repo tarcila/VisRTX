@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@
 #include "libmdl/ArgumentBlockDescriptor.h"
 #include "libmdl/ArgumentBlockInstance.h"
 #include "libmdl/Core.h"
+#include "libmdl/EmissionIR.h"
 #include "libmdl/TimeStamp.h"
 #include "libmdl/uuid.h"
 
@@ -72,12 +73,26 @@ class MaterialRegistry
   // Material code
   std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor> acquireMaterial(
       std::string_view moduleName, std::string_view materialName);
+  // Compile a material from inline MDL module source. The module is registered
+  // under a synthetic, content-addressed name and shares the same compile/cache
+  // path as acquireMaterial.
+  std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor>
+  acquireMaterialFromCode(
+      std::string_view source, std::string_view materialName);
   void releaseMaterial(const Uuid &uuid);
 
   // For SBT management
   libmdl::TimeStamp getLastUpdateTime() const
   {
     return m_lastUpdateTS;
+  }
+
+  // Live slots (distinct compiled materials currently acquired). Test seam for
+  // acquire/release balance, exposed as the device property
+  // `numRegisteredMdlMaterials`.
+  std::size_t numRegisteredMaterials() const
+  {
+    return m_uuidToIndex.size();
   }
 
   using ImplementationIndex = std::uint32_t;
@@ -91,6 +106,16 @@ class MaterialRegistry
     } else {
       return INVALID_IMPLEMENTATION_INDEX;
     }
+  }
+
+  // Owned emission IR of a compiled material (ADR 0007), extracted while the
+  // compiled material was alive; empty when the uuid is unknown. The material
+  // folds it against its live arguments at finalize.
+  libmdl::EmissionIR getEmissionIR(const libmdl::Uuid &uuid) const
+  {
+    if (auto it = m_uuidToIndex.find(uuid); it != cend(m_uuidToIndex))
+      return m_targetCodes[it->second].emission;
+    return {};
   }
 
   const std::vector<nonstd::span<const char>> getPtxBlobs() const
@@ -107,6 +132,23 @@ class MaterialRegistry
       const libmdl::ArgumentBlockDescriptor &uuid) const;
 
  private:
+  using AcquiredMaterial =
+      std::tuple<libmdl::Uuid, libmdl::ArgumentBlockDescriptor>;
+
+  // Return a previously compiled material, bumping its refcount. Empty on a
+  // cache miss. No transaction needed -- the lookup is keyed on the name.
+  std::optional<AcquiredMaterial> reuseCompiledMaterial(
+      const std::string &fullMaterialName);
+
+  // Compile `module` (already loaded in `transaction`), cache it under
+  // `fullMaterialName`, and return it. Empty on failure.
+  std::optional<AcquiredMaterial> compileAndCacheMaterial(
+      const std::string &fullMaterialName,
+      std::string_view moduleName,
+      std::string_view materialName,
+      const mi::neuraylib::IModule *module,
+      mi::neuraylib::ITransaction *transaction);
+
   libmdl::Core *m_core;
   mi::base::Handle<mi::neuraylib::IScope> m_scope;
 
@@ -115,6 +157,9 @@ class MaterialRegistry
     // mi::base::Handle<const mi::neuraylib::ITarget_code> targetCode;
     std::vector<char> ptxBlob;
     int refCount{};
+    // Extracted at compile time, while the compiled material is alive (it is
+    // not retained past compilation); evicted with the slot on release.
+    libmdl::EmissionIR emission;
   };
 
   // Per material PTX blobs. Stored in Sbt order. Sparse structure depending on

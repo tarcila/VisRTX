@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -76,6 +76,13 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   virtual void populateBuildInput(OptixBuildInput &) const = 0;
   virtual int optixGeometryType() const = 0;
 
+  // Geometry Light area sampling. Only types that can be sampled by area as an
+  // Emissive Surface override these (Stage 1: Triangle). ensureAreaData() builds
+  // the per-primitive area CDF; totalArea() is the object-space emitting area.
+  virtual bool isAreaSamplingSupported() const;
+  virtual void ensureAreaData();
+  virtual float totalArea() const;
+
  protected:
   GeometryGPUData gpuData() const override = 0;
 
@@ -86,6 +93,9 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   GeometryAttributes m_primitiveAttributes;
   UniformAttributes m_uniformAttributes;
   helium::IntrusivePtr<Array1D> m_primitiveId;
+  // Set by analytic-primitive subtypes in finalize(); see
+  // GeometryGPUData::epsilonScale.
+  float m_epsilonScale{0.f};
 };
 
 } // namespace visrtx

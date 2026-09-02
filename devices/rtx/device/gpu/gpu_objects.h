@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,14 @@
 #pragma once
 
 #include "gpu/gpu_math.h"
+#include "gpu/sbt.h"
 
 // optix
 #include <optix.h>
-// curand
-#include <curand_kernel.h>
+// cuda runtime — cudaTextureObject_t and friends
+#include <cuda_runtime.h>
+// PCG RNG, see gpu/pcg.h
+#include "gpu/pcg.h"
 // anari
 #include <anari/anari_cpp.hpp>
 #include <glm/ext/matrix_float3x4.hpp>
@@ -56,7 +59,7 @@
 
 namespace visrtx {
 
-using RandState = curandStatePhilox4_32_10_t;
+using RandState = PCGState;
 using DeviceObjectIndex = int32_t;
 
 enum class MaterialAttribute : uint8_t
@@ -104,7 +107,7 @@ struct OrthographicCameraGPUData
 
 struct CameraGPUData
 {
-  CameraType type{CameraType::UNKNOWN};
+  CameraType type;
   vec4 region;
   vec3 pos;
   vec3 dir;
@@ -126,8 +129,54 @@ enum class GeometryType
   CURVE,
   CONE,
   SPHERE,
+  SDF,
   NEURAL,
+  ISOSURFACE,
   UNKNOWN
+};
+
+enum class SDFType : uint8_t
+{
+  SPHERE = 0,
+  PILL = 1,
+  CONE_PILL = 2,
+  CONE_PILL_SIGMOID = 3,
+  CONE = 4,
+  TORUS = 5,
+  CUT_SPHERE = 6,
+  VESICA = 7,
+  ELLIPSOID = 8
+};
+
+// Byte-exact layout shared between C++ host and CUDA device code.
+// sizeof(SDFPrimitive) == 72, verified by static_assert in SDF.cpp.
+struct SDFPrimitive
+{
+  uint64_t userData{0};
+  vec3 userParams{0.f}; // x=displacement amplitude, y=frequency, z=unused
+  vec3 p0{0.f};
+  vec3 p1{0.f};
+  float r0{-1.f};
+  float r1{-1.f};
+  uint32_t _pad{0};
+  uint64_t neighboursIndex{0};
+  uint8_t numNeighbours{0};
+  uint8_t type{0};
+  uint8_t _pad2[6]{};
+};
+
+struct SDFGeometryData
+{
+  const SDFPrimitive *geometries;
+  const uint64_t *neighbours;
+  uint32_t numGeometries;
+  float epsilon;
+  uint32_t nbMarchIterations;
+  float blendFactor;
+  float blendLerpFactor;
+  float omega;
+  float distanceFromCamera;
+  float noiseFactor; // [0,1]: 0=no noise, 1=max organic surface noise
 };
 
 struct AttributeData
@@ -151,6 +200,11 @@ struct TriangleGeometryData
   const vec4 *vertexTangents;
   const vec4 *vertexTangentsFV;
   bool cullBackfaces;
+  // Geometry Light sampling: normalized cumulative object-space area CDF over
+  // primitives (null unless this geometry backs an Emissive Surface).
+  const float *primAreaCdf;
+  uint32_t numPrimitives;
+  float totalArea; // object-space
 };
 
 struct QuadGeometryData
@@ -162,22 +216,41 @@ struct QuadGeometryData
   bool cullBackfaces;
 };
 
+// Cap enablement is a per-endpoint bitmask (bit0 = first/p0 end,
+// bit1 = second/p1 end; see CapBit in intersectPrimitives.h). vertexCaps, when
+// non-null, overrides defaultCapFlags per endpoint: element!=0 enables that
+// endpoint's cap (spec vertex.cap: 0=no cap, 1=flat).
 struct CylinderGeometryData
 {
   const uvec2 *indices;
   const vec3 *vertices;
   AttributeDataSet vertexAttr;
-  const float *radii;
+  const float *radii; // per-primitive
   float radius;
-  bool caps;
+  uint8_t defaultCapFlags;
+  const uint8_t *vertexCaps;
+  // Geometry Light sampling: normalized cumulative object-space area CDF over
+  // primitives (lateral 2πrL + enabled caps πr²); null unless this geometry
+  // backs an Emissive Surface. numPrimitives is the CDF length. See Triangle.
+  const float *primAreaCdf;
+  uint32_t numPrimitives;
+  float totalArea; // object-space
 };
 
 struct ConeGeometryData
 {
   const uvec2 *indices;
   const vec3 *vertices;
-  const float *radii;
+  const float *radii; // per-vertex
   AttributeDataSet vertexAttr;
+  uint8_t defaultCapFlags;
+  const uint8_t *vertexCaps;
+  // Geometry Light sampling: normalized cumulative object-space area CDF over
+  // primitives (lateral π(r0+r1)·slant + enabled caps πr²); null unless this
+  // geometry backs an Emissive Surface. numPrimitives is the CDF length.
+  const float *primAreaCdf;
+  uint32_t numPrimitives;
+  float totalArea; // object-space
 };
 
 struct CurveGeometryData
@@ -195,6 +268,28 @@ struct SphereGeometryData
   AttributeDataSet vertexAttr;
   const float *radii;
   float radius;
+  // Geometry Light sampling: normalized cumulative object-space area CDF over
+  // primitives (per-sphere 4πr²); null unless this geometry backs an Emissive
+  // Surface. numPrimitives is the CDF length (0 until ensureAreaData runs), NOT
+  // the sphere count; only the light path reads it. Name mirrors Triangle.
+  const float *primAreaCdf;
+  uint32_t numPrimitives;
+  float totalArea; // object-space
+};
+
+// Value-only bisection steps used to refine an isosurface crossing within one
+// march step. The hit is localized to the final bracket, stepSize/2^iters; the
+// secondary-ray offset (populateSurfaceHit) is derived from this so AO/shadow
+// rays clear the marched surface instead of self-occluding (acne).
+constexpr int kIsosurfaceBisectionIters = 6;
+
+struct IsosurfaceGeometryData
+{
+  DeviceObjectIndex field; // index into frameData.registry.fields
+  const float *isovalues; // device array, length numIsovalues
+  uint32_t numIsovalues; // <= 128 (hitKind carrier limit)
+  const box3 *brickBounds; // per-GAS-primitive coarse brick box, object space
+  float stepSize; // march step, captured from field->stepSize()
 };
 
 #ifdef VISRTX_USE_NEURAL
@@ -218,6 +313,11 @@ struct GeometryGPUData
   AttributeDataSet attr;
   AttributeDataSetUniform attrUniform;
   const uint32_t *primitiveId;
+  // Object-space coordinate magnitude the analytic intersectors' arithmetic
+  // runs at (max |AABB corner| over the geometry's primitives); 0 when unused.
+  // Floors hit.epsilon so secondary-ray offsets clear the solve's fp noise
+  // band even where the hitpoint's own coordinates are small (populateHit.h).
+  float epsilonScale{0.f};
   union
   {
     TriangleGeometryData tri{};
@@ -226,6 +326,8 @@ struct GeometryGPUData
     CurveGeometryData curve;
     ConeGeometryData cone;
     SphereGeometryData sphere;
+    SDFGeometryData sdf;
+    IsosurfaceGeometryData isosurface;
 #ifdef VISRTX_USE_NEURAL
     NeuralGeometryData neural;
 #endif
@@ -278,6 +380,9 @@ struct SamplerGPUData
 {
   SamplerType type{SamplerType::UNKNOWN};
   MaterialAttribute attribute{MaterialAttribute::UNKNOWN};
+  // Source channel count; CUDA texture fetches zero-fill missing channels, so
+  // the sampler must apply the ANARI convention (missing G,B -> 0, A -> 1).
+  uint32_t numChannels{4};
   mat4 inTransform;
   vec4 inOffset;
   mat4 outTransform;
@@ -362,6 +467,22 @@ struct MaterialGPUData
     MaterialParameter transmission;
 
     float ior;
+
+    // KHR_materials_* extensions
+    DeviceObjectIndex occlusionSampler;
+    MaterialParameter specular;
+    MaterialParameter specularColor;
+    MaterialParameter clearcoat;
+    MaterialParameter clearcoatRoughness;
+    DeviceObjectIndex clearcoatNormalSampler;
+    MaterialParameter thickness;
+    float attenuationDistance;
+    vec3 attenuationColor;
+    MaterialParameter sheenColor;
+    MaterialParameter sheenRoughness;
+    MaterialParameter iridescence;
+    float iridescenceIor;
+    MaterialParameter iridescenceThickness;
   };
 
   struct MDL
@@ -373,7 +494,26 @@ struct MaterialGPUData
     DeviceObjectIndex samplers[32];
   };
 
-  uint32_t implementationIndex{~0u};
+  uint32_t callableBaseIndex{~0u};
+
+  // Static shadow attenuator: OPAQUE alphaMode, opacity + alpha channels
+  // constant 1.0, transmission constant 0.0, no opacity/transmission
+  // sampler. Shadow anyhit short-circuits via optixTerminateRay.
+  bool isFullyOpaque{false};
+
+  // Emission is a nonzero constant (not attribute/sampler bound). The NEE
+  // sampler fast-path uses it to bake the radiance instead of evaluating the
+  // material at the sampled point.
+  bool emissionIsConstant{false};
+
+  // Emission is not provably zero (constant, sampler, or attribute bound). The
+  // hit-side Geometry Light MIS gate; kept in sync by the material's own
+  // commit, so it is never stale.
+  bool emissionIsSampleable{false};
+
+  // Mean emitted radiance, sizing the Geometry Light Pick Power on both the
+  // CDF-build and hit-pdf sides (reachable from the hit, so the two agree).
+  vec3 emissionAverage{0.f};
 
   union MaterialData
   {
@@ -396,46 +536,98 @@ struct SurfaceGPUData
 
 // Spatial Fields //
 
-enum class SpatialFieldType
-{
-  STRUCTURED_REGULAR,
-  NANOVDB_REGULAR,
-  UNKNOWN
-};
-
 struct UniformGridData
 {
   ivec3 dims;
-  box3 worldBounds;
+  box3 objectBounds;
   box1 *valueRanges; // min/max ranges
-  float *maxOpacities; // used for adaptive sampling/space skipping
+  float2 *opacityBounds; // Per-cell α bounds (.x = min, .y = max) over the TF
+                         // lookup.
+};
+
+enum class SpatialFieldFilter : uint8_t
+{
+  Nearest = 0,
+  Linear = 1
 };
 
 struct StructuredRegularData
 {
   cudaTextureObject_t texObj;
   vec3 origin;
-  vec3 spacing;
   vec3 invSpacing;
+  ivec3 dims; // voxel (texel) counts — drives the isosurface voxel-DDA
+  bool cellCentered;
+  SpatialFieldFilter filter;
+
+  StructuredRegularData() = default;
 };
 
 struct NVdbRegularData
 {
-  vec3 origin;
-  vec3 voxelSize;
   nanovdb::GridType gridType;
   const void *gridData;
+  bool cellCentered;
+  SpatialFieldFilter filter;
+  // Host-precomputed 1 / (2 · voxelSize). Keeps Vec3d off the device init.
+  vec3 invTwoVoxelSize;
+
+  NVdbRegularData() = default;
+};
+
+struct StructuredRectilinearData
+{
+  cudaTextureObject_t texObj;
+  vec3 dims;
+  bool cellCentered;
+  cudaTextureObject_t axisLUT[3]; // object -> index (sampling)
+  cudaTextureObject_t invAxisLUT[3]; // index -> object (isosurface voxel-DDA)
+  vec3 axisBoundsMin;
+  vec3 axisBoundsMax;
+  SpatialFieldFilter filter;
+
+  StructuredRectilinearData() = default;
+};
+
+struct NVdbRectilinearData
+{
+  nanovdb::GridType gridType;
+  const void *gridData;
+  bool cellCentered;
+  SpatialFieldFilter filter;
+  cudaTextureObject_t
+      axisLUT[3]; // normalized uniform index -> rectilinear index
+  cudaTextureObject_t invAxisLUT[3]; // inverse (isosurface voxel-DDA)
+  vec3 invAvgVoxelSize;
+
+  NVdbRectilinearData() = default;
+};
+
+struct CustomFieldData
+{
+  CustomFieldData() = default;
+  uint32_t subType;
+
+  // Generic storage for field-specific data
+  // External projects can use this to store
+  // their custom field parameters and reinterpret_cast as needed
+  // Aligned to 8 bytes to support cudaTextureObject_t and other 64-bit types
+  alignas(8) uint8_t fieldData[256];
 };
 
 struct SpatialFieldGPUData
 {
-  SpatialFieldType type{SpatialFieldType::UNKNOWN};
+  SbtCallableEntryPoints samplerCallableIndex{SbtCallableEntryPoints::Invalid};
   union
   {
     StructuredRegularData structuredRegular;
     NVdbRegularData nvdbRegular;
+    StructuredRectilinearData structuredRectilinear;
+    NVdbRectilinearData nvdbRectilinear;
+    CustomFieldData custom;
   } data;
   UniformGridData grid;
+  box3 roi;
 };
 
 // Volume //
@@ -479,6 +671,7 @@ enum class LightType
   SPOT,
   RING,
   HDRI,
+  GEOMETRY,
   UNKNOWN
 };
 
@@ -508,9 +701,10 @@ struct RectLightGPUData
   vec3 edge1;
   vec3 edge2;
   float intensity;
-  struct {
-    unsigned int front: 1;
-    unsigned int back: 1;
+  struct
+  {
+    unsigned int front : 1;
+    unsigned int back : 1;
   } side;
   float oneOverArea;
 };
@@ -551,6 +745,20 @@ struct HDRILightGPUData
 #endif
 };
 
+// A light synthesized from an Emissive Surface. References the surface's
+// geometry (for the per-primitive area CDF and vertices) and carries the baked
+// constant radiance; the object-space total area sizes its Pick Power.
+struct GeometryLightGPUData
+{
+  DeviceObjectIndex geometryIndex; // index into registry.geometries[]
+  DeviceObjectIndex materialIndex; // index into registry.materials[] (Stage 2:
+                                   // evaluate emission at the sampled point)
+  vec3 radiance; // mean emitted radiance (== the constant for a constant
+                 // emitter); sizes Pick Power and is the sampler's fast-path
+                 // value when the material's emission is constant
+  float area; // object-space total area
+};
+
 struct LightGPUData
 {
   LightType type{LightType::UNKNOWN};
@@ -564,6 +772,7 @@ struct LightGPUData
     SpotLightGPUData spot;
     RingLightGPUData ring;
     HDRILightGPUData hdri;
+    GeometryLightGPUData geometry;
   };
 };
 
@@ -571,6 +780,10 @@ struct LightGPUData
 
 struct InstanceSurfaceGPUData
 {
+  // Pre-computed at instance commit (World.cpp's buildInstance*GPUData).
+  mat3x4 objectToWorld;
+  mat3x4 worldToObject;
+
   const DeviceObjectIndex *surfaces;
   AttributeDataSet attrUniformArray;
   AttributeDataSetUniform attrUniform;
@@ -582,15 +795,22 @@ struct InstanceSurfaceGPUData
 
 struct InstanceVolumeGPUData
 {
+  mat3x4 objectToWorld;
+  mat3x4 worldToObject;
+
   const DeviceObjectIndex *volumes;
   uint32_t id;
 };
 
 struct InstanceLightGPUData
 {
-  const DeviceObjectIndex *indices;
-  size_t numLights;
-  mat4 xfm;
+  DeviceObjectIndex lightIndex; // Index into registry.lights[]
+  mat4 xfm; // Transform for this light instance
+  // For a Geometry Light: index into WorldGPUData::surfaceInstances[] of the
+  // surface instance it was synthesized from, so the NEE sampler can evaluate
+  // emission against the REAL instance (instance-uniform attributes resolve
+  // like the path-hit deposit). -1 for authored/HDRI lights.
+  DeviceObjectIndex surfaceInstanceIndex = -1;
 };
 
 // World //
@@ -608,7 +828,26 @@ struct WorldGPUData
   const InstanceLightGPUData *lightInstances;
   size_t numLightInstances;
 
-  DeviceObjectIndex hdri;
+  const InstanceLightGPUData *hdriLightInstances;
+  size_t numHdriLightInstances;
+
+  // Power-proportional Light Pick (built in World::buildInstanceLightGPUData).
+  // Normalized cumulative Pick Power over lightInstances (length
+  // numLightInstances, last entry == 1); pick a slot with inverseSampleCDF.
+  // Double so a dim light's mass (below float epsilon of the total) survives the
+  // adjacent-difference of two ≈1.0 CDF values — else it is unselectable while
+  // the hit-side pNee is still positive, biasing the deposit's MIS weight. (The
+  // 24-bit pick sample floors selection at ~2^-24 regardless; the double CDF only
+  // widens which dim slots the differencing can resolve, not which are reachable.)
+  const double *lightPickCdf;
+  // Per-slot discrete pick probability power_i/total (length numLightInstances),
+  // precomputed host-side. Read this directly instead of differencing adjacent
+  // lightPickCdf entries: a standalone float represents a selected dim light's
+  // mass accurately, where the adjacent-difference of two ≈1.0 values would not.
+  const float *lightPickDelta;
+  float totalLightPower; // sum of un-normalized instance Pick Powers
+  float hdriPower; // subset sum over HDRI instances (env-MIS pick probability)
+  float sceneRadius; // bounding-sphere radius, for the ambient term's power
 };
 
 // Renderer //
@@ -618,37 +857,49 @@ struct DebugRendererGPUData
   int method;
 };
 
-struct AORendererGPUData
+struct FastRendererGPUData
 {
   int aoSamples;
+  float aoBlend;
 };
 
-struct DPTRendererGPUData
+struct QualityRendererGPUData
 {
-  int maxDepth;
+  int maxRayDepth;
+  int maxTransparencyDepth;
 };
 
-struct DirectLightRendererGPUData
+struct InteractiveRendererGPUData
 {
   float lightFalloff;
   int aoSamples;
   vec3 aoColor;
   float aoIntensity;
   float inverseVolumeSamplingRateShadows;
+  int maxSampledLights; // NEE shadow-ray budget per hit; <= 0 samples all lights
 };
 
 union RendererParametersGPUData
 {
   DebugRendererGPUData debug;
-  AORendererGPUData ao;
-  DPTRendererGPUData dpt;
-  DirectLightRendererGPUData directLight;
+  FastRendererGPUData fast;
+  QualityRendererGPUData quality;
+  InteractiveRendererGPUData interactive;
 };
 
 enum class BackgroundMode
 {
   COLOR,
   IMAGE
+};
+
+// Per-sample firefly suppression strategy applied during accumulation.
+enum class FireflyFilterMode
+{
+  NONE, // accumulate raw radiance (unbiased)
+  TONEMAP, // reversible Reinhard round-trip (legacy; dims highlights)
+  CLAMP, // per-pixel Welford luminance clamp (energy-preserving)
+  TRIM // adaptive upper-trimmed mean (consistent; near-unbiased at high spp)
 };
 
 union RendererBackgroundGPUData
@@ -664,12 +915,19 @@ struct RendererGPUData
   RendererBackgroundGPUData background;
   glm::vec3 ambientColor;
   int numIterations;
-  int maxRayDepth;
   float ambientIntensity;
   float inverseVolumeSamplingRate;
   float occlusionDistance;
   bool cullTriangleBF;
-  bool tonemap; // enable internal tonemapping during sample accumulation
+  bool premultiplyBackground;
+  FireflyFilterMode
+      fireflyFilterMode; // per-sample outlier suppression strategy
+  float fireflyFilterSigma; // CLAMP/TRIM: k in threshold = mean + k*stddev
+  int fireflyFilterWarmup; // CLAMP mode: samples before the Welford cap engages
+  int fireflyFilterTrim; // TRIM mode: count of brightest samples
+                         // tracked/trimmed
+  glm::vec4 cutPlane; // cutting plane (nx,ny,nz,d); disabled when all zero (GPU
+                      // default)
 };
 
 // Frame //
@@ -682,11 +940,29 @@ enum class FrameFormat
   UNKNOWN
 };
 
+// Per-pixel running Welford statistics for firefly suppression, tracked per RGB
+// channel so a single-channel (chromatic) outlier is caught even when its
+// luminance is unremarkable. `n` is the shared sample count — kept here because
+// checkerboarding makes frameID a poor proxy for "how many samples this pixel
+// has seen". CLAMP uses all three channels; TRIM uses only the luminance
+// Welford in channel x and reads n as its sample divisor.
+struct PixelLumStats
+{
+  glm::vec3 mean; // per-channel running mean
+  glm::vec3 m2; // per-channel sum of squared deltas
+  float n; // sample count (shared across channels and with TRIM)
+};
+
 struct FrameBuffers
 {
   glm::vec4 *colorAccumulation;
-  glm::vec4 *outColorVec4;
-  uint32_t *outColorUint;
+  PixelLumStats *lumStats;
+  // TRIM mode: the `trim` brightest samples seen per pixel, laid out
+  // [pixel*trim + slot] as (rgb in xyz, luminance in w; w < 0 marks an empty
+  // slot). At resolve the trimmed mean removes the outliers among these from
+  // the running colorAccumulation sum, so it needs only O(trim) memory per
+  // pixel. The sample count lives in lumStats->n.
+  glm::vec4 *trimTopK;
   float *depth;
   uint32_t *primID;
   uint32_t *objID;
@@ -701,7 +977,6 @@ struct FramebufferGPUData
   int frameID;
   int checkerboardID;
   float invFrameID;
-  FrameFormat format;
   glm::uvec2 size;
   glm::vec2 invSize;
 };
@@ -711,7 +986,7 @@ struct FrameGPUData
   FramebufferGPUData fb;
   RendererGPUData renderer;
   WorldGPUData world;
-  CameraGPUData *camera;
+  CameraGPUData camera;
 
   // Objects //
 
@@ -737,6 +1012,12 @@ struct ScreenSample
   glm::vec2 screen;
   mutable RandState rs;
   const FrameGPUData *frameData;
+  // Adaptive shadow ratio-tracking knob. Set by the raygen before each
+  // shadow trace to (max pre-attenuation contribution) / RR_BASE, capped
+  // at 1.0. Smaller values raise the RR threshold inside
+  // applyShadowRussianRoulette so dim-contribution shadow rays terminate
+  // sooner. Default 1.0 = full-precision RR (current behaviour).
+  float shadowContribWeight;
 };
 
 } // namespace visrtx

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,18 +35,21 @@
 
 namespace visrtx {
 
-template <typename T>
+// surfaceShadowOcclusion(ss, ray) returns float occlusion in [0,1]
+// (1 = fully blocked). Templated so callers may pass either a float-opacity
+// shadow function or a vec3-transmittance one wrapped to return occlusion.
+template <typename SurfaceShadowOcclusionFn>
 VISRTX_DEVICE float computeAO(ScreenSample &ss,
     const Ray &primaryRay,
-    T rayType,
     const Hit &currentHit,
     float dist,
-    int numSamples)
+    int numSamples,
+    SurfaceShadowOcclusionFn surfaceShadowOcclusion)
 {
   float weights = 0.0f;
   float hits = 0.0f;
   Ray aoRay;
-  aoRay.org = currentHit.hitpoint + currentHit.Ns * currentHit.epsilon;
+  aoRay.org = shadingHitpoint(currentHit) + currentHit.Ng * currentHit.epsilon;
   aoRay.t.lower = currentHit.epsilon;
   aoRay.t.upper = dist;
 
@@ -55,7 +58,7 @@ VISRTX_DEVICE float computeAO(ScreenSample &ss,
     float weight = max(0.f, dot(aoRay.dir, currentHit.Ns));
     if (weight > 1e-8f) {
       weights += weight;
-      hits += weight * surfaceAttenuation(ss, aoRay, rayType);
+      hits += weight * surfaceShadowOcclusion(ss, aoRay);
     }
   }
 

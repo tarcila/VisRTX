@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,7 +66,7 @@ VISRTX_DEVICE void launchRay(ScreenSample &ss,
       optixFlags,
       static_cast<uint32_t>(rayType) * NUM_SBT_PRIMITIVE_INTERSECTOR_ENTRIES,
       0u,
-      0u,
+      static_cast<uint32_t>(rayType),
       u0,
       u1,
       u2,
@@ -102,12 +102,32 @@ VISRTX_DEVICE void intersectVolume(ScreenSample &ss,
   detail::launchRay(ss, r, rayType, false, dataPtr, optixFlags);
 }
 
-template <typename T>
-VISRTX_DEVICE float surfaceAttenuation(ScreenSample &ss, Ray r, T rayType)
+// Apply a cutting plane to a ray.
+// The plane is encoded as vec4(N.x, N.y, N.z, d) where the visible half-space
+// is { p | dot(N,p)+d >= 0 }.  Disabled when cp == vec4(0) (GPU default).
+// Modifies ray.org and ray.t.upper in place.
+VISRTX_DEVICE void applyCuttingPlane(const vec4 &cp, Ray &ray)
 {
-  float a = 0.f;
-  intersectSurface(ss, r, rayType, &a, OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
-  return a;
+  if (cp == vec4(0.f))
+    return;
+  const vec3 N(cp.x, cp.y, cp.z);
+  const float dist_org = glm::dot(N, ray.org) + cp.w;
+  const float denom = glm::dot(N, ray.dir);
+  if (dist_org >= 0.f) {
+    // camera on visible side: clip where ray exits the half-space
+    if (denom < 0.f) {
+      float t_cut = -dist_org / denom;
+      ray.t.upper = glm::min(ray.t.upper, t_cut);
+    }
+  } else {
+    // camera on invisible side: advance origin to where ray enters
+    if (denom > 0.f) {
+      float t_entry = -dist_org / denom;
+      ray.org += t_entry * ray.dir;
+    } else {
+      ray.t.upper = 0.f; // ray never enters visible half-space
+    }
+  }
 }
 
 } // namespace visrtx

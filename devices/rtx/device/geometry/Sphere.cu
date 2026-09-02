@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,10 @@
 #include "Sphere.h"
 // thrust
 #include <thrust/device_ptr.h>
+#include <thrust/functional.h>
 #include <thrust/sequence.h>
 #include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
 
 namespace visrtx {
 
@@ -88,7 +90,7 @@ void Sphere::finalize()
         thrust::device_pointer_cast<box3>((box3 *)m_aabbs.ptr()),
         [=] __device__(uint32_t i) {
           const auto &v = vertices[i];
-          const float r = radii ? radii[i] : globalRadius;
+          const float r = glm::abs(radii ? radii[i] : globalRadius);
           return box3(v - r, v + r);
         });
   } else {
@@ -104,14 +106,88 @@ void Sphere::finalize()
         thrust::device_pointer_cast<box3>((box3 *)m_aabbs.ptr()),
         [=] __device__(uint32_t i) {
           const auto &v = vertices[i];
-          const float r = radii ? radii[i] : globalRadius;
+          const float r = glm::abs(radii ? radii[i] : globalRadius);
           return box3(v - r, v + r);
         });
   }
 
   m_aabbsBufferPtr = (CUdeviceptr)m_aabbs.ptr();
 
+  // Coordinate scale of the intersector's arithmetic; floors hit.epsilon so
+  // secondary rays clear the solve's fp noise band (see
+  // GeometryGPUData::epsilonScale).
+  auto aabbsBegin = thrust::device_pointer_cast<box3>((box3 *)m_aabbs.ptr());
+  m_epsilonScale = thrust::transform_reduce(
+      thrust::cuda::par.on(state.stream),
+      aabbsBegin,
+      aabbsBegin + m_numSpheres,
+      [] __device__(const box3 &b) -> float {
+        const vec3 m = glm::max(glm::abs(b.lower), glm::abs(b.upper));
+        return glm::max(m.x, glm::max(m.y, m.z));
+      },
+      0.f,
+      thrust::maximum<float>());
+
+  // Radii may have changed. Rebuild the Geometry Light CDF if a surface has ever
+  // requested it (order-independent of the surface commit), else drop stale data.
+  m_areaDataValid = false;
+  if (m_areaDataWanted)
+    buildAreaData();
+  else {
+    m_totalArea = 0.f;
+    m_primAreaCdf.clear();
+  }
+
   upload();
+}
+
+void Sphere::buildAreaData()
+{
+  const float *radii =
+      m_vertexRadius ? m_vertexRadius->beginAs<float>(AddressSpace::HOST) : nullptr;
+  const uint32_t *indices =
+      m_index ? m_index->beginAs<uint32_t>(AddressSpace::HOST) : nullptr;
+
+  m_primAreaCdf.resize(m_numSpheres);
+  auto *cdf = m_primAreaCdf.dataHost();
+
+  double cumulative = 0.0;
+  for (size_t i = 0; i < m_numSpheres; ++i) {
+    const uint32_t vi = indices ? indices[i] : uint32_t(i);
+    const float r = glm::abs(radii ? radii[vi] : m_globalRadius);
+    cumulative += 4.0 * double(kPi) * double(r) * double(r);
+    cdf[i] = float(cumulative);
+  }
+  m_totalArea = float(cumulative);
+
+  // Normalize to a cumulative CDF ending at 1. A degenerate (zero-area) set
+  // leaves totalArea 0; callers gate on that.
+  if (m_totalArea > 0.f) {
+    for (size_t i = 0; i < m_numSpheres; ++i)
+      cdf[i] /= m_totalArea;
+  }
+
+  m_primAreaCdf.upload();
+  m_areaDataValid = true;
+}
+
+bool Sphere::isAreaSamplingSupported() const
+{
+  return true;
+}
+
+void Sphere::ensureAreaData()
+{
+  m_areaDataWanted = true;
+  if (m_areaDataValid)
+    return;
+  buildAreaData();
+  upload(); // republish gpuData() so the CDF pointers reach the device
+}
+
+float Sphere::totalArea() const
+{
+  return m_totalArea;
 }
 
 bool Sphere::isValid() const
@@ -147,6 +223,11 @@ GeometryGPUData Sphere::gpuData() const
     sphere.radii = m_vertexRadius->beginAs<float>(AddressSpace::GPU);
   sphere.radius = m_globalRadius;
   populateAttributeDataSet(m_vertexAttributes, sphere.vertexAttr);
+
+  // Geometry Light sampling data; null/zero until ensureAreaData() runs.
+  sphere.primAreaCdf = m_primAreaCdf.dataDevice();
+  sphere.numPrimitives = uint32_t(m_primAreaCdf.size());
+  sphere.totalArea = m_totalArea;
 
   return retval;
 }

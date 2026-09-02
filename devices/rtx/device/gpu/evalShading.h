@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,31 +32,13 @@
 #pragma once
 
 #include <optix_device.h>
+#include "gpu/evalEmission.h" // materialInitShading, materialEvaluateEmission
 #include "gpu/gpu_objects.h"
 #include "gpu/sampleLight.h"
+#include "gpu/sbt.h"
 #include "shadingState.h"
 
 namespace visrtx {
-
-VISRTX_DEVICE bool materialInitShading(MaterialShadingState *shadingState,
-    const FrameGPUData &fd,
-    const MaterialGPUData &md,
-    const SurfaceHit &hit)
-{
-  if (md.implementationIndex == ~DeviceObjectIndex(0)) {
-    shadingState->callableBaseIndex = ~0;
-    return false;
-  }
-
-  shadingState->callableBaseIndex =
-      md.implementationIndex * int(SurfaceShaderEntryPoints::Count);
-
-  return optixDirectCall<bool>(shadingState->callableBaseIndex,
-      &shadingState->data,
-      &fd,
-      &hit,
-      &md.materialData);
-}
 
 VISRTX_DEVICE vec3 materialEvaluateTint(
     const MaterialShadingState &shadingState)
@@ -80,28 +62,58 @@ VISRTX_DEVICE float materialEvaluateOpacity(
       &shadingState.data);
 }
 
-VISRTX_DEVICE vec3 materialEvaluateEmission(
-    const MaterialShadingState &shadingState, const vec3& outgoingDir)
+VISRTX_DEVICE vec3 materialEvaluateTransmission(
+    const MaterialShadingState &shadingState)
 {
   if (shadingState.callableBaseIndex == ~DeviceObjectIndex(0))
-    return vec3(0.0f, 0.0f, 0.0f); // Default emission color
+    return vec3(0.0f); // Default transmission
 
   return optixDirectCall<vec3>(shadingState.callableBaseIndex
-          + int(SurfaceShaderEntryPoints::EvaluateEmission),
-      &shadingState.data, &outgoingDir);
+          + int(SurfaceShaderEntryPoints::EvaluateTransmission),
+      &shadingState.data);
 }
 
-VISRTX_DEVICE NextRay materialNextRay(const MaterialShadingState &shadingState,
-    const Ray &ray, RandState& rs)
+VISRTX_DEVICE vec3 materialEvaluateNormal(
+    const MaterialShadingState &shadingState)
 {
-  if (shadingState.callableBaseIndex == ~DeviceObjectIndex(0)) // No next ray by defaut
-    return NextRay{vec4(0.0f), vec4(0.0f)};
+  if (shadingState.callableBaseIndex == ~DeviceObjectIndex(0))
+    return vec3(0.8f, 0.8f, 0.8f); // Default tint color
+
+  return optixDirectCall<vec3>(shadingState.callableBaseIndex
+          + int(SurfaceShaderEntryPoints::EvaluateNormal),
+      &shadingState.data);
+}
+
+VISRTX_DEVICE NextRay materialNextRay(
+    const MaterialShadingState &shadingState, const Ray &ray, RandState &rs)
+{
+  if (shadingState.callableBaseIndex
+      == ~DeviceObjectIndex(0)) // No next ray by default
+    return NextRay{vec3(0.0f), vec3(0.0f), 0.0f};
 
   return optixDirectCall<NextRay>(shadingState.callableBaseIndex
           + int(SurfaceShaderEntryPoints::EvaluateNextRay),
       &shadingState.data,
       &ray,
       &rs);
+}
+
+// Solid-angle pdf the material's BSDF sampler would assign to direction `wi`
+// given outgoing direction `wo` (both world space), for environment MIS. 0 for
+// no material and for materials whose sampler cannot produce `wi` (e.g. Matte,
+// which has no continuation ray).
+VISRTX_DEVICE float materialEvalPdf(const MaterialShadingState &shadingState,
+    const vec3 &wo,
+    const vec3 &wi)
+{
+  if (shadingState.callableBaseIndex == ~DeviceObjectIndex(0))
+    return 0.0f;
+
+  return optixDirectCall<float>(shadingState.callableBaseIndex
+          + int(SurfaceShaderEntryPoints::EvaluatePdf),
+      &shadingState.data,
+      &wo,
+      &wi);
 }
 
 VISRTX_DEVICE vec3 materialShadeSurface(

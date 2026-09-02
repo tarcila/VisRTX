@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,11 +62,8 @@ struct Array1D : public Array
   template <typename T>
   const T *valueAt(size_t i) const;
 
-  cudaArray_t acquireCUDAArrayFloat();
-  void releaseCUDAArrayFloat();
-
-  cudaArray_t acquireCUDAArrayUint8();
-  void releaseCUDAArrayUint8();
+  cudaArray_t acquireCUDAArray();
+  void releaseCUDAArray();
 
   void uploadArrayData() const override;
 

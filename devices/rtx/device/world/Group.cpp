@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -102,7 +102,11 @@ void Group::finalize()
 void Group::markFinalized()
 {
   Object::markFinalized();
-  deviceState()->objectUpdates.lastBLASChange = helium::newTimeStamp();
+  auto &updates = deviceState()->objectUpdates;
+  const auto now = helium::newTimeStamp();
+  updates.lastSurfaceBLASChange = now;
+  updates.lastVolumeBLASChange = now;
+  updates.lastLightSetChange = now;
 }
 
 OptixTraversableHandle Group::optixTraversableTriangle() const
@@ -186,10 +190,26 @@ DeviceObjectIndex Group::firstHDRI() const
   return m_firstHDRI;
 }
 
+const std::vector<Light *> &Group::lights() const
+{
+  return m_lights;
+}
+
+const std::vector<Surface *> &Group::surfacesTriangle() const
+{
+  return m_surfacesTriangle;
+}
+
+const std::vector<Surface *> &Group::surfacesUser() const
+{
+  return m_surfacesUser;
+}
+
 void Group::rebuildSurfaceBVHs()
 {
   const auto &state = *deviceState();
-  if (state.objectUpdates.lastBLASChange < m_objectUpdates.lastSurfaceBVHBuilt)
+  if (state.objectUpdates.lastSurfaceBLASChange
+      < m_objectUpdates.lastSurfaceBVHBuilt)
     return;
 
   partitionValidGeometriesByType();
@@ -244,10 +264,16 @@ void Group::rebuildSurfaceBVHs()
 
 void Group::rebuildVolumeBVH()
 {
+  const auto &state = *deviceState();
+  if (state.objectUpdates.lastVolumeBLASChange
+      < m_objectUpdates.lastVolumeBVHBuilt)
+    return;
+
   partitionValidVolumes();
   if (m_volumes.empty()) {
     m_volumeBounds = box3();
     m_traversableVolume = {};
+    m_objectUpdates.lastVolumeBVHBuilt = helium::newTimeStamp();
     reportMessage(
         ANARI_SEVERITY_DEBUG, "visrtx::Group skipping volume BVH build");
     return;
@@ -267,6 +293,10 @@ void Group::rebuildVolumeBVH()
 
 void Group::rebuildLights()
 {
+  const auto &state = *deviceState();
+  if (state.objectUpdates.lastLightSetChange < m_objectUpdates.lastLightRebuild)
+    return;
+
   partitionValidLights();
   buildLightGPUData();
   m_objectUpdates.lastLightRebuild = helium::newTimeStamp();

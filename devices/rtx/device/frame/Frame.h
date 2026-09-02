@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,8 +35,8 @@
 #include "camera/Camera.h"
 #include "gpu/gpu_objects.h"
 #include "renderer/Renderer.h"
-#include "world/World.h"
 #include "utility/DeviceObject.h"
+#include "world/World.h"
 // helium
 #include "helium/BaseFrame.h"
 // std
@@ -93,6 +93,8 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   float m_invFrameID{1.f};
   int m_perPixelBytes{1};
   bool m_denoise{false};
+  bool m_denoiseUsingAlbedo{false};
+  bool m_denoiseUsingNormal{false};
   bool m_nextFrameReset{true};
   bool m_frameMappedOnce{false}; // NOTE(jda) - for instrumented events
 
@@ -119,6 +121,15 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   DeviceBuffer m_accumColor; // vec4
   DeviceBuffer m_accumAlbedo; // vec3
   DeviceBuffer m_accumNormal; // vec3
+  DeviceBuffer m_lumStats; // PixelLumStats: per-channel Welford + count
+  DeviceBuffer m_trimTopK; // TRIM mode: trim*vec4 brightest samples per pixel
+
+  // Per-pixel pre-denoise estimates. Keeping these separate from pixelBuffer
+  // avoids the denoiser reading its own previous output on non-rendered
+  // checkerboard pixels (which cycles-4 flicker at edges).
+  DeviceBuffer m_denoiseInput; // vec4
+  DeviceBuffer m_denoiseAlbedo; // vec3
+  DeviceBuffer m_denoiseNormal; // vec3
 
   helium::IntrusivePtr<Renderer> m_renderer;
   helium::IntrusivePtr<Camera> m_camera;
