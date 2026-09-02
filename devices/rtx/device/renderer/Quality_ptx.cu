@@ -376,8 +376,8 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
   if (pick.isAmbient) {
     // Cosine-weighted hemisphere sample; pdf cos(theta)/pi folded with the pick
     // probability so MIS weights see the full joint pdf. First bounce uses
-    // Halton dims 4–5 (same index as the camera) so screen-space error is
-    // low-discrepancy; later bounces stay on PCG.
+    // Owen-scrambled Sobol dims 4–5 (same sample index as the camera) so
+    // screen-space error is low-discrepancy; later bounces stay on PCG.
     const auto &rp = frameData.renderer;
     const vec3 dir = useQmcHemi ? sampleHemisphere(qmcHemi.x, qmcHemi.y, normal)
                                 : sampleHemisphere(ss.rs, normal);
@@ -529,11 +529,10 @@ VISRTX_GLOBAL void __raygen__()
             * uint32_t(rendererParams.numIterations)
         + uint32_t(i);
     auto ray = makePrimaryRay(ss, sampleIdx, isVeryFirstRay);
-    // Same Halton index as the camera, extra dimensions (11, 13) so first-
-    // bounce cosine NEE is decorrelated from AA/DoF and from PCG lighting.
-    const uint32_t haltonIdx =
-        sampleIdx + haltonPixelHash(ss.pixel.x, ss.pixel.y);
-    const ::float2 hemiU = haltonHemi2D(haltonIdx);
+    // Same sample index as the camera, Sobol dims 4–5 so first-bounce cosine
+    // NEE is decorrelated from AA/DoF (dims 0–3) and from PCG lighting.
+    const uint32_t pixelSeed = owenPixelSeed(ss.pixel.x, ss.pixel.y);
+    const ::float2 hemiU = owenSobolHemi(sampleIdx, pixelSeed);
     const vec2 qmcHemi(hemiU.x, hemiU.y);
 
     applyCuttingPlane(rendererParams.cutPlane, ray);
