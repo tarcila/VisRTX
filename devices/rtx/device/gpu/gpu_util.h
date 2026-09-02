@@ -232,7 +232,7 @@ VISRTX_DEVICE mat3 computeOrthonormalBasis(const vec3 &normal)
 
 // Cosine-weighted hemisphere sample (Malley's method); pdf = cos(theta)/pi.
 // u1/u2 in [0, 1). The RandState overload draws them from PCG; first-bounce
-// env/ambient NEE in Quality feeds Halton dims 4–5 instead.
+// env/ambient NEE in Quality feeds Owen-scrambled Sobol dims 4–5 instead.
 VISRTX_DEVICE vec3 sampleHemisphere(float u1, float u2, const vec3 &normal)
 {
   const float r = sqrtf(u1);
