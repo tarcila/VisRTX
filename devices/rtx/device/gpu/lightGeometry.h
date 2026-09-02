@@ -297,6 +297,25 @@ VISRTX_HOST_DEVICE float ringSolidAnglePdf(
   return areaPdf * pow2(dist) / cosTheta;
 }
 
+// Isotropic world-space scale factor for a ring's radii under an instance
+// transform: how far a unit in-plane offset stretches. Exact under a uniform
+// scale, and the best single scalar available for a shape the sampler itself
+// still treats as a circle (a non-uniformly scaled disk is an ellipse, which
+// neither side models -- see the header note on the transform Jacobian).
+VISRTX_HOST_DEVICE float ringWorldRadiusScale(
+    const RingLightGPUData &ring, const mat4 &xfm)
+{
+  // Basis taken in OBJECT space, where the sampler builds its offsets, then
+  // measured after transforming. Averaging two in-plane directions keeps the
+  // factor independent of which basis the sampler happened to pick.
+  const vec3 axisObj = normalize(ring.direction);
+  const vec3 ref =
+      fabsf(axisObj.x) < 0.9f ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+  const vec3 b0 = normalize(cross(axisObj, ref));
+  const vec3 b1 = cross(axisObj, b0);
+  return 0.5f * (length(xfmVec(xfm, b0)) + length(xfmVec(xfm, b1)));
+}
+
 // The ring's world-space axis, as a UNIT vector.
 //
 // Normalizing AFTER the transform is load-bearing: cosTheta is computed as
@@ -344,6 +363,98 @@ VISRTX_HOST_DEVICE RingPointRelation ringRelateToPoint(
   return r;
 }
 
+// Sphere
+// ///////////////////////////////////////////////////////////////////////
+
+// An ANARI `point` light with radius > 0 becomes LightType::SPHERE: a real area
+// light, sampled uniformly over the whole sphere surface by sampleSphereLight.
+
+struct SpherePointRelation
+{
+  vec3 dir; // unit, from the shading point TO the light
+  float dist;
+  float cosTheta; // against the OUTWARD surface normal at the point
+  float solidAnglePdf; // 0 when the sampled element faces away
+};
+
+VISRTX_HOST_DEVICE vec3 sphereRadiance(
+    const SphereLightGPUData &sphere, const vec3 &color)
+{
+  return color * sphere.intensity;
+}
+
+// Uniform-area sampling over the sphere's whole surface (4*pi*r^2) converted to
+// solid angle. Matches sampleSphereLight's operation order exactly.
+//
+// Like rect/ring this uses the OBJECT-space radius with world-space distances
+// and no transform Jacobian -- the same documented approximation, reproduced so
+// the hit side cannot drift from the sampler.
+VISRTX_HOST_DEVICE SpherePointRelation sphereRelateToPoint(
+    const SphereLightGPUData &sphere,
+    const vec3 &worldCenter,
+    const vec3 &origin,
+    const vec3 &worldPoint)
+{
+  SpherePointRelation r;
+  r.dir = worldPoint - origin;
+  r.dist = length(r.dir);
+  r.dir /= r.dist;
+
+  const vec3 surfaceNormal = normalize(worldPoint - worldCenter);
+  r.cosTheta = dot(surfaceNormal, -r.dir);
+
+  if (r.cosTheta > 0.0f) {
+    const float areaPdf = 1.f / (4.f * kPi * sphere.radius * sphere.radius);
+    r.solidAnglePdf = areaPdf * pow2(r.dist) / r.cosTheta;
+  } else
+    r.solidAnglePdf = 0.0f;
+
+  return r;
+}
+
+struct SphereIntersection
+{
+  bool hit;
+  float t;
+};
+
+// Ray/sphere, nearest positive root. The proxy only ever needs the visible
+// (front) surface: a sphere light's interior is not a place a deposit can come
+// from, and the exit crossing would be behind the emitting surface anyway.
+VISRTX_HOST_DEVICE SphereIntersection intersectSphereLight(
+    const SphereLightGPUData &sphere,
+    const vec3 &center,
+    const vec3 &org,
+    const vec3 &dir)
+{
+  SphereIntersection out;
+  out.hit = false;
+  out.t = 0.0f;
+
+  const vec3 oc = org - center;
+  const float a = dot(dir, dir);
+  if (!(a > 0.0f))
+    return out;
+  const float b = dot(oc, dir);
+  const float c = dot(oc, oc) - sphere.radius * sphere.radius;
+  const float disc = b * b - a * c;
+  if (disc < 0.0f)
+    return out;
+
+  const float sq = sqrtf(disc);
+  // Nearest positive root; fall through to the far one when the origin is
+  // inside.
+  float t = (-b - sq) / a;
+  if (!(t > 0.0f))
+    t = (-b + sq) / a;
+  if (!(t > 0.0f))
+    return out;
+
+  out.hit = true;
+  out.t = t;
+  return out;
+}
+
 // Analytic ray/ring intersection //////////////////////////////////////////////
 
 struct RingIntersection
@@ -357,9 +468,14 @@ struct RingIntersection
 // The inner hole must MISS -- it is the ring's analogue of the rectangle's edge
 // bounds, and a ring rendered as a full disk is the obvious failure.
 //
-// Operates in the ring's world frame: `centre` and `axis` are already
-// transformed, matching how the sampler places its samples.
-VISRTX_HOST_DEVICE RingIntersection intersectRing(const RingLightGPUData &ring,
+// Operates entirely in the ring's world frame: `centre` and `axis` are already
+// transformed, and the radii are passed in WORLD units. Comparing world-space
+// distances against the object-space radii would size the hittable disk wrong
+// under any scaled instance -- the proxy would be a different size than the
+// disk NEE samples, so the light would reflect at the wrong size (measured: a
+// 3x scaled ring sampled out to r=3 but only accepted hits out to r=1).
+VISRTX_HOST_DEVICE RingIntersection intersectRing(float worldRadius,
+    float worldInnerRadius,
     const vec3 &centre,
     const vec3 &axis,
     const vec3 &org,
@@ -386,7 +502,7 @@ VISRTX_HOST_DEVICE RingIntersection intersectRing(const RingLightGPUData &ring,
   const vec3 inPlane = radial - axis * dot(radial, axis);
   const float r = length(inPlane);
 
-  if (r > ring.radius || r < ring.innerRadius)
+  if (r > worldRadius || r < worldInnerRadius)
     return out; // outside the outer edge, or through the inner hole
 
   out.hit = true;

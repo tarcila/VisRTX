@@ -1192,8 +1192,9 @@ VISRTX_GLOBAL void __intersection__lightProxy()
   // `visible` gates CAMERA rays only. Resolved here, per primitive, so toggling
   // it never rebuilds an acceleration structure. Reflection/GI rays carry the
   // hidden bit too and are unaffected.
-  const bool visible =
-      ld.type == LightType::RECT ? ld.rect.visible : ld.ring.visible;
+  const bool visible = ld.type == LightType::RECT ? ld.rect.visible
+      : ld.type == LightType::RING                ? ld.ring.visible
+                                                  : ld.sphere.visible;
   if (!visible
       && (optixGetRayVisibilityMask() & VISRTX_MASK_LIGHT_PROXY_HIDDEN) == 0) {
     return;
@@ -1239,24 +1240,59 @@ VISRTX_GLOBAL void __intersection__lightProxy()
     const vec3 centre = xfmPoint(proxy.xfm, ld.ring.position);
     const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
 
-    const RingIntersection isect =
-        intersectRing(ld.ring, centre, axis, org, dir);
+    // World-space radii: the disk NEE samples is scaled by the instance
+    // transform, so the hittable disk must be too, or the light reflects at a
+    // different size than it illuminates from.
+    const float rScale = ringWorldRadiusScale(ld.ring, proxy.xfm);
+    const RingIntersection isect = intersectRing(ld.ring.radius * rScale,
+        ld.ring.innerRadius * rScale,
+        centre,
+        axis,
+        org,
+        dir);
     if (!isect.hit)
       return;
 
     // Cull where the ring does not emit -- behind the disk, or outside the cone.
-    // Uses the same falloff leaf NEE uses, so the visible disk shows exactly the
-    // attenuation the illumination has.
-    const vec3 unitDir = normalize(dir);
-    const float cosTheta = dot(axis, -unitDir);
-    if (!(cosTheta > 0.0f))
+    //
+    // Evaluated at the HIT POINT via the shared leaf, not from the ray direction:
+    // the cone angle varies across the disk, so the ray direction answers for
+    // the wrong emitting point and would cull visible parts of a narrow-cone
+    // ring (and keep parts NEE considers dark).
+    const vec3 hitPoint = org + isect.t * dir;
+    const RingPointRelation rel =
+        ringRelateToPoint(ld.ring, axis, org, hitPoint);
+    if (!(rel.cosTheta > 0.0f))
       return;
-    if (!(ringSpotAttenuation(ld.ring, cosTheta) > 0.0f))
+    if (!(rel.spot > 0.0f))
       return;
 
     optixReportIntersection(isect.t,
         HIT_KIND_FRONT,
         bit_cast<uint32_t>(isect.radius),
+        bit_cast<uint32_t>(0.0f),
+        proxyID);
+  } else if (ld.type == LightType::SPHERE) {
+    const vec3 center = xfmPoint(proxy.xfm, ld.sphere.position);
+
+    const SphereIntersection isect =
+        intersectSphereLight(ld.sphere, center, org, dir);
+    if (!isect.hit)
+      return;
+
+    // A sphere emits outward over its whole surface, so the only cull is the
+    // back face -- which the nearest-root solve already avoids for an outside
+    // viewer. Checked through the shared leaf so the hit agrees with what NEE
+    // considers emitting.
+    const vec3 hitPoint = org + isect.t * dir;
+    const SpherePointRelation rel =
+        sphereRelateToPoint(ld.sphere, center, org, hitPoint);
+    if (!(rel.cosTheta > 0.0f))
+      return;
+
+    optixReportIntersection(isect.t,
+        HIT_KIND_FRONT,
+        bit_cast<uint32_t>(0.0f),
         bit_cast<uint32_t>(0.0f),
         proxyID);
   }

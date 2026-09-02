@@ -355,6 +355,11 @@ VISRTX_DEVICE float lightProxyHitPdf(const FrameGPUData &frameData,
     const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
     solidAnglePdf =
         ringRelateToPoint(ld.ring, axis, origin, hit.hitpoint).solidAnglePdf;
+  } else if (ld.type == LightType::SPHERE) {
+    const vec3 center = xfmPoint(proxy.xfm, ld.sphere.position);
+    solidAnglePdf =
+        sphereRelateToPoint(ld.sphere, center, origin, hit.hitpoint)
+            .solidAnglePdf;
   } else
     return 0.0f;
 
@@ -454,12 +459,14 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
       sampleLight(ss, origin, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
   ls.pdf *= pick.pickPdf;
   const LightType type = frameData.registry.lights[li.lightIndex].type;
-  // Both analytic area lights now carry a proxy, so both are reachable by a BSDF
-  // continuation and both must be MIS-weighted on the NEE side.
+  // Every analytic area light now carries a proxy (SPHERE is what an ANARI
+  // `point` light with radius > 0 becomes), so all are reachable by a BSDF
+  // continuation and all must be MIS-weighted on the NEE side.
   return {ls,
       type == LightType::HDRI,
       type == LightType::GEOMETRY,
-      type == LightType::RECT || type == LightType::RING};
+      type == LightType::RECT || type == LightType::RING
+          || type == LightType::SPHERE};
 }
 
 VISRTX_DEVICE LightSample sampleLightsVolume(
@@ -759,21 +766,22 @@ VISRTX_GLOBAL void __raygen__()
             wEmission = bsdfPdf / (bsdfPdf + pNee);
         }
 
-        // A ring's radiance carries its cone falloff, evaluated at the hit
-        // through the same leaf NEE uses -- so the visible disk shows exactly
-        // the attenuation the illumination has.
+        // A ring's radiance carries its cone falloff, which varies ACROSS the
+        // disk: each emitting point has its own angle to the shaded point. NEE
+        // evaluates it per sampled point, so the deposit must evaluate it at the
+        // point the ray actually hit -- via the same leaf, from the ray's own
+        // origin. Using the ray direction as a stand-in collapses the whole disk
+        // to one angle and under-reads a narrow cone badly (measured ~6x).
         vec3 proxyRadiance(0.0f);
         if (ld.type == LightType::RECT)
           proxyRadiance = rectRadiance(ld.rect, ld.color);
         else if (ld.type == LightType::RING) {
           const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
-          // ray.dir points FROM the shaded point TO the light, matching
-          // RingPointRelation::dir, so negate it for the same cosTheta the
-          // sampler computes. Getting this sign wrong inverts the falloff.
-          const float cosTheta = dot(axis, -ray.dir);
-          proxyRadiance = ringRadiance(
-              ld.ring, ld.color, ringSpotAttenuation(ld.ring, cosTheta));
-        }
+          const RingPointRelation rel = ringRelateToPoint(
+              ld.ring, axis, ray.org, surfaceHit.hitpoint);
+          proxyRadiance = ringRadiance(ld.ring, ld.color, rel.spot);
+        } else if (ld.type == LightType::SPHERE)
+          proxyRadiance = sphereRadiance(ld.sphere, ld.color);
 
         sample.color += wEmission * sampleContribution * proxyRadiance;
         // A visible light COVERS the pixel. Without this the alpha channel
