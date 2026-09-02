@@ -563,31 +563,60 @@ int main()
     const vec3 up(0.0f, 1.0f, 0.0f);
 
     // On the annulus: r = 1.5, between inner 1 and outer 2.
-    const RingIntersection onBand =
-        intersectRing(ring, centre, axis, vec3(1.5f, 3.0f, 0.0f), down);
+    const RingIntersection onBand = intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(1.5f, 3.0f, 0.0f),
+        down);
     CHECK(onBand.hit);
     CHECK(std::fabs(onBand.t - 3.0f) < 1e-5f);
     CHECK(std::fabs(onBand.radius - 1.5f) < 1e-5f);
 
     // Through the inner hole: must miss.
-    CHECK(!intersectRing(ring, centre, axis, vec3(0.5f, 3.0f, 0.0f), down).hit);
-    CHECK(!intersectRing(ring, centre, axis, vec3(0.0f, 3.0f, 0.0f), down).hit);
+    CHECK(!intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(0.5f, 3.0f, 0.0f),
+        down)
+            .hit);
+    CHECK(!intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(0.0f, 3.0f, 0.0f),
+        down)
+            .hit);
     // Outside the outer radius: must miss.
-    CHECK(!intersectRing(ring, centre, axis, vec3(2.5f, 3.0f, 0.0f), down).hit);
+    CHECK(!intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(2.5f, 3.0f, 0.0f),
+        down)
+            .hit);
 
     // Radially symmetric: the same radius hits from any azimuth.
     for (int i = 0; i < 16; ++i) {
       const float phi = kTwoPi * float(i) / 16.0f;
       const vec3 o(1.5f * std::cos(phi), 3.0f, 1.5f * std::sin(phi));
-      CHECK(intersectRing(ring, centre, axis, o, down).hit);
+      CHECK(intersectRing(ring.radius, ring.innerRadius, centre, axis, o, down)
+              .hit);
       const vec3 inner(0.5f * std::cos(phi), 3.0f, 0.5f * std::sin(phi));
-      CHECK(!intersectRing(ring, centre, axis, inner, down).hit);
+      CHECK(!intersectRing(
+          ring.radius, ring.innerRadius, centre, axis, inner, down)
+              .hit);
     }
 
     // Boundary radii are consistent and finite, whichever way they classify.
     for (float r : {1.0f, 2.0f}) {
-      const RingIntersection h =
-          intersectRing(ring, centre, axis, vec3(r, 3.0f, 0.0f), down);
+      const RingIntersection h = intersectRing(ring.radius,
+          ring.innerRadius,
+          centre,
+          axis,
+          vec3(r, 3.0f, 0.0f),
+          down);
       if (h.hit) {
         CHECK(std::isfinite(h.t));
         CHECK(h.radius >= ring.innerRadius - 1e-4f);
@@ -596,32 +625,64 @@ int main()
     }
 
     // Parallel, in-plane, and behind-the-origin rays.
-    CHECK(!intersectRing(
-        ring, centre, axis, vec3(1.5f, 3.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f))
+    CHECK(!intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(1.5f, 3.0f, 0.0f),
+        vec3(1.0f, 0.0f, 0.0f))
+            .hit);
+    CHECK(!intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(-3.0f, 0.0f, 0.0f),
+        vec3(1.0f, 0.0f, 0.0f))
             .hit);
     CHECK(!intersectRing(
-        ring, centre, axis, vec3(-3.0f, 0.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f))
+        ring.radius, ring.innerRadius, centre, axis, vec3(1.5f, 3.0f, 0.0f), up)
             .hit);
-    CHECK(!intersectRing(ring, centre, axis, vec3(1.5f, 3.0f, 0.0f), up).hit);
 
     // Backfacing still hits: culling is the caller's job, not the solver's.
-    CHECK(intersectRing(ring, centre, axis, vec3(1.5f, -3.0f, 0.0f), up).hit);
+    CHECK(intersectRing(ring.radius,
+        ring.innerRadius,
+        centre,
+        axis,
+        vec3(1.5f, -3.0f, 0.0f),
+        up)
+            .hit);
 
     // A full disk (innerRadius 0) has no hole.
     RingLightGPUData disk = ring;
     disk.innerRadius = 0.0f;
-    CHECK(intersectRing(disk, centre, axis, vec3(0.0f, 3.0f, 0.0f), down).hit);
+    CHECK(intersectRing(disk.radius,
+        disk.innerRadius,
+        centre,
+        axis,
+        vec3(0.0f, 3.0f, 0.0f),
+        down)
+            .hit);
 
     // Degenerate rings never hit and never produce a NaN.
     RingLightGPUData zeroRadius = ring;
     zeroRadius.radius = 0.0f;
     zeroRadius.innerRadius = 0.0f;
-    const RingIntersection zr =
-        intersectRing(zeroRadius, centre, axis, vec3(0.0f, 3.0f, 0.0f), down);
+    const RingIntersection zr = intersectRing(zeroRadius.radius,
+        zeroRadius.innerRadius,
+        centre,
+        axis,
+        vec3(0.0f, 3.0f, 0.0f),
+        down);
     CHECK(!zr.hit || std::isfinite(zr.t));
     RingLightGPUData empty = ring;
     empty.innerRadius = empty.radius;
-    CHECK(!intersectRing(empty, centre, axis, vec3(1.5f, 3.0f, 0.0f), down).hit
+    CHECK(!intersectRing(empty.radius,
+              empty.innerRadius,
+              centre,
+              axis,
+              vec3(1.5f, 3.0f, 0.0f),
+              down)
+              .hit
         || true); // classification at r == inner == outer is a boundary case
   }
 
@@ -678,8 +739,8 @@ int main()
       if (!(nee.solidAnglePdf > 0.0f))
         continue;
 
-      const RingIntersection isect =
-          intersectRing(ring, ring.position, axis, origin, nee.dir);
+      const RingIntersection isect = intersectRing(
+          ring.radius, ring.innerRadius, ring.position, axis, origin, nee.dir);
       if (!isect.hit) {
         // Only a fault away from the annulus edges, where an ulp can flip the
         // radial classification.

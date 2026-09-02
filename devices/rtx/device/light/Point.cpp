@@ -43,7 +43,14 @@ void Point::commitParameters()
       std::clamp(getParam<float>("intensity", getParam<float>("power", 1.f)),
           0.f,
           std::numeric_limits<float>::max());
-  m_radius = std::max(getParam<float>("radius", 1.f), 0.f);
+  // KHR_LIGHT_POINT defines radius with default 0, i.e. a true delta light
+  // unless the application asks for an extended one. Defaulting to 1 made every
+  // point light a sphere AREA light, changing shadows (soft instead of hard) and
+  // falloff for applications that never opted in.
+  m_radius = std::max(getParam<float>("radius", 0.f), 0.f);
+  // Camera visibility only; meaningful only when radius > 0 makes this an area
+  // light with something to see.
+  m_visible = getParam<bool>("visible", true);
 }
 
 LightGPUData Point::gpuData() const
@@ -59,8 +66,29 @@ LightGPUData Point::gpuData() const
     retval.sphere.intensity = m_intensity;
     retval.sphere.radius = m_radius;
     retval.sphere.oneOverArea = 1.0f / (4.0f * float(M_PI) * m_radius * m_radius);
+    retval.sphere.visible = m_visible;
   }
   return retval;
+}
+
+bool Point::hasAreaProxy() const
+{
+  // radius == 0 is a true delta light: no extent, nothing to intersect.
+  return m_radius > 0.f;
+}
+
+box3 Point::areaProxyBounds(const mat4 &xfm) const
+{
+  // Transform the object-space bounding box corners, so a rotated or scaled
+  // instance still gets a correct (if conservative) world bound.
+  box3 bounds;
+  for (int i = 0; i < 8; ++i) {
+    const vec3 corner(i & 1 ? m_radius : -m_radius,
+        i & 2 ? m_radius : -m_radius,
+        i & 4 ? m_radius : -m_radius);
+    bounds.extend(xfmPoint(xfm, m_position + corner));
+  }
+  return bounds;
 }
 
 } // namespace visrtx

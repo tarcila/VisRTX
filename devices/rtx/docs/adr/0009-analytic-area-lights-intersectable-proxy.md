@@ -70,8 +70,9 @@ an epsilon trim: the proxy is not real occluding geometry. (Contrast
 because that emitter *is* opaque.) The same mask mechanism implements `visible`
 by clearing only the primary-ray bit.
 
-Quad lands first, proving every seam; ring follows as a second `case` and a
-second pdf leaf.
+Quad lands first, proving every seam; ring and sphere follow as further `case`s
+and pdf leaves. Sphere matters because an ANARI `point` light with `radius > 0`
+becomes `LightType::SPHERE` — a real area light that must reflect like one.
 
 ## Consequences
 
@@ -131,10 +132,9 @@ second pdf leaf.
 - ADR 0004 rejected visibility masks for the surface/volume split on hit-semantics
   grounds. That reasoning is untouched here: this mask bit discriminates ray
   *classes* against one traversable, not two kinds of traversal.
-- `visible` becomes meaningful for area lights. It is honored on `quad` and
-  `ring`, and the device does **not** yet advertise
-  `khr_light_primary_visibility` — but the reason is narrower than it first
-  appears, and worth stating precisely.
+- `visible` is honored on **every light with extent** — `quad`, `ring`, and the
+  sphere a `point` light becomes when `radius > 0` — and the device advertises
+  `khr_light_primary_visibility`.
 
   The extension moved between SDK versions: 0.15 had `khr_area_lights` (bundling
   `visible` with `angularDiameter`, `radius`, `radiance`); the 0.16 this device
@@ -142,20 +142,10 @@ second pdf leaf.
   `khr_light_primary_visibility`, declaring `visible` on all six subtypes.
 
   Per the extension, `visible` is "whether the light can be directly seen", and
-  is **only meaningful for area lights**. So leaving it inert on a light with no
-  extent is conformant, not a silent lie — there is nothing to see, and the
-  parameter is defined to have no other effect. That covers `spot` and
-  `directional`, which are true delta lights in this device.
-
-  It does **not** cover `point`. VisRTX maps `point` to `LightType::SPHERE`
-  whenever `radius > 0`, and `radius` **defaults to 1** — so an ANARI `point`
-  light is an area light with real extent by default, sampled by
-  `sampleSphereLight`. That is a genuine gap in this work's coverage, not a
-  spec-sanctioned omission, and it is what blocks advertising the extension.
-
-  Sphere lights need the same treatment (a proxy, an analytic ray/sphere solver
-  reusing `intersectPrimitives.h`, and a hit-side density mirroring
-  `sampleSphereLight`). The extension goes in with that change.
+  is **only meaningful for area lights**. `spot` and `directional` are true delta
+  lights here: they accept the parameter and ignore it, which is conformant
+  because there is nothing to see. The scope test is *extent*, not *which lights
+  happened to get a proxy first*.
 - As ADR 0005 put it for Geometry Lights: "Every renderer that deposits path-hit
   emission must generalize its environment-only MIS weighting, or next-event
   estimation plus the hit deposit double-counts the emitter." Light Proxies are
