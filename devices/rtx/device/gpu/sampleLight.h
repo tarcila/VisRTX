@@ -236,7 +236,10 @@ VISRTX_DEVICE LightSample sampleRingLight(
   // disk shows the same falloff the illumination has and the MIS densities
   // cannot drift.
   const vec3 worldPos = xfmPoint(xfm, ld.ring.position + samplePos);
-  const vec3 worldAxis = xfmVec(xfm, direction);
+  // Unit world axis via the shared leaf: cosTheta is a dot against a unit
+  // direction, so a non-unit axis would shift the cone thresholds under a scaled
+  // instance -- on this side and the hit side alike.
+  const vec3 worldAxis = ringWorldAxis(ld.ring, xfm);
   const RingPointRelation rel =
       ringRelateToPoint(ld.ring, worldAxis, origin, worldPos);
 

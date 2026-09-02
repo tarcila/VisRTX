@@ -1215,11 +1215,14 @@ VISRTX_GLOBAL void __intersection__lightProxy()
     if (!isect.hit)
       return;
 
-    // Cull from the non-emitting side using the SAME side predicate NEE uses, so
-    // "which side is lit" cannot be answered two ways. A front-only light seen
-    // from behind is IGNORED rather than reported black, so it cannot occlude
-    // anything behind it.
-    const vec3 normal = normalize(cross(worldRect.edge1, worldRect.edge2));
+    // Cull from the non-emitting side using the SAME side predicate AND the same
+    // world-normal leaf NEE uses, so "which side is lit" cannot be answered two
+    // ways. A front-only light seen from behind is IGNORED rather than reported
+    // black, so it cannot occlude anything behind it.
+    //
+    // worldRect already carries transformed edges, so the identity transform
+    // here yields exactly the normal rectFrame() derives on the NEE side.
+    const vec3 normal = rectFrame(worldRect, mat4(1.0f)).worldNormal;
     // rectEmissionCosTheta takes the direction from the shaded point TO the
     // light, which is the ray direction (normalized).
     const float cosTheta =
