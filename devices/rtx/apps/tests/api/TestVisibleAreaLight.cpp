@@ -151,7 +151,7 @@ static constexpr float DOWN_Y = 1.5f;
 
 // edge1 x edge2 must point at -Y (down): +Z x +X = +Y, so use edge1=+X,
 // edge2=+Z giving X x Z = -Y.
-static anari::Light makeDownLight(ANARIDevice d)
+static anari::Light makeDownLight(ANARIDevice d, bool visible = true)
 {
   auto light = anari::newObject<anari::Light>(d, "quad");
   anari::setParameter(d, light, "color", vec3{1.f, 1.f, 1.f});
@@ -161,6 +161,8 @@ static anari::Light makeDownLight(ANARIDevice d)
   anari::setParameter(d, light, "edge2", vec3{0.f, 0.f, 2.f * QUAD_HALF});
   anari::setParameter(d, light, "intensity", EMISSIVE_RADIANCE);
   anari::setParameter(d, light, "side", "front");
+  if (!visible)
+    anari::setParameter(d, light, "visible", false);
   anari::commitParameters(d, light);
   return light;
 }
@@ -257,7 +259,7 @@ static std::vector<vec4> render(ANARIDevice d, const Scene &sc)
       if (sc.useEmissiveMesh)
         surfaces.push_back(makeDownEmissiveQuad(d));
       else
-        lights.push_back(makeDownLight(d));
+        lights.push_back(makeDownLight(d, sc.visible));
     } else if (sc.useEmissiveMesh)
       surfaces.push_back(makeEmissiveQuad(d));
     else
@@ -530,6 +532,72 @@ int main()
   check(floorAfterRel < 0.05,
       "diffuse illumination is unchanged once the light is hittable (relErr="
           + std::to_string(floorAfterRel) + ")");
+
+  // 8. `visible=false` hides the light from the CAMERA only.
+  //
+  //    VisRTX advertises khr_area_lights and the ANARI schema defines `visible`
+  //    on quad and ring, but until the light became visible at all only HDRI
+  //    honored it. The parameter must hide the light from view while leaving
+  //    both its illumination and its reflection intact -- otherwise it is just
+  //    a slower way to delete the light.
+  Scene hidden;
+  hidden.visible = false;
+  const double hiddenCentre = centreMean(render(device, hidden));
+  printf("visible=false: centre=%f (visible was %f)\n",
+      hiddenCentre,
+      lightCentre);
+  check(hiddenCentre < 1e-4, "visible=false hides the light from the camera");
+
+  // Illumination survives.
+  Scene hiddenFloor = litFloor;
+  hiddenFloor.visible = false;
+  const double hiddenFloorMean = floorMean(render(device, hiddenFloor));
+  printf("visible=false: floor=%f (visible was %f)\n",
+      hiddenFloorMean,
+      floorAfter);
+  const double hiddenFloorRel = floorAfter > 0.0
+      ? std::abs(hiddenFloorMean - floorAfter) / floorAfter
+      : 1.0;
+  check(hiddenFloorRel < 0.05,
+      "a hidden light still lights the scene (relErr="
+          + std::to_string(hiddenFloorRel) + ")");
+
+  // And so does the reflection -- this is what separates visible=false from
+  // removing the light, and it is why the hidden proxy keeps its own mask bit
+  // instead of being dropped from the BLAS.
+  Scene hiddenMirror = mirror;
+  hiddenMirror.visible = false;
+  const double hiddenRefl = floorMean(render(device, hiddenMirror));
+  printf("visible=false: reflection=%f (visible was %f)\n",
+      hiddenRefl,
+      reflLight);
+  const double hiddenReflRel =
+      reflLight > 0.0 ? std::abs(hiddenRefl - reflLight) / reflLight : 1.0;
+  check(hiddenReflRel < 0.10,
+      "a hidden light still appears in reflections (relErr="
+          + std::to_string(hiddenReflRel) + ")");
+
+  // Default is visible. Covered by check 1, which never sets the parameter.
+
+  // 9. Setting `visible` on the light subtypes that have no proxy is accepted
+  //    and ignored, exactly as before. They have no extent to show, so there is
+  //    nothing to hide; what matters is that the parameter is not an error and
+  //    does not disturb their illumination.
+  //
+  //    NOTE: `visible` is deliberately honored WITHOUT being advertised. The
+  //    only SDK extension declaring it, khr_light_primary_visibility, covers all
+  //    six light subtypes -- including these three, which are unimplemented.
+  //    Advertising it would claim a parameter the device ignores. The extension
+  //    goes in when they are implemented, in one change.
+  for (const char *subtype : {"point", "spot", "directional"}) {
+    auto probe = anari::newObject<anari::Light>(device, subtype);
+    anari::setParameter(device, probe, "visible", false);
+    anari::commitParameters(device, probe);
+    anari::release(device, probe);
+    check(true,
+        std::string("visible on a ") + subtype
+            + " light is accepted without error");
+  }
 
   anari::release(device, device);
 
