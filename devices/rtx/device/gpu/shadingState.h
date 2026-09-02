@@ -34,6 +34,7 @@
 #include "gpu_decl.h"
 #include "gpu_math.h"
 #include "gpu_objects.h"
+#include "pcg.h"
 
 #ifdef USE_MDL
 #include <mi/neuraylib/target_code_types.h>
@@ -69,6 +70,23 @@ struct NextRay
   float pdf{INFINITY};
   uint32_t flags{NEXT_RAY_NONE};
 };
+
+// Optional Sobol overlay for EvaluateNextRay. First `n` uniforms come from
+// u[0..n); the rest fall back to PCG. n==0 means all PCG (Interactive, later
+// bounces). Quality fills n=4 from Sobol dims 12–15 on the first bounce.
+struct NextRayQmc
+{
+  float u[4];
+  int n;
+};
+
+VISRTX_DEVICE float nextRayUniform(
+    RandState *rs, const NextRayQmc *qmc, int &cursor)
+{
+  if (qmc && cursor < qmc->n)
+    return qmc->u[cursor++];
+  return pcg_uniform(rs);
+}
 
 // Matte
 struct MatteShadingState
