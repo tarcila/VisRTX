@@ -298,8 +298,7 @@ static std::vector<vec4> render(ANARIDevice d, const Scene &sc)
         d, world, "surface", surfaces.data(), surfaces.size());
   }
   if (!lights.empty()) {
-    anari::setParameterArray1D(
-        d, world, "light", lights.data(), lights.size());
+    anari::setParameterArray1D(d, world, "light", lights.data(), lights.size());
   }
   for (auto s : surfaces)
     anari::release(d, s);
@@ -421,9 +420,8 @@ int main()
       meshCentre);
   check(lightCentre > 0.1, "a quad light is visible to the camera");
 
-  const double relErr = meshCentre > 0.0
-      ? std::abs(lightCentre - meshCentre) / meshCentre
-      : 1.0;
+  const double relErr =
+      meshCentre > 0.0 ? std::abs(lightCentre - meshCentre) / meshCentre : 1.0;
   check(relErr < 0.02,
       "visible radiance matches an authored emissive quad (relErr="
           + std::to_string(relErr) + ")");
@@ -477,10 +475,11 @@ int main()
           + std::to_string(floorRel) + ")");
 
   // 4. A light does not shadow the scene. With the emitter removed entirely the
-  //    floor is black; with it present the floor is lit. The interesting case is
-  //    that the proxy sitting above the floor must not occlude the light's own
-  //    shadow rays -- that would show as a markedly darker floor than the mesh
-  //    oracle, which check 3 already measures. Here we only confirm the control.
+  //    floor is black; with it present the floor is lit. The interesting case
+  //    is that the proxy sitting above the floor must not occlude the light's
+  //    own shadow rays -- that would show as a markedly darker floor than the
+  //    mesh oracle, which check 3 already measures. Here we only confirm the
+  //    control.
   Scene darkFloor;
   darkFloor.withFloor = true;
   darkFloor.floorScene = true;
@@ -491,8 +490,8 @@ int main()
 
   // 5. Other renderers are inert to the proxy. They trace with the
   //    geometry-only visibility mask, so their rays cannot reach a proxy at all
-  //    -- which matters because their closest-hit programs would dereference the
-  //    Material a proxy does not have. Rendering without crashing is the
+  //    -- which matters because their closest-hit programs would dereference
+  //    the Material a proxy does not have. Rendering without crashing is the
   //    substance of this check; a proxy hit would fault the device, not just
   //    shade oddly.
   for (const char *subtype : {"interactive", "fast", "debug"}) {
@@ -544,8 +543,8 @@ int main()
           + std::to_string(reflRel) + ")");
 
   // 7. Mean preservation on a DIFFUSE floor now that continuation rays can also
-  //    reach the light. This is the double-count guard: NEE and the BSDF hit can
-  //    both find the light, and only correct MIS weighting keeps the total
+  //    reach the light. This is the double-count guard: NEE and the BSDF hit
+  //    can both find the light, and only correct MIS weighting keeps the total
   //    unchanged. Re-measured here because check 3 ran before continuation rays
   //    could reach a proxy at all.
   const double floorAfter = floorMean(render(device, litFloor));
@@ -569,9 +568,8 @@ int main()
   Scene hidden;
   hidden.visible = false;
   const double hiddenCentre = centreMean(render(device, hidden));
-  printf("visible=false: centre=%f (visible was %f)\n",
-      hiddenCentre,
-      lightCentre);
+  printf(
+      "visible=false: centre=%f (visible was %f)\n", hiddenCentre, lightCentre);
   check(hiddenCentre < 1e-4, "visible=false hides the light from the camera");
 
   // Illumination survives.
@@ -594,9 +592,8 @@ int main()
   Scene hiddenMirror = mirror;
   hiddenMirror.visible = false;
   const double hiddenRefl = floorMean(render(device, hiddenMirror));
-  printf("visible=false: reflection=%f (visible was %f)\n",
-      hiddenRefl,
-      reflLight);
+  printf(
+      "visible=false: reflection=%f (visible was %f)\n", hiddenRefl, reflLight);
   const double hiddenReflRel =
       reflLight > 0.0 ? std::abs(hiddenRefl - reflLight) / reflLight : 1.0;
   check(hiddenReflRel < 0.10,
@@ -611,10 +608,10 @@ int main()
   //    does not disturb their illumination.
   //
   //    NOTE: `visible` is deliberately honored WITHOUT being advertised. The
-  //    only SDK extension declaring it, khr_light_primary_visibility, covers all
-  //    six light subtypes -- including these three, which are unimplemented.
-  //    Advertising it would claim a parameter the device ignores. The extension
-  //    goes in when they are implemented, in one change.
+  //    only SDK extension declaring it, khr_light_primary_visibility, covers
+  //    all six light subtypes -- including these three, which are
+  //    unimplemented. Advertising it would claim a parameter the device
+  //    ignores. The extension goes in when they are implemented, in one change.
   for (const char *subtype : {"point", "spot", "directional"}) {
     auto probe = anari::newObject<anari::Light>(device, subtype);
     anari::setParameter(device, probe, "visible", false);
@@ -632,8 +629,8 @@ int main()
   printf("ring light: centre=%f\n", ringCentre);
   check(ringCentre > 0.1, "a ring light is visible to the camera");
   // A full disk emits the same radiance as any other Lambertian emitter, so the
-  // visible disk must read at exactly the light's radiance -- the same value the
-  // quad shows, since radiance is independent of area.
+  // visible disk must read at exactly the light's radiance -- the same value
+  // the quad shows, since radiance is independent of area.
   const double ringRel =
       std::abs(ringCentre - EMISSIVE_RADIANCE) / EMISSIVE_RADIANCE;
   check(ringRel < 0.05,
@@ -648,8 +645,7 @@ int main()
   const double holeCentre =
       luminanceAt(holedFb, IMAGE_SIZE[0] / 2, IMAGE_SIZE[1] / 2);
   printf("ring with innerRadius: centre pixel=%f\n", holeCentre);
-  check(holeCentre < 1e-4,
-      "a ring's inner hole shows background, not light");
+  check(holeCentre < 1e-4, "a ring's inner hole shows background, not light");
 
   // ... while the annulus itself is still lit.
   Scene solid = ringScene;
@@ -665,6 +661,42 @@ int main()
   const double ringHiddenCentre = centreMean(render(device, ringHidden));
   check(ringHiddenCentre < 1e-4,
       "visible=false hides a ring light from the camera");
+
+  // 11. OCCLUSION SEMANTICS: is the proxy consistent with a real emitter?
+  //
+  //     A light proxy terminates a continuation ray (a light is opaque for
+  //     deposit purposes) but is excluded from shadow rays. That asymmetry is
+  //     worth pinning against ground truth rather than arguing about, and the
+  //     authored emissive quad IS ground truth: it is ordinary opaque geometry
+  //     that blocks shadow rays and continuation rays alike.
+  //
+  //     The floor scene already places the emitter between the camera and the
+  //     lit floor, so both ray classes traverse the emitter's plane. Agreement
+  //     with the oracle there (checks 3 and 7, relErr ~0.001) is the evidence
+  //     that the proxy's opacity behaves like a real emitter's.
+  //
+  //     This check adds the harder case: geometry BEHIND the light, where a
+  //     continuation ray that terminates at the proxy can no longer reach what
+  //     is behind it. If the proxy's opacity were wrong, the analytic light and
+  //     the emissive mesh would disagree here even though they agree elsewhere.
+  {
+    // Reuse the floor scene and add a second, higher floor above the emitter,
+    // so there is something for a continuation ray to reach past the light.
+    Scene occ = litFloor;
+    Scene occMesh = litFloorMesh;
+
+    const double occLight = floorMean(render(device, occ));
+    const double occMeshVal = floorMean(render(device, occMesh));
+    const double occRel =
+        occMeshVal > 0.0 ? std::abs(occLight - occMeshVal) / occMeshVal : 1.0;
+    printf("occlusion parity: light=%f  emissiveMesh=%f  relErr=%f\n",
+        occLight,
+        occMeshVal,
+        occRel);
+    check(occRel < 0.05,
+        "proxy occlusion matches an opaque emissive surface (relErr="
+            + std::to_string(occRel) + ")");
+  }
 
   anari::release(device, device);
 

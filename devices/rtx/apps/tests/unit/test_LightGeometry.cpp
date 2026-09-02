@@ -4,10 +4,10 @@
  */
 
 // Host unit tests for the shared rect/ring area-light leaves (ADR 0009). These
-// are the functions BOTH next-event estimation and the hit-side deposit call, so
-// a bug here desyncs MIS and biases the image in a way that is very hard to see
-// in a render. Testing them directly is the point of keeping lightGeometry.h
-// CUDA-free.
+// are the functions BOTH next-event estimation and the hit-side deposit call,
+// so a bug here desyncs MIS and biases the image in a way that is very hard to
+// see in a render. Testing them directly is the point of keeping
+// lightGeometry.h CUDA-free.
 //
 // Radiance is asserted to be Lambertian (independent of distance and viewing
 // angle) because the cosine belongs to the pdf, not the radiance — getting that
@@ -19,6 +19,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <random>
 
 using namespace visrtx;
 
@@ -57,9 +58,8 @@ static RectLightGPUData unitRect(bool front, bool back, float intensity = 1.0f)
   return r;
 }
 
-static RingLightGPUData unitRing(float innerRadius = 0.0f,
-    float outerRadius = 1.0f,
-    float intensity = 1.0f)
+static RingLightGPUData unitRing(
+    float innerRadius = 0.0f, float outerRadius = 1.0f, float intensity = 1.0f)
 {
   RingLightGPUData r{};
   r.position = vec3(0.0f);
@@ -69,7 +69,8 @@ static RingLightGPUData unitRing(float innerRadius = 0.0f,
   r.radius = outerRadius;
   r.innerRadius = innerRadius;
   r.intensity = intensity;
-  const float area = kPi * (outerRadius * outerRadius - innerRadius * innerRadius);
+  const float area =
+      kPi * (outerRadius * outerRadius - innerRadius * innerRadius);
   r.oneOverArea = area > 0.0f ? 1.0f / area : 1.0f;
   return r;
 }
@@ -120,9 +121,85 @@ int main()
     CHECK(nearf(f.worldNormal.z, -1.0f, 1e-4f));
   }
 
+  // The world normal is the normal of the TRANSFORMED rectangle, for EVERY
+  // affine transform including mirroring ones.
+  //
+  // Regression: deriving it as xfmVec(M, cross(e1,e2)) instead of
+  // cross(M*e1, M*e2) differs by det(M). Under a mirroring transform (negative
+  // determinant) the two point into opposite hemispheres, so the shared side
+  // predicate calls the front face the back one and a single-sided light
+  // illuminates the wrong half-space. Shadow rays never test light proxies, so
+  // nothing downstream catches it -- this assertion is the guard.
+  {
+    // Mirror across X: det < 0.
+    const mat4 mirror = glm::scale(mat4(1.0f), vec3(-1.0f, 1.0f, 1.0f));
+    const RectLightGPUData r = unitRect(true, false);
+    const RectFrame f = rectFrame(r, mirror);
+    const vec3 fromEdges =
+        normalize(cross(xfmVec(mirror, r.edge1), xfmVec(mirror, r.edge2)));
+    CHECK(nearf(dot(f.worldNormal, fromEdges), 1.0f, 1e-5f));
+    // And it is genuinely the opposite of the naive forward transform, so this
+    // test would fail against the old formulation rather than pass vacuously.
+    const vec3 naive = normalize(xfmVec(mirror, cross(r.edge1, r.edge2)));
+    CHECK(dot(f.worldNormal, naive) < -0.9f);
+  }
+
+  // Same property over randomized affine transforms, mirroring included.
+  {
+    std::mt19937 g(20260009);
+    std::uniform_real_distribution<float> uni(-2.0f, 2.0f);
+    int checked = 0, negativeDet = 0;
+    for (int i = 0; i < 20000; ++i) {
+      RectLightGPUData r = unitRect(true, false);
+      r.edge1 = vec3(uni(g), uni(g), uni(g));
+      r.edge2 = vec3(uni(g), uni(g), uni(g));
+      if (length(cross(r.edge1, r.edge2)) < 1e-2f)
+        continue;
+
+      mat4 m(1.0f);
+      for (int c = 0; c < 3; ++c)
+        for (int rw = 0; rw < 3; ++rw)
+          m[c][rw] = uni(g);
+      const float det = glm::determinant(mat3(m));
+      if (std::fabs(det) < 1e-2f)
+        continue;
+      if (det < 0.0f)
+        ++negativeDet;
+
+      const vec3 we1 = xfmVec(m, r.edge1);
+      const vec3 we2 = xfmVec(m, r.edge2);
+      if (length(cross(we1, we2)) < 1e-4f)
+        continue;
+
+      const RectFrame f = rectFrame(r, m);
+      CHECK(dot(f.worldNormal, normalize(cross(we1, we2))) > 0.999f);
+      ++checked;
+    }
+    // The mirroring case must actually be exercised, or this proves nothing.
+    CHECK(checked > 5000);
+    CHECK(negativeDet > 1000);
+  }
+
+  // The ring's world axis must be UNIT length under any transform: cosTheta is
+  // a dot against a unit direction, so a non-unit axis silently rescales the
+  // cone thresholds. Regression against normalizing only the object-space
+  // direction and then scaling it by the transform.
+  {
+    const mat4 scaled = glm::scale(mat4(1.0f), vec3(7.0f, 0.2f, 3.0f));
+    RingLightGPUData r = unitRing();
+    r.direction = vec3(0.0f, -3.0f, 0.0f); // deliberately non-unit
+    CHECK(nearf(length(ringWorldAxis(r, scaled)), 1.0f, 1e-5f));
+    CHECK(nearf(length(ringWorldAxis(r, mat4(1.0f))), 1.0f, 1e-5f));
+
+    const mat4 rot =
+        glm::rotate(mat4(1.0f), glm::radians(37.0f), vec3(0.3f, 1.0f, 0.2f));
+    CHECK(nearf(length(ringWorldAxis(r, rot)), 1.0f, 1e-5f));
+  }
+
   // --- rectEmissionCosTheta: the full side table ----------------------------
-  // The normal is -Y, so a point BELOW the light sees the front face. dirToLight
-  // points from the shaded point toward the light: +Y from below, -Y from above.
+  // The normal is -Y, so a point BELOW the light sees the front face.
+  // dirToLight points from the shaded point toward the light: +Y from below, -Y
+  // from above.
   {
     const vec3 n(0.0f, -1.0f, 0.0f);
     const vec3 fromBelow(0.0f, 1.0f, 0.0f);
@@ -209,7 +286,8 @@ int main()
     // Outside the outer cone: zero.
     CHECK(nearf(ringSpotAttenuation(r, 0.4f), 0.0f));
     CHECK(nearf(ringSpotAttenuation(r, -1.0f), 0.0f));
-    // Continuous at both boundaries — a discontinuity here shows as a hard ring.
+    // Continuous at both boundaries — a discontinuity here shows as a hard
+    // ring.
     CHECK(nearf(ringSpotAttenuation(r, 0.5f), 0.0f, 1e-4f));
     CHECK(nearf(ringSpotAttenuation(r, 0.8f), 1.0f, 1e-4f));
     // Monotonically increasing across the falloff band.

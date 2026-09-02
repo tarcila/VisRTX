@@ -498,8 +498,11 @@ VISRTX_DEVICE void populateHit()
 // fields a proxy can honestly answer are filled; instance/geometry/material stay
 // null and callers gate on hit.isLightProxy().
 //
-// The ID channels are left at their defaults on purpose, so a visible light
-// never masquerades as a real scene object in a picking or ID pass.
+// The ID channels are left at their SurfaceHit defaults (~0u) on purpose, so a
+// visible light never masquerades as a real scene object in a picking or ID
+// pass. A consumer that reads primID/objID/instID off a proxy hit without
+// checking isLightProxy() therefore gets the sentinel, not a real object's id --
+// wrong, but not a crash, unlike the null instance/geometry/material pointers.
 VISRTX_DEVICE void populateLightProxyHit()
 {
   auto &hit = ray::rayData<SurfaceHit>();

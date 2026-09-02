@@ -79,6 +79,17 @@ second pdf leaf.
   single most important invariant. Any divergence biases the MIS balance
   heuristic, silently and in a way that is very hard to see in an image. It is
   asserted directly in a host unit test, not inferred from renders.
+- **Sharing one density function is not the same as that density being correct**,
+  and this ADR should not be read as claiming otherwise. The rect/ring samplers
+  use OBJECT-space area with world-space distances and no transform Jacobian, so
+  a light under an instance scale `s` reports a density `s²` times the true one
+  (measured: `s=2` → 4×, `s=4` → 16×). Sharing it makes the two MIS weights sum
+  to 1 for the *wrong* integral; a diffuse surface reached only by NEE has no
+  competing technique to rebalance against and is biased by `1/s²` outright.
+  This is pre-existing sampler behavior, reproduced deliberately so the hit side
+  cannot drift from it, and out of scope here — fixing it means changing the
+  sampler, with its own equivalence test against a *scaled* emissive-surface
+  oracle. Unscaled and rigidly-transformed lights are exact.
 - **One pick-CDF entry per light.** `appendLight` is unchanged; rect/ring
   additionally emit a proxy AABB tagged with the existing `lightIndex`. The NEE
   path is untouched. Double-counting is therefore structurally impossible rather
@@ -86,6 +97,28 @@ second pdf leaf.
 - Once the proxy BLAS exists, *every* renderer's rays can hit it. Renderers that
   do not deposit proxy hits (Interactive, Debug, Fast) must **pass through**
   safely. Only Quality deposits.
+- **A proxy is opaque to continuation rays but invisible to shadow rays**, and
+  that asymmetry is deliberate rather than an oversight. It reproduces what an
+  authored emissive surface does *in the cases that matter*, without the
+  self-occlusion an emissive surface actually suffers (the ~15% loss
+  `GEOMETRY_LIGHT_SHADOW_EPSILON` exists to patch). The two ray classes are
+  answering different questions: a shadow ray asks "is the path from this point
+  to the light I already picked unobstructed", where the light's own surface is
+  never an obstruction; a continuation ray asks "what does this direction see",
+  where the light is the answer and the path terminates. Verified against the
+  emissive-surface oracle rather than argued: `TestVisibleAreaLight` renders both
+  with the emitter between the camera and the lit floor and requires agreement
+  (measured relErr 0.0014).
+- **`rectFrame` derives the world normal from the transformed EDGES**, as
+  `cross(M·e1, M·e2)`, not by forward-transforming the object normal. The two
+  differ by `det(M)`, so under a **mirroring** instance transform (negative
+  determinant) the naive form points into the opposite hemisphere and the side
+  predicate calls the front face the back one. Because shadow rays never test
+  proxies, nothing downstream would catch it. Regression-tested over randomized
+  affine transforms with mirroring cases explicitly counted.
+- **`ringWorldAxis` normalizes AFTER transforming.** cosθ is a dot against a unit
+  direction, so a non-unit axis rescales it and silently shifts the cone
+  thresholds under any scaled instance.
 - The proxy enters a hit path built entirely around the assumption that a hit has
   a material, a geometry, and a surface instance — `populateSurfaceHit`
   dereferences all three, and Interactive's bounce deposit dereferences

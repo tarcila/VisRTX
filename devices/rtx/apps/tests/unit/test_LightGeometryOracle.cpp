@@ -78,9 +78,8 @@ static bool triHit(const dvec3 &org,
 }
 
 // The rect as two triangles: (p, p+e1, p+e1+e2) and (p, p+e1+e2, p+e2).
-static OracleHit oracleRect(const RectLightGPUData &rect,
-    const vec3 &orgf,
-    const vec3 &dirf)
+static OracleHit oracleRect(
+    const RectLightGPUData &rect, const vec3 &orgf, const vec3 &dirf)
 {
   const dvec3 org(orgf), dir(dirf);
   const dvec3 p(rect.position), e1(rect.edge1), e2(rect.edge2);
@@ -178,10 +177,10 @@ int main()
   {
     // Parallel to the plane, above it.
     CHECK(!intersectRect(unit, vec3(0.5f, 1.0f, 0.5f), vec3(1.0f, 0.0f, 0.0f))
-               .hit);
+            .hit);
     // Lying exactly in the plane.
     CHECK(!intersectRect(unit, vec3(-1.0f, 0.0f, 0.5f), vec3(1.0f, 0.0f, 0.0f))
-               .hit);
+            .hit);
     // Pointing away: the rect is behind the origin.
     CHECK(!intersectRect(unit, vec3(0.5f, 1.0f, 0.5f), up).hit);
     // Origin exactly on the rect, pointing away.
@@ -200,8 +199,8 @@ int main()
         makeRect(vec3(0.0f), vec3(0.0f), vec3(0.0f, 0.0f, 1.0f));
     CHECK(!intersectRect(zeroEdge, vec3(0.5f, 1.0f, 0.5f), down).hit);
 
-    const RectLightGPUData parallelEdges = makeRect(
-        vec3(0.0f), vec3(1.0f, 0.0f, 0.0f), vec3(2.0f, 0.0f, 0.0f));
+    const RectLightGPUData parallelEdges =
+        makeRect(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f), vec3(2.0f, 0.0f, 0.0f));
     CHECK(!intersectRect(parallelEdges, vec3(0.5f, 1.0f, 0.0f), down).hit);
 
     const RectLightGPUData bothZero =
@@ -214,8 +213,8 @@ int main()
   // the rect covers x in [v, 1+v] at height z=v. A dot/|e|^2 formulation
   // mis-bounds this; both probes below discriminate.
   {
-    const RectLightGPUData sheared = makeRect(
-        vec3(0.0f), vec3(1.0f, 0.0f, 0.0f), vec3(1.0f, 0.0f, 1.0f));
+    const RectLightGPUData sheared =
+        makeRect(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f), vec3(1.0f, 0.0f, 1.0f));
     // Inside: at z=0.5 the span is x in [0.5, 1.5].
     CHECK(intersectRect(sheared, vec3(1.0f, 1.0f, 0.5f), down).hit);
     // Outside, but inside the axis-aligned bounding box.
@@ -281,15 +280,13 @@ int main()
           const float e12 = dot(r.edge1, r.edge2);
           const float e22 = dot(r.edge2, r.edge2);
           const float det = e11 * e22 - e12 * e12;
-          const float u =
-              (dot(d, r.edge1) * e22 - dot(d, r.edge2) * e12) / det;
-          const float v =
-              (dot(d, r.edge2) * e11 - dot(d, r.edge1) * e12) / det;
+          const float u = (dot(d, r.edge1) * e22 - dot(d, r.edge2) * e12) / det;
+          const float v = (dot(d, r.edge2) * e11 - dot(d, r.edge1) * e12) / det;
           if (u > 1e-3f && u < 1.0f - 1e-3f && v > 1e-3f && v < 1.0f - 1e-3f)
             ++disagree;
         } else {
-          if (mine.uv.x > 1e-3f && mine.uv.x < 1.0f - 1e-3f
-              && mine.uv.y > 1e-3f && mine.uv.y < 1.0f - 1e-3f)
+          if (mine.uv.x > 1e-3f && mine.uv.x < 1.0f - 1e-3f && mine.uv.y > 1e-3f
+              && mine.uv.y < 1.0f - 1e-3f)
             ++disagree;
         }
       } else if (mine.hit && ref.hit) {
@@ -320,9 +317,8 @@ int main()
     for (int i = 0; i < 100000; ++i) {
       const vec3 centre(uni(g) * 500.0f, uni(g) * 500.0f, uni(g) * 500.0f);
       const float aspect = std::pow(10.0f, uni(g) * 2.0f); // 0.01 .. 100
-      const RectLightGPUData r = makeRect(centre,
-          vec3(aspect, 0.0f, 0.0f),
-          vec3(0.0f, 0.0f, 1.0f / aspect));
+      const RectLightGPUData r = makeRect(
+          centre, vec3(aspect, 0.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f / aspect));
       // Aim at a point known to be on the rect so hits are common.
       const float tu = 0.5f + uni(g) * 0.45f;
       const float tv = 0.5f + uni(g) * 0.45f;
@@ -418,9 +414,9 @@ int main()
   // The single most important property in ADR 0009.
   //
   // NEE samples a point on the light and reports a density. A BSDF continuation
-  // toward that same point hits the proxy and must reconstruct the SAME density,
-  // or the balance heuristic weights the deposit against a density nothing
-  // sampled and the render is biased.
+  // toward that same point hits the proxy and must reconstruct the SAME
+  // density, or the balance heuristic weights the deposit against a density
+  // nothing sampled and the render is biased.
   //
   // This exercises the full round trip -- sample, shoot, intersect, reconstruct
   // -- rather than just calling the shared leaf twice, so a drift introduced by
@@ -440,8 +436,8 @@ int main()
     //    exclusion cannot quietly grow to hide a real drift.
     //
     // 2. Points sampled on the rect's boundary to within an ulp. NEE can sample
-    //    v = 1e-6 and the round trip lands at v = -9e-8, just outside. That is a
-    //    boundary classification, not a density disagreement.
+    //    v = 1e-6 and the round trip lands at v = -9e-8, just outside. That is
+    //    a boundary classification, not a density disagreement.
     constexpr float kWellConditionedCos = 1e-3f;
     constexpr float kBoundaryMargin = 1e-4f;
 
@@ -500,8 +496,8 @@ int main()
       const RectPointRelation hit =
           rectRelateToPoint(r, frame.worldNormal, frame.area, origin, hitPoint);
 
-      const double rel = std::fabs(double(hit.solidAnglePdf)
-                             - double(nee.solidAnglePdf))
+      const double rel =
+          std::fabs(double(hit.solidAnglePdf) - double(nee.solidAnglePdf))
           / std::fmax(1e-30, double(nee.solidAnglePdf));
 
       if (nee.cosTheta < kWellConditionedCos) {
@@ -602,10 +598,10 @@ int main()
     // Parallel, in-plane, and behind-the-origin rays.
     CHECK(!intersectRing(
         ring, centre, axis, vec3(1.5f, 3.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f))
-               .hit);
+            .hit);
     CHECK(!intersectRing(
         ring, centre, axis, vec3(-3.0f, 0.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f))
-               .hit);
+            .hit);
     CHECK(!intersectRing(ring, centre, axis, vec3(1.5f, 3.0f, 0.0f), up).hit);
 
     // Backfacing still hits: culling is the caller's job, not the solver's.
@@ -670,12 +666,12 @@ int main()
           + ring.innerRadius * ring.innerRadius);
       // Any orthonormal basis of the disk plane works: the density is radially
       // symmetric, so the basis choice cannot change it.
-      const vec3 ref =
-          std::fabs(axis.x) < 0.9f ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+      const vec3 ref = std::fabs(axis.x) < 0.9f ? vec3(1.0f, 0.0f, 0.0f)
+                                                : vec3(0.0f, 1.0f, 0.0f);
       const vec3 b0 = normalize(cross(axis, ref));
       const vec3 b1 = cross(axis, b0);
-      const vec3 sampled = ring.position
-          + b0 * (rr * std::cos(phi)) + b1 * (rr * std::sin(phi));
+      const vec3 sampled =
+          ring.position + b0 * (rr * std::cos(phi)) + b1 * (rr * std::sin(phi));
 
       const RingPointRelation nee =
           ringRelateToPoint(ring, axis, origin, sampled);
@@ -703,8 +699,8 @@ int main()
       }
 
       ++tested;
-      const double rel = std::fabs(double(hit.solidAnglePdf)
-                             - double(nee.solidAnglePdf))
+      const double rel =
+          std::fabs(double(hit.solidAnglePdf) - double(nee.solidAnglePdf))
           / std::fmax(1e-30, double(nee.solidAnglePdf));
       worstRel = std::fmax(worstRel, rel);
       if (rel > 1e-3)

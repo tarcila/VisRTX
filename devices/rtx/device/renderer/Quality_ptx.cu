@@ -776,6 +776,12 @@ VISRTX_GLOBAL void __raygen__()
         }
 
         sample.color += wEmission * sampleContribution * proxyRadiance;
+        // A visible light COVERS the pixel. Without this the alpha channel
+        // reports the pixel as empty while carrying the light's radiance, and
+        // the background gets composited in behind it -- a visibly wrong,
+        // washed-out light against any non-black background. Matches the
+        // emissive-surface and environment-miss deposits.
+        accumulateValue(sample.opacity, 1.0f, sample.opacity);
         // A light is opaque for deposit purposes: terminate rather than
         // continuing through it, matching the emissive-hit control flow.
         break;

@@ -32,26 +32,41 @@
 #pragma once
 
 // Shared geometry and radiometry leaves for the analytic AREA lights (rect and
-// ring). Every quantity that both next-event estimation and the hit-side deposit
-// need lives here exactly once.
+// ring). Every quantity that both next-event estimation and the hit-side
+// deposit need lives here exactly once.
 //
-// Why a separate header (ADR 0009): the hit-side pdf and the NEE pdf must be the
-// SAME function, or the MIS balance heuristic is weighted against a density
+// Why a separate header (ADR 0009): the hit-side pdf and the NEE pdf must be
+// the SAME function, or the MIS balance heuristic is weighted against a density
 // nothing actually sampled and the image is silently biased. Two copies that
 // "look equivalent" is the failure mode this file exists to make impossible.
 //
 // This header is deliberately CUDA-FREE — glm and the GPU POD structs only, no
-// CUB, no device atomics, no OptiX device intrinsics. sampleLight.h pulls all of
-// those, which is why the math it used to own could not be unit tested. Keeping
-// these leaves compilable on the host is what lets a unit test assert
+// CUB, no device atomics, no OptiX device intrinsics. sampleLight.h pulls all
+// of those, which is why the math it used to own could not be unit tested.
+// Keeping these leaves compilable on the host is what lets a unit test assert
 // pdf(hit) == pdf(NEE) exactly instead of hoping a rendered image reveals a
 // mismatch. Do not add a CUDA-only dependency here.
 //
-// Object-space area, deliberately: rectArea/ring oneOverArea measure the light in
-// OBJECT space and apply no transform Jacobian, so a scaled instance's pdf is
-// only approximate. That is pre-existing behavior (see the note in
-// lightPickPower.h); the hit side reproduces it exactly rather than "fixing" one
-// side and desyncing the pair. Correcting both together is separate work.
+// KNOWN DEFECT, pre-existing and deliberately reproduced: the area terms
+// measure the light in OBJECT space while distances are world-space, applying
+// no transform Jacobian. Under an instance scale s the reported density is s^2
+// times the true one (measured: s=2 gives ratio 4, s=4 gives 16), so a SCALED
+// area light's next-event contribution is off by 1/s^2.
+//
+// Sharing one function across NEE and the hit side does NOT make that
+// unbiased -- it only makes the two MIS weights sum to 1 for the wrong
+// integral. A diffuse surface reached only by NEE has no competing technique to
+// rebalance against and is biased outright.
+//
+// It is reproduced rather than fixed here because fixing it means changing the
+// SAMPLER, which is out of scope for the proxy work and needs its own
+// equivalence test against a scaled emissive-surface oracle. What this header
+// does guarantee is that the hit side cannot drift from whatever the sampler
+// does. Unscaled and rigidly-transformed lights -- the overwhelmingly common
+// case, and every case in the test suite -- are exact.
+//
+// See also the same approximation, documented from the Pick Power side, in
+// lightPickPower.h.
 
 #include "gpu/gpu_math.h"
 #include "gpu/gpu_objects.h"
@@ -68,23 +83,38 @@ struct RectFrame
   float area; // object-space |edge1 x edge2|
 };
 
+// The world normal is taken as cross(M*e1, M*e2) -- the normal of the
+// TRANSFORMED rectangle -- not as xfmVec(M, cross(e1,e2)).
+//
+// The two differ by det(M): cross(M*e1, M*e2) = det(M) * M^-T * cross(e1,e2).
+// For det(M) > 0 they point the same way, but under a MIRRORING instance
+// transform (negative determinant, e.g. a scale with one negative component)
+// the forward-transformed normal points into the opposite hemisphere. That
+// would make the shared side predicate call the front face the back one, so a
+// single-sided light would illuminate the wrong half-space -- and because
+// shadow rays never test proxies, nothing downstream would catch it.
+//
+// Deriving it from the transformed edges also makes this agree with the
+// intersector by construction, since the intersector works with the
+// world-space rectangle directly.
 VISRTX_HOST_DEVICE RectFrame rectFrame(
     const RectLightGPUData &rect, const mat4 &xfm)
 {
   RectFrame f;
-  auto normal = cross(rect.edge1, rect.edge2);
-  f.area = length(normal);
-  f.worldNormal = normalize(xfmVec(xfm, normal));
+  f.area = length(cross(rect.edge1, rect.edge2));
+  f.worldNormal =
+      normalize(cross(xfmVec(xfm, rect.edge1), xfmVec(xfm, rect.edge2)));
   return f;
 }
 
 // The single `side` predicate. Resolves the light's front/back/both
 // configuration against a direction and returns the SIGNED cosine: positive
-// means the light emits toward `dirToLight`'s origin, non-positive means it does
-// not. Both the NEE radiance/pdf gate and the hit-side cull consume this one
-// function, so "which side is lit" cannot be answered two ways.
+// means the light emits toward `dirToLight`'s origin, non-positive means it
+// does not. Both the NEE radiance/pdf gate and the hit-side cull consume this
+// one function, so "which side is lit" cannot be answered two ways.
 //
-// dirToLight points FROM the shaded point TO the light, matching LightSample::dir.
+// dirToLight points FROM the shaded point TO the light, matching
+// LightSample::dir.
 VISRTX_HOST_DEVICE float rectEmissionCosTheta(const RectLightGPUData &rect,
     const vec3 &worldNormal,
     const vec3 &dirToLight)
@@ -115,8 +145,8 @@ VISRTX_HOST_DEVICE vec3 rectRadiance(
 //
 // The operation order here is load-bearing for the "no behavior change"
 // requirement of the extraction: it reproduces sampleRectLight's original
-// `areaPdf * pow2(dist) / cosTheta` exactly, rather than the algebraically equal
-// `pow2(dist) / (area * cosTheta)`, which rounds differently.
+// `areaPdf * pow2(dist) / cosTheta` exactly, rather than the algebraically
+// equal `pow2(dist) / (area * cosTheta)`, which rounds differently.
 VISRTX_HOST_DEVICE float rectSolidAnglePdf(
     float area, float dist, float cosTheta)
 {
@@ -141,9 +171,9 @@ struct RectPointRelation
 // One function, so the two densities cannot drift and the MIS balance heuristic
 // stays honest.
 //
-// `area` is the light's OBJECT-space area (RectFrame::area) while worldPoint and
-// origin are world-space. That asymmetry is the sampler's pre-existing behavior,
-// reproduced rather than corrected -- see the header note.
+// `area` is the light's OBJECT-space area (RectFrame::area) while worldPoint
+// and origin are world-space. That asymmetry is the sampler's pre-existing
+// behavior, reproduced rather than corrected -- see the header note.
 VISRTX_HOST_DEVICE RectPointRelation rectRelateToPoint(
     const RectLightGPUData &rect,
     const vec3 &worldNormal,
@@ -232,8 +262,9 @@ VISRTX_HOST_DEVICE RectIntersection intersectRect(
 
 // Ring ///////////////////////////////////////////////////////////////////////
 
-// Smoothstep cone falloff, shared so the visible disk shows the same attenuation
-// the illumination has. cosTheta is measured against the ring's world-space axis.
+// Smoothstep cone falloff, shared so the visible disk shows the same
+// attenuation the illumination has. cosTheta is measured against the ring's
+// world-space axis.
 VISRTX_HOST_DEVICE float ringSpotAttenuation(
     const RingLightGPUData &ring, float cosTheta)
 {
@@ -266,13 +297,17 @@ VISRTX_HOST_DEVICE float ringSolidAnglePdf(
   return areaPdf * pow2(dist) / cosTheta;
 }
 
-// The ring's world-space axis, normalized. The sampler normalizes ring.direction
-// before use, so anything reading the axis must too or a non-unit authored
-// direction shifts the cone falloff.
+// The ring's world-space axis, as a UNIT vector.
+//
+// Normalizing AFTER the transform is load-bearing: cosTheta is computed as
+// dot(axis, -dir) with dir already unit, so a non-unit axis scales the cosine
+// and silently shifts the cone thresholds (cosInnerAngle/cosOuterAngle) for any
+// scaled instance. Normalizing only the object-space direction, as the original
+// sampler did, leaves exactly that error under a scaled transform.
 VISRTX_HOST_DEVICE vec3 ringWorldAxis(
     const RingLightGPUData &ring, const mat4 &xfm)
 {
-  return xfmVec(xfm, normalize(ring.direction));
+  return normalize(xfmVec(xfm, normalize(ring.direction)));
 }
 
 // Ring counterpart of rectRelateToPoint: THE shared density function for ring
