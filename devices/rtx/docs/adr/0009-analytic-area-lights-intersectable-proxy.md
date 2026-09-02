@@ -98,12 +98,22 @@ second pdf leaf.
 - ADR 0004 rejected visibility masks for the surface/volume split on hit-semantics
   grounds. That reasoning is untouched here: this mask bit discriminates ray
   *classes* against one traversable, not two kinds of traversal.
-- `visible` becomes meaningful for area lights. VisRTX advertises
-  `khr_area_lights`, and the ANARI SDK schema defines `visible` on `quad`, `ring`,
-  `point`, `spot`, and `directional` with a default of true — so the prior
-  behavior (honored only by HDRI) was a conformance gap. `point`/`spot`/
-  `directional` have no proxy and no extent to show; `visible` stays unimplemented
-  for them, deliberately.
+- `visible` becomes meaningful for area lights, but is **implemented without being
+  advertised**, deliberately. The parameter is honored on `quad` (and `ring` once
+  it lands); a query for it still reports nothing.
+
+  The extension that would advertise it moved: SDK 0.15 had `khr_area_lights`
+  (bundling `visible` with `angularDiameter`, `radius`, `radiance`), and the 0.16
+  this device builds against replaces it with `khr_light_primary_visibility`,
+  which declares `visible` on **all six** light subtypes — `directional`,
+  `point`, `spot`, `hdri`, `quad`, `ring`.
+
+  Advertising it would therefore claim `visible` on `directional`, `point` and
+  `spot`, which have no proxy, no extent to show, and no implementation. Claiming
+  a parameter the device silently ignores is a worse defect than not claiming one
+  it honors: an application can test for an extension, but it cannot test for an
+  extension that lies. The extension goes in when those three are implemented, in
+  one change, not before.
 - As ADR 0005 put it for Geometry Lights: "Every renderer that deposits path-hit
   emission must generalize its environment-only MIS weighting, or next-event
   estimation plus the hit deposit double-counts the emitter." Light Proxies are
