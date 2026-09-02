@@ -711,18 +711,18 @@ VISRTX_GLOBAL void __raygen__()
                 materialEvalBsdf(shadingState, -ray.dir, lightSample.dir);
             const vec3 directLight =
                 fCos * lightSample.radiance / lightSample.pdf;
-            // Env MIS: the HDRI is reached by env-CDF NEE, cosine-hemisphere
-            // NEE, and the BSDF escape. Balance-heuristic weights use the same
-            // density functions on every candidate: p_L = envPdf·envPickProb,
-            // p_C = (cosθ/π)·envPickProb. Other light types: p_bsdf = 0 =>
-            // w_nee = 1 (behaviour unchanged).
+            // Env MIS: cosine-hemisphere NEE always runs when an HDRI exists
+            // (so matte floors still get env when the Light Pick selected a
+            // local light). CDF NEE still runs only on an HDRI pick.
+            // p_C = cosθ/π (always-sampled). p_L = envPdf·envPickProb (pick-
+            // gated). Other light types: p_bsdf = 0 => w_nee = 1.
             float wNee = 1.0f;
             if (lightPick.isEnv) {
               const float pBsdf =
                   materialEvalPdf(shadingState, -ray.dir, lightSample.dir);
               const float pLight =
                   envPdf(frameData, lightSample.dir) * envPickProb;
-              const float pCosine = lightDotNs * kInvPi * envPickProb;
+              const float pCosine = lightDotNs * kInvPi;
               const float pSum = pLight + pBsdf + pCosine;
               wNee = pSum > 0.0f ? pLight / pSum : 0.0f;
             } else if (lightPick.isGeometry) {
@@ -761,19 +761,18 @@ VISRTX_GLOBAL void __raygen__()
           }
         }
 
-        // Cosine-hemisphere env NEE: never below the horizon, so it carries the
-        // environment on pixels where the env-CDF draw was gated to zero. Fired
-        // only when the Light Pick selected the HDRI; joint densities fold
-        // envPickProb so the estimator stays unbiased when other lights share
-        // the pick. Independent of whether the env-CDF direction was above the
-        // horizon — that is the case this strategy exists to recover.
-        if (lightPick.isEnv) {
+        // Cosine-hemisphere env NEE: always, when the world has an HDRI — not
+        // only when Light Pick selected it. Matte has no continuation, so
+        // gating this on isEnv left most mixed-light pixels with zero env
+        // samples. p_C has no pick factor (the strategy always runs). p_L still
+        // carries envPickProb because the CDF technique is pick-gated.
+        if (frameData.world.numHdriLightInstances > 0) {
           const vec3 dirC = sampleHemisphere(ss.rs, surfaceHit.Ns);
           const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
           vec3 envRadiance;
           if (cosC > 0.0f && getBackgroundLight(frameData, dirC, envRadiance)) {
             const vec3 fCos = materialEvalBsdf(shadingState, -ray.dir, dirC);
-            const float pCosine = cosC * kInvPi * envPickProb;
+            const float pCosine = cosC * kInvPi;
             const float pLight = envPdf(frameData, dirC) * envPickProb;
             const float pBsdf = materialEvalPdf(shadingState, -ray.dir, dirC);
             const float pSum = pCosine + pLight + pBsdf;
@@ -834,18 +833,14 @@ VISRTX_GLOBAL void __raygen__()
       }
 
       if (!surfaceHit.foundHit && !volumeSample.didScatter) {
-        // Deposit the environment, MIS-weighted against NEE. p_L and p_C use
-        // the same functions as the NEE candidates (envPdf·envPickProb and
-        // (cosθ/π)·envPickProb at lastScatterNs). Cosine NEE's density is
-        // nonzero on the upper hemisphere, so it belongs in this denominator
-        // whenever the last scatter was a surface — omitting it inflates wBsdf
-        // on materials with a finite continuation pdf (PBR). Volume
-        // continuations set bsdfPdf = 0, so w_bsdf stays 0 regardless.
+        // Deposit the environment, MIS-weighted against NEE. p_L = envPdf·
+        // envPickProb (CDF is pick-gated). p_C = cosθ/π (cosine NEE always
+        // runs when an HDRI exists). Volume continuations set bsdfPdf = 0.
         // bsdfPdf == +inf (delta / transmission / primary ray) => w_bsdf = 1.
         if (vec3 hdri; getBackgroundLight(frameData, ray.dir, hdri)) {
           const float pLight = envPdf(frameData, ray.dir) * envPickProb;
           const float pCosine = (lastScatterWasSurface && !isinf(bsdfPdf))
-              ? fmaxf(0.0f, dot(ray.dir, lastScatterNs)) * kInvPi * envPickProb
+              ? fmaxf(0.0f, dot(ray.dir, lastScatterNs)) * kInvPi
               : 0.0f;
           const float wBsdf =
               isinf(bsdfPdf) ? 1.0f : bsdfPdf / (bsdfPdf + pLight + pCosine);
