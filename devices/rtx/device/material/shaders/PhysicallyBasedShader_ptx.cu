@@ -506,12 +506,14 @@ VISRTX_DEVICE float pbrBsdfPdf(
 
   // V-only base split (diffuse vs specular) — mirrors the sampler exactly.
   const float specSelW = fmaxf(luminance(Fv), 0.0f)
-      + fmaxf(luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
+      + fmaxf(
+          luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
           0.0f);
-  const float diffSelW = fmaxf(luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f))
-                            * state->baseColor * (1.0f - state->metallic)
-                            * (1.0f - state->transmission) * state->occlusion),
-      0.0f);
+  const float diffSelW =
+      fmaxf(luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * state->baseColor
+                * (1.0f - state->metallic) * (1.0f - state->transmission)
+                * state->occlusion),
+          0.0f);
   const float baseSel = specSelW + diffSelW;
 
   float pdf = 0.0f;
@@ -533,10 +535,11 @@ VISRTX_DEVICE float pbrBsdfPdf(
     const bool tir = luminance(transmissionFilter) > 0.0f
         && (glm::length(Ltrans) < 1e-6f || dot(Ltrans, N) >= 0.0f);
     const float reflW = tir ? 1.0f : fmaxf(luminance(Fh), 0.0f);
-    const float transW = tir ? 0.0f
-                             : fmaxf(luminance(glm::max(vec3(1.0f) - Fh, vec3(0.0f))
-                                       * transmissionFilter),
-                                   0.0f);
+    const float transW = tir
+        ? 0.0f
+        : fmaxf(luminance(
+                    glm::max(vec3(1.0f) - Fh, vec3(0.0f)) * transmissionFilter),
+              0.0f);
     const float reflectGivenSpec =
         (reflW + transW) > 0.0f ? reflW / (reflW + transW) : 1.0f;
     const float pdfReflVndf =
@@ -576,9 +579,14 @@ VISRTX_DEVICE float pbrBsdfPdf(
 //-----------------------------------------------------------------------------
 
 VISRTX_CALLABLE NextRay __direct_callable__nextRay(
-    const PhysicallyBasedShadingState *state, const Ray *ray, RandState *rs)
+    const PhysicallyBasedShadingState *state,
+    const Ray *ray,
+    RandState *rs,
+    const NextRayQmc *qmc)
 {
   const vec3 V = -ray->dir;
+  int qmcCursor = 0;
+  auto u = [&]() { return nextRayUniform(rs, qmc, qmcCursor); };
 
   // Clearcoat lobe: pick it with probability `clearcoat·FcV(NcDotV)`. This
   // exact weight makes the entry-side attenuation `1 - clearcoat·FcV` cancel
@@ -591,15 +599,14 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
   const float clearcoatPick =
       glm::clamp(state->clearcoat * FcV_world, 0.0f, 1.0f);
 
-  if (clearcoatPick > 0.0f && pcg_uniform(rs) < clearcoatPick) {
+  if (clearcoatPick > 0.0f && u() < clearcoatPick) {
     const mat3 toWorldC = computeOrthonormalBasis(Nc);
     const vec3 VlocalC = glm::transpose(toWorldC) * V;
     if (VlocalC.z <= 0.0f)
       return NextRay{Nc, vec3(0.0f), 0.0f};
     const float alphaC = fmaxf(pow2(state->clearcoatRoughness), 1e-4f);
     const float alphaC2 = alphaC * alphaC;
-    const vec3 HlocalC =
-        sampleGGXVNDF(VlocalC, alphaC, pcg_uniform(rs), pcg_uniform(rs));
+    const vec3 HlocalC = sampleGGXVNDF(VlocalC, alphaC, u(), u());
     const vec3 LlocalC = glm::reflect(-VlocalC, HlocalC);
     if (LlocalC.z <= 0.0f)
       return NextRay{Nc, vec3(0.0f), 0.0f};
@@ -647,7 +654,8 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
   const bool hasTransmission = luminance(transmissionFilter) > 0.0f;
 
   const float specSelW = fmaxf(luminance(Fv), 0.0f)
-      + fmaxf(luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
+      + fmaxf(
+          luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
           0.0f);
   // Lambertian throughput collapses to this energy when sampled cosine-weighted
   // (cos / pdf cancels with 1/pi); mirrors evalBsdf's diffuseBRDF factors.
@@ -663,8 +671,8 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
 
   // Diffuse lobe: sample around the shading normal so pdf=cos/pi matches the
   // BRDF's NdotL (same axis as evalBsdf's diffuse term).
-  if (pcg_uniform(rs) >= pSpec) {
-    const vec3 wi = sampleHemisphere(*rs, N);
+  if (u() >= pSpec) {
+    const vec3 wi = sampleHemisphere(u(), u(), N);
     const vec3 weight =
         diffuseEnergy * clearcoatExitAttn(wi) / fmaxf(pDiff, 1e-8f);
     return NextRay{wi, weight, pbrBsdfPdf(state, V, wi)};
@@ -673,8 +681,7 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
   // Specular lobe: VNDF-sample the microfacet, then split reflect/transmit by
   // the microfacet Fresnel F(VdotH). TIR (no valid refraction at this H) folds
   // all energy into reflection, so reflect/transmit stays a clean binary split.
-  const vec3 Hlocal =
-      sampleGGXVNDF(Vlocal, alpha, pcg_uniform(rs), pcg_uniform(rs));
+  const vec3 Hlocal = sampleGGXVNDF(Vlocal, alpha, u(), u());
   const float VdotH = fmaxf(dot(Vlocal, Hlocal), 0.0f);
   const vec3 Fh = evalFresnelWithIridescence(state, F0, F90, VdotH);
 
@@ -692,7 +699,7 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
   const float specTotal = reflW + transW;
   const float reflectGivenSpec = specTotal > 0.0f ? reflW / specTotal : 1.0f;
 
-  if (pcg_uniform(rs) < reflectGivenSpec) {
+  if (u() < reflectGivenSpec) {
     if (Lrefl.z <= 0.0f)
       return NextRay{N, vec3(0.0f), 0.0f};
     const float NdotL = Lrefl.z;
@@ -713,7 +720,8 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
   const float G2t = smithG2GGX(NdotV, NdotLt, alpha2);
   const vec3 Ltworld = normalize(toWorld * Ltrans);
   const vec3 weightT = transmitEnergy * (G2t / fmaxf(G1t, 1e-8f))
-      * clearcoatExitAttn(Ltworld) / fmaxf(pSpec * (1.0f - reflectGivenSpec), 1e-8f);
+      * clearcoatExitAttn(Ltworld)
+      / fmaxf(pSpec * (1.0f - reflectGivenSpec), 1e-8f);
   // Through-surface escape: NEE's evalBsdf early-outs at NdotL<=0, so the
   // env behind glass can only be reached by this continuation. Report +inf so
   // env MIS gives it w_bsdf=1 (the escape owns it), matching the pre-MIS flag.
