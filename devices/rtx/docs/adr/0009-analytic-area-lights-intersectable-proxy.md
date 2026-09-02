@@ -131,22 +131,31 @@ second pdf leaf.
 - ADR 0004 rejected visibility masks for the surface/volume split on hit-semantics
   grounds. That reasoning is untouched here: this mask bit discriminates ray
   *classes* against one traversable, not two kinds of traversal.
-- `visible` becomes meaningful for area lights, but is **implemented without being
-  advertised**, deliberately. The parameter is honored on `quad` (and `ring` once
-  it lands); a query for it still reports nothing.
+- `visible` becomes meaningful for area lights. It is honored on `quad` and
+  `ring`, and the device does **not** yet advertise
+  `khr_light_primary_visibility` — but the reason is narrower than it first
+  appears, and worth stating precisely.
 
-  The extension that would advertise it moved: SDK 0.15 had `khr_area_lights`
-  (bundling `visible` with `angularDiameter`, `radius`, `radiance`), and the 0.16
-  this device builds against replaces it with `khr_light_primary_visibility`,
-  which declares `visible` on **all six** light subtypes — `directional`,
-  `point`, `spot`, `hdri`, `quad`, `ring`.
+  The extension moved between SDK versions: 0.15 had `khr_area_lights` (bundling
+  `visible` with `angularDiameter`, `radius`, `radiance`); the 0.16 this device
+  builds against dissolves that into the base light extensions and adds
+  `khr_light_primary_visibility`, declaring `visible` on all six subtypes.
 
-  Advertising it would therefore claim `visible` on `directional`, `point` and
-  `spot`, which have no proxy, no extent to show, and no implementation. Claiming
-  a parameter the device silently ignores is a worse defect than not claiming one
-  it honors: an application can test for an extension, but it cannot test for an
-  extension that lies. The extension goes in when those three are implemented, in
-  one change, not before.
+  Per the extension, `visible` is "whether the light can be directly seen", and
+  is **only meaningful for area lights**. So leaving it inert on a light with no
+  extent is conformant, not a silent lie — there is nothing to see, and the
+  parameter is defined to have no other effect. That covers `spot` and
+  `directional`, which are true delta lights in this device.
+
+  It does **not** cover `point`. VisRTX maps `point` to `LightType::SPHERE`
+  whenever `radius > 0`, and `radius` **defaults to 1** — so an ANARI `point`
+  light is an area light with real extent by default, sampled by
+  `sampleSphereLight`. That is a genuine gap in this work's coverage, not a
+  spec-sanctioned omission, and it is what blocks advertising the extension.
+
+  Sphere lights need the same treatment (a proxy, an analytic ray/sphere solver
+  reusing `intersectPrimitives.h`, and a hit-side density mirroring
+  `sampleSphereLight`). The extension goes in with that change.
 - As ADR 0005 put it for Geometry Lights: "Every renderer that deposits path-hit
   emission must generalize its environment-only MIS weighting, or next-event
   estimation plus the hit deposit double-counts the emitter." Light Proxies are
