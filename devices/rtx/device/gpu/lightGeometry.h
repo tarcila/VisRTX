@@ -266,4 +266,98 @@ VISRTX_HOST_DEVICE float ringSolidAnglePdf(
   return areaPdf * pow2(dist) / cosTheta;
 }
 
+// The ring's world-space axis, normalized. The sampler normalizes ring.direction
+// before use, so anything reading the axis must too or a non-unit authored
+// direction shifts the cone falloff.
+VISRTX_HOST_DEVICE vec3 ringWorldAxis(
+    const RingLightGPUData &ring, const mat4 &xfm)
+{
+  return xfmVec(xfm, normalize(ring.direction));
+}
+
+// Ring counterpart of rectRelateToPoint: THE shared density function for ring
+// lights, called by NEE with the point it sampled and by the hit-side deposit
+// with the point the ray hit.
+//
+// Unlike rect, a ring carries a cone falloff, so this also returns the spot
+// attenuation -- the visible disk must show the same falloff the illumination
+// has, which it gets by calling the same leaf rather than a second copy.
+struct RingPointRelation
+{
+  vec3 dir; // unit, from the shading point TO the light
+  float dist;
+  float cosTheta; // against the ring axis; <= 0 means not emitting
+  float spot; // cone attenuation in [0,1]
+  float solidAnglePdf; // 0 unless both spot > 0 and cosTheta > 0
+};
+
+VISRTX_HOST_DEVICE RingPointRelation ringRelateToPoint(
+    const RingLightGPUData &ring,
+    const vec3 &worldAxis,
+    const vec3 &origin,
+    const vec3 &worldPoint)
+{
+  RingPointRelation r;
+  r.dir = worldPoint - origin;
+  r.dist = length(r.dir);
+  r.dir /= r.dist;
+  r.cosTheta = dot(worldAxis, -r.dir);
+  r.spot = ringSpotAttenuation(ring, r.cosTheta);
+  r.solidAnglePdf = (r.spot > 0.0f && r.cosTheta > 0.0f)
+      ? ringSolidAnglePdf(ring, r.dist, r.cosTheta)
+      : 0.0f;
+  return r;
+}
+
+// Analytic ray/ring intersection //////////////////////////////////////////////
+
+struct RingIntersection
+{
+  bool hit;
+  float t;
+  float radius; // distance from the ring centre, in [innerRadius, radius]
+};
+
+// Ray against the ring's annulus: plane intersection, then a radial band test.
+// The inner hole must MISS -- it is the ring's analogue of the rectangle's edge
+// bounds, and a ring rendered as a full disk is the obvious failure.
+//
+// Operates in the ring's world frame: `centre` and `axis` are already
+// transformed, matching how the sampler places its samples.
+VISRTX_HOST_DEVICE RingIntersection intersectRing(const RingLightGPUData &ring,
+    const vec3 &centre,
+    const vec3 &axis,
+    const vec3 &org,
+    const vec3 &dir)
+{
+  RingIntersection out;
+  out.hit = false;
+  out.t = 0.0f;
+  out.radius = 0.0f;
+
+  const float denom = dot(axis, dir);
+  if (denom == 0.0f)
+    return out; // parallel to (or lying in) the ring's plane
+
+  const float t = dot(axis, centre - org) / denom;
+  if (!(t > 0.0f))
+    return out;
+
+  const vec3 p = org + t * dir;
+  const vec3 radial = p - centre;
+  // Distance from the axis, not from the centre: the hit lies in the plane, so
+  // these agree, but subtracting the axial component keeps it exact under fp
+  // error near grazing incidence.
+  const vec3 inPlane = radial - axis * dot(radial, axis);
+  const float r = length(inPlane);
+
+  if (r > ring.radius || r < ring.innerRadius)
+    return out; // outside the outer edge, or through the inner hole
+
+  out.hit = true;
+  out.t = t;
+  out.radius = r;
+  return out;
+}
+
 } // namespace visrtx

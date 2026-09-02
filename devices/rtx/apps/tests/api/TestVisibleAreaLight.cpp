@@ -230,6 +230,27 @@ static anari::Surface makeFloor(ANARIDevice d, float roughness = 1.f)
   return surface;
 }
 
+// A ring light facing the camera, at the same place as the quad emitter, with
+// the same emitted radiance. Its disk area differs from the quad's, so the two
+// are NOT expected to match in illumination -- only the ring's own consistency
+// is checked.
+static anari::Light makeRingLight(
+    ANARIDevice d, bool visible = true, float innerRadius = 0.f)
+{
+  auto light = anari::newObject<anari::Light>(d, "ring");
+  anari::setParameter(d, light, "color", vec3{1.f, 1.f, 1.f});
+  anari::setParameter(d, light, "position", vec3{0.f, QUAD_Y, QUAD_Z});
+  // Faces the default camera, which looks along +Z from the origin.
+  anari::setParameter(d, light, "direction", vec3{0.f, 0.f, -1.f});
+  anari::setParameter(d, light, "radius", QUAD_HALF);
+  anari::setParameter(d, light, "innerRadius", innerRadius);
+  anari::setParameter(d, light, "intensity", EMISSIVE_RADIANCE);
+  if (!visible)
+    anari::setParameter(d, light, "visible", false);
+  anari::commitParameters(d, light);
+  return light;
+}
+
 struct Scene
 {
   const char *side = "both";
@@ -245,6 +266,9 @@ struct Scene
   // angled so the emitter's REFLECTION is in frame.
   bool mirrorScene = false;
   float floorRoughness = 1.f;
+  // Use a ring light instead of a quad.
+  bool ring = false;
+  float ringInnerRadius = 0.f;
 };
 
 static std::vector<vec4> render(ANARIDevice d, const Scene &sc)
@@ -260,7 +284,9 @@ static std::vector<vec4> render(ANARIDevice d, const Scene &sc)
         surfaces.push_back(makeDownEmissiveQuad(d));
       else
         lights.push_back(makeDownLight(d, sc.visible));
-    } else if (sc.useEmissiveMesh)
+    } else if (sc.ring)
+      lights.push_back(makeRingLight(d, sc.visible, sc.ringInnerRadius));
+    else if (sc.useEmissiveMesh)
       surfaces.push_back(makeEmissiveQuad(d));
     else
       lights.push_back(makeQuadLight(d, sc.side, sc.visible));
@@ -598,6 +624,47 @@ int main()
         std::string("visible on a ") + subtype
             + " light is accepted without error");
   }
+
+  // 10. Ring lights get the same treatment.
+  Scene ringScene;
+  ringScene.ring = true;
+  const double ringCentre = centreMean(render(device, ringScene));
+  printf("ring light: centre=%f\n", ringCentre);
+  check(ringCentre > 0.1, "a ring light is visible to the camera");
+  // A full disk emits the same radiance as any other Lambertian emitter, so the
+  // visible disk must read at exactly the light's radiance -- the same value the
+  // quad shows, since radiance is independent of area.
+  const double ringRel =
+      std::abs(ringCentre - EMISSIVE_RADIANCE) / EMISSIVE_RADIANCE;
+  check(ringRel < 0.05,
+      "the ring's visible radiance is the radiance it emits (relErr="
+          + std::to_string(ringRel) + ")");
+
+  // The inner hole must actually be a hole. Sampling the very centre of frame,
+  // where a large inner radius puts the hole, must show background.
+  Scene holed = ringScene;
+  holed.ringInnerRadius = 0.4f; // of an 0.5 outer radius: a thin annulus
+  const std::vector<vec4> holedFb = render(device, holed);
+  const double holeCentre =
+      luminanceAt(holedFb, IMAGE_SIZE[0] / 2, IMAGE_SIZE[1] / 2);
+  printf("ring with innerRadius: centre pixel=%f\n", holeCentre);
+  check(holeCentre < 1e-4,
+      "a ring's inner hole shows background, not light");
+
+  // ... while the annulus itself is still lit.
+  Scene solid = ringScene;
+  const std::vector<vec4> solidFb = render(device, solid);
+  const double solidCentre =
+      luminanceAt(solidFb, IMAGE_SIZE[0] / 2, IMAGE_SIZE[1] / 2);
+  check(solidCentre > 0.1,
+      "a ring without an inner radius is lit at its centre (control)");
+
+  // visible=false works for ring too.
+  Scene ringHidden = ringScene;
+  ringHidden.visible = false;
+  const double ringHiddenCentre = centreMean(render(device, ringHidden));
+  check(ringHiddenCentre < 1e-4,
+      "visible=false hides a ring light from the camera");
 
   anari::release(device, device);
 

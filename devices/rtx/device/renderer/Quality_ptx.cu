@@ -340,7 +340,25 @@ VISRTX_DEVICE float lightProxyHitPdf(const FrameGPUData &frameData,
   const auto &world = frameData.world;
   const auto &proxy = world.lightProxies[hit.lightProxyIndex];
   const auto &ld = frameData.registry.lights[proxy.lightIndex];
-  if (ld.type != LightType::RECT)
+
+  // The solid-angle term, from the same shared leaf the sampler calls.
+  float solidAnglePdf = 0.0f;
+  if (ld.type == LightType::RECT) {
+    const RectFrame frame = rectFrame(ld.rect, proxy.xfm);
+    solidAnglePdf = rectRelateToPoint(ld.rect,
+        frame.worldNormal,
+        frame.area,
+        origin,
+        hit.hitpoint)
+                        .solidAnglePdf;
+  } else if (ld.type == LightType::RING) {
+    const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
+    solidAnglePdf =
+        ringRelateToPoint(ld.ring, axis, origin, hit.hitpoint).solidAnglePdf;
+  } else
+    return 0.0f;
+
+  if (!(solidAnglePdf > 0.0f))
     return 0.0f;
 
   // Same ambient-inclusive partition the pick uses; without the ambient term the
@@ -355,19 +373,10 @@ VISRTX_DEVICE float lightProxyHitPdf(const FrameGPUData &frameData,
         world.numLightInstances + (ambientPickPower(frameData) > 0.0f ? 1 : 0);
     if (numStrata == 0)
       return 0.0f;
-    const RectFrame frame = rectFrame(ld.rect, proxy.xfm);
-    const RectPointRelation rel = rectRelateToPoint(
-        ld.rect, frame.worldNormal, frame.area, origin, hit.hitpoint);
-    return rel.solidAnglePdf / float(numStrata);
+    return solidAnglePdf / float(numStrata);
   }
 
-  const RectFrame frame = rectFrame(ld.rect, proxy.xfm);
-  const RectPointRelation rel = rectRelateToPoint(
-      ld.rect, frame.worldNormal, frame.area, origin, hit.hitpoint);
-  if (!(rel.solidAnglePdf > 0.0f))
-    return 0.0f;
-
-  return rel.solidAnglePdf
+  return solidAnglePdf
       * instancePickProbability(world, proxy.lightInstanceIndex, totalPower);
 }
 
@@ -445,12 +454,12 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
       sampleLight(ss, origin, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
   ls.pdf *= pick.pickPdf;
   const LightType type = frameData.registry.lights[li.lightIndex].type;
-  // RECT lights carry a proxy; RING does not yet, so it must keep wNee == 1 or
-  // its NEE contribution would be down-weighted against a hit that never comes.
+  // Both analytic area lights now carry a proxy, so both are reachable by a BSDF
+  // continuation and both must be MIS-weighted on the NEE side.
   return {ls,
       type == LightType::HDRI,
       type == LightType::GEOMETRY,
-      type == LightType::RECT};
+      type == LightType::RECT || type == LightType::RING};
 }
 
 VISRTX_DEVICE LightSample sampleLightsVolume(
@@ -750,8 +759,23 @@ VISRTX_GLOBAL void __raygen__()
             wEmission = bsdfPdf / (bsdfPdf + pNee);
         }
 
-        sample.color +=
-            wEmission * sampleContribution * rectRadiance(ld.rect, ld.color);
+        // A ring's radiance carries its cone falloff, evaluated at the hit
+        // through the same leaf NEE uses -- so the visible disk shows exactly
+        // the attenuation the illumination has.
+        vec3 proxyRadiance(0.0f);
+        if (ld.type == LightType::RECT)
+          proxyRadiance = rectRadiance(ld.rect, ld.color);
+        else if (ld.type == LightType::RING) {
+          const vec3 axis = ringWorldAxis(ld.ring, proxy.xfm);
+          // ray.dir points FROM the shaded point TO the light, matching
+          // RingPointRelation::dir, so negate it for the same cosTheta the
+          // sampler computes. Getting this sign wrong inverts the falloff.
+          const float cosTheta = dot(axis, -ray.dir);
+          proxyRadiance = ringRadiance(
+              ld.ring, ld.color, ringSpotAttenuation(ld.ring, cosTheta));
+        }
+
+        sample.color += wEmission * sampleContribution * proxyRadiance;
         // A light is opaque for deposit purposes: terminate rather than
         // continuing through it, matching the emissive-hit control flow.
         break;
