@@ -45,6 +45,7 @@
 //   4..5  first-bounce cosine hemisphere (env NEE / ambient)
 //   6..9  first-bounce HDRI CDF (row, column, jitter u/v)
 //   10..11 first-bounce light pick (ambient vs lights, instance)
+//   12..15 first-bounce BSDF nextRay (then PCG)
 //
 // Pixel seed Owen-scrambles each dimension so neighboring pixels do not share
 // a global Sobol sequence. sampleIndex is the existing frameID×iterations+i
@@ -64,6 +65,7 @@ inline constexpr uint32_t kSobolDimCdfJitterU = 8;
 inline constexpr uint32_t kSobolDimCdfJitterV = 9;
 inline constexpr uint32_t kSobolDimLightPick0 = 10;
 inline constexpr uint32_t kSobolDimLightPick1 = 11;
+inline constexpr uint32_t kSobolDimNextRay0 = 12;
 inline constexpr uint32_t kSobolNumDimensions = 16;
 
 // clang-format off
