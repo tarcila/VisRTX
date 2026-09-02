@@ -529,9 +529,8 @@ int VisRTXDevice::deviceGetProperty(const char *name,
 {
   std::string_view prop = name;
   if (prop == "version" && type == ANARI_INT32) {
-    int version = VISRTX_VERSION_MAJOR * 10000 + VISRTX_VERSION_MINOR * 100
-        + VISRTX_VERSION_PATCH;
-    helium::writeToVoidP(mem, version);
+    helium::writeToVoidP(
+        mem, VISRTX_VERSION_MAJOR * 10000 + VISRTX_VERSION_MINOR * 100 + 0);
     return 1;
   } else if (prop == "version.major" && type == ANARI_INT32) {
     helium::writeToVoidP(mem, VISRTX_VERSION_MAJOR);
@@ -540,7 +539,7 @@ int VisRTXDevice::deviceGetProperty(const char *name,
     helium::writeToVoidP(mem, VISRTX_VERSION_MINOR);
     return 1;
   } else if (prop == "version.patch" && type == ANARI_INT32) {
-    helium::writeToVoidP(mem, VISRTX_VERSION_PATCH);
+    helium::writeToVoidP(mem, 0);
     return 1;
   } else if (prop == "extension" && type == ANARI_STRING_LIST) {
     helium::writeToVoidP(mem, query_extensions());

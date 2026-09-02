@@ -38,7 +38,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 ## Establish project ##
 
-project(VisRTX LANGUAGES C CXX)
+project(VisRTX VERSION 26.09 LANGUAGES C CXX)
 
 enable_testing()
 
