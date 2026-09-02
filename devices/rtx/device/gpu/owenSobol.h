@@ -286,6 +286,16 @@ VISRTX_HOST_DEVICE uint32_t owenPixelSeed(uint32_t x, uint32_t y)
   return v;
 }
 
+// Bounce 0 / no alpha pass-through keeps the camera pixel seed (XOR 0).
+// Later bounces and coverage-continue vertices reseed so dims 4–15 can be
+// reused without repeating an earlier vertex's sequence.
+VISRTX_HOST_DEVICE uint32_t owenBounceSeed(
+    uint32_t pixelSeed, int bounce, int transparency = 0)
+{
+  return pixelSeed ^ (0x9e3779b9u * uint32_t(bounce))
+      ^ (0x85ebca6bu * uint32_t(transparency));
+}
+
 // Uniform in [0, 1). Mixes pixelSeed with dimension so dims stay independent.
 VISRTX_HOST_DEVICE float owenSobol(
     uint32_t sampleIndex, uint32_t dimension, uint32_t pixelSeed)

@@ -583,6 +583,8 @@ VISRTX_GLOBAL void __raygen__()
     int transparencyDepth = 0;
     while (bounceDepth < qualityParams.maxRayDepth) {
       const bool isFirstBounce = bounceDepth == 0 && transparencyDepth == 0;
+      const uint32_t qmcSeed =
+          owenBounceSeed(pixelSeed, bounceDepth, transparencyDepth);
 
       SurfaceHit surfaceHit = {};
       intersectSurface(ss,
@@ -724,9 +726,9 @@ VISRTX_GLOBAL void __raygen__()
             frameData,
             shadowOrigin,
             surfaceHit.Ns,
-            isFirstBounce,
+            true,
             sampleIdx,
-            pixelSeed);
+            qmcSeed);
         LightSample lightSample = lightPick.ls;
         if (lightPick.isEnv) {
           if (!(dot(lightSample.dir, surfaceHit.Ns) > 0.0f))
@@ -810,12 +812,10 @@ VISRTX_GLOBAL void __raygen__()
         // samples. p_C has no pick factor (the strategy always runs). p_L still
         // carries envPickProb because the CDF technique is pick-gated.
         if (frameData.world.numHdriLightInstances > 0) {
-          const vec3 dirC = isFirstBounce
-              ? sampleHemisphere(
-                    owenSobol(sampleIdx, kSobolDimHemiU, pixelSeed),
-                    owenSobol(sampleIdx, kSobolDimHemiV, pixelSeed),
-                    surfaceHit.Ns)
-              : sampleHemisphere(ss.rs, surfaceHit.Ns);
+          const vec3 dirC =
+              sampleHemisphere(owenSobol(sampleIdx, kSobolDimHemiU, qmcSeed),
+                  owenSobol(sampleIdx, kSobolDimHemiV, qmcSeed),
+                  surfaceHit.Ns);
           const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
           vec3 envRadiance;
           if (cosC > 0.0f && getBackgroundLight(frameData, dirC, envRadiance)) {
@@ -858,12 +858,10 @@ VISRTX_GLOBAL void __raygen__()
         }
 
         NextRayQmc nextQmc{};
-        if (isFirstBounce) {
-          nextQmc.n = 4;
-          for (int d = 0; d < 4; ++d)
-            nextQmc.u[d] = owenSobol(
-                sampleIdx, kSobolDimNextRay0 + uint32_t(d), pixelSeed);
-        }
+        nextQmc.n = 4;
+        for (int d = 0; d < 4; ++d)
+          nextQmc.u[d] =
+              owenSobol(sampleIdx, kSobolDimNextRay0 + uint32_t(d), qmcSeed);
         auto nextRay = materialNextRay(shadingState, ray, ss.rs, &nextQmc);
         sampleContribution *= nextRay.contributionWeight;
 
