@@ -438,6 +438,22 @@ VISRTX_DEVICE float envPdf(const FrameGPUData &fd, const vec3 &rayDir)
   return pdf;
 }
 
+VISRTX_DEVICE vec3 reflectAcrossNormal(const vec3 &w, const vec3 &n)
+{
+  return w - 2.0f * dot(w, n) * n;
+}
+
+// Environment-CDF density after folding below-horizon draws across Ns.
+// Visible hemisphere: p(ω)+p(reflect(ω)); identically 0 below the horizon.
+VISRTX_DEVICE float envHemiPdf(
+    const FrameGPUData &fd, const vec3 &dir, const vec3 &ns, float envPickProb)
+{
+  if (!(dot(dir, ns) > 0.0f))
+    return 0.0f;
+  return (envPdf(fd, dir) + envPdf(fd, reflectAcrossNormal(dir, ns)))
+      * envPickProb;
+}
+
 VISRTX_DEVICE uint32_t computeGeometryPrimId(const SurfaceHit &hit)
 {
   if (!hit.foundHit)
