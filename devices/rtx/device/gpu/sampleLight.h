@@ -118,12 +118,20 @@ VISRTX_DEVICE LightSample samplePointLight(
   return ls;
 }
 
-VISRTX_DEVICE LightSample sampleSphereLight(
-    const LightGPUData &ld, const mat4 &xfm, const vec3 &origin, RandState &rs)
+VISRTX_DEVICE LightSample sampleSphereLight(const LightGPUData &ld,
+    const mat4 &xfm,
+    const vec3 &origin,
+    RandState &rs,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   LightSample ls;
-  auto u1 = pcg_uniform(&rs);
-  auto u2 = pcg_uniform(&rs);
+  auto u = [&](uint32_t dim) {
+    return useQmc ? owenSobol(sampleIndex, dim, pixelSeed) : pcg_uniform(&rs);
+  };
+  auto u1 = u(kSobolDimCdfY);
+  auto u2 = u(kSobolDimCdfX);
 
   // Uniform sampling on unit sphere using Marsaglia's method
   // u1 maps to z-coordinate: z ∈ [-1, 1]
@@ -171,11 +179,19 @@ VISRTX_DEVICE LightSample sampleSphereLight(
   return ls;
 }
 
-VISRTX_DEVICE LightSample sampleRectLight(
-    const LightGPUData &ld, const mat4 &xfm, const vec3 &origin, RandState &rs)
+VISRTX_DEVICE LightSample sampleRectLight(const LightGPUData &ld,
+    const mat4 &xfm,
+    const vec3 &origin,
+    RandState &rs,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   LightSample ls;
-  auto uv = vec2(pcg_uniform(&rs), pcg_uniform(&rs));
+  auto u = [&](uint32_t dim) {
+    return useQmc ? owenSobol(sampleIndex, dim, pixelSeed) : pcg_uniform(&rs);
+  };
+  auto uv = vec2(u(kSobolDimCdfY), u(kSobolDimCdfX));
 
   // Uniform sampling on rectangle: uv ∈ [0,1]² maps to rectangle
   auto rectangleSample = ld.rect.edge1 * uv.x + ld.rect.edge2 * uv.y;
@@ -218,12 +234,20 @@ VISRTX_DEVICE LightSample sampleRectLight(
   return ls;
 }
 
-VISRTX_DEVICE LightSample sampleRingLight(
-    const LightGPUData &ld, const mat4 &xfm, const vec3 &origin, RandState &rs)
+VISRTX_DEVICE LightSample sampleRingLight(const LightGPUData &ld,
+    const mat4 &xfm,
+    const vec3 &origin,
+    RandState &rs,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   LightSample ls;
-  auto u1 = pcg_uniform(&rs);
-  auto u2 = pcg_uniform(&rs);
+  auto u = [&](uint32_t dim) {
+    return useQmc ? owenSobol(sampleIndex, dim, pixelSeed) : pcg_uniform(&rs);
+  };
+  auto u1 = u(kSobolDimCdfY);
+  auto u2 = u(kSobolDimCdfX);
 
   // Sample angle uniformly around the ring: φ ∈ [0, 2π]
   auto phi = kTwoPi * u1;
@@ -891,13 +915,16 @@ VISRTX_DEVICE LightSample sampleLight(ScreenSample &ss,
   case LightType::POINT:
     return detail::samplePointLight(ld, xfm, origin);
   case LightType::SPHERE:
-    return detail::sampleSphereLight(ld, xfm, origin, ss.rs);
+    return detail::sampleSphereLight(
+        ld, xfm, origin, ss.rs, useQmc, sampleIndex, pixelSeed);
   case LightType::RECT:
-    return detail::sampleRectLight(ld, xfm, origin, ss.rs);
+    return detail::sampleRectLight(
+        ld, xfm, origin, ss.rs, useQmc, sampleIndex, pixelSeed);
   case LightType::SPOT:
     return detail::sampleSpotLight(ld, xfm, origin);
   case LightType::RING:
-    return detail::sampleRingLight(ld, xfm, origin, ss.rs);
+    return detail::sampleRingLight(
+        ld, xfm, origin, ss.rs, useQmc, sampleIndex, pixelSeed);
   case LightType::HDRI:
     return detail::sampleHDRILight(
         ld, xfm, ss.rs, useQmc, sampleIndex, pixelSeed);

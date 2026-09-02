@@ -857,7 +857,14 @@ VISRTX_GLOBAL void __raygen__()
           continue;
         }
 
-        auto nextRay = materialNextRay(shadingState, ray, ss.rs);
+        NextRayQmc nextQmc{};
+        if (isFirstBounce) {
+          nextQmc.n = 4;
+          for (int d = 0; d < 4; ++d)
+            nextQmc.u[d] = owenSobol(
+                sampleIdx, kSobolDimNextRay0 + uint32_t(d), pixelSeed);
+        }
+        auto nextRay = materialNextRay(shadingState, ray, ss.rs, &nextQmc);
         sampleContribution *= nextRay.contributionWeight;
 
         // Carry the bounce's solid-angle pdf for the env-MIS weight at a miss.
