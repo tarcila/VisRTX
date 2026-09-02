@@ -179,8 +179,10 @@ static double render(ANARIDevice device, bool hdri, bool directional)
 
 // A planar Lambertian under a uniform environment of radiance L reflects ρL
 // exactly (view-independent). Used to catch two-strategy MIS energy error
-// (double-count, or cosine NEE omitted from the env-CDF weight).
-static double renderMattePlane(ANARIDevice device)
+// (double-count, or cosine NEE omitted from the env-CDF weight). `pbr` uses
+// physicallyBased with specular=0 so the continuation lobe has a finite pdf
+// — the miss-side three-way weight is invisible to matte (pdf=0).
+static double renderDiffusePlane(ANARIDevice device, bool pbr)
 {
   const std::array<vec3, 4> pos = {vec3{-20.f, 0.f, -20.f},
       vec3{20.f, 0.f, -20.f},
@@ -198,8 +200,17 @@ static double renderMattePlane(ANARIDevice device)
       device, geometry, "primitive.index", idx.data(), 2);
   anari::commitParameters(device, geometry);
 
-  auto material = anari::newObject<anari::Material>(device, "matte");
-  anari::setParameter(device, material, "color", vec3{0.8f, 0.8f, 0.8f});
+  anari::Material material;
+  if (pbr) {
+    material = anari::newObject<anari::Material>(device, "physicallyBased");
+    anari::setParameter(device, material, "baseColor", vec3{0.8f, 0.8f, 0.8f});
+    anari::setParameter(device, material, "metallic", 0.f);
+    anari::setParameter(device, material, "roughness", 1.f);
+    anari::setParameter(device, material, "specular", 0.f);
+  } else {
+    material = anari::newObject<anari::Material>(device, "matte");
+    anari::setParameter(device, material, "color", vec3{0.8f, 0.8f, 0.8f});
+  }
   anari::commitParameters(device, material);
 
   auto surface = anari::newObject<anari::Surface>(device);
@@ -263,7 +274,8 @@ int main()
   const double both = render(device, true, true);
   const double env = render(device, true, false);
   const double sun = render(device, false, true);
-  const double plane = renderMattePlane(device);
+  const double plane = renderDiffusePlane(device, false);
+  const double planePbr = renderDiffusePlane(device, true);
   anari::release(device, device);
 
   const double sum = env + sun;
@@ -288,8 +300,11 @@ int main()
   const double expected = albedo * envRadiance;
   const double relErrEnv =
       expected > 0.0 ? std::abs(plane - expected) / expected : 1.0;
-  printf(
-      "plane=%f  envExpected=%f  relErrEnv=%f\n", plane, expected, relErrEnv);
+  printf("plane=%f  planePbr=%f  envExpected=%f  relErrEnv=%f\n",
+      plane,
+      planePbr,
+      expected,
+      relErrEnv);
   constexpr double ENV_ENERGY_TOLERANCE = 0.05;
   if (!(relErrEnv <= ENV_ENERGY_TOLERANCE)) {
     fprintf(stderr,
@@ -298,6 +313,19 @@ int main()
         plane,
         expected,
         relErrEnv,
+        ENV_ENERGY_TOLERANCE);
+    return 1;
+  }
+  const double relErrPbr =
+      expected > 0.0 ? std::abs(planePbr - expected) / expected : 1.0;
+  printf("relErrPbr=%f\n", relErrPbr);
+  if (!(relErrPbr <= ENV_ENERGY_TOLERANCE)) {
+    fprintf(stderr,
+        "FAIL: PBR plane under uniform HDRI not ρL (planePbr=%f expected=%f "
+        "relErr=%f, tol %f) — miss-side env MIS likely omitted p_C\n",
+        planePbr,
+        expected,
+        relErrPbr,
         ENV_ENERGY_TOLERANCE);
     return 1;
   }
