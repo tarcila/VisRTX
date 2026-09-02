@@ -36,14 +36,17 @@
 #include <vector_types.h> // ::float4
 #include <cstdint>
 
-// Halton low-discrepancy sequence for the 2–4D top of the path (camera
-// jitter + DoF lens). Pattern: PCG everywhere, QMC at the camera.
+// Halton low-discrepancy sequence for the top of the path. Pattern: PCG
+// everywhere, QMC at the camera and first-bounce cosine-hemisphere NEE.
 //   dims 0..1 (bases 2, 3): pixel x/y sub-pixel jitter
 //   dims 2..3 (bases 5, 7): lens u/v for DoF
+//   dims 4..5 (bases 11, 13): first-bounce cosine hemisphere (env NEE /
+//   ambient)
 //
 // Pixel decorrelation: additive offset = haltonPixelHash(pixel). Not full
-// Owen scrambling — adequate at 4D, full scrambling is more code for
-// negligible win.
+// Owen scrambling — adequate at 6D, full scrambling is more code for
+// negligible win. Do not reuse dims 0–3 for NEE: that correlates lighting
+// with AA/DoF and produces structured artifacts.
 
 namespace visrtx {
 
@@ -91,6 +94,14 @@ VISRTX_DEVICE ::float4 halton4D(uint32_t sampleIdx)
       radicalInverse<5>(sampleIdx),
       radicalInverse<7>(sampleIdx),
   };
+}
+
+// First-bounce cosine-hemisphere NEE uniforms (Φ_11, Φ_13), each in [0, 1).
+// Same sampleIdx + haltonPixelHash as the camera so the extra dimensions
+// share the per-pixel scramble without colliding with AA/DoF.
+VISRTX_DEVICE ::float2 haltonHemi2D(uint32_t sampleIdx)
+{
+  return ::float2{radicalInverse<11>(sampleIdx), radicalInverse<13>(sampleIdx)};
 }
 
 } // namespace visrtx

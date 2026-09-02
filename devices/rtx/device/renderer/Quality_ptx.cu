@@ -365,7 +365,9 @@ VISRTX_DEVICE PickedCandidate pickCandidate(
 VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
     const FrameGPUData &frameData,
     const vec3 &origin,
-    const vec3 &normal)
+    const vec3 &normal,
+    bool useQmcHemi,
+    const vec2 &qmcHemi)
 {
   const PickedCandidate pick = pickCandidate(ss, frameData);
   if (!pick.valid)
@@ -373,9 +375,12 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
 
   if (pick.isAmbient) {
     // Cosine-weighted hemisphere sample; pdf cos(theta)/pi folded with the pick
-    // probability so MIS weights see the full joint pdf.
+    // probability so MIS weights see the full joint pdf. First bounce uses
+    // Halton dims 4–5 (same index as the camera) so screen-space error is
+    // low-discrepancy; later bounces stay on PCG.
     const auto &rp = frameData.renderer;
-    const vec3 dir = sampleHemisphere(ss.rs, normal);
+    const vec3 dir = useQmcHemi ? sampleHemisphere(qmcHemi.x, qmcHemi.y, normal)
+                                : sampleHemisphere(ss.rs, normal);
     const float cosNs = fmaxf(0.f, dot(dir, normal));
     return {LightSample{rp.ambientColor * rp.ambientIntensity,
                 dir,
@@ -524,6 +529,12 @@ VISRTX_GLOBAL void __raygen__()
             * uint32_t(rendererParams.numIterations)
         + uint32_t(i);
     auto ray = makePrimaryRay(ss, sampleIdx, isVeryFirstRay);
+    // Same Halton index as the camera, extra dimensions (11, 13) so first-
+    // bounce cosine NEE is decorrelated from AA/DoF and from PCG lighting.
+    const uint32_t haltonIdx =
+        sampleIdx + haltonPixelHash(ss.pixel.x, ss.pixel.y);
+    const ::float2 hemiU = haltonHemi2D(haltonIdx);
+    const vec2 qmcHemi(hemiU.x, hemiU.y);
 
     applyCuttingPlane(rendererParams.cutPlane, ray);
 
@@ -693,8 +704,8 @@ VISRTX_GLOBAL void __raygen__()
         // bump-mapped surfaces.
         const vec3 shadowOrigin =
             shadingHitpoint(surfaceHit) + surfaceHit.Ng * surfaceHit.epsilon;
-        const SurfaceLightSample lightPick =
-            sampleLights(ss, frameData, shadowOrigin, surfaceHit.Ns);
+        const SurfaceLightSample lightPick = sampleLights(
+            ss, frameData, shadowOrigin, surfaceHit.Ns, isFirstBounce, qmcHemi);
         LightSample lightSample = lightPick.ls;
         if (lightPick.isEnv) {
           if (!(dot(lightSample.dir, surfaceHit.Ns) > 0.0f))
@@ -778,7 +789,9 @@ VISRTX_GLOBAL void __raygen__()
         // samples. p_C has no pick factor (the strategy always runs). p_L still
         // carries envPickProb because the CDF technique is pick-gated.
         if (frameData.world.numHdriLightInstances > 0) {
-          const vec3 dirC = sampleHemisphere(ss.rs, surfaceHit.Ns);
+          const vec3 dirC = isFirstBounce
+              ? sampleHemisphere(qmcHemi.x, qmcHemi.y, surfaceHit.Ns)
+              : sampleHemisphere(ss.rs, surfaceHit.Ns);
           const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
           vec3 envRadiance;
           if (cosC > 0.0f && getBackgroundLight(frameData, dirC, envRadiance)) {
