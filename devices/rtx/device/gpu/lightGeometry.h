@@ -124,6 +124,43 @@ VISRTX_HOST_DEVICE float rectSolidAnglePdf(
   return areaPdf * pow2(dist) / cosTheta;
 }
 
+// The geometric terms relating a shading point to a point on a rect light.
+struct RectPointRelation
+{
+  vec3 dir; // unit, from the shading point TO the light
+  float dist; // world-space distance
+  float cosTheta; // signed by the side predicate; <= 0 means not emitting
+  float solidAnglePdf; // 0 when cosTheta <= 0
+};
+
+// THE shared density function (ADR 0009).
+//
+// Given a shading point and a point on the light, produce the direction,
+// distance, emission cosine and solid-angle density. NEE calls this with the
+// point it sampled; the hit-side deposit calls it with the point the ray hit.
+// One function, so the two densities cannot drift and the MIS balance heuristic
+// stays honest.
+//
+// `area` is the light's OBJECT-space area (RectFrame::area) while worldPoint and
+// origin are world-space. That asymmetry is the sampler's pre-existing behavior,
+// reproduced rather than corrected -- see the header note.
+VISRTX_HOST_DEVICE RectPointRelation rectRelateToPoint(
+    const RectLightGPUData &rect,
+    const vec3 &worldNormal,
+    float area,
+    const vec3 &origin,
+    const vec3 &worldPoint)
+{
+  RectPointRelation r;
+  r.dir = worldPoint - origin;
+  r.dist = length(r.dir);
+  r.dir /= r.dist;
+  r.cosTheta = rectEmissionCosTheta(rect, worldNormal, r.dir);
+  r.solidAnglePdf =
+      r.cosTheta > 0.0f ? rectSolidAnglePdf(area, r.dist, r.cosTheta) : 0.0f;
+  return r;
+}
+
 // Analytic ray/rect intersection //////////////////////////////////////////////
 
 struct RectIntersection
