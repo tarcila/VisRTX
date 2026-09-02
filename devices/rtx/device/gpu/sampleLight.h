@@ -818,17 +818,24 @@ VISRTX_DEVICE LightSample sampleHDRILight(
   return ls;
 }
 
-VISRTX_DEVICE LightSample sampleHDRILight(
-    const LightGPUData &ld, const mat4 &xfm, RandState &rs)
+VISRTX_DEVICE LightSample sampleHDRILight(const LightGPUData &ld,
+    const mat4 &xfm,
+    RandState &rs,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   // Importance sampling using hierarchical (marginal/conditional) CDF approach
   // First sample row (y) using marginal CDF, then column (x) using conditional
-  // CDF
+  // CDF. First-bounce Quality NEE feeds Owen-scrambled Sobol dims 6–9.
+  auto u = [&](uint32_t dim) {
+    return useQmc ? owenSobol(sampleIndex, dim, pixelSeed) : pcg_uniform(&rs);
+  };
   auto y =
-      inverseSampleCDF(ld.hdri.marginalCDF, ld.hdri.size.y, pcg_uniform(&rs));
+      inverseSampleCDF(ld.hdri.marginalCDF, ld.hdri.size.y, u(kSobolDimCdfY));
   auto x = inverseSampleCDF(ld.hdri.conditionalCDF + y * ld.hdri.size.x,
       ld.hdri.size.x,
-      pcg_uniform(&rs));
+      u(kSobolDimCdfX));
 
   auto xy = glm::uvec2(x, y);
 
@@ -838,7 +845,7 @@ VISRTX_DEVICE LightSample sampleHDRILight(
   }
 #endif
   // Add sub-pixel jitter to avoid aliasing
-  auto jitter = glm::vec2(pcg_uniform(&rs), pcg_uniform(&rs));
+  auto jitter = glm::vec2(u(kSobolDimCdfJitterU), u(kSobolDimCdfJitterV));
   auto uv =
       glm::clamp((glm::vec2(xy) + jitter) / glm::vec2(ld.hdri.size), 0.f, 1.f);
 
@@ -871,7 +878,10 @@ VISRTX_DEVICE LightSample sampleLight(ScreenSample &ss,
     const vec3 &origin,
     DeviceObjectIndex idx,
     const mat4 &xfm,
-    DeviceObjectIndex surfaceInstanceIndex)
+    DeviceObjectIndex surfaceInstanceIndex,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   auto &ld = ss.frameData->registry.lights[idx];
 
@@ -889,7 +899,8 @@ VISRTX_DEVICE LightSample sampleLight(ScreenSample &ss,
   case LightType::RING:
     return detail::sampleRingLight(ld, xfm, origin, ss.rs);
   case LightType::HDRI:
-    return detail::sampleHDRILight(ld, xfm, ss.rs);
+    return detail::sampleHDRILight(
+        ld, xfm, ss.rs, useQmc, sampleIndex, pixelSeed);
   case LightType::GEOMETRY:
     return detail::sampleGeometryLight(
         ld, xfm, origin, ss, surfaceInstanceIndex);

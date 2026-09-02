@@ -328,12 +328,20 @@ struct PickedCandidate
   float pickPdf; // probability of this pick, ∝ Pick Power
 };
 
-VISRTX_DEVICE PickedCandidate pickCandidate(
-    ScreenSample &ss, const FrameGPUData &frameData)
+VISRTX_DEVICE PickedCandidate pickCandidate(ScreenSample &ss,
+    const FrameGPUData &frameData,
+    bool useQmc = false,
+    uint32_t sampleIndex = 0,
+    uint32_t pixelSeed = 0)
 {
   const auto &world = frameData.world;
   const float ambientPower = ambientPickPower(frameData);
   const bool hasAmbient = ambientPower > 0.0f;
+
+  auto uPick = [&](uint32_t dim) {
+    return useQmc ? owenSobol(sampleIndex, dim, pixelSeed)
+                  : pcg_uniform(&ss.rs);
+  };
 
   if (world.numLightInstances == 0 && !hasAmbient)
     return {false, false, 0, 0.0f};
@@ -344,18 +352,18 @@ VISRTX_DEVICE PickedCandidate pickCandidate(
   // keeps the estimator unbiased and avoids a divide-by-zero.
   if (!(totalPower > 0.0f)) {
     const size_t numStrata = world.numLightInstances + (hasAmbient ? 1 : 0);
-    const size_t selected =
-        glm::min(size_t(pcg_uniform(&ss.rs) * float(numStrata)), numStrata - 1);
+    const size_t selected = glm::min(
+        size_t(uPick(kSobolDimLightPick0) * float(numStrata)), numStrata - 1);
     const float pickPdf = 1.0f / float(numStrata);
     if (hasAmbient && selected == world.numLightInstances)
       return {true, true, 0, pickPdf};
     return {true, false, selected, pickPdf};
   }
 
-  if (hasAmbient && pcg_uniform(&ss.rs) * totalPower < ambientPower)
+  if (hasAmbient && uPick(kSobolDimLightPick0) * totalPower < ambientPower)
     return {true, true, 0, ambientPower / totalPower};
 
-  const size_t selected = pickLightInstance(world, pcg_uniform(&ss.rs));
+  const size_t selected = pickLightInstance(world, uPick(kSobolDimLightPick1));
   return {true,
       false,
       selected,
@@ -366,10 +374,12 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
     const FrameGPUData &frameData,
     const vec3 &origin,
     const vec3 &normal,
-    bool useQmcHemi,
-    const vec2 &qmcHemi)
+    bool useQmc,
+    uint32_t sampleIndex,
+    uint32_t pixelSeed)
 {
-  const PickedCandidate pick = pickCandidate(ss, frameData);
+  const PickedCandidate pick =
+      pickCandidate(ss, frameData, useQmc, sampleIndex, pixelSeed);
   if (!pick.valid)
     return {};
 
@@ -379,8 +389,11 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
     // Owen-scrambled Sobol dims 4–5 (same sample index as the camera) so
     // screen-space error is low-discrepancy; later bounces stay on PCG.
     const auto &rp = frameData.renderer;
-    const vec3 dir = useQmcHemi ? sampleHemisphere(qmcHemi.x, qmcHemi.y, normal)
-                                : sampleHemisphere(ss.rs, normal);
+    const vec3 dir = useQmc
+        ? sampleHemisphere(owenSobol(sampleIndex, kSobolDimHemiU, pixelSeed),
+              owenSobol(sampleIndex, kSobolDimHemiV, pixelSeed),
+              normal)
+        : sampleHemisphere(ss.rs, normal);
     const float cosNs = fmaxf(0.f, dot(dir, normal));
     return {LightSample{rp.ambientColor * rp.ambientIntensity,
                 dir,
@@ -391,8 +404,14 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
   }
 
   const auto &li = frameData.world.lightInstances[pick.instance];
-  auto ls =
-      sampleLight(ss, origin, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
+  auto ls = sampleLight(ss,
+      origin,
+      li.lightIndex,
+      li.xfm,
+      li.surfaceInstanceIndex,
+      useQmc,
+      sampleIndex,
+      pixelSeed);
   ls.pdf *= pick.pickPdf;
   const LightType type = frameData.registry.lights[li.lightIndex].type;
   return {ls, type == LightType::HDRI, type == LightType::GEOMETRY};
@@ -532,8 +551,6 @@ VISRTX_GLOBAL void __raygen__()
     // Same sample index as the camera, Sobol dims 4–5 so first-bounce cosine
     // NEE is decorrelated from AA/DoF (dims 0–3) and from PCG lighting.
     const uint32_t pixelSeed = owenPixelSeed(ss.pixel.x, ss.pixel.y);
-    const ::float2 hemiU = owenSobolHemi(sampleIdx, pixelSeed);
-    const vec2 qmcHemi(hemiU.x, hemiU.y);
 
     applyCuttingPlane(rendererParams.cutPlane, ray);
 
@@ -703,8 +720,13 @@ VISRTX_GLOBAL void __raygen__()
         // bump-mapped surfaces.
         const vec3 shadowOrigin =
             shadingHitpoint(surfaceHit) + surfaceHit.Ng * surfaceHit.epsilon;
-        const SurfaceLightSample lightPick = sampleLights(
-            ss, frameData, shadowOrigin, surfaceHit.Ns, isFirstBounce, qmcHemi);
+        const SurfaceLightSample lightPick = sampleLights(ss,
+            frameData,
+            shadowOrigin,
+            surfaceHit.Ns,
+            isFirstBounce,
+            sampleIdx,
+            pixelSeed);
         LightSample lightSample = lightPick.ls;
         if (lightPick.isEnv) {
           if (!(dot(lightSample.dir, surfaceHit.Ns) > 0.0f))
@@ -789,7 +811,10 @@ VISRTX_GLOBAL void __raygen__()
         // carries envPickProb because the CDF technique is pick-gated.
         if (frameData.world.numHdriLightInstances > 0) {
           const vec3 dirC = isFirstBounce
-              ? sampleHemisphere(qmcHemi.x, qmcHemi.y, surfaceHit.Ns)
+              ? sampleHemisphere(
+                    owenSobol(sampleIdx, kSobolDimHemiU, pixelSeed),
+                    owenSobol(sampleIdx, kSobolDimHemiV, pixelSeed),
+                    surfaceHit.Ns)
               : sampleHemisphere(ss.rs, surfaceHit.Ns);
           const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
           vec3 envRadiance;
