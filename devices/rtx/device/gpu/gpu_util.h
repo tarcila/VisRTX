@@ -231,15 +231,20 @@ VISRTX_DEVICE mat3 computeOrthonormalBasis(const vec3 &normal)
 }
 
 // Cosine-weighted hemisphere sample (Malley's method); pdf = cos(theta)/pi.
-VISRTX_DEVICE vec3 sampleHemisphere(RandState &rs, const vec3 &normal)
+// u1/u2 in [0, 1). The RandState overload draws them from PCG; first-bounce
+// env/ambient NEE in Quality feeds Halton dims 4–5 instead.
+VISRTX_DEVICE vec3 sampleHemisphere(float u1, float u2, const vec3 &normal)
 {
-  const float u1 = pcg_uniform(&rs);
-  const float u2 = pcg_uniform(&rs);
   const float r = sqrtf(u1);
   const float z = sqrtf(fmaxf(0.f, 1.f - r * r));
   const float phi = kTwoPi * u2;
   const vec3 sample(r * cosf(phi), r * sinf(phi), z);
   return computeOrthonormalBasis(normal) * sample;
+}
+
+VISRTX_DEVICE vec3 sampleHemisphere(RandState &rs, const vec3 &normal)
+{
+  return sampleHemisphere(pcg_uniform(&rs), pcg_uniform(&rs), normal);
 }
 
 VISRTX_DEVICE vec3 sampleUnitSphere(RandState &rs, const vec3 &normal)
@@ -609,8 +614,11 @@ VISRTX_DEVICE void setPixelIds(const FramebufferGPUData &fb,
 // Each channel is clamped independently to its own cap, so a chromatic
 // (single-channel) outlier is caught even when its luminance is unremarkable,
 // without a near-zero channel dragging the whole (saturated-color) pixel dark.
-VISRTX_DEVICE vec4 fireflyClamp(
-    PixelLumStats *lumStatsBuf, uint32_t idx, vec4 color, float kSigma, int warmupSamples)
+VISRTX_DEVICE vec4 fireflyClamp(PixelLumStats *lumStatsBuf,
+    uint32_t idx,
+    vec4 color,
+    float kSigma,
+    int warmupSamples)
 {
   constexpr float kWarmupCapFactor = 8.0f; // warmup cap = factor * running mean
 
