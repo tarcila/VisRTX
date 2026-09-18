@@ -696,8 +696,6 @@ struct SphereLightGPUData
   vec3 position;
   float intensity;
   float radius;
-  // Camera visibility only; see RectLightGPUData::visible.
-  bool visible;
 };
 
 struct RectLightGPUData
@@ -712,10 +710,6 @@ struct RectLightGPUData
     unsigned int back : 1;
   } side;
   float oneOverArea;
-  // khr_light_primary_visibility `visible`: does the light show to CAMERA rays.
-  // It never affects illumination, NEE, or the light's appearance in
-  // reflections/GI.
-  bool visible;
 };
 
 struct SpotLightGPUData
@@ -737,8 +731,6 @@ struct RingLightGPUData
   float innerRadius;
   float intensity;
   float oneOverArea;
-  // Camera visibility only; see RectLightGPUData::visible.
-  bool visible;
 };
 
 struct HDRILightGPUData
@@ -749,7 +741,6 @@ struct HDRILightGPUData
   const float *marginalCDF;
   const float *conditionalCDF;
   float scale;
-  bool visible;
   float pdfWeight;
 #ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG
   uint32_t *samples; // pixelmap of sample counts
@@ -774,6 +765,16 @@ struct LightGPUData
 {
   LightType type{LightType::UNKNOWN};
   vec3 color;
+  // khr_light_primary_visibility `visible`: does the light show to CAMERA rays.
+  // It never affects illumination, NEE, or the light's appearance in
+  // reflections/GI. Lives here rather than on each subtype because the answer
+  // is the same question for all of them, and a per-subtype copy forced every
+  // reader through a type cascade to find it.
+  //
+  // Only meaningful for a light with extent -- quad, ring, the sphere a point
+  // light becomes at radius > 0, and the HDRI backdrop. `spot` and
+  // `directional` are delta lights that accept the parameter and ignore it.
+  bool visible{true};
   union
   {
     DirectionalLightGPUData distant;
