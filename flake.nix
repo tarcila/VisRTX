@@ -58,7 +58,7 @@
           # The first in the list is the default
 
           (lib.optionals pkgs.config.cudaSupport [
-            anari-barney
+            barney
             visrtx
           ])
           ++ [
