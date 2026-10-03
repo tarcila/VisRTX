@@ -54,6 +54,7 @@ struct World : public Object
 
   void commitParameters() override;
   void finalize() override;
+  void propagateChangeFrom(Object *child) override;
 
   WorldGPUData gpuData() const;
 
@@ -75,6 +76,7 @@ struct World : public Object
 
   helium::ChangeObserverPtr<ObjectArray> m_instanceData;
   std::vector<Instance *> m_instances;
+  std::vector<helium::ChangeObserverPtr<Object>> m_contents;
 
   helium::IntrusivePtr<Group> m_zeroGroup;
   helium::IntrusivePtr<Instance> m_zeroInstance;
@@ -119,7 +121,8 @@ struct World : public Object
 
   // Power-proportional Light Pick, rebuilt with the light instances.
   HostDeviceArray<double> m_lightPickCdf;
-  // Per-slot discrete pick probability (power_i/total), parallel to m_lightPickCdf.
+  // Per-slot discrete pick probability (power_i/total), parallel to
+  // m_lightPickCdf.
   HostDeviceArray<float> m_lightPickDelta;
   float m_totalLightPower{0.f};
   float m_hdriPower{0.f};

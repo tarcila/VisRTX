@@ -136,7 +136,7 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
 
   helium::ChangeObserverPtr<Renderer> m_renderer;
   helium::ChangeObserverPtr<Camera> m_camera;
-  helium::IntrusivePtr<World> m_world;
+  helium::ChangeObserverPtr<World> m_world;
 
   cudaEvent_t m_eventStart;
   cudaEvent_t m_eventEnd;
@@ -154,7 +154,6 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   ChangeStamps m_changeStamps;
   ConsumedStamps<Object> m_consumedDependencies;
   helium::TimeStamp m_lastImageConsumed{0};
-  helium::TimeStamp m_lastWorldContentConsumed{0};
 
   Denoiser m_denoiser;
 

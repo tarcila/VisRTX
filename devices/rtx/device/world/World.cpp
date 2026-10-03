@@ -42,9 +42,9 @@
 #include "utility/AnariTypeHelpers.h"
 #include "world/Group.h"
 
-#include <glm/gtc/matrix_inverse.hpp>
 #include <cassert>
 #include <cmath>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <set>
 
 #ifdef USE_MDL
@@ -156,6 +156,19 @@ void World::commitParameters()
 
 void World::finalize()
 {
+  m_contents.clear();
+  std::set<Object *> contents;
+  for (auto *array : {m_instanceData.get(),
+           m_zeroSurfaceData.get(),
+           m_zeroVolumeData.get(),
+           m_zeroLightData.get()}) {
+    if (array)
+      contents.insert(array->handlesBegin(false), array->handlesEnd(false));
+  }
+  for (auto *child : contents) {
+    if (child)
+      m_contents.emplace_back(this, child);
+  }
   const bool addZeroInstance =
       m_zeroSurfaceData || m_zeroVolumeData || m_zeroLightData;
   if (addZeroInstance)
@@ -187,9 +200,8 @@ void World::finalize()
 
   m_zeroInstance->setParam("id", getParam<uint32_t>("id", ~0u));
   m_zeroInstance->snapshotParameters(); // internal object, see World()
-  // Re-commit explicitly: the zero instance observes nothing, so no buffered
-  // re-commit would ever consume the staged id (it stayed at the ctor default
-  // before this).
+  // Structural notifications do not re-finalize the zero instance, so
+  // explicitly consume the staged id.
   m_zeroInstance->commitParameters();
   m_zeroInstance->finalize();
 
@@ -213,6 +225,16 @@ void World::finalize()
 
   m_objectUpdates.lastTLASBuild = 0;
   m_objectUpdates.lastBLASCheck = 0;
+}
+
+void World::propagateChangeFrom(Object *child)
+{
+  // ObjectArray notifications retain helium's membership re-finalization.
+  if (std::any_of(m_contents.begin(), m_contents.end(), [child](const auto &p) {
+        return p.get() == child;
+      })) {
+    propagateImageFrom(child);
+  }
 }
 
 WorldGPUData World::gpuData() const
@@ -456,8 +478,7 @@ void World::buildInstanceSurfaceGPUData()
 
       const mat4 o2wMat4 = mat4(inst->xfm(t));
       const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
-      const mat3x4 w2o =
-          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+      const mat3x4 w2o = glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
 
       auto assignXfm = [&](InstanceSurfaceGPUData &g) {
         g.objectToWorld = o2w;
@@ -474,20 +495,18 @@ void World::buildInstanceSurfaceGPUData()
         ++instID;
       }
       if (group->containsCurveGeometry()) {
-        sd[instID] =
-            makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
-                inst->uniformAttributes(),
-                id,
-                t);
+        sd[instID] = makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
+            inst->uniformAttributes(),
+            id,
+            t);
         assignXfm(sd[instID]);
         ++instID;
       }
       if (group->containsUserGeometry()) {
-        sd[instID] =
-            makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
-                inst->uniformAttributes(),
-                id,
-                t);
+        sd[instID] = makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
+            inst->uniformAttributes(),
+            id,
+            t);
         assignXfm(sd[instID]);
         ++instID;
       }
@@ -512,8 +531,7 @@ void World::buildInstanceVolumeGPUData()
 
       const mat4 o2wMat4 = mat4(inst->xfm(t));
       const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
-      const mat3x4 w2o =
-          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+      const mat3x4 w2o = glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
 
       InstanceVolumeGPUData g;
       g.objectToWorld = o2w;
@@ -543,8 +561,8 @@ void World::synthesizeGeometryLights()
 {
   // Configure or drop each candidate surface's Geometry Light from current
   // material + geometry state. Runs over triangle and user (custom-primitive,
-  // e.g. sphere) surfaces; isSampleableEmitter gates out non-area-samplable ones.
-  // Object-space, so done once per group; the fill pass instances it per
+  // e.g. sphere) surfaces; isSampleableEmitter gates out non-area-samplable
+  // ones. Object-space, so done once per group; the fill pass instances it per
   // transform like an authored light. The light carries the material's mean
   // radiance (Pick Power); the sampler evaluates the material at the sampled
   // point when its emission is not constant.
@@ -637,10 +655,10 @@ void World::buildInstanceLightGPUData()
 
   size_t lightIndex = 0;
   size_t hdriIndex = 0;
-  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid out
-  // per (instance, transform) as [triangle?][curve?][user?]. Tracking the same
-  // cursor here recovers each Geometry Light's surface-instance index without a
-  // side table.
+  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid
+  // out per (instance, transform) as [triangle?][curve?][user?]. Tracking the
+  // same cursor here recovers each Geometry Light's surface-instance index
+  // without a side table.
   size_t surfaceInstanceCursor = 0;
 
   // Filled with each instance's raw Pick Power, then normalized into the

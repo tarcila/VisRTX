@@ -375,7 +375,11 @@ void launchCompositeBackground(vec4 *accumColor,
 } // anonymous namespace
 
 Frame::Frame(DeviceGlobalState *d)
-    : helium::BaseFrame(d), m_renderer(this), m_camera(this), m_denoiser(d)
+    : helium::BaseFrame(d),
+      m_renderer(this),
+      m_camera(this),
+      m_world(this),
+      m_denoiser(d)
 {
   cudaEventCreate(&m_eventStart);
   cudaEventCreate(&m_eventEnd);
@@ -443,7 +447,7 @@ void Frame::commitParameters()
           m_normalType},
       renderer,
       camera,
-      m_world.ptr,
+      m_world.get(),
       getParam<bool>("accumulation", true)};
   if (imageParameters != m_imageParameters)
     m_changeStamps.mark(ChangeKind::IMAGE, helium::newTimeStamp());
@@ -456,7 +460,8 @@ void Frame::commitParameters()
 
 void Frame::propagateChangeFrom(Object *child)
 {
-  if (child != m_camera.get() && child != m_renderer.get())
+  if (child != m_camera.get() && child != m_renderer.get()
+      && child != m_world.get())
     return;
   for (size_t i = 0; i < NUM_CHANGE_KINDS; ++i) {
     const auto kind = ChangeKind(i);
@@ -1090,20 +1095,17 @@ bool Frame::checkerboarding() const
 void Frame::checkAccumulationReset()
 {
   const auto imageStamp = m_changeStamps.last(ChangeKind::IMAGE);
-  const auto worldStamp = deviceState()->lastWorldContentChange;
   if (m_manualAccumulationRestart) {
     if (m_lastRenderedAccumulationVersion < m_applicationAccumulationVersion) {
       m_lastRenderedAccumulationVersion = m_applicationAccumulationVersion;
       m_nextFrameReset = true;
     }
-  } else if (m_lastImageConsumed < imageStamp
-      || m_lastWorldContentConsumed < worldStamp) {
+  } else if (m_lastImageConsumed < imageStamp) {
     m_nextFrameReset = true;
   }
   // Consume even on the first render and while in manual mode. Shared
   // dependencies keep their stamps; each Frame records its own progress.
   m_lastImageConsumed = imageStamp;
-  m_lastWorldContentConsumed = worldStamp;
 }
 
 void Frame::newFrame()

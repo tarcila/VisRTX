@@ -53,6 +53,7 @@ struct Group : public Object
   void commitParameters() override;
   void finalize() override;
   void markFinalized() override;
+  void propagateChangeFrom(Object *child) override;
 
   OptixTraversableHandle optixTraversableTriangle() const;
   OptixTraversableHandle optixTraversableCurve() const;
@@ -76,8 +77,8 @@ struct Group : public Object
 
   // Triangle surfaces, the Stage 1 candidates for Geometry Light synthesis.
   const std::vector<Surface *> &surfacesTriangle() const;
-  // Custom-primitive surfaces (spheres, cylinders, cones, …); the area-samplable
-  // ones (Stage 1.5: Sphere) are also Geometry Light candidates.
+  // Custom-primitive surfaces (spheres, cylinders, cones, …); the
+  // area-samplable ones (Stage 1.5: Sphere) are also Geometry Light candidates.
   const std::vector<Surface *> &surfacesUser() const;
 
   void rebuildSurfaceBVHs();
@@ -91,6 +92,9 @@ struct Group : public Object
   void buildSurfaceGPUData();
   void buildVolumeGPUData();
   void buildLightGPUData();
+
+  // Observe all authored contents, including currently invalid objects.
+  std::vector<helium::ChangeObserverPtr<Object>> m_contents;
 
   // Geometry //
 

@@ -215,8 +215,6 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
     helium::TimeStamp lastTLASChange{0};
   } objectUpdates;
 
-  helium::TimeStamp lastWorldContentChange{0};
-
   DeferredArrayUploadBuffer uploadBuffer;
 
   struct DeviceObjectRegistry

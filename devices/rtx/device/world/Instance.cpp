@@ -34,7 +34,10 @@
 namespace visrtx {
 
 Instance::Instance(DeviceGlobalState *d)
-    : Object(ANARI_INSTANCE, d), m_xfmArray(this), m_idArray(this)
+    : Object(ANARI_INSTANCE, d),
+      m_xfmArray(this),
+      m_group(this),
+      m_idArray(this)
 {}
 
 void Instance::commitParameters()
@@ -107,6 +110,12 @@ void Instance::markFinalized()
   deviceState()->objectUpdates.lastTLASChange = helium::newTimeStamp();
 }
 
+void Instance::propagateChangeFrom(Object *child)
+{
+  if (child == m_group.get())
+    propagateImageFrom(child);
+}
+
 bool Instance::isValid() const
 {
   return m_group;
@@ -134,12 +143,12 @@ bool Instance::xfmIsIdentity(size_t i) const
 
 const Group *Instance::group() const
 {
-  return m_group.ptr;
+  return m_group.get();
 }
 
 Group *Instance::group()
 {
-  return m_group.ptr;
+  return m_group.get();
 }
 
 const UniformAttributes &Instance::uniformAttributes() const

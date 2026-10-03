@@ -75,10 +75,12 @@ struct Object : public helium::BaseObject
 
   // Runs during the commit-buffer flush for each queued (child -> this) edge.
   // Translating the child's kinds into this object's kinds is per edge type;
-  // the default consumes nothing.
+  // unmigrated edges retain the deferred re-finalize bridge.
   virtual void propagateChangeFrom(Object *child);
 
  protected:
+  void propagateImageFrom(Object *child);
+
   // Structural links queue a propagation drained by the commit-buffer flush
   // instead of re-finalizing the observer (helium's default).
   void notifyChangeObserver(helium::BaseObject *observer) const override;

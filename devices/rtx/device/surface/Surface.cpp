@@ -34,7 +34,9 @@
 namespace visrtx {
 
 Surface::Surface(DeviceGlobalState *d)
-    : RegisteredObject<SurfaceGPUData>(ANARI_SURFACE, d)
+    : RegisteredObject<SurfaceGPUData>(ANARI_SURFACE, d),
+      m_geometry(this),
+      m_material(this)
 {
   setRegistry(d->registry.surfaces);
 }
@@ -66,6 +68,12 @@ void Surface::markFinalized()
   deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
 }
 
+void Surface::propagateChangeFrom(Object *child)
+{
+  if (child == m_geometry.get() || child == m_material.get())
+    propagateImageFrom(child);
+}
+
 bool Surface::isValid() const
 {
   return geometryIsValid() && materialIsValid();
@@ -73,22 +81,22 @@ bool Surface::isValid() const
 
 Geometry *Surface::geometry()
 {
-  return m_geometry.ptr;
+  return m_geometry.get();
 }
 
 const Geometry *Surface::geometry() const
 {
-  return m_geometry.ptr;
+  return m_geometry.get();
 }
 
 Material *Surface::material()
 {
-  return m_material.ptr;
+  return m_material.get();
 }
 
 const Material *Surface::material() const
 {
-  return m_material.ptr;
+  return m_material.get();
 }
 
 bool Surface::isVisible() const
@@ -106,9 +114,9 @@ GeometryLight *Surface::ensureGeometryLight()
 {
   if (!m_geometryLight) {
     m_geometryLight = new GeometryLight(deviceState());
-    // RefCounted starts at PUBLIC=1; the IntrusivePtr owns the only reference we
-    // need. Drop the birth PUBLIC ref so clearGeometryLight() actually frees the
-    // light and releases its registry.lights slot (mirrors World.cpp's zero
+    // RefCounted starts at PUBLIC=1; the IntrusivePtr owns the only reference
+    // we need. Drop the birth PUBLIC ref so clearGeometryLight() actually frees
+    // the light and releases its registry.lights slot (mirrors World.cpp's zero
     // group/instance).
     m_geometryLight->refDec(helium::RefType::PUBLIC);
   }

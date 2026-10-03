@@ -9,6 +9,7 @@
 
 #include <anari/anari_cpp/ext/std.h>
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
+#include <algorithm>
 #include <anari/anari_cpp.hpp>
 #include <array>
 #include <cstdint>
@@ -61,6 +62,7 @@ struct Harness
 {
   anari::Device d{nullptr};
   anari::Geometry geom{nullptr};
+  anari::Array1D vertices{nullptr};
   anari::Material mat{nullptr};
   anari::Surface surf{nullptr};
   anari::Light light{nullptr};
@@ -80,8 +82,12 @@ struct Harness
     for (auto &p : pos)
       p = {u(rng), u(rng), u(rng)};
     geom = anari::newObject<anari::Geometry>(d, "sphere");
-    anari::setParameterArray1D(
-        d, geom, "vertex.position", pos.data(), pos.size());
+    vertices = anariNewArray1D(
+        d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, pos.size());
+    auto *mapped = static_cast<float3 *>(anariMapArray(d, vertices));
+    std::copy(pos.begin(), pos.end(), mapped);
+    anariUnmapArray(d, vertices);
+    anari::setParameter(d, geom, "vertex.position", vertices);
     anari::setParameter(d, geom, "radius", 0.05f);
     anari::commitParameters(d, geom);
     mat = anari::newObject<anari::Material>(d, "matte");
@@ -143,6 +149,7 @@ struct Harness
     anari::release(d, surf);
     anari::release(d, mat);
     anari::release(d, geom);
+    anari::release(d, vertices);
   }
 
   // Renders one sample on frame 'i'; returns true if it accumulated (its
@@ -372,6 +379,89 @@ void testCameraSubtypeParameters(anari::Device d)
   anari::release(d, ortho);
 }
 
+void testWorldDependencies(anari::Device d, bool zeroInstance)
+{
+  Harness a(d);
+  Harness b(d);
+  if (zeroInstance) {
+    anari::unsetParameter(d, a.world, "instance");
+    anari::setParameterArray1D(d, a.world, "surface", &a.surf, 1);
+    anari::setParameterArray1D(d, a.world, "light", &a.light, 1);
+    anari::commitParameters(d, a.world);
+  }
+  // Share the renderer and camera: only the world graph distinguishes Frames.
+  anari::setParameter(d, a.frames[1], "world", b.world);
+  anari::commitParameters(d, a.frames[1]);
+  for (int s = 0; s < 3; ++s) {
+    a.renderAndCheck(0);
+    a.renderAndCheck(1);
+  }
+  auto checkAOnly = [&]() {
+    CHECK(!a.renderAndCheck(0),
+        "world A change did not reset A (zero=%d)",
+        zeroInstance);
+    CHECK(
+        a.renderAndCheck(1), "world A change reset B (zero=%d)", zeroInstance);
+    CHECK(a.renderAndCheck(0), "A failed to resume accumulation");
+  };
+
+  anari::setParameter(d, a.mat, "color", float3{0.2f, 0.5f, 0.7f});
+  anari::commitParameters(d, a.mat);
+  checkAOnly();
+
+  auto *mapped = static_cast<float3 *>(anariMapArray(d, a.vertices));
+  (*mapped)[0] += 0.1f;
+  anariUnmapArray(d, a.vertices);
+  checkAOnly();
+  // Identical bytes still constitute a change; uploads alone do not.
+  anariMapArray(d, a.vertices);
+  anariUnmapArray(d, a.vertices);
+  checkAOnly();
+
+  anari::setParameter(d, a.light, "irradiance", 2.f);
+  anari::commitParameters(d, a.light);
+  checkAOnly();
+
+  if (!zeroInstance) {
+    std::array<float, 16> transform{
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.1f, 0, 0, 1};
+    anariSetParameter(
+        d, a.inst, "transform", ANARI_FLOAT32_MAT4, transform.data());
+    anari::commitParameters(d, a.inst);
+    checkAOnly();
+  }
+
+  auto orphan = anari::newObject<anari::Surface>(d);
+  anari::setParameter(d, orphan, "geometry", a.geom);
+  anari::setParameter(d, orphan, "material", a.mat);
+  anari::commitParameters(d, orphan);
+  CHECK(a.renderAndCheck(0), "unreachable surface reset A");
+  CHECK(a.renderAndCheck(1), "unreachable surface reset B");
+  anari::release(d, orphan);
+
+  anari::setParameter(d, b.surf, "geometry", a.geom);
+  anari::commitParameters(d, b.surf);
+  CHECK(a.renderAndCheck(0), "B's surface handle change reset A");
+  CHECK(!a.renderAndCheck(1), "B's surface handle change did not reset B");
+  a.renderAndCheck(1);
+  anari::setParameter(d, a.geom, "radius", 0.07f);
+  anari::commitParameters(d, a.geom);
+  CHECK(!a.renderAndCheck(0), "shared geometry did not reset A");
+  CHECK(!a.renderAndCheck(1), "shared geometry did not reset B");
+  a.renderAndCheck(0);
+  a.renderAndCheck(1);
+
+  // Replacing a dependency must remove the old upward edge.
+  anari::setParameter(d, b.surf, "geometry", b.geom);
+  anari::commitParameters(d, b.surf);
+  CHECK(a.renderAndCheck(0), "B's geometry replacement reset A");
+  CHECK(!a.renderAndCheck(1), "B's geometry replacement did not reset B");
+  a.renderAndCheck(1);
+  anari::setParameter(d, a.geom, "radius", 0.08f);
+  anari::commitParameters(d, a.geom);
+  checkAOnly();
+}
+
 void testRebuildCounted(anari::Device d)
 {
   // Harness self-check: a geometry change rebuilds the Group's BLAS and the
@@ -409,6 +499,8 @@ int main()
   testFrameDependencies(d);
   testManualResize(d);
   testCameraSubtypeParameters(d);
+  testWorldDependencies(d, false);
+  testWorldDependencies(d, true);
   testRebuildCounted(d);
 
   anari::release(d, d);

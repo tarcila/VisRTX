@@ -31,6 +31,8 @@
 
 #include "Group.h"
 
+#include <set>
+
 namespace visrtx {
 
 // Helper functions ///////////////////////////////////////////////////////////
@@ -104,6 +106,17 @@ void Group::commitParameters()
 
 void Group::finalize()
 {
+  m_contents.clear();
+  std::set<Object *> contents;
+  for (auto *array :
+      {m_surfaceData.get(), m_volumeData.get(), m_lightData.get()}) {
+    if (array)
+      contents.insert(array->handlesBegin(false), array->handlesEnd(false));
+  }
+  for (auto *child : contents) {
+    if (child)
+      m_contents.emplace_back(this, child);
+  }
   m_objectUpdates.lastSurfaceBVHBuilt = 0;
   m_objectUpdates.lastVolumeBVHBuilt = 0;
   m_objectUpdates.lastLightRebuild = 0;
@@ -117,6 +130,16 @@ void Group::markFinalized()
   updates.lastSurfaceBLASChange = now;
   updates.lastVolumeBLASChange = now;
   updates.lastLightSetChange = now;
+}
+
+void Group::propagateChangeFrom(Object *child)
+{
+  // ObjectArray notifications retain helium's membership re-finalization.
+  if (std::any_of(m_contents.begin(), m_contents.end(), [child](const auto &p) {
+        return p.get() == child;
+      })) {
+    propagateImageFrom(child);
+  }
 }
 
 OptixTraversableHandle Group::optixTraversableTriangle() const

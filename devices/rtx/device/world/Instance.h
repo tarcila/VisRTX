@@ -43,6 +43,7 @@ struct Instance : public Object
   void commitParameters() override;
   void finalize() override;
   void markFinalized() override;
+  void propagateChangeFrom(Object *child) override;
   bool isValid() const override;
 
   uint32_t userID(size_t i = 0) const;
@@ -59,7 +60,7 @@ struct Instance : public Object
  private:
   helium::ChangeObserverPtr<Array1D> m_xfmArray;
   mat4x3 m_xfm;
-  helium::IntrusivePtr<Group> m_group;
+  helium::ChangeObserverPtr<Group> m_group;
   UniformAttributes m_uniformAttributes;
   helium::ChangeObserverPtr<Array1D> m_idArray;
   uint32_t m_id{~0u};

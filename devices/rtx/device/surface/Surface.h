@@ -44,6 +44,7 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   void commitParameters() override;
   void finalize() override;
   void markFinalized() override;
+  void propagateChangeFrom(Object *child) override;
   bool isValid() const override;
 
   Geometry *geometry();
@@ -62,8 +63,8 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
 
   // Geometry Light ownership. The synthesized light lives here (per ADR 0005),
   // but the World configures its content each rebuild from current material and
-  // geometry state. ensureGeometryLight() lazily creates it; clearGeometryLight()
-  // frees it when this surface stops emitting.
+  // geometry state. ensureGeometryLight() lazily creates it;
+  // clearGeometryLight() frees it when this surface stops emitting.
   GeometryLight *ensureGeometryLight();
   void clearGeometryLight();
   GeometryLight *geometryLight() const;
@@ -73,8 +74,8 @@ struct Surface : public RegisteredObject<SurfaceGPUData>
   bool materialIsValid() const;
   SurfaceGPUData gpuData() const override;
 
-  helium::IntrusivePtr<Geometry> m_geometry;
-  helium::IntrusivePtr<Material> m_material;
+  helium::ChangeObserverPtr<Geometry> m_geometry;
+  helium::ChangeObserverPtr<Material> m_material;
   helium::IntrusivePtr<GeometryLight> m_geometryLight;
 
   OptixBuildInput m_buildInput{};

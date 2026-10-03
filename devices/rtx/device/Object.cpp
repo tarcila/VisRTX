@@ -68,9 +68,6 @@ void Object::finalize()
 
 void Object::markFinalized()
 {
-  helium::BaseObject::markFinalized();
-  // Temporary bridge until world-content Image edges are wired (ticket 03).
-  // Camera and Renderer changes are scoped to their observing Frames.
   switch (type()) {
   case ANARI_GEOMETRY:
   case ANARI_MATERIAL:
@@ -82,11 +79,12 @@ void Object::markFinalized()
   case ANARI_GROUP:
   case ANARI_INSTANCE:
   case ANARI_WORLD:
-    deviceState()->lastWorldContentChange = helium::newTimeStamp();
+    markChanged(ChangeKind::IMAGE);
     break;
   default:
     break;
   }
+  helium::BaseObject::markFinalized();
 }
 
 bool Object::isValid() const
@@ -112,6 +110,15 @@ void Object::markChanged(ChangeKind k, helium::TimeStamp t)
 helium::TimeStamp Object::lastChange(ChangeKind k) const
 {
   return m_changeStamps.last(k);
+}
+
+void Object::propagateImageFrom(Object *child)
+{
+  const auto stamp = child->lastChange(ChangeKind::IMAGE);
+  if (stamp > lastChange(ChangeKind::IMAGE)) {
+    markChanged(ChangeKind::IMAGE, stamp);
+    notifyChangeObservers();
+  }
 }
 
 void Object::propagateChangeFrom(Object * /*child*/)
