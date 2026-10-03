@@ -58,7 +58,7 @@ struct Isosurface : public Geometry
   void dropUndersizedPrimitiveArrays();
 
   helium::ChangeObserverPtr<SpatialField> m_field;
-  helium::ChangeObserverPtr<Array1D> m_isovalueArray;
+  GeometryArrayPtr m_isovalueArray;
   float m_isovalueScalar{0.f};
   bool m_hasScalarIsovalue{false};
 

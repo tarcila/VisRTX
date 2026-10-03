@@ -18,12 +18,13 @@ void Neural::commitParameters()
 {
   Geometry::commitParameters();
 
-  // Get layers parameters from TSD object
+  // Refresh membership so replaced/removed layers stop notifying this owner.
+  m_layers.clear();
   const auto n_layers = getParam<uint32_t>("n_layers", 0);
   for (uint32_t i = 0; i < 2 * n_layers; i++) {
     const auto layer_name = "layer_" + to_string(i);
     auto layer_data = getParamObject<Array1D>(layer_name.c_str());
-    m_layers.push_back(layer_data);
+    m_layers.emplace_back(this, layer_data);
   }
 }
 

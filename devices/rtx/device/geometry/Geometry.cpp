@@ -56,8 +56,7 @@ namespace visrtx {
 
 // Helper functions ///////////////////////////////////////////////////////////
 
-static void populateAttributeData(
-    helium::IntrusivePtr<Array1D> array, AttributeData &attr)
+static void populateAttributeData(Array1D *array, AttributeData &attr)
 {
   attr.type = ANARI_UNKNOWN;
   attr.numChannels = 0;
@@ -75,6 +74,75 @@ static void populateAttributeData(
   attr.numChannels = numANARIChannels(attr.type);
   attr.data = array->dataGPU();
 }
+
+GeometryArrayPtr::GeometryArrayPtr(Geometry *owner, Array1D *array)
+    : m_owner(owner), m_array(array)
+{
+  if (m_array)
+    m_owner->addArrayObserver(m_array.ptr);
+}
+
+GeometryArrayPtr::~GeometryArrayPtr()
+{
+  if (m_array)
+    m_owner->removeArrayObserver(m_array.ptr);
+}
+
+GeometryArrayPtr::GeometryArrayPtr(GeometryArrayPtr &&other) noexcept
+    : m_owner(other.m_owner), m_array(other.m_array)
+{
+  other.m_array = nullptr;
+}
+
+GeometryArrayPtr &GeometryArrayPtr::operator=(Array1D *array)
+{
+  if (array == m_array.ptr)
+    return *this;
+  if (m_array)
+    m_owner->removeArrayObserver(m_array.ptr);
+  m_array = array;
+  if (m_array)
+    m_owner->addArrayObserver(m_array.ptr);
+  return *this;
+}
+
+GeometryArrayPtr::operator bool() const
+{
+  return bool(m_array);
+}
+
+Array1D *GeometryArrayPtr::operator->() const
+{
+  return m_array.ptr;
+}
+
+Array1D *GeometryArrayPtr::get() const
+{
+  return m_array.ptr;
+}
+
+void Geometry::addArrayObserver(Array1D *array)
+{
+  if (m_arrayObserverCounts[array]++ == 0)
+    array->addChangeObserver(this);
+}
+
+void Geometry::removeArrayObserver(Array1D *array)
+{
+  auto it = m_arrayObserverCounts.find(array);
+  if (--it->second == 0) {
+    array->removeChangeObserver(this);
+    m_arrayObserverCounts.erase(it);
+  }
+}
+
+GeometryAttributes::GeometryAttributes(Geometry *owner)
+    : attribute0(owner),
+      attribute1(owner),
+      attribute2(owner),
+      attribute3(owner),
+      color(owner)
+{}
 
 // Geometry definitions ///////////////////////////////////////////////////////
 
@@ -182,11 +250,11 @@ void Geometry::commitAttributes(const char *_prefix, GeometryAttributes &attrs)
 void Geometry::populateAttributeDataSet(
     const GeometryAttributes &hostAttrs, AttributeDataSet &gpuAttrs) const
 {
-  populateAttributeData(hostAttrs.attribute0, gpuAttrs[0]);
-  populateAttributeData(hostAttrs.attribute1, gpuAttrs[1]);
-  populateAttributeData(hostAttrs.attribute2, gpuAttrs[2]);
-  populateAttributeData(hostAttrs.attribute3, gpuAttrs[3]);
-  populateAttributeData(hostAttrs.color, gpuAttrs[4]);
+  populateAttributeData(hostAttrs.attribute0.get(), gpuAttrs[0]);
+  populateAttributeData(hostAttrs.attribute1.get(), gpuAttrs[1]);
+  populateAttributeData(hostAttrs.attribute2.get(), gpuAttrs[2]);
+  populateAttributeData(hostAttrs.attribute3.get(), gpuAttrs[3]);
+  populateAttributeData(hostAttrs.color.get(), gpuAttrs[4]);
 }
 
 } // namespace visrtx

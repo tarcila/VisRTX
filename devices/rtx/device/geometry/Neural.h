@@ -23,7 +23,7 @@ struct Neural : public Geometry
 
  private:
   GeometryGPUData gpuData() const override;
-  mutable std::vector<helium::IntrusivePtr<Array1D>> m_layers;
+  std::vector<GeometryArrayPtr> m_layers;
 
   // Bounding box
   mutable box3 m_aabb;

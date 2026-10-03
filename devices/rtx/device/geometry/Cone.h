@@ -61,18 +61,19 @@ struct Cone : public Geometry
   GeometryGPUData gpuData() const override;
   void buildAreaData();
 
-  helium::ChangeObserverPtr<Array1D> m_index;
-  helium::ChangeObserverPtr<Array1D> m_radius;
-  helium::ChangeObserverPtr<Array1D> m_vertex;
-  helium::ChangeObserverPtr<Array1D> m_vertexCaps;
-  GeometryAttributes m_vertexAttributes;
+  GeometryArrayPtr m_index;
+  GeometryArrayPtr m_radius;
+  GeometryArrayPtr m_vertex;
+  GeometryArrayPtr m_vertexCaps;
+  GeometryAttributes m_vertexAttributes{this};
 
   HostDeviceArray<box3> m_aabbs;
   CUdeviceptr m_aabbsBufferPtr{};
 
   uint8_t m_defaultCapFlags{0};
 
-  // Geometry Light sampling data, built lazily by ensureAreaData(); see Triangle.
+  // Geometry Light sampling data, built lazily by ensureAreaData(); see
+  // Triangle.
   HostDeviceArray<float> m_primAreaCdf;
   float m_totalArea{0.f};
   bool m_areaDataValid{false};

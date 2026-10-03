@@ -62,10 +62,10 @@ struct Sphere : public Geometry
   void cleanup();
   void buildAreaData();
 
-  helium::ChangeObserverPtr<Array1D> m_index;
-  helium::ChangeObserverPtr<Array1D> m_vertex;
-  helium::ChangeObserverPtr<Array1D> m_vertexRadius;
-  GeometryAttributes m_vertexAttributes;
+  GeometryArrayPtr m_index;
+  GeometryArrayPtr m_vertex;
+  GeometryArrayPtr m_vertexRadius;
+  GeometryAttributes m_vertexAttributes{this};
 
   DeviceBuffer m_aabbs;
   CUdeviceptr m_aabbsBufferPtr{};
@@ -74,8 +74,9 @@ struct Sphere : public Geometry
   float m_globalRadius{1.f};
 
   // Geometry Light sampling data, built lazily by ensureAreaData(). The CDF is
-  // the normalized cumulative object-space area over primitives. m_areaDataWanted
-  // persists across recommits so a re-finalize rebuilds it order-independently.
+  // the normalized cumulative object-space area over primitives.
+  // m_areaDataWanted persists across recommits so a re-finalize rebuilds it
+  // order-independently.
   HostDeviceArray<float> m_primAreaCdf;
   float m_totalArea{0.f};
   bool m_areaDataValid{false};

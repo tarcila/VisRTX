@@ -50,8 +50,7 @@ void Isosurface::commitParameters()
   Geometry::commitParameters();
   m_field = getParamObject<SpatialField>("field");
   m_isovalueArray = getParamObject<Array1D>("isovalue");
-  m_hasScalarIsovalue =
-      getParam("isovalue", ANARI_FLOAT32, &m_isovalueScalar);
+  m_hasScalarIsovalue = getParam("isovalue", ANARI_FLOAT32, &m_isovalueScalar);
 }
 
 void Isosurface::finalize()
@@ -87,7 +86,8 @@ void Isosurface::finalize()
   }
   if (m_isovalueArray && m_isovalueArray->elementType() != ANARI_FLOAT32) {
     // beginAs<float>() only asserts the element type, so under NDEBUG a non-
-    // FLOAT32 array would be silently reinterpreted as float garbage. Reject it.
+    // FLOAT32 array would be silently reinterpreted as float garbage. Reject
+    // it.
     reportMessage(ANARI_SEVERITY_WARNING,
         "isosurface 'isovalue' array must be ANARI_FLOAT32; nothing will render");
     return;
@@ -134,8 +134,7 @@ void Isosurface::finalize()
 
 void Isosurface::dropUndersizedPrimitiveArrays()
 {
-  auto dropIfShort = [&](helium::IntrusivePtr<Array1D> &array,
-                         const char *name) {
+  auto dropIfShort = [&](GeometryArrayPtr &array, const char *name) {
     if (array && array->size() < m_numIsovalues) {
       reportMessage(ANARI_SEVERITY_WARNING,
           "isosurface '%s' array has %zu element(s) but the geometry has %u "
@@ -143,7 +142,7 @@ void Isosurface::dropUndersizedPrimitiveArrays()
           name,
           array->size(),
           m_numIsovalues);
-      array = {};
+      array = nullptr;
     }
   };
 
@@ -159,7 +158,8 @@ bool Isosurface::isValid() const
 {
   return m_field && m_field->isValid()
       && m_field->m_uniformGrid.m_valueRanges != nullptr
-      && ((m_isovalueArray && m_isovalueArray->size() > 0) || m_hasScalarIsovalue);
+      && ((m_isovalueArray && m_isovalueArray->size() > 0)
+          || m_hasScalarIsovalue);
 }
 
 void Isosurface::populateBuildInput(OptixBuildInput &buildInput) const

@@ -41,8 +41,7 @@ namespace visrtx {
 // empty, or an unsupported/failed-to-convert type -- yields no tangents, so
 // the shader falls back to a geometric basis.
 static const vec4 *resolveTangentPtr(
-    const helium::IntrusivePtr<Array1D> &tangents,
-    const DeviceBuffer &converted)
+    const GeometryArrayPtr &tangents, const DeviceBuffer &converted)
 {
   if (converted)
     return converted.ptrAs<vec4>();
@@ -58,8 +57,7 @@ Triangle::Triangle(DeviceGlobalState *d)
 
 Triangle::~Triangle() = default;
 
-bool Triangle::prepareTangentArray(
-    const helium::IntrusivePtr<Array1D> &tangents,
+bool Triangle::prepareTangentArray(const GeometryArrayPtr &tangents,
     DeviceBuffer &converted,
     const char *paramName)
 {

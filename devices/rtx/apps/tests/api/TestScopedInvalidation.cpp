@@ -1335,6 +1335,283 @@ void testScopedVolumeBLAS(anari::Device d)
   }
 }
 
+// Managed arrays ensure unmaps, rather than object commits, drive the edits.
+anari::Array1D makeOwnerArray(anari::Device d, ANARIDataType type, size_t count)
+{
+  auto array = anariNewArray1D(d, nullptr, nullptr, nullptr, type, count);
+  auto *mapped = anariMapArray(d, array);
+  if (type == ANARI_UINT32) {
+    std::fill_n(static_cast<uint32_t *>(mapped), count, 0u);
+  } else {
+    const size_t channels = type == ANARI_FLOAT32_VEC3 ? 3 : 1;
+    std::fill_n(static_cast<float *>(mapped), count * channels, 0.1f);
+  }
+  anariUnmapArray(d, array);
+  return array;
+}
+
+void testGeometryArrayOwners(anari::Device d)
+{
+  Harness a(d), b(d);
+  for (auto renderer : {a.ren, b.ren}) {
+    anari::setParameter(d, renderer, "sampleLimit", 0);
+    anari::commitParameters(d, renderer);
+  }
+  auto warm = [&]() {
+    for (int i = 0; i < 3; ++i) {
+      a.renderAndCheck(0);
+      b.renderAndCheck(0);
+    }
+  };
+  auto check = [&](const char *subtype, const char *param, bool reset) {
+    const auto before = a.counts();
+    CHECK(b.renderAndCheck(0), "%s %s reset unrelated B", subtype, param);
+    CHECK(a.renderAndCheck(0) != reset,
+        "%s %s: expected A reset=%d",
+        subtype,
+        param,
+        reset);
+    CHECK((a.counts().groupBLAS > before.groupBLAS) == reset,
+        "%s %s: owner did not re-finalize conservatively",
+        subtype,
+        param);
+    CHECK(a.renderAndCheck(0), "%s %s reset A twice", subtype, param);
+  };
+
+  for (const char *subtype :
+      {"sphere", "triangle", "quad", "cylinder", "cone", "curve"}) {
+    auto geom = anari::newObject<anari::Geometry>(d, subtype);
+    const size_t count = std::string(subtype) == "triangle" ? 3 : 4;
+    auto positions = makeOwnerArray(d, ANARI_FLOAT32_VEC3, count);
+    auto *p = static_cast<float3 *>(anariMapArray(d, positions));
+    p[0] = {-0.5f, -0.5f, 0.f};
+    p[1] = {0.5f, -0.5f, 0.f};
+    p[2] = {0.5f, 0.5f, 0.f};
+    if (count == 4)
+      p[3] = {-0.5f, 0.5f, 0.f};
+    anariUnmapArray(d, positions);
+    anari::setParameter(d, geom, "vertex.position", positions);
+    anari::setParameter(d, geom, "radius", 0.1f);
+    auto coneRadius = makeOwnerArray(d, ANARI_FLOAT32, count);
+    if (std::string(subtype) == "cone")
+      anari::setParameter(d, geom, "vertex.radius", coneRadius);
+    anari::commitParameters(d, geom);
+    anari::setParameter(d, a.surf, "geometry", geom);
+    anari::commitParameters(d, a.surf);
+    warm();
+
+    std::vector<std::string> params{"primitive.id"};
+    for (const char *prefix : {"primitive.", "vertex."}) {
+      for (const char *attr :
+          {"attribute0", "attribute1", "attribute2", "attribute3", "color"})
+        params.push_back(std::string(prefix) + attr);
+    }
+    const std::string type(subtype);
+    if (type == "triangle") {
+      for (const char *attr : {"attribute0",
+               "attribute1",
+               "attribute2",
+               "attribute3",
+               "color",
+               "normal",
+               "tangent"})
+        params.push_back(std::string("faceVarying.") + attr);
+      params.push_back("vertex.tangent");
+    }
+    if (type == "triangle" || type == "quad")
+      params.push_back("vertex.normal");
+    if (type == "cylinder")
+      params.push_back("primitive.radius");
+    if (type == "cone" || type == "curve" || type == "sphere")
+      params.push_back("vertex.radius");
+
+    for (const auto &param : params) {
+      const auto elementType = param == "primitive.id" ? ANARI_UINT32
+          : param.find("radius") != std::string::npos  ? ANARI_FLOAT32
+                                                       : ANARI_FLOAT32_VEC3;
+      auto array = makeOwnerArray(d, elementType, count);
+      auto replacement = makeOwnerArray(d, elementType, count);
+      anari::setParameter(d, geom, param.c_str(), array);
+      anari::commitParameters(d, geom);
+      warm();
+      auto *data = anariMapArray(d, array);
+      if (elementType == ANARI_UINT32)
+        static_cast<uint32_t *>(data)[0] = 7;
+      else
+        static_cast<float *>(data)[0] = 0.2f;
+      anariUnmapArray(d, array);
+      check(subtype, param.c_str(), true);
+      anariMapArray(d, array);
+      anariUnmapArray(d, array);
+      check(subtype, param.c_str(), true);
+
+      anari::setParameter(d, geom, param.c_str(), replacement);
+      anari::commitParameters(d, geom);
+      warm();
+      anariMapArray(d, array);
+      anariUnmapArray(d, array);
+      check(subtype, param.c_str(), false);
+      anariMapArray(d, replacement);
+      anariUnmapArray(d, replacement);
+      check(subtype, param.c_str(), true);
+      anari::unsetParameter(d, geom, param.c_str());
+      if (type == "cone" && param == "vertex.radius")
+        anari::setParameter(d, geom, param.c_str(), coneRadius);
+      anari::commitParameters(d, geom);
+      warm();
+      anariMapArray(d, replacement);
+      anariUnmapArray(d, replacement);
+      check(subtype, param.c_str(), false);
+      anari::release(d, array);
+      anari::release(d, replacement);
+    }
+    // Aliased bindings must retain the edge until the last binding is removed.
+    auto alias = makeOwnerArray(d, ANARI_FLOAT32_VEC3, count);
+    anari::setParameter(d, geom, "primitive.attribute0", alias);
+    anari::setParameter(d, geom, "vertex.attribute0", alias);
+    anari::commitParameters(d, geom);
+    warm();
+    anari::unsetParameter(d, geom, "vertex.attribute0");
+    anari::commitParameters(d, geom);
+    warm();
+    anariMapArray(d, alias);
+    anariUnmapArray(d, alias);
+    check(subtype, "one alias removed", true);
+    anari::unsetParameter(d, geom, "primitive.attribute0");
+    anari::commitParameters(d, geom);
+    warm();
+    anariMapArray(d, alias);
+    anariUnmapArray(d, alias);
+    check(subtype, "last alias removed", false);
+    anari::release(d, alias);
+
+    // Two worlds observing the same owner must consume its change separately.
+    anari::setParameter(d, b.surf, "geometry", geom);
+    anari::commitParameters(d, b.surf);
+    warm();
+    anariMapArray(d, positions);
+    anariUnmapArray(d, positions);
+    CHECK(!b.renderAndCheck(0), "%s shared array did not reset B", subtype);
+    CHECK(!a.renderAndCheck(0), "%s shared array did not reset A", subtype);
+    anari::setParameter(d, b.surf, "geometry", b.geom);
+    anari::commitParameters(d, b.surf);
+    anari::release(d, geom);
+    anari::release(d, positions);
+    anari::release(d, coneRadius);
+  }
+}
+
+void testFieldAndLightArrayOwners(anari::Device d)
+{
+  Harness a(d), b(d);
+  auto warm = [&]() {
+    for (int i = 0; i < 3; ++i) {
+      a.renderAndCheck(0);
+      b.renderAndCheck(0);
+    }
+  };
+  auto check = [&](const char *edit, bool reset, bool geometry) {
+    const auto before = a.counts();
+    CHECK(b.renderAndCheck(0), "%s reset unrelated B", edit);
+    CHECK(a.renderAndCheck(0) != reset, "%s expected A reset=%d", edit, reset);
+    const auto after = a.counts();
+    CHECK((after.groupBLAS > before.groupBLAS) == (reset && geometry),
+        "%s incorrect BLAS work",
+        edit);
+    CHECK(a.renderAndCheck(0), "%s reset twice", edit);
+  };
+  auto data =
+      anariNewArray3D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 4, 4, 4);
+  auto fillField = [&](anari::Array3D array, float scale) {
+    auto *v = static_cast<float *>(anariMapArray(d, array));
+    for (int i = 0; i < 64; ++i)
+      v[i] = scale * float(i / 16);
+    anariUnmapArray(d, array);
+  };
+  fillField(data, 1.f);
+  auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
+  anari::setParameter(d, field, "data", data);
+  anari::commitParameters(d, field);
+  auto iso = anari::newObject<anari::Geometry>(d, "isosurface");
+  auto values = makeOwnerArray(d, ANARI_FLOAT32, 1);
+  auto *v = static_cast<float *>(anariMapArray(d, values));
+  v[0] = 1.5f;
+  anariUnmapArray(d, values);
+  anari::setParameter(d, iso, "field", field);
+  anari::setParameter(d, iso, "isovalue", values);
+  anari::commitParameters(d, iso);
+  anari::setParameter(d, a.surf, "geometry", iso);
+  anari::commitParameters(d, a.surf);
+  warm();
+  fillField(data, 2.f);
+  check("field to isosurface repacking", true, true);
+  anariMapArray(d, data);
+  anariUnmapArray(d, data);
+  check("identical field to isosurface", true, true);
+  v = static_cast<float *>(anariMapArray(d, values));
+  v[0] = 2.f;
+  anariUnmapArray(d, values);
+  check("isovalue unmap", true, true);
+  anari::setParameter(d, iso, "isovalue", 1.f);
+  anari::commitParameters(d, iso);
+  warm();
+  anariMapArray(d, values);
+  anariUnmapArray(d, values);
+  check("removed isovalue array", false, true);
+  auto newData =
+      anariNewArray3D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 4, 4, 4);
+  fillField(newData, 1.f);
+  anari::setParameter(d, field, "data", newData);
+  anari::commitParameters(d, field);
+  warm();
+  fillField(data, 3.f);
+  check("replaced field data", false, true);
+
+  auto hdri = anari::newObject<anari::Light>(d, "hdri");
+  auto makeRadiance = [&]() {
+    auto r =
+        anariNewArray2D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, 4, 2);
+    auto *p = static_cast<float3 *>(anariMapArray(d, r));
+    std::fill_n(p, 8, float3{1.f, 1.f, 1.f});
+    anariUnmapArray(d, r);
+    return r;
+  };
+  auto radiance = makeRadiance();
+  anari::setParameter(d, hdri, "radiance", radiance);
+  anari::commitParameters(d, hdri);
+  anari::setParameterArray1D(d, a.group, "light", &hdri, 1);
+  anari::commitParameters(d, a.group);
+  warm();
+  auto *r = static_cast<float3 *>(anariMapArray(d, radiance));
+  r[0] = {2.f, 1.f, 1.f};
+  anariUnmapArray(d, radiance);
+  check("HDRI radiance", true, false);
+  anariMapArray(d, radiance);
+  anariUnmapArray(d, radiance);
+  check("identical HDRI radiance", true, false);
+  auto newRadiance = makeRadiance();
+  anari::setParameter(d, hdri, "radiance", newRadiance);
+  anari::commitParameters(d, hdri);
+  warm();
+  anariMapArray(d, radiance);
+  anariUnmapArray(d, radiance);
+  check("replaced HDRI radiance", false, false);
+  anari::unsetParameter(d, hdri, "radiance");
+  anari::commitParameters(d, hdri);
+  warm();
+  anariMapArray(d, newRadiance);
+  anariUnmapArray(d, newRadiance);
+  check("removed HDRI radiance", false, false);
+  anari::release(d, newRadiance);
+  anari::release(d, radiance);
+  anari::release(d, hdri);
+  anari::release(d, newData);
+  anari::release(d, values);
+  anari::release(d, iso);
+  anari::release(d, field);
+  anari::release(d, data);
+}
+
 void testRebuildCounted(anari::Device d)
 {
   // Harness self-check: a geometry change rebuilds the Group's BLAS and the
@@ -1383,6 +1660,8 @@ int main()
   testScopedLightSets(d, false);
   testScopedLightSets(d, true);
   testScopedVolumeBLAS(d);
+  testGeometryArrayOwners(d);
+  testFieldAndLightArrayOwners(d);
 
   anari::release(d, d);
 

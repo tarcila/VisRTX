@@ -70,20 +70,20 @@ struct Triangle : public Geometry
   // leave the buffer empty so resolveTangentPtr() emits no tangents. Called per
   // array during finalize().
   // Returns true if a valid tangent is useable, either directly, or converted
-  bool prepareTangentArray(const helium::IntrusivePtr<Array1D> &tangents,
+  bool prepareTangentArray(const GeometryArrayPtr &tangents,
       DeviceBuffer &converted,
       const char *paramName);
 
   void generateVertexTangents(DeviceBuffer &generated);
 
-  helium::ChangeObserverPtr<Array1D> m_index;
-  helium::ChangeObserverPtr<Array1D> m_vertex;
-  helium::IntrusivePtr<Array1D> m_vertexNormal;
-  GeometryAttributes m_vertexAttributes;
-  GeometryAttributes m_vertexAttributesFV;
-  helium::IntrusivePtr<Array1D> m_vertexNormalFV;
-  helium::IntrusivePtr<Array1D> m_vertexTangent;
-  helium::IntrusivePtr<Array1D> m_vertexTangentFV;
+  GeometryArrayPtr m_index;
+  GeometryArrayPtr m_vertex;
+  GeometryArrayPtr m_vertexNormal{this};
+  GeometryAttributes m_vertexAttributes{this};
+  GeometryAttributes m_vertexAttributesFV{this};
+  GeometryArrayPtr m_vertexNormalFV{this};
+  GeometryArrayPtr m_vertexTangent{this};
+  GeometryArrayPtr m_vertexTangentFV{this};
 
   // Finalized per-vertex tangents (vec4). Empty when vertex.tangent is VEC4
   // (read zero-copy), or when it is absent/unusable and a usable
@@ -99,8 +99,9 @@ struct Triangle : public Geometry
   bool m_cullBackfaces{false};
 
   // Geometry Light sampling data, built lazily by ensureAreaData(). The CDF is
-  // the normalized cumulative object-space area over primitives. m_areaDataWanted
-  // persists across recommits so a re-finalize rebuilds it order-independently.
+  // the normalized cumulative object-space area over primitives.
+  // m_areaDataWanted persists across recommits so a re-finalize rebuilds it
+  // order-independently.
   HostDeviceArray<float> m_primAreaCdf;
   float m_totalArea{0.f};
   bool m_areaDataValid{false};

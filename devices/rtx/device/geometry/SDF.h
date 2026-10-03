@@ -67,8 +67,8 @@ struct SDF : public Geometry
  private:
   GeometryGPUData gpuData() const override;
 
-  helium::ChangeObserverPtr<Array1D> m_sdf;
-  helium::ChangeObserverPtr<Array1D> m_neighbour;
+  GeometryArrayPtr m_sdf;
+  GeometryArrayPtr m_neighbour;
 
   float m_epsilon{1e-5f};
   uint32_t m_nbMarchIterations{16};
