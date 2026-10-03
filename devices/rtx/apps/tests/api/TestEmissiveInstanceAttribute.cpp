@@ -30,15 +30,15 @@
  */
 
 // Stage 2.5: instance-uniform attribute emission. An emissive material bound to
-// the `color` attribute, with the color supplied by the INSTANCE (not per-vertex
-// and not on the geometry), must light a floor the same as a constant emitter of
-// that color. The path-hit deposit reads the color from the real instance; the
-// next-event sampler must resolve it against the SAME instance (via the light
-// record's surface-instance reference) or NEE and the deposit disagree — the
-// exact case deferred from Stage 2a, where the sampler used a transform-only
-// synthetic instance and would read the geometry default instead. Checked on
-// 'quality' and 'interactive'; the emission is spatially uniform so there is no
-// geometry-factor confound. Linear float, firefly off.
+// the `color` attribute, with the color supplied by the INSTANCE (not
+// per-vertex and not on the geometry), must light a floor the same as a
+// constant emitter of that color. The path-hit deposit reads the color from the
+// real instance; the next-event sampler must resolve it against the SAME
+// instance (via the light record's surface-instance reference) or NEE and the
+// deposit disagree — the exact case deferred from Stage 2a, where the sampler
+// used a transform-only synthetic instance and would read the geometry default
+// instead. Checked on 'quality' and 'interactive'; the emission is spatially
+// uniform so there is no geometry-factor confound. Linear float, firefly off.
 
 // anari_cpp
 #define ANARI_EXTENSION_UTILITY_IMPL
@@ -160,12 +160,9 @@ static anari::Surface makeEmissiveEmitter(
 
 // `numXfm > 1` supplies an ARRAY of transforms (numTransforms() > 1), so one
 // instance emits several copies. The instance-uniform color is shared across
-// them — this exercises the per-transform surface-instance cursor increment that
-// the light-fill hand-mirrors from buildInstanceSurfaceGPUData.
-static anari::Instance instanceOf(ANARIDevice device,
-    anari::Surface surface,
-    bool withColor,
-    int numXfm = 1)
+// them — this exercises the shared per-transform surface-instance indexing.
+static anari::Instance instanceOf(
+    ANARIDevice device, anari::Surface surface, bool withColor, int numXfm = 1)
 {
   auto group = anari::newObject<anari::Group>(device);
   anari::setParameterArray1D(device, group, "surface", &surface, 1);
@@ -185,18 +182,100 @@ static anari::Instance instanceOf(ANARIDevice device,
   return inst;
 }
 
+// Off-camera curves still occupy surface-instance slots without contributing
+// Geometry Lights. Put one before the mixed Group and one inside it.
+static anari::Surface makeCurve(ANARIDevice device)
+{
+  const std::array<vec3, 4> positions = {vec3{30.f, 0.f, 0.f},
+      vec3{30.f, 1.f, 0.f},
+      vec3{30.f, 2.f, 0.f},
+      vec3{30.f, 3.f, 0.f}};
+  const uint32_t index = 0;
+  auto geometry = anari::newObject<anari::Geometry>(device, "curve");
+  anari::setParameterArray1D(
+      device, geometry, "vertex.position", positions.data(), positions.size());
+  anari::setParameterArray1D(device, geometry, "primitive.index", &index, 1);
+  anari::setParameter(device, geometry, "radius", 0.05f);
+  anari::commitParameters(device, geometry);
+  auto material = anari::newObject<anari::Material>(device, "matte");
+  anari::commitParameters(device, material);
+  auto surface = anari::newObject<anari::Surface>(device);
+  anari::setAndReleaseParameter(device, surface, "geometry", geometry);
+  anari::setAndReleaseParameter(device, surface, "material", material);
+  anari::commitParameters(device, surface);
+  return surface;
+}
+
+static std::vector<anari::Instance> mixedInstances(
+    ANARIDevice device, bool instanceAttr)
+{
+  const std::array<anari::Surface, 3> surfaces = {
+      makeEmissiveEmitter(device, instanceAttr, true),
+      makeCurve(device),
+      makeEmissiveEmitter(device, instanceAttr, false)};
+  auto group = anari::newObject<anari::Group>(device);
+  anari::setParameterArray1D(
+      device, group, "surface", surfaces.data(), surfaces.size());
+  for (auto surface : surfaces)
+    anari::release(device, surface);
+  anari::commitParameters(device, group);
+
+  auto emptyGroup = anari::newObject<anari::Group>(device);
+  anari::commitParameters(device, emptyGroup);
+  auto emptyInstance = anari::newObject<anari::Instance>(device, "transform");
+  anari::setAndReleaseParameter(device, emptyInstance, "group", emptyGroup);
+  anari::commitParameters(device, emptyInstance);
+
+  std::vector<anari::Instance> instances = {emptyInstance,
+      instanceOf(device, makeCurve(device), false),
+      instanceOf(device, makeFloor(device), false)};
+  for (int i = 0; i < 2; ++i) {
+    auto instance = anari::newObject<anari::Instance>(device, "transform");
+    anari::setParameter(device, instance, "group", group);
+    if (i == 0) {
+      const std::array<mat4, 2> transforms = {
+          translateX(-0.9f), translateX(0.9f)};
+      anari::setParameterArray1D(device,
+          instance,
+          "transform",
+          ANARI_FLOAT32_MAT4,
+          transforms.data(),
+          transforms.size());
+    } else {
+      const auto transform = translateX(2.7f);
+      anari::setParameter(
+          device, instance, "transform", ANARI_FLOAT32_MAT4, transform.data());
+    }
+    if (instanceAttr)
+      anari::setParameter(
+          device, instance, "color", vec4{EMIT, EMIT, EMIT, 1.f});
+    anari::commitParameters(device, instance);
+    instances.push_back(instance);
+  }
+  anari::release(device, group);
+  // Reuse the same empty Group/Instance between and after emitting instances.
+  anari::retain(device, emptyInstance);
+  instances.insert(instances.end() - 1, emptyInstance);
+  anari::retain(device, emptyInstance);
+  instances.push_back(emptyInstance);
+  return instances;
+}
+
 static std::vector<vec4> render(ANARIDevice device,
     bool instanceAttr,
     bool sphere,
     const char *rendererType,
-    bool multiXfm)
+    bool multiXfm,
+    bool mixedLayout)
 {
-  const std::array<anari::Instance, 2> instances = {
-      instanceOf(device, makeFloor(device), false),
-      instanceOf(device,
-          makeEmissiveEmitter(device, instanceAttr, sphere),
-          instanceAttr,
-          multiXfm ? 2 : 1)};
+  const std::vector<anari::Instance> instances = mixedLayout
+      ? mixedInstances(device, instanceAttr)
+      : std::vector<anari::Instance>{
+            instanceOf(device, makeFloor(device), false),
+            instanceOf(device,
+                makeEmissiveEmitter(device, instanceAttr, sphere),
+                instanceAttr,
+                multiXfm ? 2 : 1)};
 
   auto world = anari::newObject<anari::World>(device);
   anari::setParameterArray1D(
@@ -231,6 +310,18 @@ static std::vector<vec4> render(ANARIDevice device,
   anari::render(device, frame);
   anari::wait(device, frame);
 
+  if (mixedLayout) {
+    uint32_t lightCount = 0;
+    anari::getProperty(
+        device, world, "numLightInstances", lightCount, ANARI_WAIT);
+    if (lightCount != 6) {
+      fprintf(stderr,
+          "FAIL: mixed layout expected 6 Geometry Lights, got %u\n",
+          lightCount);
+      std::exit(1);
+    }
+  }
+
   auto fb = anari::map<vec4>(device, frame, "channel.color");
   std::vector<vec4> out(fb.data, fb.data + size_t(fb.width) * fb.height);
   anari::unmap(device, frame, "channel.color");
@@ -256,16 +347,16 @@ static bool checkRenderer(ANARIDevice device,
     bool sphere,
     const char *rendererType,
     double tol,
-    bool multiXfm = false)
+    bool multiXfm = false,
+    bool mixedLayout = false)
 {
-  const double attr =
-      poolMeanLuminance(render(device, true, sphere, rendererType, multiXfm));
-  const double constant =
-      poolMeanLuminance(render(device, false, sphere, rendererType, multiXfm));
-  const double relErr = constant > 0.0
-      ? std::abs(attr - constant) / constant
-      : (attr > 0 ? 1.0 : 0.0);
-  const char *geom = sphere ? "sphere" : "quad";
+  const double attr = poolMeanLuminance(
+      render(device, true, sphere, rendererType, multiXfm, mixedLayout));
+  const double constant = poolMeanLuminance(
+      render(device, false, sphere, rendererType, multiXfm, mixedLayout));
+  const double relErr = constant > 0.0 ? std::abs(attr - constant) / constant
+                                       : (attr > 0 ? 1.0 : 0.0);
+  const char *geom = mixedLayout ? "mixed" : (sphere ? "sphere" : "quad");
   const char *xfm = multiXfm ? "x2" : "x1";
   printf("%s/%s/%s: instanceAttr=%f  constant=%f  relErr=%f\n",
       rendererType,
@@ -276,7 +367,8 @@ static bool checkRenderer(ANARIDevice device,
       relErr);
 
   if (attr <= 0.0 || constant <= 0.0) {
-    fprintf(stderr, "FAIL: %s/%s/%s floor pool unlit\n", rendererType, geom, xfm);
+    fprintf(
+        stderr, "FAIL: %s/%s/%s floor pool unlit\n", rendererType, geom, xfm);
     return false;
   }
   if (relErr > tol) {
@@ -307,11 +399,18 @@ int main()
 
   // numTransforms() > 1: one instance emits two copies via a transform array,
   // exercising the per-transform surface-instance cursor increment.
-  ok = checkRenderer(device, /*sphere=*/false, "quality", 0.04, /*multiXfm=*/true)
-      && ok;
   ok = checkRenderer(
-           device, /*sphere=*/true, "quality", 0.04, /*multiXfm=*/true)
+           device, /*sphere=*/false, "quality", 0.04, /*multiXfm=*/true)
       && ok;
+  ok =
+      checkRenderer(device, /*sphere=*/true, "quality", 0.04, /*multiXfm=*/true)
+      && ok;
+
+  // Triangle/curve/user slots in one Group, reused by two Instances, with
+  // empty Groups interleaved. Attribute-vs-constant equivalence checks that
+  // Geometry Lights resolve the correct surface-instance slot, not just count.
+  ok = checkRenderer(device, false, "quality", 0.04, true, true) && ok;
+  ok = checkRenderer(device, false, "interactive", 0.08, true, true) && ok;
 
   anari::release(device, device);
 

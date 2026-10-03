@@ -79,6 +79,31 @@ static std::vector<OptixBuildInput> createOBI(
   return {buildInput};
 }
 
+namespace {
+
+struct SurfaceInstanceIndices
+{
+  DeviceObjectIndex triangle{-1};
+  DeviceObjectIndex curve{-1};
+  DeviceObjectIndex user{-1};
+};
+
+// All three builders address the same per-(instance, transform) slots.
+SurfaceInstanceIndices surfaceInstanceIndices(
+    const Group *group, size_t &cursor)
+{
+  SurfaceInstanceIndices indices;
+  if (group->containsTriangleGeometry())
+    indices.triangle = DeviceObjectIndex(cursor++);
+  if (group->containsCurveGeometry())
+    indices.curve = DeviceObjectIndex(cursor++);
+  if (group->containsUserGeometry())
+    indices.user = DeviceObjectIndex(cursor++);
+  return indices;
+}
+
+} // namespace
+
 // World definitions //////////////////////////////////////////////////////////
 
 World::World(DeviceGlobalState *d)
@@ -383,30 +408,34 @@ void World::populateOptixInstances()
     return inst;
   };
 
-  int instID = 0;
+  size_t surfaceInstanceCursor = 0;
   int instVolID = 0;
   std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
     const auto *group = inst->group();
     auto *osi = m_optixSurfaceInstances.dataHost();
     auto *ovi = m_optixVolumeInstances.dataHost();
     for (size_t t = 0; t < inst->numTransforms(); t++) {
-      if (group->containsTriangleGeometry()) {
-        osi[instID] = prepInstance(inst,
-            instID,
+      const auto indices = surfaceInstanceIndices(group, surfaceInstanceCursor);
+      if (indices.triangle != -1) {
+        osi[indices.triangle] = prepInstance(inst,
+            indices.triangle,
             t,
             group->optixTraversableTriangle(),
             SBT_TRIANGLE_OFFSET);
-        instID++;
       }
-      if (group->containsCurveGeometry()) {
-        osi[instID] = prepInstance(
-            inst, instID, t, group->optixTraversableCurve(), SBT_CURVE_OFFSET);
-        instID++;
+      if (indices.curve != -1) {
+        osi[indices.curve] = prepInstance(inst,
+            indices.curve,
+            t,
+            group->optixTraversableCurve(),
+            SBT_CURVE_OFFSET);
       }
-      if (group->containsUserGeometry()) {
-        osi[instID] = prepInstance(
-            inst, instID, t, group->optixTraversableUser(), SBT_CUSTOM_OFFSET);
-        instID++;
+      if (indices.user != -1) {
+        osi[indices.user] = prepInstance(inst,
+            indices.user,
+            t,
+            group->optixTraversableUser(),
+            SBT_CUSTOM_OFFSET);
       }
       if (group->containsVolumes()) {
         ovi[instVolID] = prepInstance(inst,
@@ -419,6 +448,7 @@ void World::populateOptixInstances()
     }
   });
 
+  assert(surfaceInstanceCursor == m_optixSurfaceInstances.size());
   m_optixSurfaceInstances.upload();
   m_optixVolumeInstances.upload();
 }
@@ -486,7 +516,7 @@ void World::buildInstanceSurfaceGPUData()
     return retval;
   };
 
-  int instID = 0;
+  size_t surfaceInstanceCursor = 0;
   std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
     auto *group = inst->group();
     auto *sd = m_instanceSurfaceGPUData.dataHost();
@@ -503,34 +533,35 @@ void World::buildInstanceSurfaceGPUData()
         g.worldToObject = w2o;
       };
 
-      if (group->containsTriangleGeometry()) {
-        sd[instID] =
+      const auto indices = surfaceInstanceIndices(group, surfaceInstanceCursor);
+      if (indices.triangle != -1) {
+        sd[indices.triangle] =
             makeInstanceGPUData(group->surfaceTriangleGPUIndices().data(),
                 inst->uniformAttributes(),
                 id,
                 t);
-        assignXfm(sd[instID]);
-        ++instID;
+        assignXfm(sd[indices.triangle]);
       }
-      if (group->containsCurveGeometry()) {
-        sd[instID] = makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
-            inst->uniformAttributes(),
-            id,
-            t);
-        assignXfm(sd[instID]);
-        ++instID;
+      if (indices.curve != -1) {
+        sd[indices.curve] =
+            makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
+                inst->uniformAttributes(),
+                id,
+                t);
+        assignXfm(sd[indices.curve]);
       }
-      if (group->containsUserGeometry()) {
-        sd[instID] = makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
-            inst->uniformAttributes(),
-            id,
-            t);
-        assignXfm(sd[instID]);
-        ++instID;
+      if (indices.user != -1) {
+        sd[indices.user] =
+            makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
+                inst->uniformAttributes(),
+                id,
+                t);
+        assignXfm(sd[indices.user]);
       }
     }
   });
 
+  assert(surfaceInstanceCursor == m_instanceSurfaceGPUData.size());
   m_instanceSurfaceGPUData.upload();
 }
 
@@ -673,10 +704,6 @@ void World::buildInstanceLightGPUData()
 
   size_t lightIndex = 0;
   size_t hdriIndex = 0;
-  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid
-  // out per (instance, transform) as [triangle?][curve?][user?]. Tracking the
-  // same cursor here recovers each Geometry Light's surface-instance index
-  // without a side table.
   size_t surfaceInstanceCursor = 0;
 
   // Filled with each instance's raw Pick Power, then normalized into the
@@ -711,15 +738,7 @@ void World::buildInstanceLightGPUData()
     for (size_t t = 0; t < inst->numTransforms(); t++) {
       const mat4 xfm = mat4(inst->xfm(t));
 
-      // This transform's surface-instance slot indices, in the same order the
-      // surface-instance array was built (triangle, then curve, then user).
-      DeviceObjectIndex triangleSI = -1, userSI = -1;
-      if (group->containsTriangleGeometry())
-        triangleSI = DeviceObjectIndex(surfaceInstanceCursor++);
-      if (group->containsCurveGeometry())
-        ++surfaceInstanceCursor;
-      if (group->containsUserGeometry())
-        userSI = DeviceObjectIndex(surfaceInstanceCursor++);
+      const auto indices = surfaceInstanceIndices(group, surfaceInstanceCursor);
 
       for (auto *light : group->lights()) {
         const float power = appendLight(light, xfm, -1);
@@ -734,19 +753,17 @@ void World::buildInstanceLightGPUData()
       // carrying their surface-instance index for instance-attribute emission.
       for (auto *surface : group->surfacesTriangle()) {
         if (auto *gl = surface->geometryLight())
-          appendLight(gl, xfm, triangleSI);
+          appendLight(gl, xfm, indices.triangle);
       }
       for (auto *surface : group->surfacesUser()) {
         if (auto *gl = surface->geometryLight())
-          appendLight(gl, xfm, userSI);
+          appendLight(gl, xfm, indices.user);
       }
     }
   });
 
-  // Tripwire: the surface-instance cursor is a hand-mirror of
-  // buildInstanceSurfaceGPUData's layout with no shared source of truth. If the
-  // two ever drift, a Geometry Light would index the wrong (or an out-of-range)
-  // surface instance and emit silently wrong radiance — catch it here.
+  // Tripwire: even on a light-only rebuild, every Geometry Light must address
+  // the existing surface-instance array, not a stale or out-of-range slot.
   assert(surfaceInstanceCursor == m_instanceSurfaceGPUData.size());
 
   // Turn the per-instance Pick Powers into a normalized cumulative CDF in
