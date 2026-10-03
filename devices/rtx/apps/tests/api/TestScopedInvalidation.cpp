@@ -405,13 +405,37 @@ void testWorldDependencies(anari::Device d, bool zeroInstance)
     CHECK(a.renderAndCheck(0), "A failed to resume accumulation");
   };
 
+  const auto initialA = a.counts();
+  const auto initialB = b.counts();
   anari::setParameter(d, a.mat, "color", float3{0.2f, 0.5f, 0.7f});
   anari::commitParameters(d, a.mat);
   checkAOnly();
+  CHECK(a.counts().worldTLAS == initialA.worldTLAS,
+      "material edit rebuilt A TLAS (zero=%d)",
+      zeroInstance);
+  CHECK(b.counts().worldTLAS == initialB.worldTLAS,
+      "material edit rebuilt B TLAS (zero=%d)",
+      zeroInstance);
 
   auto *mapped = static_cast<float3 *>(anariMapArray(d, a.vertices));
   (*mapped)[0] += 0.1f;
   anariUnmapArray(d, a.vertices);
+  checkAOnly();
+  CHECK(b.counts().groupBLAS == initialB.groupBLAS,
+      "vertex edit rebuilt unrelated BLAS (zero=%d)",
+      zeroInstance);
+  CHECK(b.counts().worldTLAS == initialB.worldTLAS,
+      "vertex edit rebuilt unrelated TLAS (zero=%d)",
+      zeroInstance);
+
+  anari::unsetParameter(d, a.geom, "vertex.position");
+  anari::commitParameters(d, a.geom);
+  checkAOnly();
+  CHECK(b.counts().worldTLAS == initialB.worldTLAS,
+      "invalid geometry rebuilt unrelated TLAS (zero=%d)",
+      zeroInstance);
+  anari::setParameter(d, a.geom, "vertex.position", a.vertices);
+  anari::commitParameters(d, a.geom);
   checkAOnly();
   // Identical bytes still constitute a change; uploads alone do not.
   anariMapArray(d, a.vertices);
@@ -462,6 +486,177 @@ void testWorldDependencies(anari::Device d, bool zeroInstance)
   checkAOnly();
 }
 
+void testScopedBLAS(anari::Device d)
+{
+  Harness a(d);
+  Harness b(d);
+  anari::setParameter(d, a.frames[1], "world", b.world);
+  anari::commitParameters(d, a.frames[1]);
+
+  // Leave a valid primitive in A when its original geometry becomes invalid,
+  // so the build counter also detects removal from the partition.
+  auto secondSurface = anari::newObject<anari::Surface>(d);
+  anari::setParameter(d, secondSurface, "geometry", b.geom);
+  anari::setParameter(d, secondSurface, "material", b.mat);
+  anari::commitParameters(d, secondSurface);
+  const std::array<anari::Surface, 2> surfaces{a.surf, secondSurface};
+  anari::setParameterArray1D(
+      d, a.group, "surface", surfaces.data(), surfaces.size());
+  anari::commitParameters(d, a.group);
+
+  auto secondInstance = anari::newObject<anari::Instance>(d, "transform");
+  anari::setParameter(d, secondInstance, "group", a.group);
+  anari::commitParameters(d, secondInstance);
+  const std::array<anari::Instance, 2> instances{a.inst, secondInstance};
+  anari::setParameterArray1D(
+      d, a.world, "instance", instances.data(), instances.size());
+  anari::commitParameters(d, a.world);
+  for (int s = 0; s < 3; ++s) {
+    a.renderAndCheck(0);
+    a.renderAndCheck(1);
+  }
+
+  auto beforeA = a.counts();
+  auto beforeB = b.counts();
+  anari::setParameter(d, a.mat, "color", float3{0.2f, 0.3f, 0.4f});
+  anari::commitParameters(d, a.mat);
+  CHECK(!a.renderAndCheck(0), "material edit did not reset A");
+  CHECK(a.renderAndCheck(1), "material edit reset B");
+  CHECK(a.counts().groupBLAS == beforeA.groupBLAS,
+      "material edit rebuilt A BLAS");
+  CHECK(b.counts().groupBLAS == beforeB.groupBLAS,
+      "material edit rebuilt B BLAS");
+  CHECK(a.counts().worldTLAS == beforeA.worldTLAS,
+      "material edit rebuilt A TLAS");
+  CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+      "material edit rebuilt B TLAS");
+  a.renderAndCheck(0);
+
+  auto checkStructuralChange = [&]() {
+    CHECK(!a.renderAndCheck(0), "structural edit did not reset A");
+    CHECK(a.renderAndCheck(1), "structural edit reset B");
+    CHECK(a.counts().groupBLAS == beforeA.groupBLAS + 1,
+        "shared group did not rebuild exactly once");
+    CHECK(b.counts().groupBLAS == beforeB.groupBLAS,
+        "structural edit rebuilt unrelated B BLAS");
+    CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+        "structural edit rebuilt unrelated B TLAS");
+    CHECK(a.counts().worldTLAS == beforeA.worldTLAS + 1,
+        "structural edit did not rebuild A TLAS once");
+    CHECK(a.renderAndCheck(0), "A failed to resume accumulation");
+    beforeA = a.counts();
+    beforeB = b.counts();
+  };
+  auto *mapped = static_cast<float3 *>(anariMapArray(d, a.vertices));
+  (*mapped)[0] += 0.2f;
+  anariUnmapArray(d, a.vertices);
+  checkStructuralChange();
+
+  anari::unsetParameter(d, a.geom, "vertex.position");
+  anari::commitParameters(d, a.geom);
+  checkStructuralChange();
+  anari::setParameter(d, a.geom, "vertex.position", a.vertices);
+  anari::commitParameters(d, a.geom);
+  checkStructuralChange();
+
+  anari::setParameter(d, a.surf, "visible", false);
+  anari::commitParameters(d, a.surf);
+  checkStructuralChange();
+  anari::setParameter(d, a.surf, "visible", true);
+  anari::commitParameters(d, a.surf);
+  checkStructuralChange();
+
+  // A Group shared across Worlds has one build consumer but two TLAS
+  // consumers. Reading bounds must not consume either World's change.
+  anari::setParameter(d, b.inst, "group", a.group);
+  anari::commitParameters(d, b.inst);
+  a.renderAndCheck(0);
+  a.renderAndCheck(1);
+  a.renderAndCheck(0);
+  a.renderAndCheck(1);
+  beforeA = a.counts();
+  beforeB = b.counts();
+  anari::setParameter(d, a.geom, "radius", 0.06f);
+  anari::commitParameters(d, a.geom);
+  std::array<float, 6> bounds{};
+  anariGetProperty(d,
+      a.group,
+      "bounds",
+      ANARI_FLOAT32_BOX3,
+      bounds.data(),
+      sizeof(bounds),
+      ANARI_WAIT);
+  CHECK(!a.renderAndCheck(1), "shared group did not reset B");
+  CHECK(!a.renderAndCheck(0), "shared group did not reset A");
+  CHECK(a.counts().groupBLAS == beforeA.groupBLAS + 1,
+      "shared group rebuilt more than once across Worlds");
+  CHECK(a.counts().worldTLAS == beforeA.worldTLAS + 1,
+      "shared group did not rebuild A TLAS");
+  CHECK(b.counts().worldTLAS == beforeB.worldTLAS + 1,
+      "shared group did not rebuild B TLAS");
+  anari::release(d, secondInstance);
+  anari::release(d, secondSurface);
+}
+
+void testScopedVolumeBLAS(anari::Device d)
+{
+  Harness a(d);
+  Harness b(d);
+  anari::setParameter(d, a.frames[1], "world", b.world);
+  anari::commitParameters(d, a.frames[1]);
+  const std::array<float, 8> values{0, 1, 0, 1, 0, 1, 0, 1};
+  auto data = anariNewArray3D(
+      d, values.data(), nullptr, nullptr, ANARI_FLOAT32, 2, 2, 2);
+  std::array<anari::SpatialField, 2> fields{};
+  std::array<anari::Volume, 2> volumes{};
+  const std::array<anari::Group, 2> groups{a.group, b.group};
+  for (size_t i = 0; i < fields.size(); ++i) {
+    fields[i] = anari::newObject<anari::SpatialField>(d, "structuredRegular");
+    anari::setParameter(d, fields[i], "data", data);
+    anari::commitParameters(d, fields[i]);
+    volumes[i] = anari::newObject<anari::Volume>(d, "transferFunction1D");
+    anari::setParameter(d, volumes[i], "value", fields[i]);
+    anari::setParameter(d, volumes[i], "color", float3{0.4f, 0.5f, 0.6f});
+    anari::setParameter(d, volumes[i], "opacity", 0.1f);
+    anari::commitParameters(d, volumes[i]);
+    anari::setParameterArray1D(d, groups[i], "volume", &volumes[i], 1);
+    anari::commitParameters(d, groups[i]);
+  }
+  for (int s = 0; s < 3; ++s) {
+    a.renderAndCheck(0);
+    a.renderAndCheck(1);
+  }
+  const auto beforeA = a.counts();
+  const auto beforeB = b.counts();
+  anari::setParameter(d, volumes[0], "color", float3{0.6f, 0.5f, 0.4f});
+  anari::commitParameters(d, volumes[0]);
+  CHECK(!a.renderAndCheck(0), "volume color did not reset A");
+  CHECK(a.renderAndCheck(1), "volume color reset B");
+  CHECK(
+      a.counts().groupBLAS == beforeA.groupBLAS, "volume color rebuilt A BLAS");
+  CHECK(
+      a.counts().worldTLAS == beforeA.worldTLAS, "volume color rebuilt A TLAS");
+  a.renderAndCheck(0);
+
+  anari::setParameter(d, fields[0], "origin", float3{0.1f, 0.f, 0.f});
+  anari::commitParameters(d, fields[0]);
+  CHECK(!a.renderAndCheck(0), "field bounds did not reset A");
+  CHECK(a.renderAndCheck(1), "field bounds reset B");
+  CHECK(a.counts().groupBLAS == beforeA.groupBLAS + 1,
+      "field bounds did not rebuild only A's volume BLAS");
+  CHECK(a.counts().worldTLAS == beforeA.worldTLAS + 1,
+      "field bounds did not rebuild A TLAS");
+  CHECK(b.counts().groupBLAS == beforeB.groupBLAS,
+      "field bounds rebuilt unrelated B BLAS");
+  CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+      "field bounds rebuilt unrelated B TLAS");
+  for (size_t i = 0; i < fields.size(); ++i) {
+    anari::release(d, volumes[i]);
+    anari::release(d, fields[i]);
+  }
+  anari::release(d, data);
+}
+
 void testRebuildCounted(anari::Device d)
 {
   // Harness self-check: a geometry change rebuilds the Group's BLAS and the
@@ -502,6 +697,8 @@ int main()
   testWorldDependencies(d, false);
   testWorldDependencies(d, true);
   testRebuildCounted(d);
+  testScopedBLAS(d);
+  testScopedVolumeBLAS(d);
 
   anari::release(d, d);
 

@@ -57,6 +57,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   mutable CUdeviceptr m_aabbsBufferPtr{};
   uint32_t m_id{~0u};
   bool m_visible{true};
+  bool m_wasValid{false};
 };
 
 } // namespace visrtx

@@ -270,9 +270,11 @@ void World::rebuildWorld()
 
   const auto &updates = state.objectUpdates;
   const auto lastCheck = m_objectUpdates.lastBLASCheck;
-  if (updates.lastSurfaceBLASChange >= lastCheck
-      || updates.lastVolumeBLASChange >= lastCheck
-      || updates.lastLightSetChange >= lastCheck) {
+  const bool blasChanged = std::any_of(
+      m_instances.begin(), m_instances.end(), [lastCheck](const auto *inst) {
+        return inst->group()->lastChange(ChangeKind::BLAS) >= lastCheck;
+      });
+  if (blasChanged || updates.lastLightSetChange >= lastCheck) {
     m_objectUpdates.lastTLASBuild = 0; // BLAS changed, so need to build TLAS
     rebuildBLASs();
   }

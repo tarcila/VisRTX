@@ -48,8 +48,8 @@ SpatialField::SpatialField(DeviceGlobalState *s)
 
 void SpatialField::markFinalized()
 {
+  markChanged(ChangeKind::BLAS);
   Object::markFinalized();
-  deviceState()->objectUpdates.lastVolumeBLASChange = helium::newTimeStamp();
 }
 
 bool SpatialField::observersRefinalizeOnChange() const

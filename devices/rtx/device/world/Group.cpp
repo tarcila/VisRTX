@@ -124,12 +124,12 @@ void Group::finalize()
 
 void Group::markFinalized()
 {
-  Object::markFinalized();
-  auto &updates = deviceState()->objectUpdates;
   const auto now = helium::newTimeStamp();
-  updates.lastSurfaceBLASChange = now;
-  updates.lastVolumeBLASChange = now;
-  updates.lastLightSetChange = now;
+  m_lastSurfaceBLASChange = now;
+  m_lastVolumeBLASChange = now;
+  markChanged(ChangeKind::BLAS, now);
+  deviceState()->objectUpdates.lastLightSetChange = now;
+  Object::markFinalized();
 }
 
 void Group::propagateChangeFrom(Object *child)
@@ -138,6 +138,15 @@ void Group::propagateChangeFrom(Object *child)
   if (std::any_of(m_contents.begin(), m_contents.end(), [child](const auto &p) {
         return p.get() == child;
       })) {
+    const auto stamp = child->lastChange(ChangeKind::BLAS);
+    auto *consumed = child->type() == ANARI_SURFACE ? &m_lastSurfaceBLASChange
+        : child->type() == ANARI_VOLUME             ? &m_lastVolumeBLASChange
+                                                    : nullptr;
+    if (consumed && stamp > *consumed) {
+      *consumed = stamp;
+      markChanged(ChangeKind::BLAS, stamp);
+      notifyChangeObservers();
+    }
     propagateImageFrom(child);
   }
 }
@@ -240,9 +249,7 @@ const std::vector<Surface *> &Group::surfacesUser() const
 
 void Group::rebuildSurfaceBVHs()
 {
-  const auto &state = *deviceState();
-  if (state.objectUpdates.lastSurfaceBLASChange
-      < m_objectUpdates.lastSurfaceBVHBuilt)
+  if (m_lastSurfaceBLASChange < m_objectUpdates.lastSurfaceBVHBuilt)
     return;
 
   partitionValidGeometriesByType();
@@ -300,9 +307,7 @@ void Group::rebuildSurfaceBVHs()
 
 void Group::rebuildVolumeBVH()
 {
-  const auto &state = *deviceState();
-  if (state.objectUpdates.lastVolumeBLASChange
-      < m_objectUpdates.lastVolumeBVHBuilt)
+  if (m_lastVolumeBLASChange < m_objectUpdates.lastVolumeBVHBuilt)
     return;
 
   partitionValidVolumes();

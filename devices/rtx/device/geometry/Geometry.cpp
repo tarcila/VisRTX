@@ -134,8 +134,9 @@ void Geometry::commitParameters()
 
 void Geometry::markFinalized()
 {
+  markChanged(ChangeKind::SLOT);
+  markChanged(ChangeKind::BLAS);
   Object::markFinalized();
-  deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
 }
 
 bool Geometry::isAreaSamplingSupported() const

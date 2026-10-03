@@ -147,7 +147,7 @@ void DeviceGlobalState::flushCommitBuffer()
   // A propagation may re-finalize an observer that itself notifies upward;
   // flush and drain until the graph is quiet.
   commitBuffer.flush();
-  while (!m_propagations.empty()) {
+  while (!m_propagations.empty() || !commitBuffer.empty()) {
     drainPropagations();
     commitBuffer.flush();
   }

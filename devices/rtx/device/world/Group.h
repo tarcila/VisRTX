@@ -125,6 +125,9 @@ struct Group : public Object
 
   // BVH //
 
+  helium::TimeStamp m_lastSurfaceBLASChange{0};
+  helium::TimeStamp m_lastVolumeBLASChange{0};
+
   struct ObjectUpdates
   {
     helium::TimeStamp lastSurfaceBVHBuilt{0};

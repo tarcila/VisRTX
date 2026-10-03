@@ -64,14 +64,32 @@ void Surface::finalize()
 
 void Surface::markFinalized()
 {
+  markChanged(ChangeKind::SLOT);
+  markChanged(ChangeKind::BLAS);
+  m_wasValid = isValid();
   Object::markFinalized();
-  deviceState()->objectUpdates.lastSurfaceBLASChange = helium::newTimeStamp();
 }
 
 void Surface::propagateChangeFrom(Object *child)
 {
-  if (child == m_geometry.get() || child == m_material.get())
-    propagateImageFrom(child);
+  if (child != m_geometry.get() && child != m_material.get())
+    return;
+
+  bool structuralChange = false;
+  if (child == m_geometry.get()
+      && child->lastChange(ChangeKind::BLAS) > lastChange(ChangeKind::BLAS)) {
+    markChanged(ChangeKind::BLAS, child->lastChange(ChangeKind::BLAS));
+    structuralChange = true;
+  }
+  const bool valid = isValid();
+  if (valid != m_wasValid) {
+    m_wasValid = valid;
+    markChanged(ChangeKind::BLAS);
+    structuralChange = true;
+  }
+  if (structuralChange)
+    notifyChangeObservers();
+  propagateImageFrom(child);
 }
 
 bool Surface::isValid() const

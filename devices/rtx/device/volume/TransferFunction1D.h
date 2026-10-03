@@ -32,8 +32,8 @@
 #pragma once
 
 #include "array/Array1D.h"
-#include "volume/Volume.h"
 #include "spatial_field/SpatialField.h"
+#include "volume/Volume.h"
 
 namespace visrtx {
 
@@ -44,6 +44,7 @@ struct TransferFunction1D : public Volume
 
   void commitParameters() override;
   void finalize() override;
+  void markFinalized() override;
   bool isValid() const override;
 
  private:

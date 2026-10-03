@@ -62,7 +62,7 @@ void TransferFunction1D::commitParameters()
   // AABB comes from m_field. Only a field-pointer swap moves it; field
   // data changes hit SpatialField::markFinalized.
   if (m_field.get() != previousField)
-    deviceState()->objectUpdates.lastVolumeBLASChange = helium::newTimeStamp();
+    markChanged(ChangeKind::BLAS);
   getParam("valueRange", ANARI_FLOAT32_VEC2, &m_valueRange);
   getParam("valueRange", ANARI_FLOAT32_BOX1, &m_valueRange);
   double valueRange_d[2] = {0.0, 1.0};
@@ -92,6 +92,15 @@ void TransferFunction1D::finalize()
   m_field->m_uniformGrid.computeOpacityBounds(
       deviceState()->stream, m_textureObject, m_tfDim, m_valueRange);
   upload();
+}
+
+void TransferFunction1D::markFinalized()
+{
+  // Field notifications still re-pack volumes, with conservative BLAS
+  // emission. Forward that stamp without making TF-only edits structural.
+  if (m_field)
+    markChanged(ChangeKind::BLAS, m_field->lastChange(ChangeKind::BLAS));
+  Volume::markFinalized();
 }
 
 bool TransferFunction1D::isValid() const
