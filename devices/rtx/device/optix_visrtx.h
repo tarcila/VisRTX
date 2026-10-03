@@ -210,7 +210,6 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
   struct ObjectUpdates
   {
     helium::TimeStamp lastLightSetChange{0};
-    helium::TimeStamp lastTLASChange{0};
   } objectUpdates;
 
   DeferredArrayUploadBuffer uploadBuffer;

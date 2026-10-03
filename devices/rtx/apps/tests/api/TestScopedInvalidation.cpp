@@ -442,9 +442,17 @@ void testWorldDependencies(anari::Device d, bool zeroInstance)
   anariUnmapArray(d, a.vertices);
   checkAOnly();
 
+  const auto beforeLightA = a.counts();
+  const auto beforeLightB = b.counts();
   anari::setParameter(d, a.light, "irradiance", 2.f);
   anari::commitParameters(d, a.light);
   checkAOnly();
+  CHECK(a.counts().worldTLAS == beforeLightA.worldTLAS,
+      "light-only edit rebuilt A TLAS (zero=%d)",
+      zeroInstance);
+  CHECK(b.counts().worldTLAS == beforeLightB.worldTLAS,
+      "light-only edit rebuilt B TLAS (zero=%d)",
+      zeroInstance);
 
   if (!zeroInstance) {
     std::array<float, 16> transform{
@@ -598,6 +606,104 @@ void testScopedBLAS(anari::Device d)
   anari::release(d, secondSurface);
 }
 
+void testScopedTLAS(anari::Device d)
+{
+  Harness a(d);
+  Harness b(d);
+  anari::setParameter(d, a.frames[1], "world", b.world);
+  anari::commitParameters(d, a.frames[1]);
+  for (int s = 0; s < 3; ++s) {
+    a.renderAndCheck(0);
+    a.renderAndCheck(1);
+  }
+  auto beforeA = a.counts();
+  const auto beforeB = b.counts();
+  auto checkAOnly = [&]() {
+    // Render B first: flushing A's changes must not rebuild B's TLAS.
+    CHECK(a.renderAndCheck(1), "instance edit reset unrelated B");
+    CHECK(!a.renderAndCheck(0), "instance edit did not reset A");
+    CHECK(a.counts().worldTLAS == beforeA.worldTLAS + 1,
+        "instance edit did not rebuild A TLAS exactly once");
+    CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+        "instance edit rebuilt unrelated B TLAS");
+    CHECK(a.counts().groupBLAS == beforeA.groupBLAS,
+        "instance edit rebuilt A BLAS");
+    CHECK(b.counts().groupBLAS == beforeB.groupBLAS,
+        "instance edit rebuilt B BLAS");
+    CHECK(a.renderAndCheck(0), "A failed to resume after instance edit");
+    beforeA = a.counts();
+  };
+
+  std::array<float, 16> transform{
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.1f, 0, 0, 1};
+  anariSetParameter(
+      d, a.inst, "transform", ANARI_FLOAT32_MAT4, transform.data());
+  anari::commitParameters(d, a.inst);
+  checkAOnly();
+
+  // Array data changes must still re-finalize Instance's packed parameters.
+  auto transforms =
+      anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32_MAT4, 1);
+  auto *mapped = static_cast<float *>(anariMapArray(d, transforms));
+  std::copy(transform.begin(), transform.end(), mapped);
+  anariUnmapArray(d, transforms);
+  anari::setParameter(d, a.inst, "transform", transforms);
+  anari::commitParameters(d, a.inst);
+  checkAOnly();
+  mapped = static_cast<float *>(anariMapArray(d, transforms));
+  mapped[12] += 0.1f;
+  anariUnmapArray(d, transforms);
+  checkAOnly();
+
+  auto second = anari::newObject<anari::Instance>(d, "transform");
+  anari::setParameter(d, second, "group", a.group);
+  anari::commitParameters(d, second);
+  CHECK(a.renderAndCheck(1), "unreachable instance reset B");
+  CHECK(a.renderAndCheck(0), "unreachable instance reset A");
+  CHECK(a.counts().worldTLAS == beforeA.worldTLAS,
+      "unreachable instance rebuilt A TLAS");
+  CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+      "unreachable instance rebuilt B TLAS");
+
+  auto instances =
+      anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_INSTANCE, 2);
+  auto *handles = static_cast<anari::Instance *>(anariMapArray(d, instances));
+  handles[0] = a.inst;
+  handles[1] = second;
+  anariUnmapArray(d, instances);
+  anari::setParameter(d, a.world, "instance", instances);
+  anari::commitParameters(d, a.world);
+  checkAOnly();
+  handles = static_cast<anari::Instance *>(anariMapArray(d, instances));
+  handles[1] = nullptr;
+  anariUnmapArray(d, instances);
+  checkAOnly();
+
+  // Invalid Instances remain observed, so restoring a group re-adds them.
+  anari::unsetParameter(d, a.inst, "group");
+  anari::commitParameters(d, a.inst);
+  checkAOnly();
+  anari::setParameter(d, a.inst, "group", a.group);
+  anari::commitParameters(d, a.inst);
+  checkAOnly();
+  anari::setParameter(d, a.inst, "group", b.group);
+  anari::commitParameters(d, a.inst);
+  checkAOnly();
+
+  // The old Group edge is gone after the handle replacement.
+  anari::setParameter(d, a.geom, "radius", 0.09f);
+  anari::commitParameters(d, a.geom);
+  CHECK(a.renderAndCheck(0), "replaced group reset A");
+  CHECK(a.renderAndCheck(1), "unreachable group reset B");
+  CHECK(a.counts().worldTLAS == beforeA.worldTLAS,
+      "replaced group rebuilt A TLAS");
+  CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+      "unreachable group rebuilt B TLAS");
+  anari::release(d, instances);
+  anari::release(d, second);
+  anari::release(d, transforms);
+}
+
 void testScopedVolumeBLAS(anari::Device d)
 {
   Harness a(d);
@@ -698,6 +804,7 @@ int main()
   testWorldDependencies(d, true);
   testRebuildCounted(d);
   testScopedBLAS(d);
+  testScopedTLAS(d);
   testScopedVolumeBLAS(d);
 
   anari::release(d, d);

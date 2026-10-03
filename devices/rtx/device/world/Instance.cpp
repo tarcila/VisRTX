@@ -106,14 +106,20 @@ void Instance::finalize()
 
 void Instance::markFinalized()
 {
+  markChanged(ChangeKind::TLAS);
   Object::markFinalized();
-  deviceState()->objectUpdates.lastTLASChange = helium::newTimeStamp();
 }
 
 void Instance::propagateChangeFrom(Object *child)
 {
-  if (child == m_group.get())
+  if (child == m_group.get()) {
+    const auto stamp = child->lastChange(ChangeKind::BLAS);
+    if (stamp > lastChange(ChangeKind::TLAS)) {
+      markChanged(ChangeKind::TLAS, stamp);
+      notifyChangeObservers();
+    }
     propagateImageFrom(child);
+  }
 }
 
 bool Instance::isValid() const

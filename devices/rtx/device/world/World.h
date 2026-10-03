@@ -61,6 +61,7 @@ struct World : public Object
   void rebuildWorld();
 
  private:
+  void updateValidInstances();
   void populateOptixInstances();
   void rebuildBLASs();
   void buildInstanceSurfaceGPUData();
@@ -79,7 +80,7 @@ struct World : public Object
   std::vector<helium::ChangeObserverPtr<Object>> m_contents;
 
   helium::IntrusivePtr<Group> m_zeroGroup;
-  helium::IntrusivePtr<Instance> m_zeroInstance;
+  helium::ChangeObserverPtr<Instance> m_zeroInstance;
 
   size_t m_numTriangleInstances{0};
   size_t m_numCurveInstances{0};
@@ -92,7 +93,7 @@ struct World : public Object
   struct ObjectUpdates
   {
     helium::TimeStamp lastTLASBuild{0};
-    helium::TimeStamp lastBLASCheck{0};
+    helium::TimeStamp lastLightRebuild{0};
   } m_objectUpdates;
 
   // Debug counter exposed as a property for invalidation tests.

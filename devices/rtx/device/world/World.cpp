@@ -86,7 +86,8 @@ World::World(DeviceGlobalState *d)
       m_zeroSurfaceData(this),
       m_zeroVolumeData(this),
       m_zeroLightData(this),
-      m_instanceData(this)
+      m_instanceData(this),
+      m_zeroInstance(this)
 {
   m_zeroGroup = new Group(d);
   m_zeroInstance = new Instance(d);
@@ -209,6 +210,11 @@ void World::finalize()
   m_zeroGroup->commitParameters();
   m_zeroGroup->finalize();
 
+  markChanged(ChangeKind::TLAS);
+}
+
+void World::updateValidInstances()
+{
   m_instances.clear();
 
   if (m_instanceData) {
@@ -220,19 +226,24 @@ void World::finalize()
         });
   }
 
-  if (addZeroInstance)
-    m_instances.push_back(m_zeroInstance.ptr);
-
-  m_objectUpdates.lastTLASBuild = 0;
-  m_objectUpdates.lastBLASCheck = 0;
+  if (m_zeroSurfaceData || m_zeroVolumeData || m_zeroLightData)
+    m_instances.push_back(m_zeroInstance.get());
 }
 
 void World::propagateChangeFrom(Object *child)
 {
   // ObjectArray notifications retain helium's membership re-finalization.
-  if (std::any_of(m_contents.begin(), m_contents.end(), [child](const auto &p) {
-        return p.get() == child;
-      })) {
+  if (child == m_zeroInstance.get()
+      || std::any_of(m_contents.begin(),
+          m_contents.end(),
+          [child](const auto &p) { return p.get() == child; })) {
+    if (child->type() == ANARI_INSTANCE) {
+      const auto stamp = child->lastChange(ChangeKind::TLAS);
+      if (stamp > lastChange(ChangeKind::TLAS)) {
+        markChanged(ChangeKind::TLAS, stamp);
+        notifyChangeObservers();
+      }
+    }
     propagateImageFrom(child);
   }
 }
@@ -266,20 +277,15 @@ WorldGPUData World::gpuData() const
 
 void World::rebuildWorld()
 {
-  const auto &state = *deviceState();
+  const bool tlasChanged =
+      lastChange(ChangeKind::TLAS) >= m_objectUpdates.lastTLASBuild;
+  // Light sets retain the device-wide trigger until their scoped migration.
+  const bool lightsChanged = deviceState()->objectUpdates.lastLightSetChange
+      >= m_objectUpdates.lastLightRebuild;
 
-  const auto &updates = state.objectUpdates;
-  const auto lastCheck = m_objectUpdates.lastBLASCheck;
-  const bool blasChanged = std::any_of(
-      m_instances.begin(), m_instances.end(), [lastCheck](const auto *inst) {
-        return inst->group()->lastChange(ChangeKind::BLAS) >= lastCheck;
-      });
-  if (blasChanged || updates.lastLightSetChange >= lastCheck) {
-    m_objectUpdates.lastTLASBuild = 0; // BLAS changed, so need to build TLAS
+  if (tlasChanged) {
+    updateValidInstances();
     rebuildBLASs();
-  }
-
-  if (m_objectUpdates.lastTLASBuild <= state.objectUpdates.lastTLASChange) {
     m_surfaceBounds = box3();
     m_volumeBounds = box3();
     m_traversableSurfaces = {};
@@ -311,13 +317,16 @@ void World::rebuildWorld()
         ANARI_SEVERITY_DEBUG, "visrtx::World building volume gpu data");
     buildInstanceVolumeGPUData();
 
-    buildInstanceLightGPUData();
-
     reportMessage(ANARI_SEVERITY_DEBUG,
         "visrtx::World finished building world over %zu instances",
         m_instances.size());
 
     m_objectUpdates.lastTLASBuild = helium::newTimeStamp();
+  }
+
+  if (tlasChanged || lightsChanged) {
+    buildInstanceLightGPUData();
+    m_objectUpdates.lastLightRebuild = helium::newTimeStamp();
   }
 }
 
@@ -415,8 +424,6 @@ void World::rebuildBLASs()
     group->rebuildVolumeBVH();
     group->rebuildLights();
   });
-
-  m_objectUpdates.lastBLASCheck = helium::newTimeStamp();
 }
 
 void World::buildInstanceSurfaceGPUData()
