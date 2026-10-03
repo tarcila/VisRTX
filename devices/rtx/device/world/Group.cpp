@@ -128,7 +128,7 @@ void Group::markFinalized()
   m_lastSurfaceBLASChange = now;
   m_lastVolumeBLASChange = now;
   markChanged(ChangeKind::BLAS, now);
-  deviceState()->objectUpdates.lastLightSetChange = now;
+  markChanged(ChangeKind::LIGHT_SET, now);
   Object::markFinalized();
 }
 
@@ -145,6 +145,11 @@ void Group::propagateChangeFrom(Object *child)
     if (consumed && stamp > *consumed) {
       *consumed = stamp;
       markChanged(ChangeKind::BLAS, stamp);
+      notifyChangeObservers();
+    }
+    const auto lightStamp = child->lastChange(ChangeKind::LIGHT_SET);
+    if (lightStamp > lastChange(ChangeKind::LIGHT_SET)) {
+      markChanged(ChangeKind::LIGHT_SET, lightStamp);
       notifyChangeObservers();
     }
     propagateImageFrom(child);
@@ -335,8 +340,7 @@ void Group::rebuildVolumeBVH()
 
 void Group::rebuildLights()
 {
-  const auto &state = *deviceState();
-  if (state.objectUpdates.lastLightSetChange < m_objectUpdates.lastLightRebuild)
+  if (lastChange(ChangeKind::LIGHT_SET) < m_objectUpdates.lastLightRebuild)
     return;
 
   partitionValidLights();

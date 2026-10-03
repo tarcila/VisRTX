@@ -54,7 +54,7 @@ struct GeometryLight : public Light
       float area);
 
   // Unlike an authored light, a Geometry Light is (re)configured by the World
-  // DURING the light-set rebuild, so it must NOT bump lastLightSetChange — that
+  // DURING the light-set rebuild, so it must NOT emit LightSet — that
   // would leave the world perpetually dirty and rebuild every frame. Its
   // invalidation rides the owning material/geometry commit instead.
   void markFinalized() override;

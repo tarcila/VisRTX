@@ -66,6 +66,7 @@ void Surface::markFinalized()
 {
   markChanged(ChangeKind::SLOT);
   markChanged(ChangeKind::BLAS);
+  markChanged(ChangeKind::LIGHT_SET);
   m_wasValid = isValid();
   Object::markFinalized();
 }
@@ -87,7 +88,12 @@ void Surface::propagateChangeFrom(Object *child)
     markChanged(ChangeKind::BLAS);
     structuralChange = true;
   }
-  if (structuralChange)
+  const auto lightStamp = child->lastChange(ChangeKind::LIGHT_SET);
+  const bool lightSetChange = child == m_material.get()
+      && lightStamp > lastChange(ChangeKind::LIGHT_SET);
+  if (lightSetChange)
+    markChanged(ChangeKind::LIGHT_SET, lightStamp);
+  if (structuralChange || lightSetChange)
     notifyChangeObservers();
   propagateImageFrom(child);
 }

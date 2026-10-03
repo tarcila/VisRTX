@@ -113,9 +113,12 @@ bool World::getProperty(const std::string_view &name,
     uint64_t size,
     uint32_t flags)
 {
-  // Debug counter: TLAS builds of this World. Read without flushing.
+  // Debug counters: TLAS and light-set builds. Read without flushing.
   if (name == "numTLASBuilds" && type == ANARI_UINT32) {
     helium::writeToVoidP(ptr, m_numTLASBuilds);
+    return true;
+  } else if (name == "numLightSetBuilds" && type == ANARI_UINT32) {
+    helium::writeToVoidP(ptr, m_numLightSetBuilds);
     return true;
   }
 
@@ -211,6 +214,7 @@ void World::finalize()
   m_zeroGroup->finalize();
 
   markChanged(ChangeKind::TLAS);
+  markChanged(ChangeKind::LIGHT_SET);
 }
 
 void World::updateValidInstances()
@@ -243,6 +247,11 @@ void World::propagateChangeFrom(Object *child)
         markChanged(ChangeKind::TLAS, stamp);
         notifyChangeObservers();
       }
+    }
+    const auto lightStamp = child->lastChange(ChangeKind::LIGHT_SET);
+    if (lightStamp > lastChange(ChangeKind::LIGHT_SET)) {
+      markChanged(ChangeKind::LIGHT_SET, lightStamp);
+      notifyChangeObservers();
     }
     propagateImageFrom(child);
   }
@@ -279,9 +288,8 @@ void World::rebuildWorld()
 {
   const bool tlasChanged =
       lastChange(ChangeKind::TLAS) >= m_objectUpdates.lastTLASBuild;
-  // Light sets retain the device-wide trigger until their scoped migration.
-  const bool lightsChanged = deviceState()->objectUpdates.lastLightSetChange
-      >= m_objectUpdates.lastLightRebuild;
+  const bool lightsChanged =
+      lastChange(ChangeKind::LIGHT_SET) >= m_objectUpdates.lastLightRebuild;
 
   if (tlasChanged) {
     updateValidInstances();
@@ -326,6 +334,7 @@ void World::rebuildWorld()
 
   if (tlasChanged || lightsChanged) {
     buildInstanceLightGPUData();
+    m_numLightSetBuilds++;
     m_objectUpdates.lastLightRebuild = helium::newTimeStamp();
   }
 }

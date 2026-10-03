@@ -55,6 +55,7 @@ struct BuildCounts
   uint32_t groupBLAS{0};
   uint32_t groupLightSet{0};
   uint32_t worldTLAS{0};
+  uint32_t worldLightSet{0};
 };
 
 // Two-Frame scene derived from _tmp/repro.cpp.
@@ -173,6 +174,8 @@ struct Harness
     anari::getProperty(
         d, group, "numLightSetBuilds", c.groupLightSet, ANARI_NO_WAIT);
     anari::getProperty(d, world, "numTLASBuilds", c.worldTLAS, ANARI_NO_WAIT);
+    anari::getProperty(
+        d, world, "numLightSetBuilds", c.worldLightSet, ANARI_NO_WAIT);
     return c;
   }
 };
@@ -704,6 +707,124 @@ void testScopedTLAS(anari::Device d)
   anari::release(d, transforms);
 }
 
+void testScopedLightSets(anari::Device d, bool zeroInstance)
+{
+  Harness a(d);
+  Harness b(d);
+  auto material = anari::newObject<anari::Material>(d, "pbr");
+  anari::commitParameters(d, material);
+  anari::setParameter(d, a.surf, "material", material);
+  anari::commitParameters(d, a.surf);
+  if (zeroInstance) {
+    anari::unsetParameter(d, a.world, "instance");
+    anari::setParameterArray1D(d, a.world, "surface", &a.surf, 1);
+    anari::setParameterArray1D(d, a.world, "light", &a.light, 1);
+    anari::commitParameters(d, a.world);
+  }
+  anari::setParameter(d, a.frames[1], "world", b.world);
+  anari::commitParameters(d, a.frames[1]);
+  for (int s = 0; s < 3; ++s) {
+    a.renderAndCheck(0);
+    a.renderAndCheck(1);
+  }
+  auto beforeA = a.counts();
+  auto beforeB = b.counts();
+  auto checkNoBVH = [&]() {
+    CHECK(a.counts().groupBLAS == beforeA.groupBLAS,
+        "light-set edit rebuilt A BLAS (zero=%d)",
+        zeroInstance);
+    CHECK(a.counts().worldTLAS == beforeA.worldTLAS,
+        "light-set edit rebuilt A TLAS (zero=%d)",
+        zeroInstance);
+    CHECK(b.counts().groupBLAS == beforeB.groupBLAS,
+        "light-set edit rebuilt B BLAS");
+    CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
+        "light-set edit rebuilt B TLAS");
+  };
+  auto checkAOnly = [&](uint32_t expectedLights) {
+    CHECK(a.renderAndCheck(1), "light-set edit reset B");
+    CHECK(!a.renderAndCheck(0), "light-set edit did not reset A");
+    checkNoBVH();
+    CHECK(a.counts().worldLightSet == beforeA.worldLightSet + 1,
+        "A light set did not rebuild exactly once (zero=%d)",
+        zeroInstance);
+    CHECK(b.counts().worldLightSet == beforeB.worldLightSet,
+        "A light-set edit rebuilt B world light set");
+    CHECK(b.counts().groupLightSet == beforeB.groupLightSet,
+        "A light-set edit rebuilt B group light set");
+    if (!zeroInstance) {
+      CHECK(a.counts().groupLightSet == beforeA.groupLightSet + 1,
+          "A group light set did not rebuild exactly once");
+    }
+    uint32_t lights = 0;
+    anari::getProperty(d, a.world, "numLightInstances", lights, ANARI_WAIT);
+    CHECK(lights == expectedLights,
+        "expected %u lights, got %u",
+        expectedLights,
+        lights);
+    CHECK(a.renderAndCheck(0), "A did not resume after light-set edit");
+    CHECK(a.counts().worldLightSet == beforeA.worldLightSet + 1,
+        "A light set stayed dirty after rebuild");
+    beforeA = a.counts();
+  };
+
+  anari::setParameter(d, a.light, "irradiance", 2.f);
+  anari::commitParameters(d, a.light);
+  checkAOnly(1);
+  for (const auto emission :
+      {float3{2.f, 1.f, 1.f}, float3{3.f, 2.f, 1.f}, float3{0.f, 0.f, 0.f}}) {
+    anari::setParameter(d, material, "emissive", emission);
+    anari::commitParameters(d, material);
+    checkAOnly(emission[0] > 0.f ? 2 : 1);
+  }
+  // A non-emission edit resets the image, not either light-set consumer.
+  anari::setParameter(d, material, "baseColor", float3{0.2f, 0.3f, 0.4f});
+  anari::commitParameters(d, material);
+  CHECK(!a.renderAndCheck(0), "baseColor edit did not reset A");
+  CHECK(a.renderAndCheck(1), "baseColor edit reset B");
+  checkNoBVH();
+  CHECK(a.counts().worldLightSet == beforeA.worldLightSet,
+      "baseColor edit rebuilt A world light set");
+  CHECK(a.counts().groupLightSet == beforeA.groupLightSet,
+      "baseColor edit rebuilt A group light set");
+  a.renderAndCheck(0);
+
+  auto orphan = anari::newObject<anari::Light>(d, "directional");
+  anari::commitParameters(d, orphan);
+  CHECK(a.renderAndCheck(0), "unreachable light reset A");
+  CHECK(a.renderAndCheck(1), "unreachable light reset B");
+  CHECK(a.counts().worldLightSet == beforeA.worldLightSet,
+      "unreachable light rebuilt A light set");
+  CHECK(b.counts().worldLightSet == beforeB.worldLightSet,
+      "unreachable light rebuilt B light set");
+  anari::release(d, orphan);
+
+  if (!zeroInstance) {
+    // The Group consumes once; both Worlds must still consume independently.
+    anari::setParameter(d, b.inst, "group", a.group);
+    anari::commitParameters(d, b.inst);
+    a.renderAndCheck(1);
+    a.renderAndCheck(1);
+    beforeA = a.counts();
+    beforeB = b.counts();
+    anari::setParameter(d, material, "emissive", float3{1.f, 1.f, 1.f});
+    anari::commitParameters(d, material);
+    CHECK(!a.renderAndCheck(1), "shared emission did not reset B");
+    CHECK(!a.renderAndCheck(0), "shared emission did not reset A");
+    checkNoBVH();
+    CHECK(a.counts().groupLightSet == beforeA.groupLightSet + 1,
+        "shared Group rebuilt light set more than once");
+    CHECK(a.counts().worldLightSet == beforeA.worldLightSet + 1,
+        "shared emission did not rebuild A light set");
+    CHECK(b.counts().worldLightSet == beforeB.worldLightSet + 1,
+        "shared emission did not rebuild B light set");
+    uint32_t lights = 0;
+    anari::getProperty(d, b.world, "numLightInstances", lights, ANARI_WAIT);
+    CHECK(lights == 2, "shared emission missing from B light list");
+  }
+  anari::release(d, material);
+}
+
 void testScopedVolumeBLAS(anari::Device d)
 {
   Harness a(d);
@@ -805,6 +926,8 @@ int main()
   testRebuildCounted(d);
   testScopedBLAS(d);
   testScopedTLAS(d);
+  testScopedLightSets(d, false);
+  testScopedLightSets(d, true);
   testScopedVolumeBLAS(d);
 
   anari::release(d, d);

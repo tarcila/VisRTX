@@ -76,7 +76,7 @@ void Material::refreshEmissionLightSet()
   const vec3 nowAverage = emissionAverage();
   if (nowSampleable != m_emissionWasSampleable
       || (nowSampleable && nowAverage != m_lastEmissionAverage)) {
-    deviceState()->objectUpdates.lastLightSetChange = helium::newTimeStamp();
+    markChanged(ChangeKind::LIGHT_SET);
   }
   m_emissionWasSampleable = nowSampleable;
   m_lastEmissionAverage = nowAverage;

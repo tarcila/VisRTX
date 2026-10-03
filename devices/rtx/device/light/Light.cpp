@@ -55,8 +55,8 @@ void Light::commitParameters()
 
 void Light::markFinalized()
 {
+  markChanged(ChangeKind::LIGHT_SET);
   Object::markFinalized();
-  deviceState()->objectUpdates.lastLightSetChange = helium::newTimeStamp();
 }
 
 LightGPUData Light::gpuData() const

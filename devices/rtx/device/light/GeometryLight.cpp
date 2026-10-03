@@ -37,7 +37,7 @@ GeometryLight::GeometryLight(DeviceGlobalState *d) : Light(d) {}
 
 void GeometryLight::markFinalized()
 {
-  // Skip Light::markFinalized's lastLightSetChange bump on purpose (see header).
+  // Skip Light::markFinalized's LightSet emission on purpose (see header).
   Object::markFinalized();
 }
 

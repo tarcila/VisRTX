@@ -118,6 +118,11 @@ void Instance::propagateChangeFrom(Object *child)
       markChanged(ChangeKind::TLAS, stamp);
       notifyChangeObservers();
     }
+    const auto lightStamp = child->lastChange(ChangeKind::LIGHT_SET);
+    if (lightStamp > lastChange(ChangeKind::LIGHT_SET)) {
+      markChanged(ChangeKind::LIGHT_SET, lightStamp);
+      notifyChangeObservers();
+    }
     propagateImageFrom(child);
   }
 }

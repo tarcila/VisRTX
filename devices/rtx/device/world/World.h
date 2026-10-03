@@ -96,8 +96,9 @@ struct World : public Object
     helium::TimeStamp lastLightRebuild{0};
   } m_objectUpdates;
 
-  // Debug counter exposed as a property for invalidation tests.
+  // Debug counters exposed as properties for invalidation tests.
   uint32_t m_numTLASBuilds{0};
+  uint32_t m_numLightSetBuilds{0};
 
   // Surfaces //
 

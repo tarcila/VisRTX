@@ -207,11 +207,6 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
     OptixModule customField{nullptr};
   } fieldSamplers;
 
-  struct ObjectUpdates
-  {
-    helium::TimeStamp lastLightSetChange{0};
-  } objectUpdates;
-
   DeferredArrayUploadBuffer uploadBuffer;
 
   struct DeviceObjectRegistry
