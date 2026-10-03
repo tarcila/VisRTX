@@ -19,6 +19,13 @@ One Launch's worth of samples, blended into the accumulated result. A
 converged image is many Accumulation Frames.
 _Avoid_: sub-frame, iteration, pass
 
+**Accumulation Reset**:
+Discarding a Frame's accumulated result so the next Launch starts again from
+zero Accumulation Frames. Scoped to one Frame: it happens only when that
+Frame's own image-affecting parameters or one of its Frame Dependencies
+changed.
+_Avoid_: restart, clear, invalidate (alone)
+
 **Callable**:
 A GPU function linked into a pipeline but dispatched by index at runtime. The
 unit that lets shading change without rebuilding the pipeline.

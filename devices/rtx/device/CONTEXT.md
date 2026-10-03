@@ -28,6 +28,13 @@ _Avoid_: pointer, handle
 **Upload**:
 Copying an object's packed state into its Slot.
 
+**Change Kind**:
+The category of staleness an object's change causes in what depends on it:
+its own Slot, a BLAS, a TLAS, a light set, a Renderer Pipeline, or a Frame's
+accumulated image. Each object type declares which kinds its changes carry;
+dependents react only to the kinds they consume.
+_Avoid_: dirty flag, invalidation (alone)
+
 **Deferred Upload**:
 Array data queued when the application unmaps it and transferred in batch when
 the next frame renders, rather than immediately.
@@ -52,6 +59,12 @@ The ANARI instance object placing a group in the world with a transform.
 The ANARI frame object: the render target owning result buffers (color, depth,
 IDs) and the camera/renderer/world it renders with.
 _Avoid_: framebuffer, accumulation frame (see the Render Pipeline context)
+
+**Frame Dependency**:
+Any object a Frame transitively reaches through its camera, renderer and
+world at render time. An object that no Frame reaches is no Frame's
+dependency, so changing it affects no image.
+_Avoid_: scene (too loose), referenced object (suggests a direct reference only)
 
 **Renderer**:
 The ANARI renderer object selecting a rendering technique (fast, quality,
