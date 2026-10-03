@@ -47,6 +47,13 @@ struct SpatialField : public RegisteredObject<SpatialFieldGPUData>
 
   void markFinalized() override;
 
+ protected:
+  // Field observers (transfer-function volume, isosurface) still re-finalize;
+  // the Field -> Volume link becomes a typed propagation with ticket 07.
+  bool observersRefinalizeOnChange() const override;
+
+ public:
+
   static SpatialField *createInstance(
       std::string_view subtype, DeviceGlobalState *d);
 

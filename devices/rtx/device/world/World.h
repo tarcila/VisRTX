@@ -93,6 +93,9 @@ struct World : public Object
     helium::TimeStamp lastBLASCheck{0};
   } m_objectUpdates;
 
+  // Debug counter exposed as a property for invalidation tests.
+  uint32_t m_numTLASBuilds{0};
+
   // Surfaces //
 
   OptixTraversableHandle m_traversableSurfaces{};

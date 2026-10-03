@@ -550,7 +550,7 @@ bool Frame::getProperty(const std::string_view &name,
     if (flags & ANARI_WAIT)
       wait();
     if (ready())
-      deviceState()->commitBuffer.flush();
+      deviceState()->flushCommitBuffer();
     checkAccumulationReset();
     helium::writeToVoidP(ptr, m_nextFrameReset);
     return true;
@@ -567,7 +567,7 @@ void Frame::renderFrame()
 
   instrument::rangePush("update scene");
   instrument::rangePush("flush commits");
-  state.commitBuffer.flush();
+  state.flushCommitBuffer();
   instrument::rangePop(); // flush commits
 
   instrument::rangePush("flush array uploads");

@@ -33,6 +33,7 @@
 
 #include "gpu/gpu_objects.h"
 #include "utility/DeferredArrayUploadBuffer.h"
+#include "utility/ChangeKind.h"
 #include "utility/DeviceObjectArray.h"
 
 // helium
@@ -267,8 +268,24 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
 #endif // defined(USE_MATERIALX)
   // Helper methods //
 
+  // Scoped invalidation (ADR 0009) //
+
+  // Queue a (child -> observer) propagation; holds an internal ref on both
+  // until it is drained.
+  void enqueuePropagation(Object *child, helium::BaseObject *observer);
+  // Flush the commit buffer, then run queued propagations. Every device-side
+  // flush goes through here so propagation never runs on notify.
+  void flushCommitBuffer();
+  // Drop queued propagations without running them (device teardown).
+  void clearPropagations();
+
   DeviceGlobalState(ANARIDevice d);
   ~DeviceGlobalState() override;
+
+ private:
+  void drainPropagations();
+
+  PropagationQueue<helium::BaseObject> m_propagations;
 };
 
 void buildOptixBVH(std::vector<OptixBuildInput> buildInput,

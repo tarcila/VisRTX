@@ -427,6 +427,7 @@ VisRTXDevice::~VisRTXDevice()
   // teardown below must come after (also what empties the registry before its
   // "not empty on destruction" check).
   state.commitBuffer.clear();
+  state.clearPropagations();
   state.uploadBuffer.clear();
 
 #ifdef USE_MDL
@@ -561,7 +562,7 @@ int VisRTXDevice::deviceGetProperty(const char *name,
   if (prop == "numRegisteredMdlMaterials" && type == ANARI_UINT32) {
     auto &state = *deviceState();
     if (flags & ANARI_WAIT)
-      state.commitBuffer.flush();
+      state.flushCommitBuffer();
     const uint32_t count = state.mdl
         ? uint32_t(state.mdl->materialRegistry.numRegisteredMaterials())
         : 0u;

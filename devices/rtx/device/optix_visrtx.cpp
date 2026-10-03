@@ -130,6 +130,46 @@ DeviceGlobalState::DeviceGlobalState(ANARIDevice d)
 
 DeviceGlobalState::~DeviceGlobalState() = default;
 
+void DeviceGlobalState::enqueuePropagation(
+    Object *child, helium::BaseObject *observer)
+{
+  if (!child || !observer)
+    return;
+  if (m_propagations.push(child, observer)) {
+    child->refInc(helium::RefType::INTERNAL);
+    observer->refInc(helium::RefType::INTERNAL);
+  }
+}
+
+void DeviceGlobalState::flushCommitBuffer()
+{
+  // A propagation may re-finalize an observer that itself notifies upward;
+  // flush and drain until the graph is quiet.
+  commitBuffer.flush();
+  while (!m_propagations.empty()) {
+    drainPropagations();
+    commitBuffer.flush();
+  }
+}
+
+void DeviceGlobalState::drainPropagations()
+{
+  for (auto &[child, observer] : m_propagations.take()) {
+    if (auto *o = dynamic_cast<Object *>(observer))
+      o->propagateChangeFrom(static_cast<Object *>(child));
+    child->refDec(helium::RefType::INTERNAL);
+    observer->refDec(helium::RefType::INTERNAL);
+  }
+}
+
+void DeviceGlobalState::clearPropagations()
+{
+  for (auto &[child, observer] : m_propagations.take()) {
+    child->refDec(helium::RefType::INTERNAL);
+    observer->refDec(helium::RefType::INTERNAL);
+  }
+}
+
 } // namespace visrtx
 
 VISRTX_ANARI_TYPEFOR_DEFINITION(visrtx::box1);

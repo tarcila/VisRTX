@@ -68,9 +68,19 @@ bool Group::getProperty(const std::string_view &name,
     uint64_t size,
     uint32_t flags)
 {
+  // Debug counters: BLAS builds (any of triangle/curve/user/volume) and light
+  // set rebuilds of this Group. Read without flushing.
+  if (name == "numBLASBuilds" && type == ANARI_UINT32) {
+    helium::writeToVoidP(ptr, m_buildCounters.blas);
+    return true;
+  } else if (name == "numLightSetBuilds" && type == ANARI_UINT32) {
+    helium::writeToVoidP(ptr, m_buildCounters.lightSet);
+    return true;
+  }
+
   if (name == "bounds" && type == ANARI_FLOAT32_BOX3) {
     if (flags & ANARI_WAIT) {
-      deviceState()->commitBuffer.flush();
+      deviceState()->flushCommitBuffer();
       rebuildSurfaceBVHs();
       rebuildVolumeBVH();
     }
@@ -223,6 +233,7 @@ void Group::rebuildSurfaceBVHs()
 
   if (!m_surfacesTriangle.empty()) {
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building triangle BVH");
+    m_buildCounters.blas++;
     buildOptixBVH(createOBI(m_surfacesTriangle),
         m_bvhTriangle,
         m_traversableTriangle,
@@ -235,6 +246,7 @@ void Group::rebuildSurfaceBVHs()
 
   if (!m_surfacesCurve.empty()) {
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building curve BVH");
+    m_buildCounters.blas++;
     buildOptixBVH(createOBI(m_surfacesCurve),
         m_bvhCurve,
         m_traversableCurve,
@@ -247,6 +259,7 @@ void Group::rebuildSurfaceBVHs()
 
   if (!m_surfacesUser.empty()) {
     reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building user BVH");
+    m_buildCounters.blas++;
     buildOptixBVH(createOBI(m_surfacesUser),
         m_bvhUser,
         m_traversableUser,
@@ -280,6 +293,7 @@ void Group::rebuildVolumeBVH()
   }
 
   reportMessage(ANARI_SEVERITY_DEBUG, "visrtx::Group building volume BVH");
+  m_buildCounters.blas++;
   buildOptixBVH(createOBI(m_volumes),
       m_bvhVolume,
       m_traversableVolume,
@@ -299,6 +313,7 @@ void Group::rebuildLights()
 
   partitionValidLights();
   buildLightGPUData();
+  m_buildCounters.lightSet++;
   m_objectUpdates.lastLightRebuild = helium::newTimeStamp();
 }
 

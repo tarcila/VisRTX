@@ -112,9 +112,15 @@ bool World::getProperty(const std::string_view &name,
     uint64_t size,
     uint32_t flags)
 {
+  // Debug counter: TLAS builds of this World. Read without flushing.
+  if (name == "numTLASBuilds" && type == ANARI_UINT32) {
+    helium::writeToVoidP(ptr, m_numTLASBuilds);
+    return true;
+  }
+
   if (name == "bounds" && type == ANARI_FLOAT32_BOX3) {
     if (flags & ANARI_WAIT) {
-      deviceState()->commitBuffer.flush();
+      deviceState()->flushCommitBuffer();
       rebuildWorld();
     }
     auto bounds = m_surfaceBounds;
@@ -129,7 +135,7 @@ bool World::getProperty(const std::string_view &name,
   // exclusion here.
   if (name == "numLightInstances" && type == ANARI_UINT32) {
     if (flags & ANARI_WAIT) {
-      deviceState()->commitBuffer.flush();
+      deviceState()->flushCommitBuffer();
       rebuildWorld();
     }
     const auto count = uint32_t(m_instanceLightGPUData.size());
@@ -256,6 +262,7 @@ void World::rebuildWorld()
     m_traversableVolumes = {};
 
     populateOptixInstances();
+    m_numTLASBuilds++;
     reportMessage(ANARI_SEVERITY_DEBUG,
         "visrtx::World building surface BVH over %zu instances",
         m_optixSurfaceInstances.size());

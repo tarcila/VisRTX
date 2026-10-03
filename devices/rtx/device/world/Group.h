@@ -128,6 +128,13 @@ struct Group : public Object
     helium::TimeStamp lastLightRebuild{0};
   } m_objectUpdates;
 
+  // Debug counters exposed as properties for invalidation tests.
+  struct BuildCounters
+  {
+    uint32_t blas{0};
+    uint32_t lightSet{0};
+  } m_buildCounters;
+
   box3 m_triangleBounds;
   box3 m_curveBounds;
   box3 m_userBounds;

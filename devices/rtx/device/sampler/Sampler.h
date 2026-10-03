@@ -66,6 +66,9 @@ struct Sampler : public RegisteredObject<SamplerGPUData>
       std::string_view subtype, DeviceGlobalState *d);
 
  protected:
+  // Sampler -> material is a data-dependency link: the material re-packs.
+  bool observersRefinalizeOnChange() const override;
+
   virtual SamplerGPUData gpuData() const override = 0;
 
   std::string m_inAttribute;

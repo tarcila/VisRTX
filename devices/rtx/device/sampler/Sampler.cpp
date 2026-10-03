@@ -65,6 +65,11 @@ Sampler *Sampler::createInstance(std::string_view subtype, DeviceGlobalState *d)
     return new UnknownSampler(subtype, d);
 }
 
+bool Sampler::observersRefinalizeOnChange() const
+{
+  return true;
+}
+
 vec4 Sampler::averageValue() const
 {
   return vec4(1.f);

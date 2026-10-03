@@ -39,6 +39,7 @@
 // glm
 #include "gpu/gpu_math.h"
 #include "gpu/gpu_objects.h"
+#include "utility/ChangeKind.h"
 // std
 #include <algorithm>
 #include <map>
@@ -65,6 +66,29 @@ struct Object : public helium::BaseObject
   virtual bool isValid() const;
   virtual void *deviceData() const;
   DeviceGlobalState *deviceState() const;
+
+  // Change Kind stamps (ADR 0009): last change of each kind this object
+  // emitted. Monotonic; never cleared.
+  void markChanged(
+      ChangeKind k, helium::TimeStamp t = helium::newTimeStamp());
+  helium::TimeStamp lastChange(ChangeKind k) const;
+
+  // Runs during the commit-buffer flush for each queued (child -> this) edge.
+  // Translating the child's kinds into this object's kinds is per edge type;
+  // the default consumes nothing.
+  virtual void propagateChangeFrom(Object *child);
+
+ protected:
+  // Structural links queue a propagation drained by the commit-buffer flush
+  // instead of re-finalizing the observer (helium's default).
+  void notifyChangeObserver(helium::BaseObject *observer) const override;
+
+  // Data-dependency links whose observers must re-pack (e.g. sampler ->
+  // material) return true to keep helium's re-finalize behaviour.
+  virtual bool observersRefinalizeOnChange() const;
+
+ private:
+  ChangeStamps m_changeStamps;
 };
 
 } // namespace visrtx
