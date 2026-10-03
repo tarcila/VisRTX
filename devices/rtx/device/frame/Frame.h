@@ -40,7 +40,9 @@
 // helium
 #include "helium/BaseFrame.h"
 // std
+#include <array>
 #include <memory>
+#include <tuple>
 
 namespace visrtx {
 
@@ -61,6 +63,7 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
 
   void commitParameters() override;
   void finalize() override;
+  void propagateChangeFrom(Object *child);
 
   void renderFrame() override;
 
@@ -131,8 +134,8 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   DeviceBuffer m_denoiseAlbedo; // vec3
   DeviceBuffer m_denoiseNormal; // vec3
 
-  helium::IntrusivePtr<Renderer> m_renderer;
-  helium::IntrusivePtr<Camera> m_camera;
+  helium::ChangeObserverPtr<Renderer> m_renderer;
+  helium::ChangeObserverPtr<Camera> m_camera;
   helium::IntrusivePtr<World> m_world;
 
   cudaEvent_t m_eventStart;
@@ -140,12 +143,18 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
 
   float m_duration{0.f};
 
-  bool m_frameChanged{false};
-  helium::TimeStamp m_cameraLastChanged{0};
-  helium::TimeStamp m_rendererLastChanged{0};
-  helium::TimeStamp m_worldLastChanged{0};
-  helium::TimeStamp m_lastCommitFlushOccured{0};
-  helium::TimeStamp m_lastUploadFlushOccured{0};
+  using ImageParameters = std::tuple<uvec2,
+      std::array<ANARIDataType, 7>,
+      Renderer *,
+      Camera *,
+      World *,
+      bool>;
+  ImageParameters m_imageParameters{
+      uvec2(0), {}, nullptr, nullptr, nullptr, true};
+  ChangeStamps m_changeStamps;
+  ConsumedStamps<Object> m_consumedDependencies;
+  helium::TimeStamp m_lastImageConsumed{0};
+  helium::TimeStamp m_lastWorldContentConsumed{0};
 
   Denoiser m_denoiser;
 

@@ -193,8 +193,7 @@ void Renderer::commitParameters()
   // TRIM tracks this many of the brightest samples per pixel and trims the ones
   // a base-excluding threshold flags as outliers. Small: per-pixel memory is
   // trim*vec4 and a handful covers the firefly count of any one pixel.
-  m_fireflyFilterTrim =
-      std::clamp(getParam<int>("fireflyFilterTrim", 4), 1, 8);
+  m_fireflyFilterTrim = std::clamp(getParam<int>("fireflyFilterTrim", 4), 1, 8);
   m_sampleLimit = getParam<int>("sampleLimit", 128);
   m_cullTriangleBF = getParam<bool>("cullTriangleBackfaces", false);
   m_volumeSamplingRate =
@@ -226,6 +225,12 @@ void Renderer::finalize()
         vec4(0.f),
         isSrgb8(fmt));
   }
+}
+
+void Renderer::markFinalized()
+{
+  Object::markFinalized();
+  markChanged(ChangeKind::IMAGE);
 }
 
 Span<HitgroupFunctionNames> Renderer::hitgroupSbtNames() const

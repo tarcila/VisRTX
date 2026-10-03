@@ -63,14 +63,14 @@ struct Object : public helium::BaseObject
 
   virtual void commitParameters() override;
   virtual void finalize() override;
+  void markFinalized() override;
   virtual bool isValid() const;
   virtual void *deviceData() const;
   DeviceGlobalState *deviceState() const;
 
   // Change Kind stamps (ADR 0009): last change of each kind this object
   // emitted. Monotonic; never cleared.
-  void markChanged(
-      ChangeKind k, helium::TimeStamp t = helium::newTimeStamp());
+  void markChanged(ChangeKind k, helium::TimeStamp t = helium::newTimeStamp());
   helium::TimeStamp lastChange(ChangeKind k) const;
 
   // Runs during the commit-buffer flush for each queued (child -> this) edge.

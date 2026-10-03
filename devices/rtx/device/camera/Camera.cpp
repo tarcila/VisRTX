@@ -47,6 +47,11 @@ Camera::Camera(DeviceGlobalState *s) : Object(ANARI_CAMERA, s)
 
 void Camera::commitParameters()
 {
+  const auto region = m_region;
+  const auto pos = m_pos;
+  const auto dir = m_dir;
+  const auto up = m_up;
+  const auto oldAspect = m_aspect;
   m_region = vec4(0.f, 0.f, 1.f, 1.f);
   getParam("imageRegion", ANARI_FLOAT32_BOX2, &m_region);
   m_pos = getParam<vec3>("position", vec3(0.f));
@@ -57,6 +62,17 @@ void Camera::commitParameters()
   float aspect = 1.f;
   if (getParam("aspect", ANARI_FLOAT32, &aspect))
     m_aspect = aspect;
+
+  m_imageChanged |= region != m_region || pos != m_pos || dir != m_dir
+      || up != m_up || oldAspect != m_aspect;
+}
+
+void Camera::markFinalized()
+{
+  Object::markFinalized();
+  if (m_imageChanged)
+    markChanged(ChangeKind::IMAGE);
+  m_imageChanged = false;
 }
 
 void Camera::populateFrameData(CameraGPUData &fd, uvec2 /*frameSize*/) const

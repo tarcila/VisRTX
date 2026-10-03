@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// Scoped invalidation harness (ADR 0009): two Frames sharing camera, renderer
-// and world. Detects an Accumulation Reset per Frame through "numSamples" and
-// counts BVH (BLAS/TLAS) and light-set rebuilds through the Group/World debug
-// counters. The baseline case: two undisturbed Frames keep accumulating.
+// Scoped invalidation regressions (ADR 0009): detect per-Frame accumulation
+// resets through "numSamples", and BVH/light-set work through debug counters.
+// Shared and independent cameras exercise per-consumer dependency stamps.
 
 #include <anari/anari_cpp/ext/std.h>
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
@@ -175,13 +174,9 @@ void testBaselineTwoFramesAccumulate(anari::Device d)
 {
   Harness h(d);
 
-  // Warm-up: the first render of each frame builds everything. Today a
-  // second Frame's first render still resets the first one once (the
-  // cross-Frame reset tickets 02-03 remove), so warm up for two rounds.
-  for (int s = 0; s < 2; s++) {
-    h.renderAndCheck(0);
-    h.renderAndCheck(1);
-  }
+  // One warm-up round must suffice even with shared dependencies.
+  h.renderAndCheck(0);
+  h.renderAndCheck(1);
   const auto built = h.counts();
   CHECK(built.groupBLAS >= 1, "initial BLAS build not counted");
   CHECK(built.groupLightSet >= 1, "initial light-set build not counted");
@@ -227,6 +222,156 @@ void testResetDetected(anari::Device d)
   CHECK(!h.renderAndCheck(1), "camera commit did not reset frame 1");
 }
 
+void completionCallback(const void *userData, ANARIDevice, ANARIFrame)
+{
+  ++*static_cast<int *>(const_cast<void *>(userData));
+}
+
+void testFrameDependencies(anari::Device d)
+{
+  Harness h(d);
+  auto otherCam = anari::newObject<anari::Camera>(d, "perspective");
+  anari::setParameter(d, otherCam, "position", float3{0.f, 0.f, 3.f});
+  anari::setParameter(d, otherCam, "direction", float3{0.f, 0.f, -1.f});
+  anari::commitParameters(d, otherCam);
+  anari::setParameter(d, h.frames[1], "camera", otherCam);
+  anari::commitParameters(d, h.frames[1]);
+  for (int s = 0; s < 3; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  const auto before = h.counts();
+
+  auto unrelated = anari::newObject<anari::Camera>(d, "orthographic");
+  anari::commitParameters(d, unrelated);
+  CHECK(h.renderAndCheck(0), "unrelated camera reset A");
+  CHECK(h.renderAndCheck(1), "unrelated camera reset B");
+  anari::release(d, unrelated);
+
+  auto c = anari::newObject<anari::Frame>(d);
+  anari::setParameter(d, c, "size", uint2{64, 48});
+  anari::setParameter(d, c, "camera", h.cam);
+  anari::setParameter(d, c, "renderer", h.ren);
+  anari::setParameter(d, c, "world", h.world);
+  anari::commitParameters(d, c);
+  anari::render(d, c);
+  anari::wait(d, c);
+  CHECK(h.renderAndCheck(0), "new shared frame C reset A");
+  CHECK(h.renderAndCheck(1), "new shared frame C reset B");
+  anari::release(d, c);
+
+  anari::setParameter(d, h.cam, "position", float3{0.f, 0.f, 3.5f});
+  anari::commitParameters(d, h.cam);
+  CHECK(!h.renderAndCheck(0), "changed camera did not reset A");
+  CHECK(h.renderAndCheck(1), "A's camera reset B");
+  CHECK(h.renderAndCheck(0), "A failed to resume accumulation");
+  anari::setParameter(d, h.cam, "position", float3{0.f, 0.f, 3.5f});
+  anari::commitParameters(d, h.cam);
+  CHECK(h.renderAndCheck(0), "unchanged camera reset A");
+  CHECK(h.renderAndCheck(1), "unchanged camera reset B");
+
+  int callbacks = 0;
+  ANARIFrameCompletionCallback callback = completionCallback;
+  anariSetParameter(d,
+      h.frames[0],
+      "frameCompletionCallback",
+      ANARI_FRAME_COMPLETION_CALLBACK,
+      &callback);
+  anariSetParameter(d,
+      h.frames[0],
+      "frameCompletionCallbackUserData",
+      ANARI_VOID_POINTER,
+      &callbacks);
+  anari::commitParameters(d, h.frames[0]);
+  CHECK(h.renderAndCheck(0), "callback-only commit reset A");
+  CHECK(callbacks == 1, "completion callback did not run");
+  CHECK(h.renderAndCheck(1), "callback-only commit reset B");
+
+  anari::setParameter(d, h.frames[0], "size", uint2{80, 60});
+  anari::commitParameters(d, h.frames[0]);
+  CHECK(!h.renderAndCheck(0), "size change did not reset A");
+  CHECK(h.renderAndCheck(1), "size change reset B");
+  CHECK(h.renderAndCheck(0), "A did not accumulate after resize");
+  const auto after = h.counts();
+  CHECK(after.groupBLAS == before.groupBLAS, "frame/camera edit rebuilt BLAS");
+  CHECK(after.worldTLAS == before.worldTLAS, "frame/camera edit rebuilt TLAS");
+  CHECK(after.groupLightSet == before.groupLightSet,
+      "frame/camera edit rebuilt light set");
+
+  anari::setParameter(d, h.mat, "color", float3{0.1f, 0.2f, 0.3f});
+  anari::commitParameters(d, h.mat);
+  CHECK(!h.renderAndCheck(0), "world-content edit did not reset A");
+  CHECK(!h.renderAndCheck(1), "world-content edit did not reset B");
+
+  anari::setParameter(d, h.ren, "ambientRadiance", 0.4f);
+  anari::commitParameters(d, h.ren);
+  h.renderAndCheck(0);
+  h.renderAndCheck(1);
+  CHECK(h.lastSamples[0] == 1, "shared renderer did not reset A");
+  CHECK(h.lastSamples[1] == 1, "shared renderer did not reset B");
+  anari::release(d, otherCam);
+}
+
+void testManualResize(anari::Device d)
+{
+  Harness h(d);
+  const uint64_t version = 1;
+  anari::setParameter(d, h.frames[0], "accumulationVersion", version);
+  anari::commitParameters(d, h.frames[0]);
+  for (int s = 0; s < 3; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  anari::setParameter(d, h.cam, "position", float3{0.f, 0.f, 4.f});
+  anari::commitParameters(d, h.cam);
+  CHECK(h.renderAndCheck(0), "camera reset A in manual mode");
+  CHECK(!h.renderAndCheck(1), "shared camera did not reset automatic B");
+  anari::setParameter(d, h.frames[0], "size", uint2{96, 72});
+  anari::commitParameters(d, h.frames[0]);
+  CHECK(!h.renderAndCheck(0), "resize did not reset A in manual mode");
+  CHECK(h.renderAndCheck(0), "manual A did not accumulate after resize");
+  CHECK(h.renderAndCheck(1), "manual resize reset B");
+}
+
+void testCameraSubtypeParameters(anari::Device d)
+{
+  Harness h(d);
+  for (int s = 0; s < 3; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  for (const auto *name : {"fovy", "focusDistance", "apertureRadius"}) {
+    anari::setParameter(d, h.cam, name, 0.5f);
+    anari::commitParameters(d, h.cam);
+    CHECK(!h.renderAndCheck(0), "%s did not reset A", name);
+    CHECK(!h.renderAndCheck(1), "%s did not reset B", name);
+    CHECK(h.renderAndCheck(0), "A did not resume after %s", name);
+    CHECK(h.renderAndCheck(1), "B did not resume after %s", name);
+    anari::setParameter(d, h.cam, name, 0.5f);
+    anari::commitParameters(d, h.cam);
+    CHECK(h.renderAndCheck(0), "unchanged %s reset A", name);
+    CHECK(h.renderAndCheck(1), "unchanged %s reset B", name);
+  }
+  auto ortho = anari::newObject<anari::Camera>(d, "orthographic");
+  anari::setParameter(d, ortho, "position", float3{0.f, 0.f, 3.f});
+  anari::setParameter(d, ortho, "direction", float3{0.f, 0.f, -1.f});
+  anari::commitParameters(d, ortho);
+  anari::setParameter(d, h.frames[0], "camera", ortho);
+  anari::commitParameters(d, h.frames[0]);
+  CHECK(!h.renderAndCheck(0), "camera handle change did not reset A");
+  CHECK(h.renderAndCheck(1), "camera handle change reset B");
+  CHECK(h.renderAndCheck(0), "A did not resume with orthographic camera");
+  anari::setParameter(d, ortho, "height", 2.f);
+  anari::commitParameters(d, ortho);
+  CHECK(!h.renderAndCheck(0), "orthographic height did not reset A");
+  CHECK(h.renderAndCheck(1), "orthographic height reset B");
+  CHECK(h.renderAndCheck(0), "A did not resume after height change");
+  anari::setParameter(d, ortho, "height", 2.f);
+  anari::commitParameters(d, ortho);
+  CHECK(h.renderAndCheck(0), "unchanged orthographic height reset A");
+  anari::release(d, ortho);
+}
+
 void testRebuildCounted(anari::Device d)
 {
   // Harness self-check: a geometry change rebuilds the Group's BLAS and the
@@ -261,6 +406,9 @@ int main()
 
   testBaselineTwoFramesAccumulate(d);
   testResetDetected(d);
+  testFrameDependencies(d);
+  testManualResize(d);
+  testCameraSubtypeParameters(d);
   testRebuildCounted(d);
 
   anari::release(d, d);

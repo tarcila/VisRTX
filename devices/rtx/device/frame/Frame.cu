@@ -73,12 +73,13 @@ __device__ bool resolveSample(uint32_t idx,
   return divisor > 0;
 }
 
-// One-sided (upper) trimmed mean -- the TRIM mode. A robust per-pixel estimator:
-// a trimmed mean (Tukey 1962; Huber 1981) whose outlier set is chosen by a
-// Grubbs / generalized-ESD test (Grubbs 1969; Rosner 1983), accumulated online
-// with Welford (Welford 1962); an a-posteriori per-pixel sample-outlier rejector
-// in the DeCoro et al. 2010 lineage. See the commit message for the full mapping
-// and the two deliberate deviations from textbook ESD.
+// One-sided (upper) trimmed mean -- the TRIM mode. A robust per-pixel
+// estimator: a trimmed mean (Tukey 1962; Huber 1981) whose outlier set is
+// chosen by a Grubbs / generalized-ESD test (Grubbs 1969; Rosner 1983),
+// accumulated online with Welford (Welford 1962); an a-posteriori per-pixel
+// sample-outlier rejector in the DeCoro et al. 2010 lineage. See the commit
+// message for the full mapping and the two deliberate deviations from textbook
+// ESD.
 //
 // `sum` is the running total of all `n` samples (the colorAccumulation value,
 // undivided); `topK` holds the `trim` brightest samples the pixel saw (rgb in
@@ -96,16 +97,21 @@ __device__ bool resolveSample(uint32_t idx,
 // drawback of the plain version, where with few samples the tracked brightest
 // are a large fraction, the base mean collapses below the true level, and even
 // legitimate bright samples get dropped:
-//   * the threshold is centred on the FULL mean, not the base mean, so it cannot
+//   * the threshold is centred on the FULL mean, not the base mean, so it
+//   cannot
 //     fall below the true level when the base excludes the bright fraction;
-//   * the number of samples actually dropped is capped at ~n/4, so at low spp at
+//   * the number of samples actually dropped is capped at ~n/4, so at low spp
+//   at
 //     most the single most extreme spike is removed (it ramps to the full trim
 //     as samples accumulate) -- a large trim fraction can no longer gut the
 //     estimate. The brightest tracked samples are dropped first.
 // Clean pixels have nothing above the threshold and resolve to the exact mean;
 // the dropped fraction -> 0 with spp (consistent estimator).
-__device__ vec3 resolveTrimmed(
-    const vec4 *topK, vec3 sum, const PixelLumStats &lum, int trim, float kSigma)
+__device__ vec3 resolveTrimmed(const vec4 *topK,
+    vec3 sum,
+    const PixelLumStats &lum,
+    int trim,
+    float kSigma)
 {
   constexpr int MAX_TRIM = 8;
   if (trim > MAX_TRIM)
@@ -298,12 +304,12 @@ __global__ void compositeBackground(vec4 *__restrict__ accumColor,
       rendered = detail::inverseTonemap(rendered);
     } else if (renderer.fireflyFilterMode == FireflyFilterMode::TRIM
         && trimTopK) {
-      rendered = vec4(
-          resolveTrimmed(trimTopK + size_t(sourceIdx) * renderer.fireflyFilterTrim,
-              vec3(accumColor[sourceIdx]),
-              lumStats[sourceIdx],
-              renderer.fireflyFilterTrim,
-              renderer.fireflyFilterSigma),
+      rendered = vec4(resolveTrimmed(trimTopK
+                              + size_t(sourceIdx) * renderer.fireflyFilterTrim,
+                          vec3(accumColor[sourceIdx]),
+                          lumStats[sourceIdx],
+                          renderer.fireflyFilterTrim,
+                          renderer.fireflyFilterSigma),
           rendered.a);
     }
   }
@@ -368,7 +374,8 @@ void launchCompositeBackground(vec4 *accumColor,
 
 } // anonymous namespace
 
-Frame::Frame(DeviceGlobalState *d) : helium::BaseFrame(d), m_denoiser(d)
+Frame::Frame(DeviceGlobalState *d)
+    : helium::BaseFrame(d), m_renderer(this), m_camera(this), m_denoiser(d)
 {
   cudaEventCreate(&m_eventStart);
   cudaEventCreate(&m_eventEnd);
@@ -398,8 +405,16 @@ DeviceGlobalState *Frame::deviceState() const
 
 void Frame::commitParameters()
 {
-  m_renderer = getParamObject<Renderer>("renderer");
-  m_camera = getParamObject<Camera>("camera");
+  auto *renderer = getParamObject<Renderer>("renderer");
+  auto *camera = getParamObject<Camera>("camera");
+  if (m_renderer.get() != renderer) {
+    m_consumedDependencies.forget(m_renderer.get());
+    m_renderer = renderer;
+  }
+  if (m_camera.get() != camera) {
+    m_consumedDependencies.forget(m_camera.get());
+    m_camera = camera;
+  }
   m_world = getParamObject<World>("world");
   m_callback = getParam<ANARIFrameCompletionCallback>(
       "frameCompletionCallback", nullptr);
@@ -417,6 +432,38 @@ void Frame::commitParameters()
   m_normalType = getParam<ANARIDataType>("channel.normal", ANARI_UNKNOWN);
   m_manualAccumulationRestart = getParam(
       "accumulationVersion", ANARI_UINT64, &m_applicationAccumulationVersion);
+
+  const ImageParameters imageParameters{hd.fb.size,
+      {m_colorType,
+          m_depthType,
+          m_primIDType,
+          m_objIDType,
+          m_instIDType,
+          m_albedoType,
+          m_normalType},
+      renderer,
+      camera,
+      m_world.ptr,
+      getParam<bool>("accumulation", true)};
+  if (imageParameters != m_imageParameters)
+    m_changeStamps.mark(ChangeKind::IMAGE, helium::newTimeStamp());
+  // A new buffer layout must reset even when the app owns accumulationVersion.
+  if (std::get<0>(imageParameters) != std::get<0>(m_imageParameters)
+      || std::get<1>(imageParameters) != std::get<1>(m_imageParameters))
+    m_nextFrameReset = true;
+  m_imageParameters = imageParameters;
+}
+
+void Frame::propagateChangeFrom(Object *child)
+{
+  if (child != m_camera.get() && child != m_renderer.get())
+    return;
+  for (size_t i = 0; i < NUM_CHANGE_KINDS; ++i) {
+    const auto kind = ChangeKind(i);
+    const auto stamp = child->lastChange(kind);
+    if (m_consumedDependencies.consume(child, kind, stamp))
+      m_changeStamps.mark(ChangeKind::IMAGE, stamp);
+  }
 }
 
 void Frame::finalize()
@@ -435,6 +482,12 @@ void Frame::finalize()
   }
 
   auto &hd = data();
+  const auto oldBuffers = std::make_tuple(m_pixelBuffer.dataDevice(),
+      m_depthBuffer.dataDevice(),
+      m_accumColor.ptr(),
+      m_accumAlbedo.ptr(),
+      m_accumNormal.ptr(),
+      m_lumStats.ptr());
 
   const bool useFloatFB = m_denoise || m_colorType == ANARI_FLOAT32_VEC4;
 
@@ -510,7 +563,14 @@ void Frame::finalize()
   else
     m_denoiser.cleanup();
 
-  m_frameChanged = true;
+  const auto newBuffers = std::make_tuple(m_pixelBuffer.dataDevice(),
+      m_depthBuffer.dataDevice(),
+      m_accumColor.ptr(),
+      m_accumAlbedo.ptr(),
+      m_accumNormal.ptr(),
+      m_lumStats.ptr());
+  if (oldBuffers != newBuffers)
+    m_nextFrameReset = true;
 }
 
 bool Frame::getProperty(const std::string_view &name,
@@ -1029,25 +1089,21 @@ bool Frame::checkerboarding() const
 
 void Frame::checkAccumulationReset()
 {
-  if (m_nextFrameReset)
-    return;
-
-  auto &state = *deviceState();
-  if (m_manualAccumulationRestart
-      && m_lastRenderedAccumulationVersion < m_applicationAccumulationVersion) {
-    m_lastRenderedAccumulationVersion = m_applicationAccumulationVersion;
+  const auto imageStamp = m_changeStamps.last(ChangeKind::IMAGE);
+  const auto worldStamp = deviceState()->lastWorldContentChange;
+  if (m_manualAccumulationRestart) {
+    if (m_lastRenderedAccumulationVersion < m_applicationAccumulationVersion) {
+      m_lastRenderedAccumulationVersion = m_applicationAccumulationVersion;
+      m_nextFrameReset = true;
+    }
+  } else if (m_lastImageConsumed < imageStamp
+      || m_lastWorldContentConsumed < worldStamp) {
     m_nextFrameReset = true;
-  } else if (!m_manualAccumulationRestart) { // automatic accumulation restart
-    if (m_lastCommitFlushOccured
-        < state.commitBuffer.lastObjectFinalization()) {
-      m_lastCommitFlushOccured = state.commitBuffer.lastObjectFinalization();
-      m_nextFrameReset = true;
-    }
-    if (m_lastUploadFlushOccured < state.uploadBuffer.lastUpload()) {
-      m_lastUploadFlushOccured = state.uploadBuffer.lastUpload();
-      m_nextFrameReset = true;
-    }
   }
+  // Consume even on the first render and while in manual mode. Shared
+  // dependencies keep their stamps; each Frame records its own progress.
+  m_lastImageConsumed = imageStamp;
+  m_lastWorldContentConsumed = worldStamp;
 }
 
 void Frame::newFrame()
@@ -1074,7 +1130,8 @@ void Frame::newFrame()
     thrust::fill_n(thrust::device_pointer_cast(m_accumColor.ptrAs<vec4>()),
         numPixels(),
         vec4(0.0f));
-    thrust::fill_n(thrust::device_pointer_cast(m_lumStats.ptrAs<PixelLumStats>()),
+    thrust::fill_n(
+        thrust::device_pointer_cast(m_lumStats.ptrAs<PixelLumStats>()),
         numPixels(),
         PixelLumStats{vec3(0.0f), vec3(0.0f), 0.0f});
     if (hd.renderer.fireflyFilterMode == FireflyFilterMode::TRIM
@@ -1126,7 +1183,6 @@ void Frame::newFrame()
   }
 
   hd.fb.invFrameID = m_invFrameID = 1.f / (hd.fb.frameID + 1);
-  m_frameChanged = false;
 }
 
 size_t Frame::numPixels() const

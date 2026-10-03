@@ -31,6 +31,7 @@
 
 #include "optix_visrtx.h"
 #include "Object.h"
+#include "frame/Frame.h"
 
 namespace visrtx {
 
@@ -157,6 +158,8 @@ void DeviceGlobalState::drainPropagations()
   for (auto &[child, observer] : m_propagations.take()) {
     if (auto *o = dynamic_cast<Object *>(observer))
       o->propagateChangeFrom(static_cast<Object *>(child));
+    else if (auto *f = dynamic_cast<Frame *>(observer))
+      f->propagateChangeFrom(static_cast<Object *>(child));
     child->refDec(helium::RefType::INTERNAL);
     observer->refDec(helium::RefType::INTERNAL);
   }

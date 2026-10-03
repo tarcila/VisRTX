@@ -66,6 +66,29 @@ void Object::finalize()
   // no-op
 }
 
+void Object::markFinalized()
+{
+  helium::BaseObject::markFinalized();
+  // Temporary bridge until world-content Image edges are wired (ticket 03).
+  // Camera and Renderer changes are scoped to their observing Frames.
+  switch (type()) {
+  case ANARI_GEOMETRY:
+  case ANARI_MATERIAL:
+  case ANARI_SAMPLER:
+  case ANARI_SPATIAL_FIELD:
+  case ANARI_VOLUME:
+  case ANARI_SURFACE:
+  case ANARI_LIGHT:
+  case ANARI_GROUP:
+  case ANARI_INSTANCE:
+  case ANARI_WORLD:
+    deviceState()->lastWorldContentChange = helium::newTimeStamp();
+    break;
+  default:
+    break;
+  }
+}
+
 bool Object::isValid() const
 {
   return true;

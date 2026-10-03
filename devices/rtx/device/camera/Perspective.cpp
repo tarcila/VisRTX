@@ -41,9 +41,14 @@ void Perspective::commitParameters()
 {
   Camera::commitParameters();
 
+  const auto fovy = m_fovy;
+  const auto focusDistance = m_focusDistance;
+  const auto apertureRadius = m_apertureRadius;
   m_fovy = getParam<float>("fovy", glm::radians(60.f));
   m_focusDistance = getParam<float>("focusDistance", 1.f);
   m_apertureRadius = getParam<float>("apertureRadius", 0.f);
+  m_imageChanged |= fovy != m_fovy || focusDistance != m_focusDistance
+      || apertureRadius != m_apertureRadius;
 }
 
 void Perspective::populateFrameData(CameraGPUData &fd, uvec2 frameSize) const

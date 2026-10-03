@@ -44,6 +44,7 @@ struct Camera : public Object
   ~Camera() override = default;
 
   void commitParameters() override;
+  void markFinalized() override;
   virtual void populateFrameData(CameraGPUData &fd, uvec2 frameSize) const;
 
   static Camera *createInstance(std::string_view subtype, DeviceGlobalState *d);
@@ -57,6 +58,7 @@ struct Camera : public Object
   vec3 m_dir{0.f, 0.f, 1.f};
   vec3 m_up{0.f, 1.f, 0.f};
   std::optional<float> m_aspect;
+  bool m_imageChanged{true};
 };
 
 } // namespace visrtx

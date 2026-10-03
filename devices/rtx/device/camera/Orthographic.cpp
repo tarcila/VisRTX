@@ -39,7 +39,9 @@ void Orthographic::commitParameters()
 {
   Camera::commitParameters();
 
+  const auto height = m_height;
   m_height = getParam<float>("height", 1.f);
+  m_imageChanged |= height != m_height;
 }
 
 void Orthographic::populateFrameData(CameraGPUData &fd, uvec2 frameSize) const
