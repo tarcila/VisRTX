@@ -171,6 +171,13 @@ inline bool PropagationQueue<T>::push(T *child, T *observer)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
   const Edge e{child, observer};
+  // Deduplication saves pending entries and repeated propagation work, but
+  // scans the pending edges under the mutex: O(p) comparisons per insertion
+  // in the worst case, where p is the pending-edge count. Inserting n distinct
+  // edges from an empty queue without a take() costs O(n^2) comparisons in
+  // total. No small-queue bound or measured performance guarantee is
+  // established; any future optimization requires representative measurements
+  // of this trade-off.
   for (const auto &q : m_edges) {
     if (q == e)
       return false;
