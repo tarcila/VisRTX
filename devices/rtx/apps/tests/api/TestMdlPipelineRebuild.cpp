@@ -192,9 +192,15 @@ static int32_t samples(
 static bool testScopedPipeline(ANARIDevice device, anari::Camera camera)
 {
   bool ok = true;
+  const char *scenario = "initial accumulation";
+  const char *phase = "baseline pipeline builds";
   auto check = [&](bool condition, const char *message) {
     if (!condition) {
-      fprintf(stderr, "FAIL: scoped pipeline: %s\n", message);
+      fprintf(stderr,
+          "FAIL: scoped pipeline [%s / %s]: %s\n",
+          scenario,
+          phase,
+          message);
       ok = false;
     }
   };
@@ -234,6 +240,8 @@ static bool testScopedPipeline(ANARIDevice device, anari::Camera camera)
       "independent renderer did not build exactly once");
 
   for (int cycle = 0; cycle < 2; ++cycle) {
+    scenario = cycle == 0 ? "shared renderer absorbs library first"
+                          : "independent renderer absorbs library first";
     const auto sharedBefore = pipelineBuilds(device, renderers[0]);
     const auto independentBefore = pipelineBuilds(device, renderers[1]);
     const auto independentSamples = samples(device, frames[2], false);
@@ -244,11 +252,14 @@ static bool testScopedPipeline(ANARIDevice device, anari::Camera camera)
     // On the reverse-order cycle, C absorbs the library first. Rebuilding
     // A/B's renderer afterwards must not reset C again: its pipeline stays
     // unchanged, as evidenced by its build counter and continuing samples.
-    if (cycle == 1)
+    if (cycle == 1) {
+      phase = "independent pipeline rebuild before shared launch";
       check(samples(device, frames[2]) == 1,
           "independent renderer did not reset before shared rebuild");
+    }
     const int first = cycle;
     const int second = 1 - cycle;
+    phase = "first capped shared Frame triggers one rebuild";
     check(samples(device, frames[first]) == 1,
         "capped first Frame did not reset on the rebuild's launch");
     check(pipelineBuilds(device, renderers[0]) == sharedBefore + 1,
@@ -258,19 +269,23 @@ static bool testScopedPipeline(ANARIDevice device, anari::Camera camera)
     check(samples(device, frames[2], false)
             == (cycle == 0 ? independentSamples : 1),
         "unselected Frame's samples changed");
+    phase = "second shared Frame consumes the same Pipeline stamp";
     check(samples(device, frames[second]) == 1,
         "second shared Frame missed the Pipeline stamp");
     check(pipelineBuilds(device, renderers[0]) == sharedBefore + 1,
         "second shared Frame rebuilt the pipeline again");
+    phase = "independent Frame follows only its own pipeline";
     check(samples(device, frames[2]) == 1 + cycle,
         "independent Frame did not follow only its own pipeline rebuild");
     check(pipelineBuilds(device, renderers[1]) == independentBefore + 1,
         "independent renderer did not absorb the library update");
+    phase = "manual-mode capped Frame retains history";
     check(samples(device, frames[3]) == manualSamples,
         "Pipeline stamp reset manual-mode capped Frame");
 
     // With the same callable table, a post-only commit must neither rebuild
     // nor reset. This also resumes D and proves its history survived.
+    phase = "post-only uncapping resumes preserved accumulation";
     anari::setParameter(device, renderers[0], "sampleLimit", 0);
     anari::commitParameters(device, renderers[0]);
     check(samples(device, frames[3]) == manualSamples + 1,
@@ -281,6 +296,7 @@ static bool testScopedPipeline(ANARIDevice device, anari::Camera camera)
     check(pipelineBuilds(device, renderers[0]) == sharedBefore + 1
             && pipelineBuilds(device, renderers[1]) == independentBefore + 1,
         "unchanged callable table rebuilt");
+    phase = "restore shared sample cap for the next library update";
     anari::setParameter(device, renderers[0], "sampleLimit", 3);
     anari::commitParameters(device, renderers[0]);
     for (int i = 0; i < 2; ++i)
