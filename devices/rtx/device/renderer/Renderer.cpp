@@ -297,7 +297,20 @@ void Renderer::populateFrameData(FrameGPUData &fd) const
   fd.renderer.cutPlane = m_cutPlane;
 }
 
-OptixPipeline Renderer::pipeline()
+bool Renderer::getProperty(const std::string_view &name,
+    ANARIDataType type,
+    void *ptr,
+    uint64_t size,
+    uint32_t flags)
+{
+  if (name == "numPipelineBuilds" && type == ANARI_UINT32) {
+    helium::writeToVoidP(ptr, m_pipelineBuilds);
+    return true;
+  }
+  return Object::getProperty(name, type, ptr, size, flags);
+}
+
+void Renderer::preparePipeline()
 {
 #ifndef USE_MDL
   if (!m_pipeline)
@@ -308,23 +321,15 @@ OptixPipeline Renderer::pipeline()
               > m_lastMDLMaterialLibraryUpdateCheck)))
 #endif
     initOptixPipeline();
+}
 
+OptixPipeline Renderer::pipeline() const
+{
   return m_pipeline;
 }
 
-const OptixShaderBindingTable *Renderer::sbt()
+const OptixShaderBindingTable *Renderer::sbt() const
 {
-#ifndef USE_MDL
-  if (!m_pipeline)
-#else
-  if (!m_pipeline
-      || (deviceState()->mdl
-          && (deviceState()->mdl->materialRegistry.getLastUpdateTime()
-              > m_lastMDLMaterialLibraryUpdateCheck)))
-#endif
-
-    initOptixPipeline();
-
   return &m_sbt;
 }
 
@@ -1120,6 +1125,12 @@ void Renderer::initOptixPipeline()
     m_sbt.callablesRecordBase = (CUdeviceptr)m_materialRecordsBuffer.ptr();
     m_sbt.callablesRecordStrideInBytes = sizeof(MaterialRecord);
     m_sbt.callablesRecordCount = materialRecords.size();
+  }
+
+  if (m_pipeline) {
+    ++m_pipelineBuilds;
+    markChanged(ChangeKind::PIPELINE);
+    notifyChangeObservers();
   }
 }
 

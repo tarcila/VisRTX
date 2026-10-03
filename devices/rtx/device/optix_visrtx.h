@@ -155,6 +155,7 @@ VISRTX_ANARI_TYPEFOR_SPECIALIZATION(visrtx::box3, ANARI_FLOAT32_BOX3);
 namespace visrtx {
 
 struct Object;
+struct Renderer;
 struct MDL;
 
 struct ptx_blob
@@ -267,7 +268,9 @@ struct DeviceGlobalState : public helium::BaseGlobalDeviceState
   void enqueuePropagation(Object *child, helium::BaseObject *observer);
   // Flush the commit buffer, then run queued propagations. Every device-side
   // flush goes through here so propagation never runs on notify.
-  void flushCommitBuffer();
+  // Optionally prepare one renderer after finalization, then propagate its
+  // Pipeline stamp before the Frame decides whether to reset or stop sampling.
+  void flushCommitBuffer(Renderer *renderer = nullptr);
   // Drop queued propagations without running them (device teardown).
   void clearPropagations();
 

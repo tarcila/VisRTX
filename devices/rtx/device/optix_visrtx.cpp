@@ -32,6 +32,7 @@
 #include "optix_visrtx.h"
 #include "Object.h"
 #include "frame/Frame.h"
+#include "renderer/Renderer.h"
 
 namespace visrtx {
 
@@ -142,7 +143,7 @@ void DeviceGlobalState::enqueuePropagation(
   }
 }
 
-void DeviceGlobalState::flushCommitBuffer()
+void DeviceGlobalState::flushCommitBuffer(Renderer *renderer)
 {
   // A propagation may re-finalize an observer that itself notifies upward;
   // flush and drain until the graph is quiet.
@@ -150,6 +151,17 @@ void DeviceGlobalState::flushCommitBuffer()
   while (!m_propagations.empty() || !commitBuffer.empty()) {
     drainPropagations();
     commitBuffer.flush();
+  }
+
+  // All pipelines currently include the MDL registry's callable table, even
+  // when a Frame's World contains only built-in materials. Only prepare the
+  // requested renderer; other consumers retain independent Pipeline stamps.
+  if (renderer && renderer->isValid()) {
+    renderer->preparePipeline();
+    while (!m_propagations.empty() || !commitBuffer.empty()) {
+      drainPropagations();
+      commitBuffer.flush();
+    }
   }
 }
 

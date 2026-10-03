@@ -602,8 +602,10 @@ bool Frame::getProperty(const std::string_view &name,
   } else if (type == ANARI_BOOL && name == "nextFrameReset") {
     if (flags & ANARI_WAIT)
       wait();
-    if (ready())
+    if (ready()) {
       deviceState()->flushCommitBuffer();
+      deviceState()->flushCommitBuffer(m_renderer.get());
+    }
     checkAccumulationReset();
     helium::writeToVoidP(ptr, m_nextFrameReset);
     return true;
@@ -646,6 +648,10 @@ void Frame::renderFrame()
         problemMsg.c_str());
     return;
   }
+
+  // Finalization may have replaced the renderer handle. Prepare that renderer
+  // inside the flush, including for Frames already stopped at sampleLimit.
+  state.flushCommitBuffer(m_renderer.get());
 
   instrument::rangePush("rebuild BVHs");
   auto worldLock = m_world->scopeLockObject();

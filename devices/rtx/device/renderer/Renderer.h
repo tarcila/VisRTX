@@ -57,6 +57,11 @@ struct Renderer : public Object
   Renderer(DeviceGlobalState *s, float defaultAmbientRadiance = 0.f);
   ~Renderer() override;
 
+  bool getProperty(const std::string_view &name,
+      ANARIDataType type,
+      void *ptr,
+      uint64_t size,
+      uint32_t flags) override;
   virtual void commitParameters() override;
   virtual void finalize() override;
   void markFinalized() override;
@@ -68,8 +73,8 @@ struct Renderer : public Object
 
   virtual void populateFrameData(FrameGPUData &fd) const;
 
-  OptixPipeline pipeline();
-  const OptixShaderBindingTable *sbt();
+  OptixPipeline pipeline() const;
+  const OptixShaderBindingTable *sbt() const;
 
   int spp() const;
   bool checkerboarding() const;
@@ -128,7 +133,10 @@ struct Renderer : public Object
   OptixShaderBindingTable m_sbt{};
 
  private:
+  friend struct DeviceGlobalState;
+  void preparePipeline();
   void initOptixPipeline();
+  uint32_t m_pipelineBuilds{0};
   // Destroy the pipeline and everything initOptixPipeline created for it
   // (program groups, per-material MDL modules). Rebuilds — triggered by MDL
   // material-library updates — previously overwrote the handles and leaked
