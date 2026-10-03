@@ -202,6 +202,7 @@ void TransferFunction1D::discritizeTFData()
 
 void TransferFunction1D::createTFTexture()
 {
+  reportMessage(ANARI_SEVERITY_DEBUG, "creating transferFunction1D texture");
   cleanup();
 
   if (m_tf.empty())

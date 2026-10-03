@@ -74,8 +74,8 @@ struct Object : public helium::BaseObject
   helium::TimeStamp lastChange(ChangeKind k) const;
 
   // Runs during the commit-buffer flush for each queued (child -> this) edge.
-  // Translating the child's kinds into this object's kinds is per edge type;
-  // unmigrated edges retain the deferred re-finalize bridge.
+  // Receivers must explicitly translate structural kinds or queue repacking.
+  // The default fails fast: an unclassified dependency must not lose updates.
   virtual void propagateChangeFrom(Object *child);
 
  protected:

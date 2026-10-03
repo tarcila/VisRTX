@@ -81,7 +81,8 @@ struct CenterProbe
 // FLOAT32 Array1D — both parameter forms are exercised.
 static CenterProbe centerProbe(anari::Device device,
     const char *filter,
-    const std::vector<float> &isovalues)
+    const std::vector<float> &isovalues,
+    bool editField = false)
 {
   const uvec2 imageSize = {64, 64};
   const vec4 background = {0.f, 0.f, 0.f, 1.f};
@@ -98,10 +99,10 @@ static CenterProbe centerProbe(anari::Device device,
 
   auto field =
       anari::newObject<anari::SpatialField>(device, "structuredRegular");
+  auto data =
+      anari::newArray3D(device, fieldData.data(), dims[0], dims[1], dims[2]);
   {
-    auto data =
-        anari::newArray3D(device, fieldData.data(), dims[0], dims[1], dims[2]);
-    anari::setAndReleaseParameter(device, field, "data", data);
+    anari::setParameter(device, field, "data", data);
     anari::setParameter(device, field, "origin", vec3{0.f, 0.f, 0.f});
     anari::setParameter(device, field, "spacing", vec3{1.f, 1.f, 1.f});
     anari::setParameter(device, field, "filter", filter);
@@ -161,6 +162,16 @@ static CenterProbe centerProbe(anari::Device device,
   anari::render(device, frame);
   anari::wait(device, frame);
 
+  if (editField) {
+    auto *values = static_cast<float *>(anariMapArray(device, data));
+    for (size_t i = 0; i < fieldData.size(); ++i)
+      values[i] *= 2.f;
+    anariUnmapArray(device, data);
+    // No geometry or field recommit: the repacking edge must refresh bricks.
+    anari::render(device, frame);
+    anari::wait(device, frame);
+  }
+
   const size_t centerIdx =
       (imageSize[1] / 2) * size_t(imageSize[0]) + imageSize[0] / 2;
 
@@ -174,6 +185,7 @@ static CenterProbe centerProbe(anari::Device device,
   anari::unmap(device, frame, "channel.depth");
 
   anari::release(device, frame);
+  anari::release(device, data);
 
   return {red > 16u, depth}; // geometry (red) vs black background
 }
@@ -186,6 +198,7 @@ int main()
   const CenterProbe nearestHit = centerProbe(device, "nearest", {3.5f});
   const CenterProbe multiHit = centerProbe(device, "linear", {1.5f, 3.5f});
   const CenterProbe miss = centerProbe(device, "linear", {100.f});
+  const CenterProbe edited = centerProbe(device, "linear", {3.5f}, true);
 
   anari::release(device, device);
 
@@ -223,6 +236,15 @@ int main()
   // 4. Isovalue 100 is outside the field range -> center is background.
   if (miss.hit) {
     fprintf(stderr, "FAIL: out-of-range isovalue 100 unexpectedly hit\n");
+    ++failures;
+  }
+
+  // 5. Data unmap doubles the ramp: plane moves to z=1.75 -> depth 6.75.
+  if (!edited.hit || std::fabs(edited.depth - 6.75f) > kDepthTol) {
+    fprintf(stderr,
+        "FAIL: field unmap hit=%d depth %.3f, expected ~6.75\n",
+        edited.hit,
+        edited.depth);
     ++failures;
   }
 

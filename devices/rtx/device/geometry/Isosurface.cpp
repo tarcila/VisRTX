@@ -53,6 +53,17 @@ void Isosurface::commitParameters()
   m_hasScalarIsovalue = getParam("isovalue", ANARI_FLOAT32, &m_isovalueScalar);
 }
 
+void Isosurface::propagateChangeFrom(Object *child)
+{
+  if (child != m_field.get())
+    return;
+
+  // Field edits replace grid storage and active regions. Rebuild derived
+  // bricks and the geometry slot, not just the structural change stamps.
+  markUpdated();
+  deviceState()->commitBuffer.addObjectToFinalize(this);
+}
+
 void Isosurface::finalize()
 {
   m_numBricks = 0;

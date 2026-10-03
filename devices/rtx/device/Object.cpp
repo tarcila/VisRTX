@@ -33,6 +33,7 @@
 // std
 #include <atomic>
 #include <cstdarg>
+#include <stdexcept>
 
 namespace visrtx {
 
@@ -123,11 +124,8 @@ void Object::propagateImageFrom(Object *child)
 
 void Object::propagateChangeFrom(Object * /*child*/)
 {
-  // Until an edge type translates kinds itself (tickets 02-07), keep the
-  // legacy outcome -- the observer re-finalizes -- but only from the
-  // commit-buffer flush, never on the notifying thread.
-  markUpdated();
-  deviceState()->commitBuffer.addObjectToFinalize(this);
+  throw std::runtime_error(
+      "Object change observer requires an explicit propagation policy");
 }
 
 void Object::notifyChangeObserver(helium::BaseObject *observer) const

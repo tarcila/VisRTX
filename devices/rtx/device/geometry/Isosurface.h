@@ -46,6 +46,7 @@ struct Isosurface : public Geometry
   void commitParameters() override;
   void finalize() override;
   bool isValid() const override;
+  void propagateChangeFrom(Object *child) override;
 
   void populateBuildInput(OptixBuildInput &) const override;
   int optixGeometryType() const override;

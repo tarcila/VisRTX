@@ -18,12 +18,14 @@
 #include <cstdlib>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using float3 = std::array<float, 3>;
 using uint2 = std::array<uint32_t, 2>;
 
 static int g_failures = 0;
+static uint32_t g_tfTextureBuilds = 0;
 
 #define CHECK(cond, ...)                                                       \
   do {                                                                         \
@@ -43,6 +45,9 @@ static void statusFunc(const void *,
     ANARIStatusCode,
     const char *message)
 {
+  if (severity == ANARI_SEVERITY_DEBUG
+      && std::string_view(message) == "creating transferFunction1D texture")
+    ++g_tfTextureBuilds;
   if (severity <= ANARI_SEVERITY_ERROR) {
     std::fprintf(stderr, "[ANARI] %s\n", message);
     g_failures++;
@@ -1164,6 +1169,7 @@ void testScopedVolumeBLAS(anari::Device d)
       a.counts().worldTLAS == beforeA.worldTLAS, "volume color rebuilt A TLAS");
   a.renderAndCheck(0);
 
+  const auto texturesBeforeBounds = g_tfTextureBuilds;
   anari::setParameter(d, fields[0], "origin", float3{0.1f, 0.f, 0.f});
   anari::commitParameters(d, fields[0]);
   CHECK(!a.renderAndCheck(0), "field bounds did not reset A");
@@ -1176,7 +1182,13 @@ void testScopedVolumeBLAS(anari::Device d)
       "field bounds rebuilt unrelated B BLAS");
   CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
       "field bounds rebuilt unrelated B TLAS");
-  auto checkEdit = [&](const char *name, bool structural, bool empty = false) {
+  CHECK(g_tfTextureBuilds == texturesBeforeBounds,
+      "field bounds rebuilt the TF texture");
+  auto checkEdit = [&](const char *name,
+                       bool structural,
+                       bool empty = false,
+                       bool repackTF = false) {
+    const auto texturesBefore = g_tfTextureBuilds;
     const auto previousA = a.counts();
     const auto previousB = b.counts();
     CHECK(!a.renderAndCheck(0), "%s did not reset A", name);
@@ -1191,6 +1203,9 @@ void testScopedVolumeBLAS(anari::Device d)
         b.counts().groupBLAS == previousB.groupBLAS, "%s rebuilt B BLAS", name);
     CHECK(
         b.counts().worldTLAS == previousB.worldTLAS, "%s rebuilt B TLAS", name);
+    CHECK((g_tfTextureBuilds > texturesBefore) == repackTF,
+        "%s: incorrect TF texture rebuild policy",
+        name);
     CHECK(a.renderAndCheck(0), "%s caused a second reset", name);
   };
   a.renderAndCheck(0);
@@ -1203,11 +1218,11 @@ void testScopedVolumeBLAS(anari::Device d)
   anariUnmapArray(d, colors);
   anari::setParameter(d, volumes[0], "color", colors);
   anari::commitParameters(d, volumes[0]);
-  checkEdit("color map", false);
+  checkEdit("color map", false, false, true);
   colorValues = static_cast<float3 *>(anariMapArray(d, colors));
   colorValues[0][0] = 0.4f;
   anariUnmapArray(d, colors);
-  checkEdit("color map unmap", false);
+  checkEdit("color map unmap", false, false, true);
 
   auto opacity =
       anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 2);
@@ -1217,11 +1232,11 @@ void testScopedVolumeBLAS(anari::Device d)
   anariUnmapArray(d, opacity);
   anari::setParameter(d, volumes[0], "opacity", opacity);
   anari::commitParameters(d, volumes[0]);
-  checkEdit("opacity map", false);
+  checkEdit("opacity map", false, false, true);
   opacityValues = static_cast<float *>(anariMapArray(d, opacity));
   opacityValues[1] = 0.3f;
   anariUnmapArray(d, opacity);
-  checkEdit("opacity map unmap", false);
+  checkEdit("opacity map unmap", false, false, true);
 
   auto *values = static_cast<float *>(anariMapArray(d, data[0]));
   values[0] = 0.7f;
@@ -1271,7 +1286,7 @@ void testScopedVolumeBLAS(anari::Device d)
   anari::commitParameters(d, replacement);
   anari::setParameter(d, volumes[0], "value", replacement);
   anari::commitParameters(d, volumes[0]);
-  checkEdit("equal-bounds field swap", false);
+  checkEdit("equal-bounds field swap", false, false, true);
 
   // Sharing the field resets both consumers even if B renders first.
   anari::setParameter(d, volumes[1], "value", replacement);
@@ -1612,6 +1627,44 @@ void testFieldAndLightArrayOwners(anari::Device d)
   anari::release(d, data);
 }
 
+void testSamplerToMaterialRepacking(anari::Device d)
+{
+  Harness a(d), b(d);
+  auto image =
+      anariNewArray2D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, 2, 2);
+  auto *pixels = static_cast<float3 *>(anariMapArray(d, image));
+  std::fill_n(pixels, 4, float3{0.5f, 0.5f, 0.5f});
+  anariUnmapArray(d, image);
+  auto sampler = anari::newObject<anari::Sampler>(d, "image2D");
+  anari::setParameter(d, sampler, "image", image);
+  anari::commitParameters(d, sampler);
+  anari::setParameter(d, a.mat, "color", sampler);
+  anari::commitParameters(d, a.mat);
+  for (int i = 0; i < 3; ++i) {
+    a.renderAndCheck(0);
+    b.renderAndCheck(0);
+  }
+  const auto before = a.counts();
+  auto check = [&](const char *edit) {
+    CHECK(b.renderAndCheck(0), "%s reset unrelated B", edit);
+    CHECK(!a.renderAndCheck(0), "%s did not reset A", edit);
+    CHECK(a.counts().groupBLAS == before.groupBLAS
+            && a.counts().worldTLAS == before.worldTLAS,
+        "%s rebuilt geometry",
+        edit);
+    CHECK(a.renderAndCheck(0), "%s reset twice", edit);
+  };
+  anari::setParameter(d, sampler, "filter", "nearest");
+  anari::commitParameters(d, sampler);
+  check("sampler to material recommit");
+  pixels = static_cast<float3 *>(anariMapArray(d, image));
+  pixels[0] = {0.2f, 0.3f, 0.4f};
+  anariUnmapArray(d, image);
+  check("array to sampler to material repacking");
+  anari::release(d, sampler);
+  anari::release(d, image);
+}
+
 void testRebuildCounted(anari::Device d)
 {
   // Harness self-check: a geometry change rebuilds the Group's BLAS and the
@@ -1662,6 +1715,7 @@ int main()
   testScopedVolumeBLAS(d);
   testGeometryArrayOwners(d);
   testFieldAndLightArrayOwners(d);
+  testSamplerToMaterialRepacking(d);
 
   anari::release(d, d);
 
