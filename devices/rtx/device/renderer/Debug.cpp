@@ -95,10 +95,12 @@ Debug::Debug(DeviceGlobalState *s) : Renderer(s) {}
 
 void Debug::commitParameters()
 {
+  const auto previous = m_method;
   Renderer::commitParameters();
   m_method = methodFromString(getParamString("method", "baseColor"));
   m_sampleLimit = 1; // single-shot renderer
   m_denoise = false; // never denoise
+  m_imageChanged |= previous != m_method;
 }
 
 void Debug::populateFrameData(FrameGPUData &fd) const

@@ -487,12 +487,13 @@ void Frame::finalize()
   }
 
   auto &hd = data();
-  const auto oldBuffers = std::make_tuple(m_pixelBuffer.dataDevice(),
-      m_depthBuffer.dataDevice(),
-      m_accumColor.ptr(),
-      m_accumAlbedo.ptr(),
-      m_accumNormal.ptr(),
-      m_lumStats.ptr());
+  // Scratch/output changes do not discard samples. Accumulator growth does,
+  // even if the allocator happens to reuse an address.
+  if (numPixels() * sizeof(vec4) > m_accumColor.bytes()
+      || numPixels() * sizeof(vec3) > m_accumAlbedo.bytes()
+      || numPixels() * sizeof(vec3) > m_accumNormal.bytes()
+      || numPixels() * sizeof(PixelLumStats) > m_lumStats.bytes())
+    m_nextFrameReset = true;
 
   const bool useFloatFB = m_denoise || m_colorType == ANARI_FLOAT32_VEC4;
 
@@ -523,14 +524,10 @@ void Frame::finalize()
 
   m_accumColor.reserve(numPixels() * sizeof(vec4));
   m_lumStats.reserve(numPixels() * sizeof(PixelLumStats));
-  if (channelAlbedo)
-    m_accumAlbedo.reserve(numPixels() * sizeof(vec3));
-  else
-    m_accumAlbedo.reset();
-  if (channelNormal)
-    m_accumNormal.reserve(numPixels() * sizeof(vec3));
-  else
-    m_accumNormal.reset();
+  // Guides may be enabled after many samples: collect their full history
+  // from the first sample rather than averaging newly allocated garbage.
+  m_accumAlbedo.reserve(numPixels() * sizeof(vec3));
+  m_accumNormal.reserve(numPixels() * sizeof(vec3));
 
   if (m_denoise) {
     m_denoiseInput.reserve(numPixels() * sizeof(vec4));
@@ -555,8 +552,8 @@ void Frame::finalize()
   hd.fb.buffers.primID = channelPrimID ? m_primIDBuffer.dataDevice() : nullptr;
   hd.fb.buffers.objID = channelObjID ? m_objIDBuffer.dataDevice() : nullptr;
   hd.fb.buffers.instID = channelInstID ? m_instIDBuffer.dataDevice() : nullptr;
-  hd.fb.buffers.albedo = channelAlbedo ? m_accumAlbedo.ptrAs<vec3>() : nullptr;
-  hd.fb.buffers.normal = channelNormal ? m_accumNormal.ptrAs<vec3>() : nullptr;
+  hd.fb.buffers.albedo = m_accumAlbedo.ptrAs<vec3>();
+  hd.fb.buffers.normal = m_accumNormal.ptrAs<vec3>();
 
   if (m_denoise)
     m_denoiser.setup(hd.fb.size,
@@ -567,15 +564,6 @@ void Frame::finalize()
         m_denoiseNormal);
   else
     m_denoiser.cleanup();
-
-  const auto newBuffers = std::make_tuple(m_pixelBuffer.dataDevice(),
-      m_depthBuffer.dataDevice(),
-      m_accumColor.ptr(),
-      m_accumAlbedo.ptr(),
-      m_accumNormal.ptr(),
-      m_lumStats.ptr());
-  if (oldBuffers != newBuffers)
-    m_nextFrameReset = true;
 }
 
 bool Frame::getProperty(const std::string_view &name,
@@ -671,9 +659,15 @@ void Frame::renderFrame()
   m_denoise = m_renderer->denoise();
   m_denoiseUsingAlbedo = m_renderer->denoiseUsingAlbedo();
   m_denoiseUsingNormal = m_renderer->denoiseUsingNormal();
-  if (m_denoise != wasDenoising
+  const bool denoiseLayoutChanged = m_denoise != wasDenoising
       || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
-      || m_denoiseUsingNormal != wasDenoisingUsingNormal)
+      || m_denoiseUsingNormal != wasDenoisingUsingNormal;
+  const bool postSettingsChanged = denoiseLayoutChanged
+      || m_denoiseStart != m_renderer->denoiseStart()
+      || m_postSampleLimit != m_renderer->sampleLimit();
+  m_denoiseStart = m_renderer->denoiseStart();
+  m_postSampleLimit = m_renderer->sampleLimit();
+  if (denoiseLayoutChanged)
     this->finalize();
 
   m_frameMappedOnce = false;
@@ -687,7 +681,9 @@ void Frame::renderFrame()
   auto &hd = data();
 
   const int sampleLimit = m_renderer->sampleLimit();
-  if (!m_nextFrameReset && sampleLimit > 0 && hd.fb.frameID >= sampleLimit)
+  const bool renderSamples =
+      m_nextFrameReset || sampleLimit <= 0 || hd.fb.frameID < sampleLimit;
+  if (!renderSamples && !postSettingsChanged)
     return;
 
   cudaEventRecord(m_eventStart, state.stream);
@@ -696,54 +692,62 @@ void Frame::renderFrame()
   m_camera->populateFrameData(hd.camera, hd.fb.size);
   hd.world = m_world->gpuData();
 
-  // The TRIM top-k buffer is `trim` times the color buffer, so allocate it only
-  // while that mode is active. trim is a renderer parameter, hence resolved
-  // here rather than in finalize(). newFrame() clears it on accumulation reset.
-  if (hd.renderer.fireflyFilterMode == FireflyFilterMode::TRIM) {
-    m_trimTopK.reserve(
-        numPixels() * size_t(hd.renderer.fireflyFilterTrim) * sizeof(vec4));
-    hd.fb.buffers.trimTopK = m_trimTopK.ptrAs<vec4>();
+  if (renderSamples) {
+    // The TRIM top-k buffer is `trim` times the color buffer, so allocate it
+    // only while that mode is active. trim is a renderer parameter, hence
+    // resolved here rather than in finalize(). newFrame() clears it on
+    // accumulation reset.
+    if (hd.renderer.fireflyFilterMode == FireflyFilterMode::TRIM) {
+      m_trimTopK.reserve(
+          numPixels() * size_t(hd.renderer.fireflyFilterTrim) * sizeof(vec4));
+      hd.fb.buffers.trimTopK = m_trimTopK.ptrAs<vec4>();
+    } else {
+      m_trimTopK.reset();
+      hd.fb.buffers.trimTopK = nullptr;
+    }
+
+    hd.registry.samplers = state.registry.samplers.devicePtr();
+    hd.registry.geometries = state.registry.geometries.devicePtr();
+    hd.registry.materials = state.registry.materials.devicePtr();
+    hd.registry.surfaces = state.registry.surfaces.devicePtr();
+    hd.registry.lights = state.registry.lights.devicePtr();
+    hd.registry.fields = state.registry.fields.devicePtr();
+    hd.registry.volumes = state.registry.volumes.devicePtr();
+
+    instrument::rangePop(); // frame setup
+    instrument::rangePush("render all frames");
+
+    instrument::rangePush("Frame::newFrame()");
+    newFrame();
+    instrument::rangePop(); // Frame::newFrame()
+
+    instrument::rangePush("Frame::upload()");
+    upload();
+    instrument::rangePop(); // Frame::upload()
+
+    instrument::rangePush("optixLaunch()");
+    OPTIX_CHECK(optixLaunch(m_renderer->pipeline(),
+        state.stream,
+        (CUdeviceptr)deviceData(),
+        payloadBytes(),
+        m_renderer->sbt(),
+        checkerboarding() ? (hd.fb.size.x + 1) / 2 : hd.fb.size.x,
+        checkerboarding() ? (hd.fb.size.y + 1) / 2 : hd.fb.size.y,
+        1));
+    instrument::rangePop(); // optixLaunch()
+
+    // Increment frameID after rendering completes
+    if (checkerboarding())
+      hd.fb.frameID += int(hd.fb.checkerboardID == 3);
+    else
+      hd.fb.frameID += m_renderer->spp();
   } else {
-    m_trimTopK.reset();
-    hd.fb.buffers.trimTopK = nullptr;
+    instrument::rangePop(); // frame setup
+    instrument::rangePush("render all frames");
   }
 
-  hd.registry.samplers = state.registry.samplers.devicePtr();
-  hd.registry.geometries = state.registry.geometries.devicePtr();
-  hd.registry.materials = state.registry.materials.devicePtr();
-  hd.registry.surfaces = state.registry.surfaces.devicePtr();
-  hd.registry.lights = state.registry.lights.devicePtr();
-  hd.registry.fields = state.registry.fields.devicePtr();
-  hd.registry.volumes = state.registry.volumes.devicePtr();
-
-  instrument::rangePop(); // frame setup
-  instrument::rangePush("render all frames");
-
-  instrument::rangePush("Frame::newFrame()");
-  newFrame();
-  instrument::rangePop(); // Frame::newFrame()
-
-  instrument::rangePush("Frame::upload()");
-  upload();
-  instrument::rangePop(); // Frame::upload()
-
-  instrument::rangePush("optixLaunch()");
-  OPTIX_CHECK(optixLaunch(m_renderer->pipeline(),
-      state.stream,
-      (CUdeviceptr)deviceData(),
-      payloadBytes(),
-      m_renderer->sbt(),
-      checkerboarding() ? (hd.fb.size.x + 1) / 2 : hd.fb.size.x,
-      checkerboarding() ? (hd.fb.size.y + 1) / 2 : hd.fb.size.y,
-      1));
-  instrument::rangePop(); // optixLaunch()
-
-  // Increment frameID after rendering completes
-  if (checkerboarding())
-    hd.fb.frameID += int(hd.fb.checkerboardID == 3);
-  else
-    hd.fb.frameID += m_renderer->spp();
-
+  // Post-only settings can change after reaching the sample limit. Resolve
+  // the retained history even then, including into newly allocated outputs.
   const bool useFloatOutput = m_denoise || m_colorType == ANARI_FLOAT32_VEC4;
 
   // 'denoiseStart' is the accumulated sample count at which denoising begins;
@@ -814,7 +818,7 @@ void Frame::renderFrame()
         state.stream);
   }
 
-  if (m_callback) {
+  if (m_callback && renderSamples) {
     cudaLaunchHostFunc(
         state.stream,
         [](void *_this) {
@@ -1120,10 +1124,6 @@ void Frame::newFrame()
     const bool channelPrimID = m_primIDType == ANARI_UINT32;
     const bool channelObjID = m_objIDType == ANARI_UINT32;
     const bool channelInstID = m_instIDType == ANARI_UINT32;
-    const bool channelAlbedo =
-        m_denoiseUsingAlbedo || (m_albedoType == ANARI_FLOAT32_VEC3);
-    const bool channelNormal =
-        m_denoiseUsingNormal || (m_normalType == ANARI_FLOAT32_VEC3);
 
     const bool channelDepth = m_depthType == ANARI_FLOAT32 || channelPrimID
         || channelObjID || channelInstID;
@@ -1168,17 +1168,12 @@ void Frame::newFrame()
           ~0u);
     }
 
-    if (channelAlbedo) {
-      thrust::fill_n(thrust::device_pointer_cast(m_accumAlbedo.ptrAs<vec3>()),
-          numPixels(),
-          vec3(0.0f));
-    }
-
-    if (channelNormal) {
-      thrust::fill_n(thrust::device_pointer_cast(m_accumNormal.ptrAs<vec3>()),
-          numPixels(),
-          vec3(0.0f));
-    }
+    thrust::fill_n(thrust::device_pointer_cast(m_accumAlbedo.ptrAs<vec3>()),
+        numPixels(),
+        vec3(0.0f));
+    thrust::fill_n(thrust::device_pointer_cast(m_accumNormal.ptrAs<vec3>()),
+        numPixels(),
+        vec3(0.0f));
   } else {
     hd.fb.checkerboardID =
         checkerboarding() ? ((hd.fb.checkerboardID + 1) & 0x3) : -1;

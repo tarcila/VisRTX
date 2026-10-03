@@ -41,21 +41,29 @@ static const std::vector<HitgroupFunctionNames> g_interactiveHitNames = {
 };
 
 static const std::vector<std::string> g_interactiveMissNames = {
-    "__miss__shading", "__miss__shadow"
-};
+    "__miss__shading", "__miss__shadow"};
 
 Interactive::Interactive(DeviceGlobalState *s) : Renderer(s, 0.f) {}
 
 void Interactive::commitParameters()
 {
+  const auto previous = std::make_tuple(m_lightFalloff,
+      m_aoSamples,
+      m_volumeSamplingRateShadows,
+      m_maxSampledLights);
   Renderer::commitParameters();
   m_lightFalloff = std::clamp(getParam<float>("lightFalloff", 1.f), 0.f, 1.f);
   m_aoSamples = std::clamp(getParam<int>("ambientSamples", 1), 0, 256);
   m_volumeSamplingRateShadows = std::clamp(
       getParam<float>("volumeSamplingRateShadows", 0.0125f), 1e-4f, 10.f);
-  // <= 0 is the "sample all lights" sentinel; clamp negatives to 0 so the kernel
-  // sees a single unambiguous unlimited value.
+  // <= 0 is the "sample all lights" sentinel; clamp negatives to 0 so the
+  // kernel sees a single unambiguous unlimited value.
   m_maxSampledLights = std::max(getParam<int>("maxSampledLights", 8), 0);
+  m_imageChanged |= previous
+      != std::make_tuple(m_lightFalloff,
+          m_aoSamples,
+          m_volumeSamplingRateShadows,
+          m_maxSampledLights);
 }
 
 void Interactive::populateFrameData(FrameGPUData &fd) const

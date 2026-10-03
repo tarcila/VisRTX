@@ -39,6 +39,7 @@
 #include <helium/utility/TimeStamp.h>
 #include <optix.h>
 // std
+#include <tuple>
 #include <vector>
 // anari
 #include "utility/Span.h"
@@ -83,6 +84,8 @@ struct Renderer : public Object
       std::string_view subtype, DeviceGlobalState *d);
 
  protected:
+  bool m_imageChanged{true};
+
   vec4 m_bgColor{0.f, 0.f, 0.f, 1.f};
   int m_spp{1};
   vec3 m_ambientColor{1.f};
@@ -132,6 +135,25 @@ struct Renderer : public Object
   // the old driver objects.
   void releasePipeline();
   void cleanup();
+  using ImageParameters = std::tuple<Array2D *,
+      vec4,
+      int,
+      vec3,
+      float,
+      float,
+      bool,
+      FireflyFilterMode,
+      float,
+      int,
+      int,
+      bool,
+      bool,
+      float,
+      vec4>;
+  ImageParameters imageParameters() const;
+  ImageParameters m_lastImageParameters{};
+  bool m_firstCommit{true};
+  helium::TimeStamp m_backgroundLastDataModified{0};
 
   HitgroupFunctionNames m_defaultHitgroupNames;
   std::string m_defaultMissName{"__miss__"};

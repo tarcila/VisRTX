@@ -12,10 +12,12 @@
 #include <algorithm>
 #include <anari/anari_cpp.hpp>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
+#include <string>
 #include <vector>
 
 using float3 = std::array<float, 3>;
@@ -341,6 +343,298 @@ void testManualResize(anari::Device d)
   CHECK(!h.renderAndCheck(0), "resize did not reset A in manual mode");
   CHECK(h.renderAndCheck(0), "manual A did not accumulate after resize");
   CHECK(h.renderAndCheck(1), "manual resize reset B");
+  for (const auto size : {uint2{32, 24}, uint2{64, 48}}) {
+    anari::setParameter(d, h.frames[0], "size", size);
+    anari::commitParameters(d, h.frames[0]);
+    CHECK(!h.renderAndCheck(0), "manual shrink/growth did not reset A");
+    CHECK(h.renderAndCheck(0), "manual A did not resume after resize");
+    CHECK(h.renderAndCheck(1), "manual shrink/growth reset B");
+  }
+  for (const auto *channel : {"channel.color",
+           "channel.albedo",
+           "channel.normal",
+           "channel.depth",
+           "channel.primitiveId",
+           "channel.objectId",
+           "channel.instanceId"}) {
+    const auto type = std::string(channel) == "channel.color"
+        ? ANARI_FLOAT32_VEC4
+        : std::string(channel) == "channel.depth" ? ANARI_FLOAT32
+        : std::string(channel).find("Id") != std::string::npos
+        ? ANARI_UINT32
+        : ANARI_FLOAT32_VEC3;
+    anari::setParameter(d, h.frames[0], channel, type);
+    anari::commitParameters(d, h.frames[0]);
+    CHECK(!h.renderAndCheck(0), "manual %s change did not reset A", channel);
+    CHECK(h.renderAndCheck(0), "manual A did not resume after %s", channel);
+    CHECK(h.renderAndCheck(1), "manual %s change reset B", channel);
+    anari::unsetParameter(d, h.frames[0], channel);
+    anari::commitParameters(d, h.frames[0]);
+    CHECK(!h.renderAndCheck(0), "manual %s removal did not reset A", channel);
+    CHECK(h.renderAndCheck(0), "manual A did not resume after removal");
+    CHECK(h.renderAndCheck(1), "manual channel removal reset B");
+  }
+  anari::setParameter(d, h.mat, "color", float3{0.2f, 0.3f, 0.4f});
+  anari::setParameter(d, h.ren, "ambientRadiance", 0.6f);
+  anari::commitParameters(d, h.mat);
+  anari::commitParameters(d, h.ren);
+  CHECK(h.renderAndCheck(0), "dependency changes reset manual A");
+  CHECK(!h.renderAndCheck(1), "dependency changes did not reset automatic B");
+  for (const bool denoise : {true, false}) {
+    anari::setParameter(d, h.ren, "denoise", denoise);
+    anari::setParameter(d, h.ren, "denoiseMode", "colorAlbedoNormal");
+    anari::commitParameters(d, h.ren);
+    CHECK(h.renderAndCheck(0), "denoiser scratch change reset manual A");
+    CHECK(h.renderAndCheck(1), "denoiser scratch change reset automatic B");
+  }
+}
+
+void testRendererPostOnly(anari::Device d)
+{
+  Harness h(d);
+  anari::setParameter(d, h.frames[0], "channel.color", ANARI_FLOAT32_VEC4);
+  anari::commitParameters(d, h.frames[0]);
+  for (int s = 0; s < 4; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  const auto built = h.counts();
+  auto checkBoth = [&]() {
+    CHECK(h.renderAndCheck(1), "post-only change reset packed B");
+    CHECK(h.renderAndCheck(0), "post-only change reset float A");
+    for (int i = 0; i < 2; ++i) {
+      uint32_t w = 0, height = 0;
+      ANARIDataType type = ANARI_UNKNOWN;
+      const auto *pixels =
+          anariMapFrame(d, h.frames[i], "channel.color", &w, &height, &type);
+      CHECK(pixels && w == 64 && height == 48, "invalid post-only output");
+      if (pixels && type == ANARI_FLOAT32_VEC4) {
+        const auto *values = static_cast<const float *>(pixels);
+        float energy = 0.f;
+        for (size_t p = 0; p < size_t(w) * height * 4; ++p) {
+          CHECK(std::isfinite(values[p]), "nonfinite post-only float output");
+          if (p % 4 != 3)
+            energy += std::abs(values[p]);
+        }
+        CHECK(energy > 1.f, "post-only float output lost color history");
+      } else if (pixels) {
+        const auto *values = static_cast<const uint32_t *>(pixels);
+        uint64_t energy = 0;
+        for (size_t p = 0; p < size_t(w) * height; ++p) {
+          CHECK((values[p] >> 24) == 255, "invalid packed output alpha");
+          energy += values[p] & 0x00ffffffu;
+        }
+        CHECK(energy > 0, "post-only packed output lost color history");
+      }
+      anariUnmapFrame(d, h.frames[i], "channel.color");
+    }
+  };
+  for (const bool enabled : {true, false, true}) {
+    anari::setParameter(d, h.ren, "denoise", enabled);
+    anari::commitParameters(d, h.ren);
+    checkBoth();
+    for (const auto *mode : {"colorAlbedo", "colorAlbedoNormal", "color"}) {
+      anari::setParameter(d, h.ren, "denoiseMode", mode);
+      anari::commitParameters(d, h.ren);
+      checkBoth();
+    }
+  }
+  for (const int start : {100, 0, -1}) {
+    anari::setParameter(d, h.ren, "denoiseStart", start);
+    anari::commitParameters(d, h.ren);
+    checkBoth();
+  }
+  anari::setParameter(d, h.ren, "sampleLimit", 2);
+  anari::commitParameters(d, h.ren);
+  const auto stopped = h.lastSamples;
+  h.renderAndCheck(0);
+  h.renderAndCheck(1);
+  CHECK(h.lastSamples == stopped,
+      "lowering sampleLimit lost history or rendered");
+  for (const bool enabled : {false, true}) {
+    anari::setParameter(d, h.ren, "denoise", enabled);
+    anari::setParameter(d, h.ren, "denoiseMode", "colorAlbedoNormal");
+    anari::commitParameters(d, h.ren);
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+    CHECK(h.lastSamples == stopped, "capped post-only change lost history");
+    for (int i = 0; i < 2; ++i) {
+      uint32_t w, height;
+      ANARIDataType type;
+      const auto *pixels =
+          anariMapFrame(d, h.frames[i], "channel.color", &w, &height, &type);
+      CHECK(pixels, "missing capped output");
+      if (pixels && type == ANARI_FLOAT32_VEC4) {
+        const auto *values = static_cast<const float *>(pixels);
+        for (size_t p = 0; p < size_t(w) * height; ++p) {
+          CHECK(std::isfinite(values[4 * p]), "nonfinite capped color");
+          CHECK(std::abs(values[4 * p + 3] - 1.f) < 1e-5f,
+              "invalid capped alpha");
+        }
+      } else if (pixels) {
+        const auto *values = static_cast<const uint32_t *>(pixels);
+        for (size_t p = 0; p < size_t(w) * height; ++p)
+          CHECK((values[p] >> 24) == 255, "invalid capped packed alpha");
+      }
+      anariUnmapFrame(d, h.frames[i], "channel.color");
+    }
+  }
+  anari::setParameter(d, h.ren, "sampleLimit", 100);
+  anari::commitParameters(d, h.ren);
+  checkBoth();
+  CHECK(
+      h.lastSamples[0] == stopped[0] + 1 && h.lastSamples[1] == stopped[1] + 1,
+      "sampleLimit increase did not resume history");
+  CHECK(h.counts().groupBLAS == built.groupBLAS
+          && h.counts().worldTLAS == built.worldTLAS,
+      "post-only change rebuilt BVHs");
+  for (const auto *parameter : {"ambientRadiance", "lightFalloff"}) {
+    anari::setParameter(d, h.ren, "denoise", false);
+    anari::setParameter(d, h.ren, parameter, 0.7f);
+    anari::commitParameters(d, h.ren);
+    CHECK(!h.renderAndCheck(0), "mixed %s commit did not reset A", parameter);
+    CHECK(!h.renderAndCheck(1), "mixed %s commit did not reset B", parameter);
+    CHECK(h.renderAndCheck(0), "A did not resume after mixed commit");
+    CHECK(h.renderAndCheck(1), "B did not resume after mixed commit");
+  }
+}
+
+void testRendererSubtypeAndBackground(anari::Device d)
+{
+  for (const auto *subtype : {"fast", "quality"}) {
+    Harness h(d);
+    auto renderer = anari::newObject<anari::Renderer>(d, subtype);
+    // fast overrides this authored ambient color when fixedAmbientLighting
+    // is on. The comparison must use its final effective values.
+    anari::setParameter(d, renderer, "ambientColor", float3{0.2f, 0.3f, 0.4f});
+    anari::commitParameters(d, renderer);
+    for (auto f : h.frames) {
+      anari::setParameter(d, f, "renderer", renderer);
+      anari::commitParameters(d, f);
+    }
+    for (int s = 0; s < 3; ++s) {
+      h.renderAndCheck(0);
+      h.renderAndCheck(1);
+    }
+    anari::setParameter(d, renderer, "denoise", true);
+    anari::commitParameters(d, renderer);
+    CHECK(h.renderAndCheck(0), "%s denoise reset A", subtype);
+    CHECK(h.renderAndCheck(1), "%s denoise reset B", subtype);
+    const auto *parameter =
+        std::string(subtype) == "fast" ? "ambientSamples" : "maxRayDepth";
+    anari::setParameter(d, renderer, parameter, 3);
+    anari::setParameter(d, renderer, "denoiseStart", 100);
+    anari::commitParameters(d, renderer);
+    CHECK(!h.renderAndCheck(0),
+        "%s mixed subtype commit did not reset A",
+        subtype);
+    CHECK(!h.renderAndCheck(1),
+        "%s mixed subtype commit did not reset B",
+        subtype);
+    anari::release(d, renderer);
+  }
+
+  Harness h(d);
+  auto background =
+      anariNewArray2D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC4, 2, 2);
+  auto *pixels =
+      static_cast<std::array<float, 4> *>(anariMapArray(d, background));
+  std::fill_n(pixels, 4, std::array<float, 4>{0.1f, 0.2f, 0.3f, 1.f});
+  anariUnmapArray(d, background);
+  anari::setParameter(d, h.ren, "background", background);
+  anari::commitParameters(d, h.ren);
+  for (int s = 0; s < 3; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  // A post-only commit must not mask a concurrent data notification.
+  anari::setParameter(d, h.ren, "denoise", true);
+  anari::commitParameters(d, h.ren);
+  pixels = static_cast<std::array<float, 4> *>(anariMapArray(d, background));
+  pixels[0][0] = 0.6f;
+  anariUnmapArray(d, background);
+  CHECK(!h.renderAndCheck(0), "background notification did not reset A");
+  CHECK(!h.renderAndCheck(1), "background notification did not reset B");
+  CHECK(h.renderAndCheck(0), "A did not resume after background edit");
+  CHECK(h.renderAndCheck(1), "B did not resume after background edit");
+  anariMapArray(d, background);
+  anariUnmapArray(d, background);
+  CHECK(!h.renderAndCheck(0), "identical background unmap did not reset A");
+  CHECK(!h.renderAndCheck(1), "identical background unmap did not reset B");
+  anari::release(d, background);
+}
+
+void testGuideHistory(anari::Device d)
+{
+  Harness h(d);
+  auto *positions = static_cast<float3 *>(anariMapArray(d, h.vertices));
+  std::fill_n(positions, 256, float3{0.f, 0.f, 0.f});
+  anariUnmapArray(d, h.vertices);
+  anari::setParameter(d, h.geom, "radius", 2.5f);
+  anari::commitParameters(d, h.geom);
+  for (auto f : h.frames) {
+    anari::setParameter(d, f, "channel.color", ANARI_FLOAT32_VEC4);
+    anari::commitParameters(d, f);
+  }
+  // B has always collected guides; A must retain the same history even with
+  // neither output channels nor denoising requested initially.
+  anari::setParameter(d, h.frames[1], "channel.albedo", ANARI_FLOAT32_VEC3);
+  anari::setParameter(d, h.frames[1], "channel.normal", ANARI_FLOAT32_VEC3);
+  anari::commitParameters(d, h.frames[1]);
+  for (int s = 0; s < 8; ++s) {
+    h.renderAndCheck(0);
+    h.renderAndCheck(1);
+  }
+  for (const auto *mode :
+      {"colorAlbedoNormal", "color", "colorAlbedo", "colorAlbedoNormal"}) {
+    anari::setParameter(d, h.ren, "denoise", true);
+    anari::setParameter(d, h.ren, "denoiseMode", mode);
+    anari::commitParameters(d, h.ren);
+    CHECK(h.renderAndCheck(0), "guide change reset A");
+    CHECK(h.renderAndCheck(1), "guide change reset B");
+    uint32_t w, height;
+    ANARIDataType type;
+    const auto *a = static_cast<const float *>(
+        anariMapFrame(d, h.frames[0], "channel.color", &w, &height, &type));
+    const auto *b = static_cast<const float *>(
+        anariMapFrame(d, h.frames[1], "channel.color", &w, &height, &type));
+    CHECK(a && b, "missing guide-history output");
+    if (a && b) {
+      float energy = 0.f;
+      for (size_t p = 0; p < size_t(w) * height * 4; ++p) {
+        CHECK(std::isfinite(a[p]) && std::isfinite(b[p]),
+            "nonfinite guide output");
+        CHECK(
+            std::abs(a[p] - b[p]) < 1e-5f, "guide history mismatch at %zu", p);
+        if (p % 4 != 3)
+          energy += std::abs(a[p]);
+      }
+      CHECK(energy > 1.f, "guide history produced empty output");
+    }
+    anariUnmapFrame(d, h.frames[0], "channel.color");
+    anariUnmapFrame(d, h.frames[1], "channel.color");
+    const auto *albedo = static_cast<const float3 *>(
+        anariMapFrame(d, h.frames[1], "channel.albedo", &w, &height, &type));
+    const auto *normal = static_cast<const float3 *>(
+        anariMapFrame(d, h.frames[1], "channel.normal", &w, &height, &type));
+    CHECK(albedo && normal, "missing guide outputs");
+    if (albedo && normal) {
+      for (size_t p = 0; p < size_t(w) * height; ++p) {
+        float norm2 = 0.f;
+        for (size_t c = 0; c < 3; ++c) {
+          CHECK(std::isfinite(albedo[p][c]) && std::isfinite(normal[p][c]),
+              "nonfinite guide history");
+          CHECK(std::abs(albedo[p][c] - float3{0.8f, 0.4f, 0.1f}[c]) < 1e-5f,
+              "albedo history lost at %zu",
+              p);
+          norm2 += normal[p][c] * normal[p][c];
+        }
+        CHECK(std::abs(norm2 - 1.f) < 1e-5f, "normal history lost at %zu", p);
+      }
+    }
+    anariUnmapFrame(d, h.frames[1], "channel.albedo");
+    anariUnmapFrame(d, h.frames[1], "channel.normal");
+  }
 }
 
 void testCameraSubtypeParameters(anari::Device d)
@@ -1077,6 +1371,9 @@ int main()
   testResetDetected(d);
   testFrameDependencies(d);
   testManualResize(d);
+  testRendererPostOnly(d);
+  testRendererSubtypeAndBackground(d);
+  testGuideHistory(d);
   testCameraSubtypeParameters(d);
   testWorldDependencies(d, false);
   testWorldDependencies(d, true);

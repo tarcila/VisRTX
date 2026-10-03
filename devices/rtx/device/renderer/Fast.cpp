@@ -39,15 +39,18 @@ static const std::vector<HitgroupFunctionNames> g_fastHitNames = {
     {"__closesthit__primary", "__anyhit__primary"},
     {"__closesthit__shadow", "__anyhit__shadow"}};
 
-static const std::vector<std::string> g_fastMissNames = {"__miss__", "__miss__"};
+static const std::vector<std::string> g_fastMissNames = {
+    "__miss__", "__miss__"};
 
 Fast::Fast(DeviceGlobalState *s) : Renderer(s, 1.f) {}
 
 void Fast::commitParameters()
 {
+  const auto previous = std::make_tuple(m_aoSamples, m_aoBlend);
   Renderer::commitParameters();
   m_aoSamples = std::clamp(getParam<int>("ambientSamples", 1), 0, 256);
   m_aoBlend = std::clamp(getParam<float>("aoBlend", 1.f), 0.f, 1.f);
+  m_imageChanged |= previous != std::make_tuple(m_aoSamples, m_aoBlend);
   bool fixedAmbient = getParam<bool>("fixedAmbientLighting", true);
   if (fixedAmbient) {
     m_ambientIntensity = 1.f;

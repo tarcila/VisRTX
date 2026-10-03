@@ -162,6 +162,25 @@ Renderer::~Renderer()
   releasePipeline();
 }
 
+Renderer::ImageParameters Renderer::imageParameters() const
+{
+  return {m_backgroundImage.get(),
+      m_bgColor,
+      m_spp,
+      m_ambientColor,
+      m_ambientIntensity,
+      m_occlusionDistance,
+      m_checkerboard,
+      m_fireflyFilterMode,
+      m_fireflyFilterSigma,
+      m_fireflyFilterWarmup,
+      m_fireflyFilterTrim,
+      m_cullTriangleBF,
+      m_premultiplyBackground,
+      m_volumeSamplingRate,
+      m_cutPlane};
+}
+
 void Renderer::commitParameters()
 {
   m_backgroundImage = getParamObject<Array2D>("background");
@@ -230,7 +249,19 @@ void Renderer::finalize()
 void Renderer::markFinalized()
 {
   Object::markFinalized();
-  markChanged(ChangeKind::IMAGE);
+  const auto backgroundChanged = m_backgroundImage
+      ? m_backgroundImage->lastDataModified()
+      : helium::TimeStamp(0);
+  // Compare after subtype commits have applied overrides (e.g. fast's fixed
+  // ambient lighting), not while the base commit is only partly complete.
+  const auto current = imageParameters();
+  if (m_firstCommit || m_imageChanged || current != m_lastImageParameters
+      || backgroundChanged != m_backgroundLastDataModified)
+    markChanged(ChangeKind::IMAGE);
+  m_lastImageParameters = current;
+  m_firstCommit = false;
+  m_backgroundLastDataModified = backgroundChanged;
+  m_imageChanged = false;
 }
 
 Span<HitgroupFunctionNames> Renderer::hitgroupSbtNames() const

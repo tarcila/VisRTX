@@ -48,9 +48,13 @@ Quality::Quality(DeviceGlobalState *s) : Renderer(s) {}
 
 void Quality::commitParameters()
 {
+  const auto previous = std::make_tuple(m_maxRayDepth, m_maxTransparencyDepth);
   Renderer::commitParameters();
   m_maxRayDepth = std::max(getParam<int>("maxRayDepth", 5), 1);
-  m_maxTransparencyDepth = std::max(getParam<int>("maxTransparencyDepth", 32), 0);
+  m_maxTransparencyDepth =
+      std::max(getParam<int>("maxTransparencyDepth", 32), 0);
+  m_imageChanged |=
+      previous != std::make_tuple(m_maxRayDepth, m_maxTransparencyDepth);
 }
 
 void Quality::populateFrameData(FrameGPUData &fd) const
