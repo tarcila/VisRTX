@@ -152,6 +152,18 @@ Geometry::Geometry(DeviceGlobalState *s)
   setRegistry(s->registry.geometries);
 }
 
+Geometry::~Geometry()
+{
+  // Derived bindings have already detached. Clear the base bindings while
+  // the count map is still alive; their later destructors then do no work.
+  m_primitiveAttributes.attribute0 = nullptr;
+  m_primitiveAttributes.attribute1 = nullptr;
+  m_primitiveAttributes.attribute2 = nullptr;
+  m_primitiveAttributes.attribute3 = nullptr;
+  m_primitiveAttributes.color = nullptr;
+  m_primitiveId = nullptr;
+}
+
 Geometry *Geometry::createInstance(
     std::string_view subtype, DeviceGlobalState *d)
 {

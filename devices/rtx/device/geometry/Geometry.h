@@ -90,14 +90,8 @@ struct GeometryAttributes
 
 struct Geometry : public RegisteredObject<GeometryGPUData>
 {
- private:
-  friend struct GeometryArrayPtr;
-  void addArrayObserver(Array1D *array);
-  void removeArrayObserver(Array1D *array);
-  std::unordered_map<Array1D *, size_t> m_arrayObserverCounts;
-
- public:
   Geometry(DeviceGlobalState *d);
+  ~Geometry() override;
 
   static Geometry *createInstance(
       std::string_view subtype, DeviceGlobalState *d);
@@ -129,6 +123,14 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   // Set by analytic-primitive subtypes in finalize(); see
   // GeometryGPUData::epsilonScale.
   float m_epsilonScale{0.f};
+
+ private:
+  friend struct GeometryArrayPtr;
+  void addArrayObserver(Array1D *array);
+  void removeArrayObserver(Array1D *array);
+
+  // Base-class bindings must detach in ~Geometry() before this is destroyed.
+  std::unordered_map<Array1D *, size_t> m_arrayObserverCounts;
 };
 
 } // namespace visrtx

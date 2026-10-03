@@ -1486,6 +1486,15 @@ void testGeometryArrayOwners(anari::Device d)
     anari::setParameter(d, geom, "vertex.attribute0", alias);
     anari::commitParameters(d, geom);
     warm();
+    anari::setParameter(d, geom, "vertex.attribute0", positions);
+    anari::commitParameters(d, geom);
+    warm();
+    anariMapArray(d, alias);
+    anariUnmapArray(d, alias);
+    check(subtype, "one alias replaced", true);
+    anari::setParameter(d, geom, "vertex.attribute0", alias);
+    anari::commitParameters(d, geom);
+    warm();
     anari::unsetParameter(d, geom, "vertex.attribute0");
     anari::commitParameters(d, geom);
     warm();
@@ -1508,9 +1517,41 @@ void testGeometryArrayOwners(anari::Device d)
     anariUnmapArray(d, positions);
     CHECK(!b.renderAndCheck(0), "%s shared array did not reset B", subtype);
     CHECK(!a.renderAndCheck(0), "%s shared array did not reset A", subtype);
+    // Destroy with every base binding populated, aliased with derived
+    // bindings. Keep the arrays and another owner alive to catch stale edges
+    // without confusing one owner's detach with another owner's registration.
+    for (const char *attr : {"primitive.attribute0",
+             "primitive.attribute1",
+             "primitive.attribute2",
+             "primitive.attribute3",
+             "primitive.color",
+             "vertex.attribute0"})
+      anari::setParameter(d, geom, attr, positions);
+    auto ids = makeOwnerArray(d, ANARI_UINT32, count);
+    anari::setParameter(d, geom, "primitive.id", ids);
+    anari::commitParameters(d, geom);
+    anari::setParameter(d, b.geom, "primitive.attribute0", positions);
+    anari::commitParameters(d, b.geom);
+    anari::setParameter(d, a.surf, "geometry", a.geom);
+    anari::commitParameters(d, a.surf);
     anari::setParameter(d, b.surf, "geometry", b.geom);
     anari::commitParameters(d, b.surf);
+    warm();
     anari::release(d, geom);
+    anariMapArray(d, ids);
+    anariUnmapArray(d, ids);
+    check(subtype, "destroyed primitive id owner", false);
+    anariMapArray(d, positions);
+    anariUnmapArray(d, positions);
+    CHECK(!b.renderAndCheck(0), "%s destruction detached live owner", subtype);
+    CHECK(a.renderAndCheck(0), "%s destroyed owner reset A", subtype);
+    anari::unsetParameter(d, b.geom, "primitive.attribute0");
+    anari::commitParameters(d, b.geom);
+    warm();
+    anariMapArray(d, positions);
+    anariUnmapArray(d, positions);
+    check(subtype, "destroyed aliased owner", false);
+    anari::release(d, ids);
     anari::release(d, positions);
     anari::release(d, coneRadius);
   }
