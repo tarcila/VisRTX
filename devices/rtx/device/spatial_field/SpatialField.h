@@ -31,8 +31,8 @@
 
 #pragma once
 
-#include "space_skipping/UniformGrid.h"
 #include "RegisteredObject.h"
+#include "space_skipping/UniformGrid.h"
 
 namespace visrtx {
 
@@ -47,17 +47,14 @@ struct SpatialField : public RegisteredObject<SpatialFieldGPUData>
 
   void markFinalized() override;
 
- protected:
-  // Field observers (transfer-function volume, isosurface) still re-finalize;
-  // the Field -> Volume link becomes a typed propagation with ticket 07.
-  bool observersRefinalizeOnChange() const override;
-
- public:
-
   static SpatialField *createInstance(
       std::string_view subtype, DeviceGlobalState *d);
 
   UniformGrid m_uniformGrid;
+
+ private:
+  box3 m_bounds{vec3(0.f), vec3(0.f)};
+  bool m_wasValid{false};
 };
 
 } // namespace visrtx

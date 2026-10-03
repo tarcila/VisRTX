@@ -55,13 +55,18 @@ void Volume::commitParameters()
 
 void Volume::markFinalized()
 {
+  updateValidity();
+  markChanged(ChangeKind::SLOT);
+  Object::markFinalized();
+}
+
+void Volume::updateValidity()
+{
   const bool valid = isValid();
   if (valid != m_wasValid) {
     m_wasValid = valid;
     markChanged(ChangeKind::BLAS);
   }
-  markChanged(ChangeKind::SLOT);
-  Object::markFinalized();
 }
 
 bool Volume::isVisible() const

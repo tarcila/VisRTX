@@ -51,6 +51,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
 
  protected:
   VolumeGPUData gpuData() const override;
+  void updateValidity();
 
  private:
   mutable DeviceBuffer m_aabbsBuffer;

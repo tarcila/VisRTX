@@ -831,15 +831,20 @@ void testScopedVolumeBLAS(anari::Device d)
   Harness b(d);
   anari::setParameter(d, a.frames[1], "world", b.world);
   anari::commitParameters(d, a.frames[1]);
-  const std::array<float, 8> values{0, 1, 0, 1, 0, 1, 0, 1};
-  auto data = anariNewArray3D(
-      d, values.data(), nullptr, nullptr, ANARI_FLOAT32, 2, 2, 2);
+  std::array<anari::Array3D, 2> data{};
+  for (auto &array : data) {
+    array =
+        anariNewArray3D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 2, 2, 2);
+    auto *values = static_cast<float *>(anariMapArray(d, array));
+    std::fill(values, values + 8, 0.5f);
+    anariUnmapArray(d, array);
+  }
   std::array<anari::SpatialField, 2> fields{};
   std::array<anari::Volume, 2> volumes{};
   const std::array<anari::Group, 2> groups{a.group, b.group};
   for (size_t i = 0; i < fields.size(); ++i) {
     fields[i] = anari::newObject<anari::SpatialField>(d, "structuredRegular");
-    anari::setParameter(d, fields[i], "data", data);
+    anari::setParameter(d, fields[i], "data", data[i]);
     anari::commitParameters(d, fields[i]);
     volumes[i] = anari::newObject<anari::Volume>(d, "transferFunction1D");
     anari::setParameter(d, volumes[i], "value", fields[i]);
@@ -877,11 +882,163 @@ void testScopedVolumeBLAS(anari::Device d)
       "field bounds rebuilt unrelated B BLAS");
   CHECK(b.counts().worldTLAS == beforeB.worldTLAS,
       "field bounds rebuilt unrelated B TLAS");
+  auto checkEdit = [&](const char *name, bool structural, bool empty = false) {
+    const auto previousA = a.counts();
+    const auto previousB = b.counts();
+    CHECK(!a.renderAndCheck(0), "%s did not reset A", name);
+    CHECK(a.renderAndCheck(1), "%s reset B", name);
+    CHECK(a.counts().groupBLAS == previousA.groupBLAS + (structural && !empty),
+        "%s: wrong A BLAS count",
+        name);
+    CHECK(a.counts().worldTLAS == previousA.worldTLAS + structural,
+        "%s: wrong A TLAS count",
+        name);
+    CHECK(
+        b.counts().groupBLAS == previousB.groupBLAS, "%s rebuilt B BLAS", name);
+    CHECK(
+        b.counts().worldTLAS == previousB.worldTLAS, "%s rebuilt B TLAS", name);
+    CHECK(a.renderAndCheck(0), "%s caused a second reset", name);
+  };
+  a.renderAndCheck(0);
+
+  auto colors =
+      anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, 2);
+  auto *colorValues = static_cast<float3 *>(anariMapArray(d, colors));
+  colorValues[0] = {0.1f, 0.2f, 0.3f};
+  colorValues[1] = {0.5f, 0.6f, 0.7f};
+  anariUnmapArray(d, colors);
+  anari::setParameter(d, volumes[0], "color", colors);
+  anari::commitParameters(d, volumes[0]);
+  checkEdit("color map", false);
+  colorValues = static_cast<float3 *>(anariMapArray(d, colors));
+  colorValues[0][0] = 0.4f;
+  anariUnmapArray(d, colors);
+  checkEdit("color map unmap", false);
+
+  auto opacity =
+      anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 2);
+  auto *opacityValues = static_cast<float *>(anariMapArray(d, opacity));
+  opacityValues[0] = 0.1f;
+  opacityValues[1] = 0.2f;
+  anariUnmapArray(d, opacity);
+  anari::setParameter(d, volumes[0], "opacity", opacity);
+  anari::commitParameters(d, volumes[0]);
+  checkEdit("opacity map", false);
+  opacityValues = static_cast<float *>(anariMapArray(d, opacity));
+  opacityValues[1] = 0.3f;
+  anariUnmapArray(d, opacity);
+  checkEdit("opacity map unmap", false);
+
+  auto *values = static_cast<float *>(anariMapArray(d, data[0]));
+  values[0] = 0.7f;
+  anariUnmapArray(d, data[0]);
+  checkEdit("field data unmap", false);
+  anariMapArray(d, data[0]);
+  anariUnmapArray(d, data[0]);
+  checkEdit("identical field data unmap", false);
+  anari::setParameter(d, fields[0], "filter", "nearest");
+  anari::commitParameters(d, fields[0]);
+  checkEdit("field filter", false);
+  anari::setParameter(d,
+      fields[0],
+      "roi",
+      std::array<float3, 2>{float3{0.2f, 0.f, 0.f}, float3{0.8f, 1.f, 1.f}});
+  anari::commitParameters(d, fields[0]);
+  checkEdit("field ROI", false);
+  anari::setParameter(d, fields[0], "spacing", float3{0.8f, 1.f, 1.f});
+  anari::commitParameters(d, fields[0]);
+  checkEdit("field spacing", true);
+  anari::setParameter(d, fields[0], "dataCentering", "cell");
+  anari::commitParameters(d, fields[0]);
+  checkEdit("field centering", true);
+
+  auto largerData =
+      anariNewArray3D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 3, 2, 2);
+  values = static_cast<float *>(anariMapArray(d, largerData));
+  std::fill(values, values + 12, 0.4f);
+  anariUnmapArray(d, largerData);
+  anari::setParameter(d, fields[0], "data", largerData);
+  anari::commitParameters(d, fields[0]);
+  checkEdit("field dimensions", true);
+  anari::unsetParameter(d, fields[0], "data");
+  anari::commitParameters(d, fields[0]);
+  checkEdit("invalid field", true, true);
+  anari::setParameter(d, fields[0], "data", largerData);
+  anari::commitParameters(d, fields[0]);
+  checkEdit("valid field", true);
+
+  // A distinct field handle with identical bounds is not structural.
+  auto replacement =
+      anari::newObject<anari::SpatialField>(d, "structuredRegular");
+  anari::setParameter(d, replacement, "data", largerData);
+  anari::setParameter(d, replacement, "origin", float3{0.1f, 0.f, 0.f});
+  anari::setParameter(d, replacement, "spacing", float3{0.8f, 1.f, 1.f});
+  anari::setParameter(d, replacement, "dataCentering", "cell");
+  anari::commitParameters(d, replacement);
+  anari::setParameter(d, volumes[0], "value", replacement);
+  anari::commitParameters(d, volumes[0]);
+  checkEdit("equal-bounds field swap", false);
+
+  // Sharing the field resets both consumers even if B renders first.
+  anari::setParameter(d, volumes[1], "value", replacement);
+  anari::commitParameters(d, volumes[1]);
+  a.renderAndCheck(0);
+  a.renderAndCheck(1);
+  a.renderAndCheck(1);
+  const auto sharedA = a.counts();
+  const auto sharedB = b.counts();
+  anariMapArray(d, largerData);
+  anariUnmapArray(d, largerData);
+  CHECK(!a.renderAndCheck(1), "shared field data did not reset B");
+  CHECK(!a.renderAndCheck(0), "shared field data did not reset A");
+  CHECK(a.counts().groupBLAS == sharedA.groupBLAS
+          && b.counts().groupBLAS == sharedB.groupBLAS,
+      "shared field data rebuilt BLAS");
+  CHECK(a.counts().worldTLAS == sharedA.worldTLAS
+          && b.counts().worldTLAS == sharedB.worldTLAS,
+      "shared field data rebuilt TLAS");
+
+  auto rectilinear =
+      anari::newObject<anari::SpatialField>(d, "structuredRectilinear");
+  std::array<anari::Array1D, 3> coords{};
+  const std::array<const char *, 3> coordNames{"coordsX", "coordsY", "coordsZ"};
+  for (size_t axis = 0; axis < coords.size(); ++axis) {
+    const size_t count = axis == 0 ? 3 : 2;
+    coords[axis] =
+        anariNewArray1D(d, nullptr, nullptr, nullptr, ANARI_FLOAT32, count);
+    auto *c = static_cast<float *>(anariMapArray(d, coords[axis]));
+    for (size_t i = 0; i < count; ++i)
+      c[i] = float(i);
+    anariUnmapArray(d, coords[axis]);
+    anari::setParameter(d, rectilinear, coordNames[axis], coords[axis]);
+  }
+  anari::setParameter(d, rectilinear, "data", largerData);
+  anari::commitParameters(d, rectilinear);
+  anari::setParameter(d, volumes[0], "value", rectilinear);
+  anari::commitParameters(d, volumes[0]);
+  a.renderAndCheck(0);
+  a.renderAndCheck(0);
+  a.renderAndCheck(1);
+  auto *xCoords = static_cast<float *>(anariMapArray(d, coords[0]));
+  xCoords[1] = 0.8f;
+  anariUnmapArray(d, coords[0]);
+  checkEdit("rectilinear interior coordinate", false);
+  xCoords = static_cast<float *>(anariMapArray(d, coords[0]));
+  xCoords[2] = 2.2f;
+  anariUnmapArray(d, coords[0]);
+  checkEdit("rectilinear endpoint", true);
+  for (auto array : coords)
+    anari::release(d, array);
+  anari::release(d, rectilinear);
+  anari::release(d, replacement);
+  anari::release(d, largerData);
+  anari::release(d, colors);
+  anari::release(d, opacity);
   for (size_t i = 0; i < fields.size(); ++i) {
     anari::release(d, volumes[i]);
     anari::release(d, fields[i]);
+    anari::release(d, data[i]);
   }
-  anari::release(d, data);
 }
 
 void testRebuildCounted(anari::Device d)

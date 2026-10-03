@@ -45,6 +45,7 @@ struct TransferFunction1D : public Volume
   void commitParameters() override;
   void finalize() override;
   void markFinalized() override;
+  void propagateChangeFrom(Object *child) override;
   bool isValid() const override;
 
  private:
@@ -52,6 +53,8 @@ struct TransferFunction1D : public Volume
   void discritizeTFData();
   void createTFTexture();
   void cleanup();
+  void refreshFieldData();
+  void updateBounds();
 
   helium::ChangeObserverPtr<Array1D> m_color;
   helium::ChangeObserverPtr<Array1D> m_opacity;
@@ -62,6 +65,7 @@ struct TransferFunction1D : public Volume
   float m_uniformOpacity{1.f};
 
   helium::ChangeObserverPtr<SpatialField> m_field;
+  box3 m_bounds{vec3(0.f), vec3(0.f)};
 
   std::vector<vec4> m_tf;
   int m_tfDim{256};

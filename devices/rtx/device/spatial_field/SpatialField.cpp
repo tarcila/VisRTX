@@ -48,13 +48,18 @@ SpatialField::SpatialField(DeviceGlobalState *s)
 
 void SpatialField::markFinalized()
 {
-  markChanged(ChangeKind::BLAS);
+  const bool valid = isValid();
+  if (valid != m_wasValid)
+    markChanged(ChangeKind::BLAS);
+  if (valid) {
+    const auto b = bounds();
+    if (b.lower != m_bounds.lower || b.upper != m_bounds.upper)
+      markChanged(ChangeKind::BLAS);
+    m_bounds = b;
+  }
+  m_wasValid = valid;
+  markChanged(ChangeKind::SLOT);
   Object::markFinalized();
-}
-
-bool SpatialField::observersRefinalizeOnChange() const
-{
-  return true;
 }
 
 SpatialField *SpatialField::createInstance(

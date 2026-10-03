@@ -57,12 +57,7 @@ void TransferFunction1D::commitParameters()
   // from m_uniformColor.
   m_uniformOpacity = getParam<float>("opacity", 1.f);
   m_unitDistance = getParam<float>("unitDistance", 1.f);
-  const SpatialField *previousField = m_field.get();
   m_field = getParamObject<SpatialField>("value");
-  // AABB comes from m_field. Only a field-pointer swap moves it; field
-  // data changes hit SpatialField::markFinalized.
-  if (m_field.get() != previousField)
-    markChanged(ChangeKind::BLAS);
   getParam("valueRange", ANARI_FLOAT32_VEC2, &m_valueRange);
   getParam("valueRange", ANARI_FLOAT32_BOX1, &m_valueRange);
   double valueRange_d[2] = {0.0, 1.0};
@@ -89,18 +84,47 @@ void TransferFunction1D::finalize()
 
   discritizeTFData();
   createTFTexture();
+  refreshFieldData();
+}
+
+void TransferFunction1D::markFinalized()
+{
+  updateBounds();
+  Volume::markFinalized();
+}
+
+void TransferFunction1D::propagateChangeFrom(Object *child)
+{
+  if (child != m_field.get())
+    return;
+
+  // Fields replace their grid storage on data edits. Refresh opacity bounds
+  // and the volume slot, but keep the unchanged transfer-function texture.
+  refreshFieldData();
+  updateBounds();
+  updateValidity();
+  markChanged(ChangeKind::SLOT, child->lastChange(ChangeKind::SLOT));
+  notifyChangeObservers();
+  propagateImageFrom(child);
+}
+
+void TransferFunction1D::refreshFieldData()
+{
+  if (!isValid())
+    return;
   m_field->m_uniformGrid.computeOpacityBounds(
       deviceState()->stream, m_textureObject, m_tfDim, m_valueRange);
   upload();
 }
 
-void TransferFunction1D::markFinalized()
+void TransferFunction1D::updateBounds()
 {
-  // Field notifications still re-pack volumes, with conservative BLAS
-  // emission. Forward that stamp without making TF-only edits structural.
-  if (m_field)
-    markChanged(ChangeKind::BLAS, m_field->lastChange(ChangeKind::BLAS));
-  Volume::markFinalized();
+  if (!isValid())
+    return;
+  const auto b = m_field->bounds();
+  if (b.lower != m_bounds.lower || b.upper != m_bounds.upper)
+    markChanged(ChangeKind::BLAS);
+  m_bounds = b;
 }
 
 bool TransferFunction1D::isValid() const
