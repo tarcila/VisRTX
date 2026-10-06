@@ -64,8 +64,7 @@
             anari-cycles
             anari-ospray
             anari-visionaray
-          ]
-          ++ (lib.optionals (system == "x86_64-linux") [ visgl ]);
+          ];
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
       in
       {
@@ -114,6 +113,7 @@
             vela
             anari-vsr
             materialx
+            catch2_3
           ];
 
           inputsFrom = with pkgs; [
