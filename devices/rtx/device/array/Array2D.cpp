@@ -51,16 +51,9 @@ anari::math::uint2 Array2D::size() const
   return anari::math::uint2(uint32_t(size(0)), uint32_t(size(1)));
 }
 
-void Array2D::makeCUDAArray(cudaArray_t &array) const
+cudaError_t Array2D::makeCUDAArray(cudaArray_t &array) const
 {
-  makeCudaArray(array, *this, uvec2(size().x, size().y));
-}
-
-void Array2D::uploadArrayData() const
-{
-  Array::uploadArrayData();
-  if (auto storage = m_cuArray.lock())
-    makeCUDAArray(storage->array);
+  return makeCudaArray(array, *this, {size().x, size().y, 1});
 }
 
 } // namespace visrtx

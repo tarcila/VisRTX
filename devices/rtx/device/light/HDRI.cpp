@@ -47,10 +47,12 @@
 #include <cuda_runtime.h>
 
 // std
+#include <string>
+#ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG
 #include <cstdio>
 #include <fstream>
-#include <string>
 #include <vector>
+#endif
 
 namespace anari {
 ANARI_TYPEFOR_SPECIALIZATION(float3, ANARI_FLOAT32_VEC3);
@@ -82,6 +84,7 @@ void HDRI::finalize()
   if (!m_radiance) {
     cleanup();
     m_cuArray.reset();
+    upload();
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'radiance' on HDRI light");
     return;
@@ -93,19 +96,21 @@ void HDRI::finalize()
     m_cuArray.reset();
     m_radiance = nullptr;
     m_radianceLastUpdated = {};
+    upload();
     return;
   }
 
   auto radianceDataModified = m_radiance->lastDataModified();
-  if (m_radianceLastUpdated != radianceDataModified) {
-    m_radianceLastUpdated = radianceDataModified;
-
+  // The CDFs need their own freshness gate, independent of shared texels.
+  if (!m_radianceTex || m_radianceLastUpdated != radianceDataModified) {
     cleanup();
 
     const bool isFp = isFloat(m_radiance->elementType());
     m_cuArray = m_radiance->acquireCUDAArray();
-    if (!m_cuArray)
+    if (!m_cuArray) {
+      upload();
       return;
+    }
     const cudaArray_t cuArray = m_cuArray->array;
 
     m_size = {m_radiance->size(0), m_radiance->size(1)};
@@ -119,6 +124,8 @@ void HDRI::finalize()
 
     m_radianceTex = makeCudaTextureObject2D(
         cuArray, !isFp, "linear", "repeat", "clampToEdge");
+    if (m_radianceTex)
+      m_radianceLastUpdated = radianceDataModified;
   }
 
 #ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG
@@ -130,7 +137,7 @@ void HDRI::finalize()
 
 bool HDRI::isValid() const
 {
-  return m_radiance;
+  return m_radianceTex != 0;
 }
 
 bool HDRI::isHDRI() const
@@ -141,6 +148,8 @@ bool HDRI::isHDRI() const
 LightGPUData HDRI::gpuData() const
 {
   auto retval = Light::gpuData();
+  if (!isValid())
+    return retval;
 
   const vec3 up = -glm::normalize(m_up);
   const vec3 forward = -glm::normalize(glm::cross(up, m_direction));

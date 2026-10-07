@@ -62,7 +62,7 @@ AddressSpace getPointerAddressSpace(const void *ptr);
  */
 struct CUDAArray
 {
-  CUDAArray() = default;
+  explicit CUDAArray(size_t count) : numTexels(count) {}
   ~CUDAArray();
   CUDAArray(const CUDAArray &) = delete;
   CUDAArray &operator=(const CUDAArray &) = delete;
@@ -70,6 +70,9 @@ struct CUDAArray
   CUDAArray &operator=(CUDAArray &&) = delete;
 
   cudaArray_t array{};
+  const size_t numTexels;
+  helium::TimeStamp lastUpload{0};
+  helium::TimeStamp lastReportedFailure{0};
 };
 
 struct Array : public UploadableArray
@@ -124,11 +127,12 @@ struct Array : public UploadableArray
   template <typename T>
   void throwIfDifferentElementType() const;
 
-  virtual void makeCUDAArray(cudaArray_t &array) const = 0;
-
-  std::weak_ptr<CUDAArray> m_cuArray;
+  virtual cudaError_t makeCUDAArray(cudaArray_t &array) const = 0;
 
  private:
+  bool refreshCUDAArray(CUDAArray &storage) const;
+  std::weak_ptr<CUDAArray> m_cuArray;
+
   void on_NoInternalReferences() override;
   void on_NoPublicReferences() override;
 

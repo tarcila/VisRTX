@@ -129,14 +129,41 @@ Array::~Array() = default;
 std::shared_ptr<CUDAArray> Array::acquireCUDAArray()
 {
   auto storage = m_cuArray.lock();
-  if (!storage) {
-    storage = std::make_shared<CUDAArray>();
-    makeCUDAArray(storage->array);
-    if (!storage->array)
-      return {};
-    m_cuArray = storage;
-  }
+  // Only Array1D can change its extent (begin/end). Keep the old allocation
+  // alive through its consumers while they rebuild their texture objects.
+  if (!storage || storage->numTexels != totalSize())
+    storage = std::make_shared<CUDAArray>(totalSize());
+  if (!refreshCUDAArray(*storage))
+    return {};
+  m_cuArray = storage;
   return storage;
+}
+
+bool Array::refreshCUDAArray(CUDAArray &storage) const
+{
+  const auto modified = lastDataModified();
+  if (storage.array && storage.lastUpload >= modified)
+    return true;
+
+  const auto error = makeCUDAArray(storage.array);
+  if (error != cudaSuccess) {
+    // This failure is handled here; do not leave it for a later CUDA/Thrust
+    // operation to misattribute to its own work.
+    cudaGetLastError();
+    // Every linear access and acquisition retries; report each source version
+    // once rather than once per frame.
+    if (storage.lastReportedFailure != modified) {
+      storage.lastReportedFailure = modified;
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "CUDA texture upload failed: %s",
+          cudaGetErrorString(error));
+    }
+    return false;
+  }
+  // Texture freshness is independent of the linear device buffer. Only a
+  // successful copy covers this source version.
+  storage.lastUpload = modified;
+  return true;
 }
 
 bool Array::getProperty(const std::string_view &name,
@@ -202,17 +229,21 @@ void Array::privatize()
 
 void Array::uploadArrayData() const
 {
-  if (!needToUploadData())
-    return;
+  if (needToUploadData()) {
+    if (m_data.shared.host.isValid())
+      m_data.shared.device = m_data.shared.host;
+    else if (m_data.captured.host.isValid())
+      m_data.captured.device = m_data.captured.host;
+    else if (m_data.managed.host.isValid())
+      m_data.managed.device = m_data.managed.host;
+    markDataUploaded();
+  }
 
-  if (m_data.shared.host.isValid())
-    m_data.shared.device = m_data.shared.host;
-  else if (m_data.captured.host.isValid())
-    m_data.captured.device = m_data.captured.host;
-  else if (m_data.managed.host.isValid())
-    m_data.managed.device = m_data.managed.host;
-
-  markDataUploaded();
+  // Linear-only access must not allocate or resize texture storage; see
+  // acquireCUDAArray().
+  if (auto storage = m_cuArray.lock();
+      storage && storage->numTexels == totalSize())
+    refreshCUDAArray(*storage);
 }
 
 ANARIDataType Array::elementType() const

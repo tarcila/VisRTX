@@ -140,10 +140,11 @@ void ObjectArray::uploadArrayData() const
   markDataUploaded();
 }
 
-void ObjectArray::makeCUDAArray(cudaArray_t &array) const
+cudaError_t ObjectArray::makeCUDAArray(cudaArray_t &array) const
 {
   reportMessage(ANARI_SEVERITY_ERROR,
       "cannot create CUDA texture storage from an array of objects");
+  return cudaErrorInvalidValue;
 }
 
 void ObjectArray::updateInternalHandleArrays() const

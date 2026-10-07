@@ -46,10 +46,8 @@ struct Array3D : public Array
   size_t size(int dim) const;
   anari::math::uint3 size() const;
 
-  void uploadArrayData() const override;
-
  protected:
-  void makeCUDAArray(cudaArray_t &array) const override;
+  cudaError_t makeCUDAArray(cudaArray_t &array) const override;
 
  private:
   size_t m_size[3] = {0, 0, 0};

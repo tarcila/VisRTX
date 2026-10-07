@@ -62,7 +62,7 @@ struct ObjectArray : public Array
  protected:
   // Object handles are never texture storage; acquireCUDAArray() on one is a
   // programming error rather than an unsupported format.
-  void makeCUDAArray(cudaArray_t &array) const override;
+  cudaError_t makeCUDAArray(cudaArray_t &array) const override;
 
  private:
   void updateInternalHandleArrays() const;

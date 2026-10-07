@@ -62,10 +62,8 @@ struct Array1D : public Array
   template <typename T>
   const T *valueAt(size_t i) const;
 
-  void uploadArrayData() const override;
-
  protected:
-  void makeCUDAArray(cudaArray_t &array) const override;
+  cudaError_t makeCUDAArray(cudaArray_t &array) const override;
 
  private:
   size_t m_begin{0};

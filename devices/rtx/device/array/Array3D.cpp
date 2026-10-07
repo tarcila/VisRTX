@@ -53,16 +53,9 @@ anari::math::uint3 Array3D::size() const
       uint32_t(size(0)), uint32_t(size(1)), uint32_t(size(2)));
 }
 
-void Array3D::makeCUDAArray(cudaArray_t &array) const
+cudaError_t Array3D::makeCUDAArray(cudaArray_t &array) const
 {
-  makeCudaArray(array, *this, uvec3(size().x, size().y, size().z));
-}
-
-void Array3D::uploadArrayData() const
-{
-  Array::uploadArrayData();
-  if (auto storage = m_cuArray.lock())
-    makeCUDAArray(storage->array);
+  return makeCudaArray(array, *this, {size().x, size().y, size().z});
 }
 
 } // namespace visrtx
