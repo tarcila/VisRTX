@@ -90,31 +90,16 @@ const void *Array1D::end(AddressSpace as) const
   return p + (s * m_end);
 }
 
-cudaArray_t Array1D::acquireCUDAArray()
+void Array1D::makeCUDAArray(cudaArray_t &array) const
 {
-  if (!m_cuArray)
-    makeCudaArray(m_cuArray, *this, {totalSize(), 1});
-  m_arrayRefCount++;
-  return m_cuArray;
-}
-
-void Array1D::releaseCUDAArray()
-{
-  if (m_arrayRefCount == 0)
-    return;
-
-  m_arrayRefCount--;
-  if (m_arrayRefCount == 0) {
-    cudaFreeArray(m_cuArray);
-    m_cuArray = {};
-  }
+  makeCudaArray(array, *this, {totalSize(), 1});
 }
 
 void Array1D::uploadArrayData() const
 {
   Array::uploadArrayData();
-  if (m_cuArray)
-    makeCudaArray(m_cuArray, *this, {totalSize(), 1});
+  if (auto storage = m_cuArray.lock())
+    makeCUDAArray(storage->array);
 }
 
 } // namespace visrtx

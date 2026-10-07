@@ -51,13 +51,13 @@ struct Image1D : public Sampler
  private:
   SamplerGPUData gpuData() const override;
 
-  void cleanupImageCudaArray();
   void cleanupImageTextureObjects();
 
   std::string m_filter;
   std::string m_wrap1;
   helium::ChangeObserverPtr<Array1D> m_image;
 
+  std::shared_ptr<CUDAArray> m_cuArray;
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};
 };

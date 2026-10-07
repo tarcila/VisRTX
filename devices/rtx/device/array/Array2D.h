@@ -46,10 +46,10 @@ struct Array2D : public Array
   size_t size(int dim) const;
   anari::math::uint2 size() const;
 
-  cudaArray_t acquireCUDAArray();
-  void releaseCUDAArray();
-
   void uploadArrayData() const override;
+
+ protected:
+  void makeCUDAArray(cudaArray_t &array) const override;
 
  private:
   size_t m_size[2] = {0, 0};

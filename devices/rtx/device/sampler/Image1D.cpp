@@ -38,7 +38,6 @@ Image1D::Image1D(DeviceGlobalState *d) : Sampler(d), m_image(this) {}
 Image1D::~Image1D()
 {
   cleanupImageTextureObjects();
-  cleanupImageCudaArray();
 }
 
 void Image1D::commitParameters()
@@ -46,16 +45,16 @@ void Image1D::commitParameters()
   Sampler::commitParameters();
   m_filter = getParamString("filter", "linear");
   m_wrap1 = getParamString("wrapMode", "clampToEdge");
-  auto *oldImage = m_image.get();
-  auto *newImage = getParamObject<Array1D>("image");
-  if (oldImage != newImage)
-    cleanupImageCudaArray();
-  m_image = newImage;
+  m_image = getParamObject<Array1D>("image");
 }
 
 void Image1D::finalize()
 {
+  // Texture objects must die before their shared storage is replaced.
+  cleanupImageTextureObjects();
   if (!m_image) {
+    m_cuArray.reset();
+    upload();
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'image' on image1D sampler");
     return;
@@ -64,6 +63,8 @@ void Image1D::finalize()
   ANARIDataType format = m_image->elementType();
   auto nc = numANARIChannels(format);
   if (nc == 0) {
+    m_cuArray.reset();
+    upload();
     reportMessage(ANARI_SEVERITY_WARNING,
         "invalid texture type encountered in image1D sampler (%s)",
         anari::toString(format));
@@ -71,9 +72,12 @@ void Image1D::finalize()
   }
 
   const bool isFp = isFloat(m_image->elementType());
-  cudaArray_t cuArray = m_image->acquireCUDAArray();
-
-  cleanupImageTextureObjects();
+  m_cuArray = m_image->acquireCUDAArray();
+  if (!m_cuArray) {
+    upload();
+    return;
+  }
+  const cudaArray_t cuArray = m_cuArray->array;
 
   // sRGB data is kept as raw bytes; the sampler does sRGB->linear in hardware.
   const bool sRGB = isSrgb8(m_image->elementType());
@@ -87,11 +91,13 @@ void Image1D::finalize()
 
 bool Image1D::isValid() const
 {
-  return m_image;
+  return m_texture && m_texels;
 }
 
 int Image1D::numChannels() const
 {
+  if (!m_image)
+    return 0;
   ANARIDataType format = m_image->elementType();
   return numANARIChannels(format);
 }
@@ -99,6 +105,8 @@ int Image1D::numChannels() const
 SamplerGPUData Image1D::gpuData() const
 {
   SamplerGPUData retval = Sampler::gpuData();
+  if (!m_texture || !m_texels)
+    return retval;
   retval.type = SamplerType::TEXTURE1D;
   retval.image1D.texobj = m_texture;
   retval.image1D.texelTexobj = m_texels;
@@ -108,18 +116,12 @@ SamplerGPUData Image1D::gpuData() const
   return retval;
 }
 
-void Image1D::cleanupImageCudaArray()
-{
-  if (!m_image)
-    return;
-
-  m_image->releaseCUDAArray();
-}
-
 void Image1D::cleanupImageTextureObjects()
 {
-  cudaDestroyTextureObject(m_texels);
-  cudaDestroyTextureObject(m_texture);
+  if (m_texels)
+    cudaDestroyTextureObject(m_texels);
+  if (m_texture)
+    cudaDestroyTextureObject(m_texture);
   m_texels = {};
   m_texture = {};
 }

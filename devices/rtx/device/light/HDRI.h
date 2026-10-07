@@ -66,6 +66,7 @@ struct HDRI : public Light
   uvec2 m_size{0, 0};
   helium::ChangeObserverPtr<Array2D> m_radiance;
   helium::TimeStamp m_radianceLastUpdated{};
+  std::shared_ptr<CUDAArray> m_cuArray;
   cudaTextureObject_t m_radianceTex{};
   DeviceBuffer m_marginalCDF;
   DeviceBuffer m_conditionalCDF;

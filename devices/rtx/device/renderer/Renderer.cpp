@@ -212,13 +212,17 @@ void Renderer::finalize()
   if (m_backgroundImage) {
     const ANARIDataType fmt = m_backgroundImage->elementType();
     if (numANARIChannels(fmt) == 0) {
+      m_cuArray.reset();
       reportMessage(ANARI_SEVERITY_WARNING,
           "invalid background image element type (%s); ignoring",
           anari::toString(fmt));
       return; // m_backgroundTexture stays null -> COLOR background fallback
     }
     const bool isFp = isFloat(fmt);
-    auto cuArray = m_backgroundImage->acquireCUDAArray();
+    m_cuArray = m_backgroundImage->acquireCUDAArray();
+    if (!m_cuArray)
+      return;
+    const cudaArray_t cuArray = m_cuArray->array;
     m_backgroundTexture = makeCudaTextureObject2D(cuArray,
         !isFp,
         "linear",
@@ -226,7 +230,8 @@ void Renderer::finalize()
         "clampToEdge",
         vec4(0.f),
         isSrgb8(fmt));
-  }
+  } else
+    m_cuArray.reset();
 }
 
 Span<HitgroupFunctionNames> Renderer::hitgroupSbtNames() const
@@ -1179,11 +1184,9 @@ void Renderer::releasePipeline()
 
 void Renderer::cleanup()
 {
-  if (m_backgroundImage) {
-    if (m_backgroundTexture) {
-      cudaDestroyTextureObject(m_backgroundTexture);
-      m_backgroundImage->releaseCUDAArray();
-    }
+  if (m_backgroundTexture) {
+    cudaDestroyTextureObject(m_backgroundTexture);
+    m_backgroundTexture = {};
   }
 }
 

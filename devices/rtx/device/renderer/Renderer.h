@@ -108,6 +108,7 @@ struct Renderer : public Object
   vec4 m_cutPlane{0.f};
 
   helium::ChangeObserverPtr<Array2D> m_backgroundImage;
+  std::shared_ptr<CUDAArray> m_cuArray;
   cudaTextureObject_t m_backgroundTexture{};
 
   // OptiX //

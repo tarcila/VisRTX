@@ -52,7 +52,6 @@ Image2D::Image2D(DeviceGlobalState *d) : Sampler(d), m_image(this) {}
 Image2D::~Image2D()
 {
   cleanupImageTextureObjects();
-  cleanupImageCudaArray();
 }
 
 void Image2D::commitParameters()
@@ -61,16 +60,16 @@ void Image2D::commitParameters()
   m_filter = getParamString("filter", "linear");
   m_wrap1 = getParamString("wrapMode1", "clampToEdge");
   m_wrap2 = getParamString("wrapMode2", "clampToEdge");
-  auto *oldImage = m_image.get();
-  auto *newImage = getParamObject<Array2D>("image");
-  if (oldImage != newImage)
-    cleanupImageCudaArray();
-  m_image = newImage;
+  m_image = getParamObject<Array2D>("image");
 }
 
 void Image2D::finalize()
 {
+  // Texture objects must die before their shared storage is replaced.
+  cleanupImageTextureObjects();
   if (!m_image) {
+    m_cuArray.reset();
+    upload();
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'image' on image2D sampler");
     return;
@@ -79,6 +78,8 @@ void Image2D::finalize()
   const ANARIDataType format = m_image->elementType();
   auto nc = numANARIChannels(format);
   if (nc == 0) {
+    m_cuArray.reset();
+    upload();
     reportMessage(ANARI_SEVERITY_WARNING,
         "invalid texture type encountered in image2D sampler (%s)",
         anari::toString(format));
@@ -86,9 +87,12 @@ void Image2D::finalize()
   }
 
   const bool isFp = isFloat(m_image->elementType());
-  cudaArray_t cuArray = m_image->acquireCUDAArray();
-
-  cleanupImageTextureObjects();
+  m_cuArray = m_image->acquireCUDAArray();
+  if (!m_cuArray) {
+    upload();
+    return;
+  }
+  const cudaArray_t cuArray = m_cuArray->array;
 
   // sRGB data is kept as raw bytes; the sampler does sRGB->linear in hardware.
   const bool sRGB = isSrgb8(m_image->elementType());
@@ -106,7 +110,7 @@ void Image2D::finalize()
 
 bool Image2D::isValid() const
 {
-  return m_image;
+  return m_texture && m_texels;
 }
 
 vec4 Image2D::averageValue() const
@@ -206,6 +210,8 @@ Image2D::TextureReduction Image2D::computeTextureReduction() const
 
 int Image2D::numChannels() const
 {
+  if (!m_image)
+    return 0;
   ANARIDataType format = m_image->elementType();
   return numANARIChannels(format);
 }
@@ -218,6 +224,8 @@ cudaTextureObject_t Image2D::textureObject() const
 SamplerGPUData Image2D::gpuData() const
 {
   SamplerGPUData retval = Sampler::gpuData();
+  if (!m_texture || !m_texels)
+    return retval;
   retval.type = SamplerType::TEXTURE2D;
   retval.image2D.texobj = m_texture;
   retval.image2D.texelTexobj = m_texels;
@@ -228,18 +236,12 @@ SamplerGPUData Image2D::gpuData() const
   return retval;
 }
 
-void Image2D::cleanupImageCudaArray()
-{
-  if (!m_image)
-    return;
-
-  m_image->releaseCUDAArray();
-}
-
 void Image2D::cleanupImageTextureObjects()
 {
-  cudaDestroyTextureObject(m_texels);
-  cudaDestroyTextureObject(m_texture);
+  if (m_texels)
+    cudaDestroyTextureObject(m_texels);
+  if (m_texture)
+    cudaDestroyTextureObject(m_texture);
   m_texels = {};
   m_texture = {};
 }

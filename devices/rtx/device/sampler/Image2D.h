@@ -81,7 +81,6 @@ struct Image2D : public Sampler
   const TextureReduction &textureReduction() const;
   TextureReduction computeTextureReduction() const;
 
-  void cleanupImageCudaArray();
   void cleanupImageTextureObjects();
 
   std::string m_filter;
@@ -89,6 +88,7 @@ struct Image2D : public Sampler
   std::string m_wrap2;
   helium::ChangeObserverPtr<Array2D> m_image;
 
+  std::shared_ptr<CUDAArray> m_cuArray;
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};
 

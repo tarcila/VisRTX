@@ -80,6 +80,8 @@ void HDRI::commitParameters()
 void HDRI::finalize()
 {
   if (!m_radiance) {
+    cleanup();
+    m_cuArray.reset();
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing required parameter 'radiance' on HDRI light");
     return;
@@ -87,6 +89,8 @@ void HDRI::finalize()
     reportMessage(ANARI_SEVERITY_WARNING,
         "invalid element type %s for 'radiance' on HDRI light",
         anari::toString(m_radiance->elementType()));
+    cleanup();
+    m_cuArray.reset();
     m_radiance = nullptr;
     m_radianceLastUpdated = {};
     return;
@@ -99,7 +103,10 @@ void HDRI::finalize()
     cleanup();
 
     const bool isFp = isFloat(m_radiance->elementType());
-    cudaArray_t cuArray = m_radiance->acquireCUDAArray();
+    m_cuArray = m_radiance->acquireCUDAArray();
+    if (!m_cuArray)
+      return;
+    const cudaArray_t cuArray = m_cuArray->array;
 
     m_size = {m_radiance->size(0), m_radiance->size(1)};
 
@@ -156,9 +163,9 @@ LightGPUData HDRI::gpuData() const
 
 void HDRI::cleanup()
 {
-  if (m_radiance && m_radianceTex) {
+  if (m_radianceTex) {
     cudaDestroyTextureObject(m_radianceTex);
-    m_radiance->releaseCUDAArray();
+    m_radianceTex = {};
   }
 
 #ifdef VISRTX_ENABLE_HDRI_SAMPLING_DEBUG

@@ -53,28 +53,16 @@ anari::math::uint3 Array3D::size() const
       uint32_t(size(0)), uint32_t(size(1)), uint32_t(size(2)));
 }
 
-cudaArray_t Array3D::acquireCUDAArray()
+void Array3D::makeCUDAArray(cudaArray_t &array) const
 {
-  if (!m_cuArray)
-    makeCudaArray(m_cuArray, *this, uvec3(size().x, size().y, size().z));
-  m_arrayRefCount++;
-  return m_cuArray;
-}
-
-void Array3D::releaseCUDAArray()
-{
-  m_arrayRefCount--;
-  if (m_arrayRefCount == 0) {
-    cudaFreeArray(m_cuArray);
-    m_cuArray = {};
-  }
+  makeCudaArray(array, *this, uvec3(size().x, size().y, size().z));
 }
 
 void Array3D::uploadArrayData() const
 {
   Array::uploadArrayData();
-  if (m_cuArray)
-    makeCudaArray(m_cuArray, *this, uvec3(size().x, size().y, size().z));
+  if (auto storage = m_cuArray.lock())
+    makeCUDAArray(storage->array);
 }
 
 } // namespace visrtx

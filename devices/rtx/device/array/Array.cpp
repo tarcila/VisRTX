@@ -118,7 +118,26 @@ Array::Array(ANARIDataType arrayType,
   }
 }
 
+CUDAArray::~CUDAArray()
+{
+  if (array)
+    cudaFreeArray(array);
+}
+
 Array::~Array() = default;
+
+std::shared_ptr<CUDAArray> Array::acquireCUDAArray()
+{
+  auto storage = m_cuArray.lock();
+  if (!storage) {
+    storage = std::make_shared<CUDAArray>();
+    makeCUDAArray(storage->array);
+    if (!storage->array)
+      return {};
+    m_cuArray = storage;
+  }
+  return storage;
+}
 
 bool Array::getProperty(const std::string_view &name,
     ANARIDataType type,

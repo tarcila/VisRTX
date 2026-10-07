@@ -56,7 +56,6 @@ struct Image3D : public Sampler
  private:
   SamplerGPUData gpuData() const override;
 
-  void cleanupImageCudaArray();
   void cleanupImageTextureObjects();
 
   std::string m_filter;
@@ -65,6 +64,7 @@ struct Image3D : public Sampler
   std::string m_wrap3;
   helium::ChangeObserverPtr<Array3D> m_image;
 
+  std::shared_ptr<CUDAArray> m_cuArray;
   cudaTextureObject_t m_texture{};
   cudaTextureObject_t m_texels{};
 };

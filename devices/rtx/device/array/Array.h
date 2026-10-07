@@ -35,6 +35,8 @@
 #include "utility/DeviceBuffer.h"
 // helium
 #include <helium/array/Array.h>
+// std
+#include <memory>
 
 namespace visrtx {
 
@@ -53,6 +55,22 @@ enum class AddressSpace
 // clang-format on
 
 AddressSpace getPointerAddressSpace(const void *ptr);
+
+/* Shared texture storage outlives both Array replacement and deferred sampler
+ * finalization. Consumers must destroy their texture objects before releasing
+ * this owner; the Array caches it weakly so the last consumer frees storage.
+ */
+struct CUDAArray
+{
+  CUDAArray() = default;
+  ~CUDAArray();
+  CUDAArray(const CUDAArray &) = delete;
+  CUDAArray &operator=(const CUDAArray &) = delete;
+  CUDAArray(CUDAArray &&) = delete;
+  CUDAArray &operator=(CUDAArray &&) = delete;
+
+  cudaArray_t array{};
+};
 
 struct Array : public UploadableArray
 {
@@ -93,6 +111,8 @@ struct Array : public UploadableArray
   template <typename T>
   const T *dataAs(AddressSpace as = AddressSpace::HOST) const;
 
+  std::shared_ptr<CUDAArray> acquireCUDAArray();
+
   bool isMapped() const;
 
   virtual const void *dataGPU() const;
@@ -104,8 +124,9 @@ struct Array : public UploadableArray
   template <typename T>
   void throwIfDifferentElementType() const;
 
-  mutable cudaArray_t m_cuArray{};
-  size_t m_arrayRefCount{0};
+  virtual void makeCUDAArray(cudaArray_t &array) const = 0;
+
+  std::weak_ptr<CUDAArray> m_cuArray;
 
  private:
   void on_NoInternalReferences() override;
