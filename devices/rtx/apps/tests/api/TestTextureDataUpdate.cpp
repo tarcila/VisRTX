@@ -585,6 +585,42 @@ static void testAllocationFailure(anari::Device d, bool &ok)
   checkAll(s, "allocation-failure/recovery", GREEN, ok);
 }
 
+static void testAccumulation(anari::Device d, int sampleLimit, bool &ok)
+{
+  TexturedScene s(d, 2, TexFormat::FLOAT_RGBA, Ownership::MANAGED, 0);
+  auto renderer = anari::newObject<anari::Renderer>(d, "quality");
+  anari::setParameter(d, renderer, "sampleLimit", sampleLimit);
+  anari::setParameter(d, renderer, "pixelSamples", 1);
+  anari::setParameter(d, renderer, "denoise", false);
+  setImage(d, renderer, "background", s.image, 2);
+  anari::setParameter(d, s.frame, "renderer", renderer);
+  anari::commitParameters(d, s.frame);
+  anari::release(d, s.renderer);
+  s.renderer = renderer;
+
+  // Complete scene initialization before measuring steady accumulation.
+  renderMeanColor(s);
+  for (int i = 0; i < 16; ++i)
+    renderMeanColor(s);
+  int samples = 0;
+  anari::getProperty(d, s.frame, "numSamples", samples, ANARI_WAIT);
+  if ((sampleLimit > 0 && samples != sampleLimit) || samples < 8) {
+    fprintf(
+        stderr, "FAIL: accumulation did not settle (%d samples)\n", samples);
+    ok = false;
+  }
+  const auto label = "accumulation/limit" + std::to_string(sampleLimit);
+  // Only unmap the image: a renderer/camera/frame recommit would mask a
+  // missing array-driven accumulation reset.
+  rewriteImage(d, s.image, s.format, std::vector<vec3>(s.texelCount, RED));
+  check(label + "/first-frame-after-write", renderMeanColor(s), RED, ok);
+  anari::getProperty(d, s.frame, "numSamples", samples, ANARI_WAIT);
+  if (samples != 1) {
+    fprintf(stderr, "FAIL: sample count did not reset (%d)\n", samples);
+    ok = false;
+  }
+}
+
 int main()
 {
   setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -603,6 +639,8 @@ int main()
     testInvalidTransitions(device, dim, false, ok);
     testInvalidTransitions(device, dim, true, ok);
   }
+  testAccumulation(device, 0, ok);
+  testAccumulation(device, 8, ok);
   testAllocationFailure(device, ok);
   testBackground(device, false, ok);
   testBackground(device, true, ok);
