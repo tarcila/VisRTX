@@ -47,8 +47,9 @@
 
 // std
 #include <optix_types.h>
-#include <cassert>
 #include <stdlib.h>
+#include <cassert>
+#include <cmath>
 #include <string_view>
 // this include may only appear in a single source file:
 #include <optix_function_table_definition.h>
@@ -206,6 +207,96 @@ void Renderer::commitParameters()
     m_spp = 1;
 }
 
+void Renderer::commitFogParameters()
+{
+  // Build a new configuration every Commit; invalid inputs must not preserve
+  // any previously effective fog. Appearance renderers opt into this.
+  m_fog = {};
+  auto invalid = [&](const char *name) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "invalid %s; disabling fog for this committed configuration",
+        name);
+  };
+  auto validType = [&](const char *name, ANARIDataType type) {
+    if (!hasParam(name) || hasParam(name, type))
+      return true;
+    invalid(name);
+    return false;
+  };
+  if (!validType("fogMode", ANARI_STRING))
+    return;
+  const auto mode = getParamString("fogMode", "none");
+  if (mode == "none")
+    return;
+
+  FogGPUData fog{};
+  if (mode == "linear")
+    fog.mode = FogMode::LINEAR;
+  else if (mode == "exp")
+    fog.mode = FogMode::EXP;
+  else if (mode == "exp2")
+    fog.mode = FogMode::EXP2;
+  else {
+    invalid("fogMode");
+    return;
+  }
+
+  if (!validType("fogDistanceMetric", ANARI_STRING))
+    return;
+  const auto metric = getParamString("fogDistanceMetric", "viewDepth");
+  if (metric == "rayDistance")
+    fog.distanceMetric = FogDistanceMetric::RAY_DISTANCE;
+  else if (metric != "viewDepth") {
+    invalid("fogDistanceMetric");
+    return;
+  }
+
+  if (!validType("fogColorSource", ANARI_STRING))
+    return;
+  const auto colorSource = getParamString("fogColorSource", "constant");
+  if (colorSource == "background")
+    fog.colorSource = FogColorSource::BACKGROUND;
+  else if (colorSource == "constant") {
+    if (!validType("fogColor", ANARI_FLOAT32_VEC3))
+      return;
+    fog.color = getParam<vec3>("fogColor", vec3(1.f));
+    for (int i = 0; i < 3; ++i) {
+      if (!std::isfinite(fog.color[i]) || fog.color[i] < 0.f) {
+        invalid("fogColor");
+        return;
+      }
+    }
+  } else {
+    invalid("fogColorSource");
+    return;
+  }
+
+  if (fog.mode == FogMode::LINEAR) {
+    if (!validType("fogStart", ANARI_FLOAT32)
+        || !validType("fogEnd", ANARI_FLOAT32))
+      return;
+    fog.start = getParam<float>("fogStart", 0.f);
+    fog.end = getParam<float>("fogEnd", 1.f);
+    if (!std::isfinite(fog.start) || fog.start < 0.f) {
+      invalid("fogStart");
+      return;
+    }
+    if (!std::isfinite(fog.end) || fog.end <= fog.start) {
+      invalid("fogEnd");
+      return;
+    }
+  } else {
+    if (!validType("fogDensity", ANARI_FLOAT32))
+      return;
+    fog.density = getParam<float>("fogDensity", 1.f);
+    if (!std::isfinite(fog.density) || fog.density < 0.f) {
+      invalid("fogDensity");
+      return;
+    }
+  }
+  m_fog = fog;
+}
+
 void Renderer::finalize()
 {
   cleanup();
@@ -248,6 +339,7 @@ void Renderer::populateFrameData(FrameGPUData &fd) const
     fd.renderer.backgroundMode = BackgroundMode::COLOR;
     fd.renderer.background.color = m_bgColor;
   }
+  fd.renderer.fog = m_fog;
   fd.renderer.ambientColor = m_ambientColor;
   fd.renderer.ambientIntensity = m_ambientIntensity;
   fd.renderer.occlusionDistance = m_occlusionDistance;

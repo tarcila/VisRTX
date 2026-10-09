@@ -36,6 +36,7 @@
 #include "gpu/intersectRay.h"
 #include "gpu/lightProxyRadiance.h"
 #include "gpu/renderer/common.h"
+#include "gpu/renderer/fog.h"
 #include "gpu/shadingState.h"
 #include "gpu/volumeIntegration.h"
 
@@ -89,6 +90,10 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
             * uint32_t(rendererParams.numIterations)
         + uint32_t(i);
     auto ray = makePrimaryRay(ss, sampleIdx, isVeryFirstRay);
+    // Visibility clipping may re-origin the traversal ray, but fog measures
+    // from the original camera sample (including its sampled lens position).
+    const vec3 cameraOrigin = ray.org;
+    const vec3 surfaceFogColor = fogColor(frameData, ss.pixel, ray.dir);
     applyCuttingPlane(rendererParams.cutPlane, ray);
     float tmax = ray.t.upper;
 
@@ -170,8 +175,14 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         // ray.org is the shaded point lightProxyRadiance wants: this loop walks
         // through surfaces by advancing ray.t.lower and never re-origins the
         // ray, so the origin stays the camera for the whole traversal.
-        outputColor +=
-            remainingT * lightProxyRadiance(frameData, surfaceHit, ray.org);
+        const vec3 radiance =
+            lightProxyRadiance(frameData, surfaceHit, ray.org);
+        outputColor += remainingT
+            * fogSurface(frameData,
+                surfaceHit.hitpoint,
+                cameraOrigin,
+                radiance,
+                surfaceFogColor);
         accumulateNormal(outputNormal, -ray.dir, outputOpacity);
         accumulateValue(outputOpacity, 1.f, outputOpacity);
         remainingT = vec3(0.f);
@@ -189,7 +200,13 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         const vec3 refl =
             ShadingPolicy::shadeSurface(shadingState, ss, ray, surfaceHit);
 
-        outputColor += remainingT * (alpha * refl);
+        outputColor += remainingT
+            * (alpha
+                * fogSurface(frameData,
+                    surfaceHit.hitpoint,
+                    cameraOrigin,
+                    refl,
+                    surfaceFogColor));
         // AOVs stay on the scalar coverage track (not the colored remainingT).
         accumulateValue(outputAlbedo,
             materialEvaluateTint(shadingState) * alpha,

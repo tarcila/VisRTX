@@ -87,6 +87,8 @@ struct Renderer : public Object
       std::string_view subtype, DeviceGlobalState *d);
 
  protected:
+  void commitFogParameters();
+
   vec4 m_bgColor{0.f, 0.f, 0.f, 1.f};
   int m_spp{1};
   vec3 m_ambientColor{1.f};
@@ -136,6 +138,7 @@ struct Renderer : public Object
   void releasePipeline();
   void cleanup();
 
+  FogGPUData m_fog{};
   HitgroupFunctionNames m_defaultHitgroupNames;
   std::string m_defaultMissName{"__miss__"};
   float m_defaultAmbientRadiance{0.f};
