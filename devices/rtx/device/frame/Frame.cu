@@ -645,7 +645,22 @@ void Frame::renderFrame()
 
   instrument::rangePush("update scene");
   instrument::rangePush("flush commits");
-  state.commitBuffer.flush();
+  // Finalization can enqueue dependent objects (array -> sampler -> material).
+  // Drain those notifications before publishing the GPU registries. The chain
+  // is bounded by object nesting depth; a longer one means a finalize() that
+  // re-notifies itself, which must not hang rendering.
+  constexpr int MAX_COMMIT_FLUSH_PASSES = 16;
+  int flushPasses = 0;
+  while (!state.commitBuffer.empty()) {
+    if (++flushPasses > MAX_COMMIT_FLUSH_PASSES) {
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "commit buffer did not drain after %d passes; "
+          "an object re-enqueues itself during finalize()",
+          MAX_COMMIT_FLUSH_PASSES);
+      break;
+    }
+    state.commitBuffer.flush();
+  }
   instrument::rangePop(); // flush commits
 
   instrument::rangePush("flush array uploads");
