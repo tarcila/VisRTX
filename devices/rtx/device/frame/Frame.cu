@@ -679,6 +679,12 @@ void Frame::renderFrame()
   instrument::rangePop(); // rebuild BVHs
   instrument::rangePop(); // update scene
 
+  if (m_world->preparationFailed()) {
+    reportMessage(ANARI_SEVERITY_ERROR,
+        "skipping render after geometry preprocessing failure");
+    return;
+  }
+
   bool wasDenoising = m_denoise;
   bool wasDenoisingUsingAlbedo = m_denoiseUsingAlbedo;
   bool wasDenoisingUsingNormal = m_denoiseUsingNormal;
@@ -740,6 +746,19 @@ void Frame::renderFrame()
   instrument::rangePush("Frame::upload()");
   upload();
   instrument::rangePop(); // Frame::upload()
+
+  // Frame and Registry uploads are legacy default-stream copies. Complete
+  // that producer before work-stream tracing sees newly published geometry.
+  const auto publication = cudaStreamSynchronize(nullptr);
+  if (publication != cudaSuccess) {
+    reportMessage(ANARI_SEVERITY_ERROR,
+        "skipping render after GPU publication failure: %s",
+        cudaGetErrorString(publication));
+    instrument::rangePop(); // render all frames
+    instrument::rangePop(); // Frame::renderFrame()
+    instrument::rangePop(); // frame + map
+    return;
+  }
 
   instrument::rangePush("optixLaunch()");
   OPTIX_CHECK(optixLaunch(m_renderer->pipeline(),

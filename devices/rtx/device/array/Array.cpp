@@ -30,6 +30,7 @@
  */
 
 #include "Array.h"
+#include "optix_visrtx.h"
 // std
 #include <cstring>
 
@@ -163,6 +164,7 @@ void Array::unmap()
 
 void Array::privatize()
 {
+  bool changed = false;
   if (m_data.shared.host.isValid() && !m_data.shared.host.isOwner()) {
     reportMessage(ANARI_SEVERITY_PERFORMANCE_WARNING,
         "making private copy of shared host array (type '%s') | refs: (%i:%i)",
@@ -170,6 +172,7 @@ void Array::privatize()
         this->useCount(helium::RefType::PUBLIC),
         this->useCount(helium::RefType::INTERNAL));
     m_data.shared.host.privatize();
+    changed = true;
   }
   if (m_data.shared.device.isValid() && !m_data.shared.device.isOwner()) {
     reportMessage(ANARI_SEVERITY_PERFORMANCE_WARNING,
@@ -177,8 +180,30 @@ void Array::privatize()
         anari::toString(elementType()),
         this->useCount(helium::RefType::PUBLIC),
         this->useCount(helium::RefType::INTERNAL));
+    // Existing frames may still read the shared pointer. The application may
+    // free it as soon as this last PUBLIC release returns.
+    const auto completion = cudaStreamSynchronize(
+        static_cast<DeviceGlobalState *>(deviceState())->stream);
+    if (completion != cudaSuccess) {
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "unable to privatize array after CUDA failure: %s",
+          cudaGetErrorString(completion));
+      return;
+    }
     m_data.shared.device.privatize();
+    const auto copyCompletion = cudaStreamSynchronize(nullptr);
+    if (copyCompletion != cudaSuccess) {
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "unable to complete array privatization: %s",
+          cudaGetErrorString(copyCompletion));
+      return;
+    }
+    changed = true;
   }
+  // Geometry may alias authored arrays directly: a new backing allocation is
+  // an observable pointer change even though the array's values did not change.
+  if (changed)
+    notifyChangeObservers();
 }
 
 void Array::uploadArrayData() const

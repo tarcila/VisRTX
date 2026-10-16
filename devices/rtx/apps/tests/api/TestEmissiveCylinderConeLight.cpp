@@ -64,6 +64,9 @@
 #include <cstdlib>
 #include <functional>
 #include <vector>
+#include "DeviceTestArray.h"
+
+static int deviceInputs = 0;
 
 using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
@@ -78,17 +81,17 @@ static void statusFunc(const void *,
     ANARIStatusCode,
     const char *message)
 {
-  if (severity == ANARI_SEVERITY_FATAL_ERROR) {
-    fprintf(stderr, "[FATAL][%p] %s\n", source, message);
-    std::exit(1);
-  } else if (severity == ANARI_SEVERITY_ERROR)
+  if (severity <= ANARI_SEVERITY_ERROR) {
     fprintf(stderr, "[ERROR][%p] %s\n", source, message);
+    std::exit(1);
+  }
 }
 
 static constexpr std::array<unsigned, 2> IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 1024;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
-static constexpr int TESS = 128; // circumferential segments of the reference mesh
+static constexpr int TESS =
+    128; // circumferential segments of the reference mesh
 
 // One tapered tube (cylinder if r0==r1). Two parallel bars above the origin,
 // axes along X, offset in Z, so their walls face the floor. Above the top of
@@ -196,8 +199,9 @@ static anari::Surface makeFloor(ANARIDevice device)
 
 // Capped, tessellated emissive triangle mesh of the given tubes: two rings of
 // TESS points per tube plus a center vertex for each ENABLED cap. Winding does
-// not matter (emission is double-sided); the closed shell absorbs its own inward
-// emission so it lights the exterior floor like a single-sided primitive.
+// not matter (emission is double-sided); the closed shell absorbs its own
+// inward emission so it lights the exterior floor like a single-sided
+// primitive.
 static anari::Surface makeEmissiveTubeMesh(
     ANARIDevice device, const std::array<Tube, 2> &tubes)
 {
@@ -257,7 +261,8 @@ static anari::Surface makeEmissiveTubeMesh(
 
 // Per-endpoint vertex.cap (0/1) for a soup tube set: endpoints of tube k are
 // vertices (2k, 2k+1).
-static std::vector<unsigned char> tubeVertexCaps(const std::array<Tube, 2> &tubes)
+static std::vector<unsigned char> tubeVertexCaps(
+    const std::array<Tube, 2> &tubes)
 {
   std::vector<unsigned char> caps;
   for (const auto &t : tubes) {
@@ -279,12 +284,13 @@ static anari::Surface makeEmissiveCylinderPrim(ANARIDevice device)
   const auto caps = tubeVertexCaps(CYLINDERS);
 
   auto geom = anari::newObject<anari::Geometry>(device, "cylinder");
-  anari::setParameterArray1D(
-      device, geom, "vertex.position", pos.data(), pos.size());
-  anari::setParameterArray1D(
-      device, geom, "primitive.radius", radii.data(), radii.size());
-  anari::setParameterArray1D(
-      device, geom, "vertex.cap", caps.data(), caps.size());
+  setTestArray(device, geom, "vertex.position", pos, deviceInputs & 1);
+  setTestArray(device, geom, "primitive.radius", radii, deviceInputs & 2);
+  setTestArray(device, geom, "vertex.cap", caps, deviceInputs & 4);
+  if (deviceInputs) {
+    const std::array<std::array<unsigned, 2>, 2> indices = {{{0, 1}, {2, 3}}};
+    setTestArray(device, geom, "primitive.index", indices, deviceInputs & 8);
+  }
   anari::commitParameters(device, geom);
 
   auto surface = anari::newObject<anari::Surface>(device);
@@ -308,12 +314,13 @@ static anari::Surface makeEmissiveConePrim(ANARIDevice device)
   const auto caps = tubeVertexCaps(CONES);
 
   auto geom = anari::newObject<anari::Geometry>(device, "cone");
-  anari::setParameterArray1D(
-      device, geom, "vertex.position", pos.data(), pos.size());
-  anari::setParameterArray1D(
-      device, geom, "vertex.radius", radii.data(), radii.size());
-  anari::setParameterArray1D(
-      device, geom, "vertex.cap", caps.data(), caps.size());
+  setTestArray(device, geom, "vertex.position", pos, deviceInputs & 1);
+  setTestArray(device, geom, "vertex.radius", radii, deviceInputs & 2);
+  setTestArray(device, geom, "vertex.cap", caps, deviceInputs & 4);
+  if (deviceInputs) {
+    const std::array<std::array<unsigned, 2>, 2> indices = {{{0, 1}, {2, 3}}};
+    setTestArray(device, geom, "primitive.index", indices, deviceInputs & 8);
+  }
   anari::commitParameters(device, geom);
 
   auto surface = anari::newObject<anari::Surface>(device);
@@ -406,8 +413,8 @@ static double poolMeanLuminance(const std::vector<vec4> &fb)
   return n ? sum / double(n) : 0.0;
 }
 
-static bool checkEquivalent(
-    ANARIDevice device, const char *name,
+static bool checkEquivalent(ANARIDevice device,
+    const char *name,
     const std::function<anari::Surface(ANARIDevice)> &prim,
     const std::function<anari::Surface(ANARIDevice)> &mesh,
     bool scaled)
@@ -421,12 +428,12 @@ static bool checkEquivalent(
       p,
       m,
       relErr);
-  if (p <= 0.0 || m <= 0.0) {
+  if (!std::isfinite(p) || !std::isfinite(m) || p <= 0.0 || m <= 0.0) {
     fprintf(stderr, "FAIL: %s floor pool unlit\n", name);
     return false;
   }
-  // 3% absorbs MC noise at 1024 spp plus the reference mesh's small (<0.1% area)
-  // faceting; observed relErr is well under 1%.
+  // 3% absorbs MC noise at 1024 spp plus the reference mesh's small (<0.1%
+  // area) faceting; observed relErr is well under 1%.
   constexpr double TOLERANCE = 0.03;
   if (relErr > TOLERANCE) {
     fprintf(stderr,
@@ -440,8 +447,9 @@ static bool checkEquivalent(
   return true;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+  deviceInputs = argc > 1 ? std::atoi(argv[1]) : 0;
   auto device = makeVisRTXDevice(statusFunc);
 
   const auto cylMesh = [](ANARIDevice d) {

@@ -33,11 +33,11 @@
 // (PhysicallyBased, constant `emissive`) must illuminate a floor the same as an
 // ANARI sphere light (the "point" subtype with radius) of matching radiance,
 // radius, and placement. Validates the sphere sampler's radiometry and that
-// hit-side MIS does not bias (NEE + BSDF-hit deposit sum to the analytic light's
-// contribution). The emitter sits above the top of frame so only its cast pool
-// on the floor is measured — the emissive sphere's own glow (which the analytic
-// light has no counterpart for) never enters the region. Rendered with 'quality'
-// into a linear float buffer, firefly filter off.
+// hit-side MIS does not bias (NEE + BSDF-hit deposit sum to the analytic
+// light's contribution). The emitter sits above the top of frame so only its
+// cast pool on the floor is measured — the emissive sphere's own glow (which
+// the analytic light has no counterpart for) never enters the region. Rendered
+// with 'quality' into a linear float buffer, firefly filter off.
 
 // anari_cpp
 #define ANARI_EXTENSION_UTILITY_IMPL
@@ -52,6 +52,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include "DeviceTestArray.h"
+
+static int deviceInputs = 0;
 
 using uvec2 = std::array<unsigned int, 2>;
 using vec3 = std::array<float, 3>;
@@ -65,11 +68,10 @@ static void statusFunc(const void *,
     ANARIStatusCode,
     const char *message)
 {
-  if (severity == ANARI_SEVERITY_FATAL_ERROR) {
-    fprintf(stderr, "[FATAL][%p] %s\n", source, message);
-    std::exit(1);
-  } else if (severity == ANARI_SEVERITY_ERROR)
+  if (severity <= ANARI_SEVERITY_ERROR) {
     fprintf(stderr, "[ERROR][%p] %s\n", source, message);
+    std::exit(1);
+  }
 }
 
 static constexpr uvec2 IMAGE_SIZE = {256, 256};
@@ -114,8 +116,18 @@ static anari::Surface makeEmissiveSphere(ANARIDevice device)
   const std::array<vec3, 1> pos = {SPHERE_CENTER};
 
   auto geom = anari::newObject<anari::Geometry>(device, "sphere");
-  anari::setParameterArray1D(device, geom, "vertex.position", pos.data(), 1);
-  anari::setParameter(device, geom, "radius", SPHERE_RADIUS);
+  if (deviceInputs) {
+    const std::array<vec3, 2> positions = {vec3{0.f, 20.f, 0.f}, SPHERE_CENTER};
+    const std::array<float, 2> radii = {0.01f, SPHERE_RADIUS};
+    const std::array<unsigned, 1> indices = {1};
+    setTestArray(device, geom, "vertex.position", positions, deviceInputs & 1);
+    setTestArray(device, geom, "vertex.radius", radii, deviceInputs & 2);
+    setTestArray(device, geom, "primitive.index", indices, deviceInputs & 4);
+    anari::setParameter(device, geom, "radius", 0.01f);
+  } else {
+    anari::setParameterArray1D(device, geom, "vertex.position", pos.data(), 1);
+    anari::setParameter(device, geom, "radius", SPHERE_RADIUS);
+  }
   anari::commitParameters(device, geom);
 
   auto mat = anari::newObject<anari::Material>(device, "physicallyBased");
@@ -222,8 +234,9 @@ static double poolMeanLuminance(const std::vector<vec4> &fb)
   return n ? sum / double(n) : 0.0;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+  deviceInputs = argc > 1 ? std::atoi(argv[1]) : 0;
   auto device = makeVisRTXDevice(statusFunc);
 
   const double mesh = poolMeanLuminance(render(device, true));
@@ -238,7 +251,8 @@ int main()
   // Both estimators must converge to the same floor irradiance. A generous 5%
   // absorbs residual MC noise at 512 spp; a broken radiometry or double-count
   // shifts it by far more.
-  if (mesh <= 0.0 || light <= 0.0) {
+  if (!std::isfinite(mesh) || !std::isfinite(light) || mesh <= 0.0
+      || light <= 0.0) {
     fprintf(stderr, "FAIL: floor pool unlit (mesh=%f light=%f)\n", mesh, light);
     return 1;
   }
