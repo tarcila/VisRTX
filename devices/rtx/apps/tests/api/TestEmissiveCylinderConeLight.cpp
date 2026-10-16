@@ -90,6 +90,14 @@ static void statusFunc(const void *,
 static constexpr std::array<unsigned, 2> IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 1024;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
+static constexpr double TOLERANCE = 0.03;
+static float emissionScale = 1.f;
+static bool equivalent(double actual, double reference)
+{
+  return std::isfinite(actual) && std::isfinite(reference) && actual > 0.0
+      && reference > 0.0
+      && std::abs(actual - reference) / reference <= TOLERANCE;
+}
 static constexpr int TESS =
     128; // circumferential segments of the reference mesh
 
@@ -167,7 +175,9 @@ static anari::Material makeEmissiveMaterial(ANARIDevice device)
   anari::setParameter(device,
       mat,
       "emissive",
-      vec3{EMISSIVE_RADIANCE, EMISSIVE_RADIANCE, EMISSIVE_RADIANCE});
+      vec3{EMISSIVE_RADIANCE * emissionScale,
+          EMISSIVE_RADIANCE * emissionScale,
+          EMISSIVE_RADIANCE * emissionScale});
   anari::commitParameters(device, mat);
   return mat;
 }
@@ -434,8 +444,7 @@ static bool checkEquivalent(ANARIDevice device,
   }
   // 3% absorbs MC noise at 1024 spp plus the reference mesh's small (<0.1%
   // area) faceting; observed relErr is well under 1%.
-  constexpr double TOLERANCE = 0.03;
-  if (relErr > TOLERANCE) {
+  if (!equivalent(p, m)) {
     fprintf(stderr,
         "FAIL: %s%s geometry light not equivalent to tessellated mesh (relErr=%f > %f)\n",
         name,
@@ -444,7 +453,22 @@ static bool checkEquivalent(ANARIDevice device,
         TOLERANCE);
     return false;
   }
-  return true;
+  const double repeat = poolMeanLuminance(render(device, mesh, scaled));
+  emissionScale = 0.5f;
+  const double wrong = poolMeanLuminance(render(device, mesh, scaled));
+  emissionScale = 1.f;
+  // Repeat the fixed-sample reference; halving all emitter radiance changes
+  // irradiance by 50%, outside the unchanged 3% faceting/noise allowance.
+  const bool controls = equivalent(m, repeat) && std::isfinite(wrong)
+      && wrong > 0.0 && !equivalent(m, wrong) && !equivalent(p, wrong);
+  printf("%s%s controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
+      name,
+      scaled ? " (scaled)" : "",
+      std::abs(repeat - m) / m,
+      std::abs(p - wrong) / wrong,
+      TOLERANCE,
+      controls ? "PASS" : "FAIL");
+  return controls;
 }
 
 int main(int argc, char **argv)

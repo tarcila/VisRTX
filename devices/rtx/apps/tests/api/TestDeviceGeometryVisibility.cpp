@@ -92,6 +92,27 @@ static bool check(ANARIDevice d, const char *type, int device, float shift)
     const std::array<std::array<unsigned, 4>, 1> indices = {{{0, 1, 2, 3}}};
     setTestArray(d, g, "vertex.position", vertices, device & 1);
     setTestArray(d, g, "primitive.index", indices, device & 2);
+  } else if (std::strcmp(type, "cone") == 0
+      || std::strcmp(type, "cylinder") == 0) {
+    const bool cone = std::strcmp(type, "cone") == 0;
+    // Vertex 0 is deliberately unused. Selecting it instead of logical
+    // vertices 2 and 1 must fail both the bounds and visibility controls.
+    const std::array<vec3, 3> vertices = {
+        {{shift + 4.f, 4.f, 0}, {shift + 0.5f, 0, 0}, {shift - 0.5f, 0, 0}}};
+    const std::array<std::array<unsigned, 2>, 1> indices = {{{2, 1}}};
+    const std::array<float, 3> vertexRadii = {0.75f, 0.25f, 0.125f};
+    const std::array<float, 1> primitiveRadii = {0.25f};
+    setTestArray(d, g, "vertex.position", vertices, device & 1);
+    setTestArray(d, g, "primitive.index", indices, device & 2);
+    if (cone)
+      setTestArray(d, g, "vertex.radius", vertexRadii, device & 4);
+    else
+      setTestArray(d, g, "primitive.radius", primitiveRadii, device & 4);
+    anari::setParameter(d, g, "caps", "both");
+    // Conservative tube bounds: endpoints [-0.5,0.5], largest radius 0.25.
+    // This literal oracle is independent of device bound-generation code.
+    xExtent = 0.75f;
+    yExtent = zExtent = 0.25f;
   } else if (std::strcmp(type, "curve") == 0) {
     const std::array<vec3, 2> vertices = {
         {{shift - 0.5f, 0, 0}, {shift + 0.5f, 0, 0}}};
@@ -178,9 +199,22 @@ static bool check(ANARIDevice d, const char *type, int device, float shift)
       ANARI_WAIT);
   const std::array<float, 6> expected = {
       shift - xExtent, -yExtent, -zExtent, shift + xExtent, yExtent, zExtent};
-  for (int i = 0; i < 6; ++i)
-    ok = ok && std::isfinite(bounds[i])
-        && std::abs(bounds[i] - expected[i]) < 1e-4f;
+  const auto matchesBounds = [&](const std::array<float, 6> &reference) {
+    for (int i = 0; i < 6; ++i) {
+      if (!std::isfinite(bounds[i])
+          || std::abs(bounds[i] - reference[i]) >= 1e-4f)
+        return false;
+    }
+    return true;
+  };
+  ok = matchesBounds(expected) && ok;
+  if (shift != 0.f) {
+    auto unshifted = expected;
+    unshifted[0] -= shift;
+    unshifted[3] -= shift;
+    // The same bound comparator must reject a deliberately stale placement.
+    ok = !matchesBounds(unshifted) && ok;
+  }
   auto fb = anari::map<vec4>(d, frame, "channel.color");
   const float red = fb.data[32 * 64 + 32][0];
   ok = ok && std::isfinite(red) && (shift == 0.f ? red > 0.5f : red < 0.01f);
@@ -210,7 +244,7 @@ int main(int argc, char **argv)
       : (expandedSdf ? "sdf" : (argc > 1 ? argv[1] : "quad"));
   auto d = makeVisRTXDevice(status);
   bool ok = true;
-  for (int device : {0, 1, 2, 7})
+  for (int device : {0, 1, 2, 4, 7})
     for (float shift : {0.f, 2.f})
       ok = check(d, type, device, shift) && ok;
   anari::release(d, d);

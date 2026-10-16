@@ -86,6 +86,15 @@ static anari::Frame retainedFrame = nullptr;
 static constexpr uvec2 IMAGE_SIZE = {128, 128};
 static constexpr int PIXEL_SAMPLES = 512;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
+static constexpr double TOLERANCE = 0.05;
+static float referenceIntensityScale = 1.f;
+
+static bool equivalent(double actual, double reference)
+{
+  return std::isfinite(actual) && std::isfinite(reference) && actual > 0.0
+      && reference > 0.0
+      && std::abs(actual - reference) / reference <= TOLERANCE;
+}
 
 // Emitter footprint: a 1x1 quad in the XZ plane, centered above the origin,
 // facing down toward the floor.
@@ -174,7 +183,8 @@ static anari::Light makeQuadLight(ANARIDevice device)
       device, light, "position", vec3{-QUAD_HALF, QUAD_Y, -QUAD_HALF});
   anari::setParameter(device, light, "edge1", vec3{2.f * QUAD_HALF, 0.f, 0.f});
   anari::setParameter(device, light, "edge2", vec3{0.f, 0.f, 2.f * QUAD_HALF});
-  anari::setParameter(device, light, "intensity", EMISSIVE_RADIANCE);
+  anari::setParameter(
+      device, light, "intensity", EMISSIVE_RADIANCE * referenceIntensityScale);
   anari::setParameter(device, light, "side", "both");
   anari::commitParameters(device, light);
   return light;
@@ -260,7 +270,20 @@ int main()
 {
   auto device = makeVisRTXDevice(statusFunc);
   const double reference = poolMeanLuminance(render(device, false));
-  bool ok = std::isfinite(reference) && reference > 0.0;
+  const double repeat = poolMeanLuminance(render(device, false));
+  referenceIntensityScale = 0.5f;
+  const double wrong = poolMeanLuminance(render(device, false));
+  referenceIntensityScale = 1.f;
+  // Fixed 512 spp and the existing 5% threshold: repeat the oracle to bound
+  // observed variation, then require a finite half-power oracle to be rejected
+  // by the very same comparator used for residency/lifecycle acceptance.
+  bool ok = equivalent(reference, repeat) && std::isfinite(wrong) && wrong > 0.0
+      && !equivalent(reference, wrong);
+  printf("triangle controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
+      std::abs(repeat - reference) / reference,
+      std::abs(reference - wrong) / wrong,
+      TOLERANCE,
+      ok ? "PASS" : "FAIL");
   for (bool soup : {false, true}) {
     triangleSoup = soup;
     for (deviceInputs = 0; deviceInputs < 4; ++deviceInputs) {
@@ -272,7 +295,7 @@ int main()
           mesh,
           reference,
           error);
-      ok = ok && std::isfinite(mesh) && mesh > 0.0 && error < 0.05;
+      ok = equivalent(mesh, reference) && !equivalent(mesh, wrong) && ok;
     }
   }
   triangleSoup = false;
@@ -301,8 +324,8 @@ int main()
         fb.data, fb.data + size_t(fb.width) * fb.height);
     const double mean = poolMeanLuminance(pixels);
     anari::unmap(device, retainedFrame, "channel.color");
-    const double error = std::abs(mean - reference) / reference;
-    ok = ok && std::isfinite(mean) && (zero ? mean < 1e-6 : error < 0.05);
+    ok = ok && std::isfinite(mean)
+        && (zero ? mean < 1e-6 : equivalent(mean, reference));
     printf("lifecycle step=%d mean=%g reference=%g %s\n",
         step,
         mean,
@@ -326,7 +349,7 @@ int main()
     const double mean = poolMeanLuminance(pixels);
     anari::unmap(device, retainedFrame, "channel.color");
     ok = ok && std::isfinite(mean)
-        && (zero ? mean < 1e-6 : std::abs(mean - reference) / reference < 0.05);
+        && (zero ? mean < 1e-6 : equivalent(mean, reference));
     printf(
         "array-unmap zero=%d mean=%g %s\n", zero, mean, ok ? "PASS" : "FAIL");
   }

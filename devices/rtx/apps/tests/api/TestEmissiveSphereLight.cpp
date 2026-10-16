@@ -77,6 +77,15 @@ static void statusFunc(const void *,
 static constexpr uvec2 IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 512;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
+static constexpr double TOLERANCE = 0.05;
+static float referenceIntensityScale = 1.f;
+
+static bool equivalent(double actual, double reference)
+{
+  return std::isfinite(actual) && std::isfinite(reference) && actual > 0.0
+      && reference > 0.0
+      && std::abs(actual - reference) / reference <= TOLERANCE;
+}
 
 // Emitter footprint: a small sphere centered above the origin, above frame.
 static constexpr vec3 SPHERE_CENTER = {0.f, 1.5f, 0.f};
@@ -155,7 +164,8 @@ static anari::Light makeSphereLight(ANARIDevice device)
   anari::setParameter(device, light, "color", vec3{1.f, 1.f, 1.f});
   anari::setParameter(device, light, "position", SPHERE_CENTER);
   anari::setParameter(device, light, "radius", SPHERE_RADIUS);
-  anari::setParameter(device, light, "intensity", EMISSIVE_RADIANCE);
+  anari::setParameter(
+      device, light, "intensity", EMISSIVE_RADIANCE * referenceIntensityScale);
   anari::commitParameters(device, light);
   return light;
 }
@@ -241,6 +251,17 @@ int main(int argc, char **argv)
 
   const double mesh = poolMeanLuminance(render(device, true));
   const double light = poolMeanLuminance(render(device, false));
+  const double repeat = poolMeanLuminance(render(device, false));
+  referenceIntensityScale = 0.5f;
+  const double wrong = poolMeanLuminance(render(device, false));
+  referenceIntensityScale = 1.f;
+  const bool controls = equivalent(light, repeat) && std::isfinite(wrong)
+      && wrong > 0.0 && !equivalent(light, wrong) && !equivalent(mesh, wrong);
+  printf("sphere controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
+      std::abs(repeat - light) / light,
+      std::abs(mesh - wrong) / wrong,
+      TOLERANCE,
+      controls ? "PASS" : "FAIL");
 
   anari::release(device, device);
 
@@ -256,8 +277,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "FAIL: floor pool unlit (mesh=%f light=%f)\n", mesh, light);
     return 1;
   }
-  constexpr double TOLERANCE = 0.05;
-  if (relErr > TOLERANCE) {
+  if (!equivalent(mesh, light) || !controls) {
     fprintf(stderr,
         "FAIL: emissive sphere geometry light not equivalent to sphere light (relErr=%f > %f)\n",
         relErr,
