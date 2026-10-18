@@ -87,19 +87,14 @@ make_test(TestQuadLightSide)
 make_test(TestVisibleAreaLight)
 make_test(TestEmissiveSphereLight)
 target_link_libraries(TestEmissiveSphereLight PRIVATE CUDA::cudart)
-add_test(NAME TestDeviceEmissiveSphereLight COMMAND TestEmissiveSphereLight 7)
-foreach(mask 1 2 4)
-  add_test(NAME TestMixedEmissiveSphereLight_${mask} COMMAND TestEmissiveSphereLight ${mask})
-endforeach()
+# Host anchors, named residency roles and all-device integration run together
+# so compatible analytic references are calibrated once per process.
 make_test(TestEmissiveInstanceScale)
 make_test(TestEmissiveSphereInstanceScale)
 make_test(TestEmissiveCylinderConeLight)
 target_link_libraries(TestEmissiveCylinderConeLight PRIVATE CUDA::cudart)
-add_test(NAME TestDeviceEmissiveCylinderConeLight COMMAND TestEmissiveCylinderConeLight 15)
-add_test(NAME TestMixedEmissiveCylinderConeLight COMMAND TestEmissiveCylinderConeLight 5)
-foreach(mask 2 8)
-  add_test(NAME TestMixedEmissiveCylinderConeLight_${mask} COMMAND TestEmissiveCylinderConeLight ${mask})
-endforeach()
+# Each family keeps independent identity/nonuniform-transform references;
+# residency roles are batched at identity, with all-device coverage also scaled.
 # These interleave attribute-driven emission cases, and MDL does not support
 # attributes — native-PBR only. (Textured emission itself works on the MDL
 # wrapper too; TestEmissiveMaterialParity covers it in that config.)

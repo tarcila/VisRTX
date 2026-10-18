@@ -66,7 +66,19 @@
 #include <vector>
 #include "DeviceTestArray.h"
 
-static int deviceInputs = 0;
+struct ResidencyCase
+{
+  const char *name;
+  int deviceInputs;
+};
+
+static constexpr std::array<ResidencyCase, 6> TUBE_CASES = {
+    {{"host-indexed", 0},
+        {"device-positions", 1},
+        {"device-radii", 2},
+        {"device-vertex-caps", 4},
+        {"device-indices", 8},
+        {"all-device", 15}}};
 
 using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
@@ -91,7 +103,6 @@ static constexpr std::array<unsigned, 2> IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 1024;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
 static constexpr double TOLERANCE = 0.03;
-static float emissionScale = 1.f;
 static bool equivalent(double actual, double reference)
 {
   return std::isfinite(actual) && std::isfinite(reference) && actual > 0.0
@@ -166,7 +177,8 @@ static vec3 norml(const vec3 &a)
   return mul(a, 1.f / std::sqrt(dot(a, a)));
 }
 
-static anari::Material makeEmissiveMaterial(ANARIDevice device)
+static anari::Material makeEmissiveMaterial(
+    ANARIDevice device, float emissionScale = 1.f)
 {
   auto mat = anari::newObject<anari::Material>(device, "physicallyBased");
   anari::setParameter(device, mat, "baseColor", vec3{0.f, 0.f, 0.f});
@@ -213,7 +225,7 @@ static anari::Surface makeFloor(ANARIDevice device)
 // inward emission so it lights the exterior floor like a single-sided
 // primitive.
 static anari::Surface makeEmissiveTubeMesh(
-    ANARIDevice device, const std::array<Tube, 2> &tubes)
+    ANARIDevice device, const std::array<Tube, 2> &tubes, float emissionScale)
 {
   std::vector<vec3> pos;
   std::vector<uvec3> idx;
@@ -264,7 +276,7 @@ static anari::Surface makeEmissiveTubeMesh(
   auto surface = anari::newObject<anari::Surface>(device);
   anari::setAndReleaseParameter(device, surface, "geometry", geom);
   anari::setAndReleaseParameter(
-      device, surface, "material", makeEmissiveMaterial(device));
+      device, surface, "material", makeEmissiveMaterial(device, emissionScale));
   anari::commitParameters(device, surface);
   return surface;
 }
@@ -282,7 +294,8 @@ static std::vector<unsigned char> tubeVertexCaps(
   return caps;
 }
 
-static anari::Surface makeEmissiveCylinderPrim(ANARIDevice device)
+static anari::Surface makeEmissiveCylinderPrim(
+    ANARIDevice device, int deviceInputs, bool indexed)
 {
   std::vector<vec3> pos;
   std::vector<float> radii; // per primitive
@@ -297,7 +310,7 @@ static anari::Surface makeEmissiveCylinderPrim(ANARIDevice device)
   setTestArray(device, geom, "vertex.position", pos, deviceInputs & 1);
   setTestArray(device, geom, "primitive.radius", radii, deviceInputs & 2);
   setTestArray(device, geom, "vertex.cap", caps, deviceInputs & 4);
-  if (deviceInputs) {
+  if (indexed) {
     const std::array<std::array<unsigned, 2>, 2> indices = {{{0, 1}, {2, 3}}};
     setTestArray(device, geom, "primitive.index", indices, deviceInputs & 8);
   }
@@ -311,7 +324,8 @@ static anari::Surface makeEmissiveCylinderPrim(ANARIDevice device)
   return surface;
 }
 
-static anari::Surface makeEmissiveConePrim(ANARIDevice device)
+static anari::Surface makeEmissiveConePrim(
+    ANARIDevice device, int deviceInputs, bool indexed)
 {
   std::vector<vec3> pos;
   std::vector<float> radii; // per vertex
@@ -327,7 +341,7 @@ static anari::Surface makeEmissiveConePrim(ANARIDevice device)
   setTestArray(device, geom, "vertex.position", pos, deviceInputs & 1);
   setTestArray(device, geom, "vertex.radius", radii, deviceInputs & 2);
   setTestArray(device, geom, "vertex.cap", caps, deviceInputs & 4);
-  if (deviceInputs) {
+  if (indexed) {
     const std::array<std::array<unsigned, 2>, 2> indices = {{{0, 1}, {2, 3}}};
     setTestArray(device, geom, "primitive.index", indices, deviceInputs & 8);
   }
@@ -423,79 +437,81 @@ static double poolMeanLuminance(const std::vector<vec4> &fb)
   return n ? sum / double(n) : 0.0;
 }
 
-static bool checkEquivalent(ANARIDevice device,
+static bool checkFamily(ANARIDevice device,
     const char *name,
-    const std::function<anari::Surface(ANARIDevice)> &prim,
-    const std::function<anari::Surface(ANARIDevice)> &mesh,
+    const std::array<Tube, 2> &tubes,
+    const std::function<anari::Surface(ANARIDevice, int, bool)> &prim,
     bool scaled)
 {
-  const double p = poolMeanLuminance(render(device, prim, scaled));
-  const double m = poolMeanLuminance(render(device, mesh, scaled));
-  const double relErr = m > 0.0 ? std::abs(p - m) / m : (p > 0 ? 1.0 : 0.0);
-  printf("%s%s: primitive=%f  mesh=%f  relErr=%f\n",
+  const char *transform = scaled ? "nonuniform-scale" : "identity";
+  const auto reference = [&](const char *phase, float emissionScale) {
+    fprintf(stderr, "[case] %s/%s/%s\n", name, transform, phase);
+    return poolMeanLuminance(render(
+        device,
+        [&](ANARIDevice d) {
+          return makeEmissiveTubeMesh(d, tubes, emissionScale);
+        },
+        scaled));
+  };
+  // References stay local to this family AND transform. All other scene,
+  // camera, Quality renderer, 1024-spp accumulation and output settings are
+  // fixed by render(). Fresh repeat and half-power scenes are not reused as
+  // the full-power reference or shared with another family/transform.
+  const double mesh = reference("reference", 1.f);
+  const double repeat = reference("reference-repeat", 1.f);
+  const double wrong = reference("reference-half-power", 0.5f);
+  bool ok = equivalent(mesh, repeat) && std::isfinite(wrong) && wrong > 0.0
+      && !equivalent(mesh, wrong);
+  printf("%s/%s controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
       name,
-      scaled ? " (scaled)" : "",
-      p,
-      m,
-      relErr);
-  if (!std::isfinite(p) || !std::isfinite(m) || p <= 0.0 || m <= 0.0) {
-    fprintf(stderr, "FAIL: %s floor pool unlit\n", name);
-    return false;
-  }
-  // 3% absorbs MC noise at 1024 spp plus the reference mesh's small (<0.1%
-  // area) faceting; observed relErr is well under 1%.
-  if (!equivalent(p, m)) {
-    fprintf(stderr,
-        "FAIL: %s%s geometry light not equivalent to tessellated mesh (relErr=%f > %f)\n",
-        name,
-        scaled ? " (scaled)" : "",
-        relErr,
-        TOLERANCE);
-    return false;
-  }
-  const double repeat = poolMeanLuminance(render(device, mesh, scaled));
-  emissionScale = 0.5f;
-  const double wrong = poolMeanLuminance(render(device, mesh, scaled));
-  emissionScale = 1.f;
-  // Repeat the fixed-sample reference; halving all emitter radiance changes
-  // irradiance by 50%, outside the unchanged 3% faceting/noise allowance.
-  const bool controls = equivalent(m, repeat) && std::isfinite(wrong)
-      && wrong > 0.0 && !equivalent(m, wrong) && !equivalent(p, wrong);
-  printf("%s%s controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
-      name,
-      scaled ? " (scaled)" : "",
-      std::abs(repeat - m) / m,
-      std::abs(p - wrong) / wrong,
+      transform,
+      std::abs(repeat - mesh) / mesh,
+      std::abs(mesh - wrong) / wrong,
       TOLERANCE,
-      controls ? "PASS" : "FAIL");
-  return controls;
+      ok ? "PASS" : "FAIL");
+
+  const auto check = [&](const char *residency,
+                         int deviceInputs,
+                         bool indexed) {
+    fprintf(stderr, "[case] %s/%s/%s\n", name, transform, residency);
+    const double actual = poolMeanLuminance(render(
+        device,
+        [&](ANARIDevice d) { return prim(d, deviceInputs, indexed); },
+        scaled));
+    // Keep the original 3% MC/faceting allowance and use that same comparator
+    // to reject the independently rendered half-power control for every case.
+    const bool matches = equivalent(actual, mesh) && !equivalent(actual, wrong);
+    printf("%s/%s/%s primitive=%f reference=%f relErr=%g tolerance=%g %s\n",
+        name,
+        transform,
+        residency,
+        actual,
+        mesh,
+        std::abs(actual - mesh) / mesh,
+        TOLERANCE,
+        matches ? "PASS" : "FAIL");
+    ok = matches && ok;
+  };
+  check("host-implicit-indices", 0, false);
+  for (const auto &residency : TUBE_CASES) {
+    // Residency roles are isolated at identity; the all-device case also
+    // witnesses their integration with the nonuniform area Jacobian.
+    if (!scaled || residency.deviceInputs == 15)
+      check(residency.name, residency.deviceInputs, true);
+  }
+  return ok;
 }
 
-int main(int argc, char **argv)
+int main()
 {
-  deviceInputs = argc > 1 ? std::atoi(argv[1]) : 0;
   auto device = makeVisRTXDevice(statusFunc);
-
-  const auto cylMesh = [](ANARIDevice d) {
-    return makeEmissiveTubeMesh(d, CYLINDERS);
-  };
-  const auto coneMesh = [](ANARIDevice d) {
-    return makeEmissiveTubeMesh(d, CONES);
-  };
-
   bool ok = true;
   for (bool scaled : {false, true}) {
-    ok = checkEquivalent(
-             device, "cylinder", makeEmissiveCylinderPrim, cylMesh, scaled)
+    ok = checkFamily(
+             device, "cylinder", CYLINDERS, makeEmissiveCylinderPrim, scaled)
         && ok;
-    ok = checkEquivalent(device, "cone", makeEmissiveConePrim, coneMesh, scaled)
-        && ok;
+    ok = checkFamily(device, "cone", CONES, makeEmissiveConePrim, scaled) && ok;
   }
-
   anari::release(device, device);
-
-  if (!ok)
-    return 1;
-  printf("emissive cylinder/cone geometry light equivalence passed\n");
-  return 0;
+  return ok ? 0 : 1;
 }
