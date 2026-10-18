@@ -65,6 +65,7 @@
 #include <functional>
 #include <vector>
 #include "DeviceTestArray.h"
+#include "ReceiverTestSupport.h"
 
 struct ResidencyCase
 {
@@ -84,20 +85,6 @@ using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
 using uvec3 = std::array<unsigned, 3>;
 using mat4 = std::array<float, 16>;
-
-static void statusFunc(const void *,
-    ANARIDevice,
-    ANARIObject source,
-    ANARIDataType,
-    ANARIStatusSeverity severity,
-    ANARIStatusCode,
-    const char *message)
-{
-  if (severity <= ANARI_SEVERITY_ERROR) {
-    fprintf(stderr, "[ERROR][%p] %s\n", source, message);
-    std::exit(1);
-  }
-}
 
 static constexpr std::array<unsigned, 2> IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 1024;
@@ -373,7 +360,7 @@ static anari::Instance instanceOf(
   return inst;
 }
 
-static std::vector<vec4> render(ANARIDevice device,
+static double render(ANARIDevice device,
     const std::function<anari::Surface(ANARIDevice)> &emitter,
     bool scaled)
 {
@@ -382,59 +369,24 @@ static std::vector<vec4> render(ANARIDevice device,
       instanceOf(device, emitter(device), scaled)};
 
   auto world = anari::newObject<anari::World>(device);
+  const visrtx::test::ObjectOwner worldOwner(device, world);
   anari::setParameterArray1D(
       device, world, "instance", instances.data(), instances.size());
   for (auto i : instances)
     anari::release(device, i);
   anari::commitParameters(device, world);
 
-  auto camera = anari::newObject<anari::Camera>(device, "perspective");
-  anari::setParameter(device, camera, "position", vec3{0.f, 0.5f, -3.f});
-  anari::setParameter(device, camera, "direction", vec3{0.f, -0.15f, 1.f});
-  anari::setParameter(device, camera, "up", vec3{0.f, 1.f, 0.f});
-  anari::setParameter(
-      device, camera, "aspect", IMAGE_SIZE[0] / float(IMAGE_SIZE[1]));
-  anari::commitParameters(device, camera);
-
-  auto renderer = anari::newObject<anari::Renderer>(device, "quality");
-  anari::setParameter(device, renderer, "background", vec4{0.f, 0.f, 0.f, 1.f});
-  anari::setParameter(device, renderer, "ambientRadiance", 0.f);
-  anari::setParameter(device, renderer, "pixelSamples", PIXEL_SAMPLES);
-  anari::setParameter(device, renderer, "fireflyFilterMode", "none");
-  anari::commitParameters(device, renderer);
-
-  auto frame = anari::newObject<anari::Frame>(device);
-  anari::setParameter(device, frame, "size", IMAGE_SIZE);
-  anari::setParameter(device, frame, "channel.color", ANARI_FLOAT32_VEC4);
-  anari::setAndReleaseParameter(device, frame, "world", world);
-  anari::setAndReleaseParameter(device, frame, "camera", camera);
-  anari::setAndReleaseParameter(device, frame, "renderer", renderer);
-  anari::commitParameters(device, frame);
-
-  anari::render(device, frame);
-  anari::wait(device, frame);
-
-  auto fb = anari::map<vec4>(device, frame, "channel.color");
-  std::vector<vec4> out(fb.data, fb.data + size_t(fb.width) * fb.height);
-  anari::unmap(device, frame, "channel.color");
-  anari::release(device, frame);
-  return out;
-}
-
-// Mean linear luminance over the lit floor region (lower-center of the frame,
-// ANARI's bottom-left framebuffer origin).
-static double poolMeanLuminance(const std::vector<vec4> &fb)
-{
-  double sum = 0.0;
-  uint64_t n = 0;
-  for (uint32_t y = IMAGE_SIZE[1] / 8; y < IMAGE_SIZE[1] / 2; ++y) {
-    for (uint32_t x = 3 * IMAGE_SIZE[0] / 8; x < 5 * IMAGE_SIZE[0] / 8; ++x) {
-      const vec4 &p = fb[y * IMAGE_SIZE[0] + x];
-      sum += 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
-      ++n;
-    }
-  }
-  return n ? sum / double(n) : 0.0;
+  auto frame = visrtx::test::receiverFrame(
+      device, world, IMAGE_SIZE, "quality", PIXEL_SAMPLES);
+  const visrtx::test::ObjectOwner frameOwner(device, frame);
+  // Bottom-left origin; only the floor's cast pool, never the emitters.
+  return visrtx::test::receiverLuminance(device,
+      frame,
+      IMAGE_SIZE,
+      {3 * IMAGE_SIZE[0] / 8,
+          5 * IMAGE_SIZE[0] / 8,
+          IMAGE_SIZE[1] / 8,
+          IMAGE_SIZE[1] / 2});
 }
 
 static bool checkFamily(ANARIDevice device,
@@ -446,12 +398,12 @@ static bool checkFamily(ANARIDevice device,
   const char *transform = scaled ? "nonuniform-scale" : "identity";
   const auto reference = [&](const char *phase, float emissionScale) {
     fprintf(stderr, "[case] %s/%s/%s\n", name, transform, phase);
-    return poolMeanLuminance(render(
+    return render(
         device,
         [&](ANARIDevice d) {
           return makeEmissiveTubeMesh(d, tubes, emissionScale);
         },
-        scaled));
+        scaled);
   };
   // References stay local to this family AND transform. All other scene,
   // camera, Quality renderer, 1024-spp accumulation and output settings are
@@ -474,10 +426,10 @@ static bool checkFamily(ANARIDevice device,
                          int deviceInputs,
                          bool indexed) {
     fprintf(stderr, "[case] %s/%s/%s\n", name, transform, residency);
-    const double actual = poolMeanLuminance(render(
+    const double actual = render(
         device,
         [&](ANARIDevice d) { return prim(d, deviceInputs, indexed); },
-        scaled));
+        scaled);
     // Keep the original 3% MC/faceting allowance and use that same comparator
     // to reject the independently rendered half-power control for every case.
     const bool matches = equivalent(actual, mesh) && !equivalent(actual, wrong);
@@ -504,7 +456,7 @@ static bool checkFamily(ANARIDevice device,
 
 int main()
 {
-  auto device = makeVisRTXDevice(statusFunc);
+  auto device = makeVisRTXDevice(visrtx::test::exitOnErrorStatus);
   bool ok = true;
   for (bool scaled : {false, true}) {
     ok = checkFamily(
