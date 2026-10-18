@@ -44,6 +44,39 @@ static int errors = 0;
 static bool retireShared = false;
 static bool expandedSdf = false;
 
+struct ResidencyCase
+{
+  const char *name;
+  int deviceInputs;
+};
+
+static constexpr std::array<ResidencyCase, 4> QUAD_CASES = {{{"host", 0},
+    {"device-positions", 1},
+    {"device-indices", 2},
+    {"all-device", 3}}};
+static constexpr std::array<ResidencyCase, 5> CURVE_CASES = {{{"host", 0},
+    {"device-positions", 1},
+    {"device-indices", 2},
+    {"device-vertex-radii", 4},
+    {"all-device", 7}}};
+static constexpr auto CONE_CASES = CURVE_CASES;
+static constexpr std::array<ResidencyCase, 5> CYLINDER_CASES = {{{"host", 0},
+    {"device-positions", 1},
+    {"device-indices", 2},
+    {"device-primitive-radii", 4},
+    {"all-device", 7}}};
+static constexpr std::array<ResidencyCase, 2> SDF_CASES = {
+    {{"host", 0}, {"device-primitive-bytes", 1}}};
+static constexpr std::array<ResidencyCase, 4> EXPANDED_SDF_CASES = {
+    {{"host", 0},
+        {"device-primitive-bytes", 1},
+        {"device-neighbors", 2},
+        {"all-device", 3}}};
+// Indices and radii always use shared GPU storage in retirement mode.
+static constexpr std::array<ResidencyCase, 2> RETIREMENT_CASES = {
+    {{"host-positions-shared-device-indices-radii", 0},
+        {"device-positions-shared-device-indices-radii", 1}}};
+
 template <typename Container>
 static std::pair<anari::Array1D, void *> sharedArray(
     ANARIDevice d, anari::Geometry g, const char *name, const Container &values)
@@ -79,8 +112,15 @@ static void status(const void *,
 // Public API seam: exact geometric bounds and a visible center pixel are
 // independent controls. 1e-4 absolute bounds tolerance permits OptiX rounding;
 // moving the input by +2 in X must move the bounds and clear the center pixel.
-static bool check(ANARIDevice d, const char *type, int device, float shift)
+static bool check(ANARIDevice d,
+    const char *type,
+    const ResidencyCase &residency,
+    float shift)
 {
+  const int device = residency.deviceInputs;
+  const char *scenario =
+      retireShared ? "retirement" : (expandedSdf ? "sdf-expanded" : type);
+  fprintf(stderr, "[case] %s/%s shift=%g\n", scenario, residency.name, shift);
   auto g = anari::newObject<anari::Geometry>(d, type);
   std::vector<std::pair<anari::Array1D, void *>> shared;
   float xExtent = 0.5f, yExtent = 0.5f, zExtent = 0.f;
@@ -184,6 +224,11 @@ static bool check(ANARIDevice d, const char *type, int device, float shift)
       anari::release(d, entry.first);
       cudaFree(entry.second);
     }
+    fprintf(stderr,
+        "[case] %s/%s shift=%g after shared storage retirement\n",
+        scenario,
+        residency.name,
+        shift);
     anari::setParameter(d, frame, "accumulationVersion", uint64_t(2));
     anari::commitParameters(d, frame);
     anari::render(d, frame);
@@ -221,9 +266,9 @@ static bool check(ANARIDevice d, const char *type, int device, float shift)
   anari::unmap(d, frame, "channel.color");
   anari::release(d, frame);
   anari::release(d, world);
-  printf("%s device=%d shift=%g bounds=[%g %g %g %g %g %g] center=%g %s\n",
-      type,
-      device,
+  printf("%s/%s shift=%g bounds=[%g %g %g %g %g %g] center=%g %s\n",
+      scenario,
+      residency.name,
       shift,
       bounds[0],
       bounds[1],
@@ -244,9 +289,25 @@ int main(int argc, char **argv)
       : (expandedSdf ? "sdf" : (argc > 1 ? argv[1] : "quad"));
   auto d = makeVisRTXDevice(status);
   bool ok = true;
-  for (int device : {0, 1, 2, 4, 7})
-    for (float shift : {0.f, 2.f})
-      ok = check(d, type, device, shift) && ok;
+  const auto runCases = [&](const auto &cases) {
+    for (const auto &residency : cases)
+      for (float shift : {0.f, 2.f})
+        ok = check(d, type, residency, shift) && ok;
+  };
+  if (retireShared)
+    runCases(RETIREMENT_CASES);
+  else if (expandedSdf)
+    runCases(EXPANDED_SDF_CASES);
+  else if (std::strcmp(type, "quad") == 0)
+    runCases(QUAD_CASES);
+  else if (std::strcmp(type, "curve") == 0)
+    runCases(CURVE_CASES);
+  else if (std::strcmp(type, "cone") == 0)
+    runCases(CONE_CASES);
+  else if (std::strcmp(type, "cylinder") == 0)
+    runCases(CYLINDER_CASES);
+  else
+    runCases(SDF_CASES);
   anari::release(d, d);
   return ok && errors == 0 ? 0 : 1;
 }

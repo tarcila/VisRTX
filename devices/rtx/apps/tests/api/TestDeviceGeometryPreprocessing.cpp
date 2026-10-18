@@ -77,6 +77,20 @@ static void statusFunc(const void *,
   }
 }
 
+struct ResidencyCase
+{
+  const char *name;
+  int deviceInputs;
+};
+
+static constexpr std::array<ResidencyCase, 4> INDEXED_TRIANGLE_CASES = {
+    {{"host", 0},
+        {"device-positions", 1},
+        {"device-indices", 2},
+        {"all-device", 3}}};
+static constexpr std::array<ResidencyCase, 2> TRIANGLE_SOUP_CASES = {
+    {{"host", 0}, {"device-positions", 1}}};
+
 static int deviceInputs = 0;
 static bool triangleSoup = false;
 static bool keepScene = false;
@@ -269,9 +283,12 @@ static double poolMeanLuminance(const std::vector<vec4> &fb)
 int main()
 {
   auto device = makeVisRTXDevice(statusFunc);
+  fprintf(stderr, "[case] triangle/reference\n");
   const double reference = poolMeanLuminance(render(device, false));
+  fprintf(stderr, "[case] triangle/reference-repeat\n");
   const double repeat = poolMeanLuminance(render(device, false));
   referenceIntensityScale = 0.5f;
+  fprintf(stderr, "[case] triangle/reference-half-power\n");
   const double wrong = poolMeanLuminance(render(device, false));
   referenceIntensityScale = 1.f;
   // Fixed 512 spp and the existing 5% threshold: repeat the oracle to bound
@@ -284,23 +301,32 @@ int main()
       std::abs(reference - wrong) / wrong,
       TOLERANCE,
       ok ? "PASS" : "FAIL");
-  for (bool soup : {false, true}) {
+  const auto runCases = [&](bool soup, const auto &cases) {
     triangleSoup = soup;
-    for (deviceInputs = 0; deviceInputs < 4; ++deviceInputs) {
+    const char *geometry = soup ? "triangle-soup" : "indexed-triangle";
+    for (const auto &residency : cases) {
+      deviceInputs = residency.deviceInputs;
+      fprintf(stderr, "[case] %s/%s\n", geometry, residency.name);
       const double mesh = poolMeanLuminance(render(device, true));
       const double error = std::abs(mesh - reference) / reference;
-      printf("triangle soup=%d residency=%d mesh=%f reference=%f relErr=%f\n",
-          soup,
-          deviceInputs,
+      const bool matches =
+          equivalent(mesh, reference) && !equivalent(mesh, wrong);
+      printf("%s/%s mesh=%f reference=%f relErr=%f %s\n",
+          geometry,
+          residency.name,
           mesh,
           reference,
-          error);
-      ok = equivalent(mesh, reference) && !equivalent(mesh, wrong) && ok;
+          error,
+          matches ? "PASS" : "FAIL");
+      ok = matches && ok;
     }
-  }
+  };
+  runCases(false, INDEXED_TRIANGLE_CASES);
+  runCases(true, TRIANGLE_SOUP_CASES);
   triangleSoup = false;
   deviceInputs = 3;
   keepScene = true;
+  fprintf(stderr, "[case] triangle/lifecycle-initial-all-device\n");
   render(device, true);
   const std::array<std::array<unsigned, 3>, 2> indices = {
       {{0, 1, 2}, {0, 2, 3}}};
@@ -311,6 +337,11 @@ int main()
       {-0.5f, 1.5f, 0.5f}}};
   for (int step = 0; step < 4; ++step) {
     const bool zero = step == 1;
+    fprintf(stderr,
+        "[case] triangle/lifecycle step=%d zero=%d device-positions=%d\n",
+        step,
+        zero,
+        step % 2 == 0);
     auto positions = square;
     if (zero)
       positions.fill(vec3{0, 1.5f, 0});
@@ -337,6 +368,7 @@ int main()
   anari::setParameter(device, retainedGeometry, "vertex.position", positions);
   anari::commitParameters(device, retainedGeometry);
   for (bool zero : {false, true, false}) {
+    fprintf(stderr, "[case] triangle/array-unmap zero=%d\n", zero);
     auto *mapped = anari::map<vec3>(device, positions);
     for (size_t i = 0; i < square.size(); ++i)
       mapped[i] = zero ? vec3{0, 1.5f, 0} : square[i];
