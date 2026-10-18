@@ -91,17 +91,30 @@ static constexpr std::array<ResidencyCase, 4> INDEXED_TRIANGLE_CASES = {
 static constexpr std::array<ResidencyCase, 2> TRIANGLE_SOUP_CASES = {
     {{"host", 0}, {"device-positions", 1}}};
 
-static int deviceInputs = 0;
-static bool triangleSoup = false;
-static bool keepScene = false;
-static anari::Geometry retainedGeometry = nullptr;
-static anari::Frame retainedFrame = nullptr;
+struct RetainedScene
+{
+  explicit RetainedScene(ANARIDevice d);
+  ~RetainedScene();
+  RetainedScene(const RetainedScene &) = delete;
+  RetainedScene &operator=(const RetainedScene &) = delete;
+
+  ANARIDevice device;
+  anari::Geometry geometry = nullptr;
+  anari::Frame frame = nullptr;
+};
+
+RetainedScene::RetainedScene(ANARIDevice d) : device(d) {}
+
+RetainedScene::~RetainedScene()
+{
+  anari::release(device, frame);
+  anari::release(device, geometry);
+}
 
 static constexpr uvec2 IMAGE_SIZE = {128, 128};
 static constexpr int PIXEL_SAMPLES = 512;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
 static constexpr double TOLERANCE = 0.05;
-static float referenceIntensityScale = 1.f;
 
 static bool equivalent(double actual, double reference)
 {
@@ -144,7 +157,10 @@ static anari::Surface makeFloor(ANARIDevice device)
 }
 
 // Emissive quad mesh at the emitter footprint, facing down.
-static anari::Surface makeEmissiveQuad(ANARIDevice device)
+static anari::Surface makeEmissiveQuad(ANARIDevice device,
+    int deviceInputs,
+    bool triangleSoup,
+    RetainedScene *retained)
 {
   const std::array<vec3, 5> pos = {vec3{-QUAD_HALF, QUAD_Y, -QUAD_HALF},
       vec3{QUAD_HALF, QUAD_Y, -QUAD_HALF},
@@ -165,8 +181,8 @@ static anari::Surface makeEmissiveQuad(ANARIDevice device)
     setTestArray(device, geom, "vertex.position", pos, deviceInputs & 1);
     setTestArray(device, geom, "primitive.index", idx, deviceInputs & 2);
   }
-  if (keepScene) {
-    retainedGeometry = geom;
+  if (retained) {
+    retained->geometry = geom;
     anari::retain(device, geom);
   }
   anari::commitParameters(device, geom);
@@ -189,7 +205,7 @@ static anari::Surface makeEmissiveQuad(ANARIDevice device)
 }
 
 // ANARI quad light at the same footprint, double-sided, radiance = intensity.
-static anari::Light makeQuadLight(ANARIDevice device)
+static anari::Light makeQuadLight(ANARIDevice device, float intensityScale)
 {
   auto light = anari::newObject<anari::Light>(device, "quad");
   anari::setParameter(device, light, "color", vec3{1.f, 1.f, 1.f});
@@ -198,7 +214,7 @@ static anari::Light makeQuadLight(ANARIDevice device)
   anari::setParameter(device, light, "edge1", vec3{2.f * QUAD_HALF, 0.f, 0.f});
   anari::setParameter(device, light, "edge2", vec3{0.f, 0.f, 2.f * QUAD_HALF});
   anari::setParameter(
-      device, light, "intensity", EMISSIVE_RADIANCE * referenceIntensityScale);
+      device, light, "intensity", EMISSIVE_RADIANCE * intensityScale);
   anari::setParameter(device, light, "side", "both");
   anari::commitParameters(device, light);
   return light;
@@ -206,14 +222,20 @@ static anari::Light makeQuadLight(ANARIDevice device)
 
 // Render the floor lit by either the emissive quad (useMesh) or the ANARI quad
 // light, and return the linear framebuffer.
-static std::vector<vec4> render(ANARIDevice device, bool useMesh)
+static std::vector<vec4> render(ANARIDevice device,
+    bool useMesh,
+    int deviceInputs = 0,
+    bool triangleSoup = false,
+    float referenceIntensityScale = 1.f,
+    RetainedScene *retained = nullptr)
 {
   std::vector<anari::Surface> surfaces = {makeFloor(device)};
   std::vector<anari::Light> lights;
   if (useMesh)
-    surfaces.push_back(makeEmissiveQuad(device));
+    surfaces.push_back(
+        makeEmissiveQuad(device, deviceInputs, triangleSoup, retained));
   else
-    lights.push_back(makeQuadLight(device));
+    lights.push_back(makeQuadLight(device, referenceIntensityScale));
 
   auto world = anari::newObject<anari::World>(device);
   anari::setParameterArray1D(
@@ -258,8 +280,8 @@ static std::vector<vec4> render(ANARIDevice device, bool useMesh)
   auto fb = anari::map<vec4>(device, frame, "channel.color");
   std::vector<vec4> out(fb.data, fb.data + size_t(fb.width) * fb.height);
   anari::unmap(device, frame, "channel.color");
-  if (keepScene)
-    retainedFrame = frame;
+  if (retained)
+    retained->frame = frame;
   else
     anari::release(device, frame);
   return out;
@@ -287,10 +309,8 @@ int main()
   const double reference = poolMeanLuminance(render(device, false));
   fprintf(stderr, "[case] triangle/reference-repeat\n");
   const double repeat = poolMeanLuminance(render(device, false));
-  referenceIntensityScale = 0.5f;
   fprintf(stderr, "[case] triangle/reference-half-power\n");
-  const double wrong = poolMeanLuminance(render(device, false));
-  referenceIntensityScale = 1.f;
+  const double wrong = poolMeanLuminance(render(device, false, 0, false, 0.5f));
   // Fixed 512 spp and the existing 5% threshold: repeat the oracle to bound
   // observed variation, then require a finite half-power oracle to be rejected
   // by the very same comparator used for residency/lifecycle acceptance.
@@ -302,12 +322,11 @@ int main()
       TOLERANCE,
       ok ? "PASS" : "FAIL");
   const auto runCases = [&](bool soup, const auto &cases) {
-    triangleSoup = soup;
     const char *geometry = soup ? "triangle-soup" : "indexed-triangle";
     for (const auto &residency : cases) {
-      deviceInputs = residency.deviceInputs;
       fprintf(stderr, "[case] %s/%s\n", geometry, residency.name);
-      const double mesh = poolMeanLuminance(render(device, true));
+      const double mesh =
+          poolMeanLuminance(render(device, true, residency.deviceInputs, soup));
       const double error = std::abs(mesh - reference) / reference;
       const bool matches =
           equivalent(mesh, reference) && !equivalent(mesh, wrong);
@@ -323,71 +342,75 @@ int main()
   };
   runCases(false, INDEXED_TRIANGLE_CASES);
   runCases(true, TRIANGLE_SOUP_CASES);
-  triangleSoup = false;
-  deviceInputs = 3;
-  keepScene = true;
-  fprintf(stderr, "[case] triangle/lifecycle-initial-all-device\n");
-  render(device, true);
-  const std::array<std::array<unsigned, 3>, 2> indices = {
-      {{0, 1, 2}, {0, 2, 3}}};
-  setTestArray(device, retainedGeometry, "primitive.index", indices, true);
-  const std::array<vec3, 4> square = {{{-0.5f, 1.5f, -0.5f},
-      {0.5f, 1.5f, -0.5f},
-      {0.5f, 1.5f, 0.5f},
-      {-0.5f, 1.5f, 0.5f}}};
-  for (int step = 0; step < 4; ++step) {
-    const bool zero = step == 1;
-    fprintf(stderr,
-        "[case] triangle/lifecycle step=%d zero=%d device-positions=%d\n",
-        step,
-        zero,
-        step % 2 == 0);
-    auto positions = square;
-    if (zero)
-      positions.fill(vec3{0, 1.5f, 0});
-    setTestArray(
-        device, retainedGeometry, "vertex.position", positions, step % 2 == 0);
+  {
+    RetainedScene scene(device);
+    fprintf(stderr, "[case] triangle/lifecycle-initial-all-device\n");
+    render(device, true, 3, false, 1.f, &scene);
+    const auto retainedGeometry = scene.geometry;
+    const auto retainedFrame = scene.frame;
+    const std::array<std::array<unsigned, 3>, 2> indices = {
+        {{0, 1, 2}, {0, 2, 3}}};
+    setTestArray(device, retainedGeometry, "primitive.index", indices, true);
+    const std::array<vec3, 4> square = {{{-0.5f, 1.5f, -0.5f},
+        {0.5f, 1.5f, -0.5f},
+        {0.5f, 1.5f, 0.5f},
+        {-0.5f, 1.5f, 0.5f}}};
+    for (int step = 0; step < 4; ++step) {
+      const bool zero = step == 1;
+      fprintf(stderr,
+          "[case] triangle/lifecycle step=%d zero=%d device-positions=%d\n",
+          step,
+          zero,
+          step % 2 == 0);
+      auto positions = square;
+      if (zero)
+        positions.fill(vec3{0, 1.5f, 0});
+      setTestArray(device,
+          retainedGeometry,
+          "vertex.position",
+          positions,
+          step % 2 == 0);
+      anari::commitParameters(device, retainedGeometry);
+      anari::render(device, retainedFrame);
+      anari::wait(device, retainedFrame);
+      auto fb = anari::map<vec4>(device, retainedFrame, "channel.color");
+      const std::vector<vec4> pixels(
+          fb.data, fb.data + size_t(fb.width) * fb.height);
+      const double mean = poolMeanLuminance(pixels);
+      anari::unmap(device, retainedFrame, "channel.color");
+      ok = ok && std::isfinite(mean)
+          && (zero ? mean < 1e-6 : equivalent(mean, reference));
+      printf("lifecycle step=%d mean=%g reference=%g %s\n",
+          step,
+          mean,
+          reference,
+          ok ? "PASS" : "FAIL");
+    }
+    // Array unmap must invalidate the CDF without a geometry recommit.
+    auto positions =
+        anari::newArray1D(device, ANARI_FLOAT32_VEC3, square.size());
+    anari::setParameter(device, retainedGeometry, "vertex.position", positions);
     anari::commitParameters(device, retainedGeometry);
-    anari::render(device, retainedFrame);
-    anari::wait(device, retainedFrame);
-    auto fb = anari::map<vec4>(device, retainedFrame, "channel.color");
-    const std::vector<vec4> pixels(
-        fb.data, fb.data + size_t(fb.width) * fb.height);
-    const double mean = poolMeanLuminance(pixels);
-    anari::unmap(device, retainedFrame, "channel.color");
-    ok = ok && std::isfinite(mean)
-        && (zero ? mean < 1e-6 : equivalent(mean, reference));
-    printf("lifecycle step=%d mean=%g reference=%g %s\n",
-        step,
-        mean,
-        reference,
-        ok ? "PASS" : "FAIL");
+    for (bool zero : {false, true, false}) {
+      fprintf(stderr, "[case] triangle/array-unmap zero=%d\n", zero);
+      auto *mapped = anari::map<vec3>(device, positions);
+      for (size_t i = 0; i < square.size(); ++i)
+        mapped[i] = zero ? vec3{0, 1.5f, 0} : square[i];
+      anari::unmap(device, positions);
+      anari::render(device, retainedFrame);
+      anari::wait(device, retainedFrame);
+      auto fb = anari::map<vec4>(device, retainedFrame, "channel.color");
+      const std::vector<vec4> pixels(
+          fb.data, fb.data + size_t(fb.width) * fb.height);
+      const double mean = poolMeanLuminance(pixels);
+      anari::unmap(device, retainedFrame, "channel.color");
+      ok = ok && std::isfinite(mean)
+          && (zero ? mean < 1e-6 : equivalent(mean, reference));
+      printf(
+          "array-unmap zero=%d mean=%g %s\n", zero, mean, ok ? "PASS" : "FAIL");
+    }
+    anari::release(device, positions);
   }
-  // Array unmap must invalidate the CDF without a geometry recommit.
-  auto positions = anari::newArray1D(device, ANARI_FLOAT32_VEC3, square.size());
-  anari::setParameter(device, retainedGeometry, "vertex.position", positions);
-  anari::commitParameters(device, retainedGeometry);
-  for (bool zero : {false, true, false}) {
-    fprintf(stderr, "[case] triangle/array-unmap zero=%d\n", zero);
-    auto *mapped = anari::map<vec3>(device, positions);
-    for (size_t i = 0; i < square.size(); ++i)
-      mapped[i] = zero ? vec3{0, 1.5f, 0} : square[i];
-    anari::unmap(device, positions);
-    anari::render(device, retainedFrame);
-    anari::wait(device, retainedFrame);
-    auto fb = anari::map<vec4>(device, retainedFrame, "channel.color");
-    const std::vector<vec4> pixels(
-        fb.data, fb.data + size_t(fb.width) * fb.height);
-    const double mean = poolMeanLuminance(pixels);
-    anari::unmap(device, retainedFrame, "channel.color");
-    ok = ok && std::isfinite(mean)
-        && (zero ? mean < 1e-6 : equivalent(mean, reference));
-    printf(
-        "array-unmap zero=%d mean=%g %s\n", zero, mean, ok ? "PASS" : "FAIL");
-  }
-  anari::release(device, positions);
-  anari::release(device, retainedFrame);
-  anari::release(device, retainedGeometry);
   anari::release(device, device);
   return ok ? 0 : 1;
 }

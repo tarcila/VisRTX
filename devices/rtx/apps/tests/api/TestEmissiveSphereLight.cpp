@@ -54,7 +54,18 @@
 #include <vector>
 #include "DeviceTestArray.h"
 
-static int deviceInputs = 0;
+struct ResidencyCase
+{
+  const char *name;
+  int deviceInputs;
+};
+
+static constexpr std::array<ResidencyCase, 5> SPHERE_CASES = {
+    {{"host-indexed", 0},
+        {"device-positions", 1},
+        {"device-vertex-radii", 2},
+        {"device-indices", 4},
+        {"all-device", 7}}};
 
 using uvec2 = std::array<unsigned int, 2>;
 using vec3 = std::array<float, 3>;
@@ -78,7 +89,6 @@ static constexpr uvec2 IMAGE_SIZE = {256, 256};
 static constexpr int PIXEL_SAMPLES = 512;
 static constexpr float EMISSIVE_RADIANCE = 8.f;
 static constexpr double TOLERANCE = 0.05;
-static float referenceIntensityScale = 1.f;
 
 static bool equivalent(double actual, double reference)
 {
@@ -120,12 +130,13 @@ static anari::Surface makeFloor(ANARIDevice device)
 }
 
 // Emissive sphere geometry at the emitter footprint.
-static anari::Surface makeEmissiveSphere(ANARIDevice device)
+static anari::Surface makeEmissiveSphere(
+    ANARIDevice device, int deviceInputs, bool indexed)
 {
   const std::array<vec3, 1> pos = {SPHERE_CENTER};
 
   auto geom = anari::newObject<anari::Geometry>(device, "sphere");
-  if (deviceInputs) {
+  if (indexed) {
     const std::array<vec3, 2> positions = {vec3{0.f, 20.f, 0.f}, SPHERE_CENTER};
     const std::array<float, 2> radii = {0.01f, SPHERE_RADIUS};
     const std::array<unsigned, 1> indices = {1};
@@ -158,28 +169,32 @@ static anari::Surface makeEmissiveSphere(ANARIDevice device)
 
 // ANARI sphere light (the "point" subtype with radius) at the same footprint,
 // radiance = intensity.
-static anari::Light makeSphereLight(ANARIDevice device)
+static anari::Light makeSphereLight(ANARIDevice device, float intensityScale)
 {
   auto light = anari::newObject<anari::Light>(device, "point");
   anari::setParameter(device, light, "color", vec3{1.f, 1.f, 1.f});
   anari::setParameter(device, light, "position", SPHERE_CENTER);
   anari::setParameter(device, light, "radius", SPHERE_RADIUS);
   anari::setParameter(
-      device, light, "intensity", EMISSIVE_RADIANCE * referenceIntensityScale);
+      device, light, "intensity", EMISSIVE_RADIANCE * intensityScale);
   anari::commitParameters(device, light);
   return light;
 }
 
 // Render the floor lit by either the emissive sphere (useMesh) or the ANARI
 // sphere light, and return the linear framebuffer.
-static std::vector<vec4> render(ANARIDevice device, bool useMesh)
+static std::vector<vec4> render(ANARIDevice device,
+    bool useMesh,
+    int deviceInputs = 0,
+    bool indexed = false,
+    float referenceIntensityScale = 1.f)
 {
   std::vector<anari::Surface> surfaces = {makeFloor(device)};
   std::vector<anari::Light> lights;
   if (useMesh)
-    surfaces.push_back(makeEmissiveSphere(device));
+    surfaces.push_back(makeEmissiveSphere(device, deviceInputs, indexed));
   else
-    lights.push_back(makeSphereLight(device));
+    lights.push_back(makeSphereLight(device, referenceIntensityScale));
 
   auto world = anari::newObject<anari::World>(device);
   anari::setParameterArray1D(
@@ -244,46 +259,47 @@ static double poolMeanLuminance(const std::vector<vec4> &fb)
   return n ? sum / double(n) : 0.0;
 }
 
-int main(int argc, char **argv)
+int main()
 {
-  deviceInputs = argc > 1 ? std::atoi(argv[1]) : 0;
   auto device = makeVisRTXDevice(statusFunc);
 
-  const double mesh = poolMeanLuminance(render(device, true));
+  // These fresh analytic scenes share the fixed camera, Quality renderer,
+  // 512-spp accumulation and output settings of every residency below. Keep
+  // half power separate; neither repeatability nor calibration is cached away.
+  fprintf(stderr, "[case] sphere/reference\n");
   const double light = poolMeanLuminance(render(device, false));
+  fprintf(stderr, "[case] sphere/reference-repeat\n");
   const double repeat = poolMeanLuminance(render(device, false));
-  referenceIntensityScale = 0.5f;
-  const double wrong = poolMeanLuminance(render(device, false));
-  referenceIntensityScale = 1.f;
-  const bool controls = equivalent(light, repeat) && std::isfinite(wrong)
-      && wrong > 0.0 && !equivalent(light, wrong) && !equivalent(mesh, wrong);
+  fprintf(stderr, "[case] sphere/reference-half-power\n");
+  const double wrong = poolMeanLuminance(render(device, false, 0, false, 0.5f));
+  bool ok = equivalent(light, repeat) && std::isfinite(wrong) && wrong > 0.0
+      && !equivalent(light, wrong);
   printf("sphere controls repeatRelErr=%g wrongRelErr=%g tolerance=%g %s\n",
       std::abs(repeat - light) / light,
-      std::abs(mesh - wrong) / wrong,
+      std::abs(light - wrong) / wrong,
       TOLERANCE,
-      controls ? "PASS" : "FAIL");
+      ok ? "PASS" : "FAIL");
+
+  const auto check = [&](const char *name, int deviceInputs, bool indexed) {
+    fprintf(stderr, "[case] sphere/%s\n", name);
+    const double mesh =
+        poolMeanLuminance(render(device, true, deviceInputs, indexed));
+    // The unchanged 5% allowance covers MC noise at 512 spp, not a different
+    // physical scene. Every variant also rejects the rendered wrong reference.
+    const bool matches = equivalent(mesh, light) && !equivalent(mesh, wrong);
+    printf("sphere/%s mesh=%f reference=%f relErr=%g tolerance=%g %s\n",
+        name,
+        mesh,
+        light,
+        std::abs(mesh - light) / light,
+        TOLERANCE,
+        matches ? "PASS" : "FAIL");
+    ok = matches && ok;
+  };
+  check("host-scalar-radius", 0, false);
+  for (const auto &residency : SPHERE_CASES)
+    check(residency.name, residency.deviceInputs, true);
 
   anari::release(device, device);
-
-  const double relErr =
-      light > 0.0 ? std::abs(mesh - light) / light : (mesh > 0 ? 1.0 : 0.0);
-  printf("emissiveSphere=%f  sphereLight=%f  relErr=%f\n", mesh, light, relErr);
-
-  // Both estimators must converge to the same floor irradiance. A generous 5%
-  // absorbs residual MC noise at 512 spp; a broken radiometry or double-count
-  // shifts it by far more.
-  if (!std::isfinite(mesh) || !std::isfinite(light) || mesh <= 0.0
-      || light <= 0.0) {
-    fprintf(stderr, "FAIL: floor pool unlit (mesh=%f light=%f)\n", mesh, light);
-    return 1;
-  }
-  if (!equivalent(mesh, light) || !controls) {
-    fprintf(stderr,
-        "FAIL: emissive sphere geometry light not equivalent to sphere light (relErr=%f > %f)\n",
-        relErr,
-        TOLERANCE);
-    return 1;
-  }
-  printf("emissive sphere geometry light equivalence passed\n");
-  return 0;
+  return ok ? 0 : 1;
 }
