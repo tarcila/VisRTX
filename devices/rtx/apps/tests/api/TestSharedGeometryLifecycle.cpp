@@ -237,6 +237,7 @@ static bool phase(ANARIDevice d,
     const std::array<float, 2> &widths,
     const std::array<float, 2> &offsets)
 {
+  fprintf(stderr, "[case] %s\n", name);
   const auto actual = render(d, f);
   uint32_t lights = 0;
   const uint32_t expectedLights =
@@ -264,15 +265,6 @@ int main()
 {
   auto d = makeVisRTXDevice(status);
   auto g = geometry(d, 0.5f);
-  auto positions = anari::newArray1D(d, ANARI_FLOAT32_VEC3, 5);
-  auto update = [&](float halfWidth) {
-    const auto v = vertices(halfWidth);
-    std::copy(v.begin(), v.end(), anari::map<vec3>(d, positions));
-    anari::unmap(d, positions);
-  };
-  update(0.5f);
-  anari::setParameter(d, g, "vertex.position", positions);
-  anari::commitParameters(d, g);
   const std::array<anari::Surface, 2> surfaces = {surface(d, g), surface(d, g)};
   std::array<float, 2> offsets = {-0.9f, 0.9f};
   const std::array<anari::Instance, 2> instances = {
@@ -299,8 +291,29 @@ int main()
       missing[1],
       controls ? "PASS" : "FAIL");
   ok = controls && ok;
+
+  // Shrink while the five-vertex/four-triangle area data is active. The same
+  // geometry keeps its buffer capacity, but must publish only two triangles.
+  // A changed footprint makes stale area weights/counts observable in both
+  // pools against independently authored analytic lights.
+  auto positions = anari::newArray1D(d, ANARI_FLOAT32_VEC3, 4);
+  auto update = [&](float halfWidth) {
+    const auto v = vertices(halfWidth);
+    std::copy_n(v.begin(), 4, anari::map<vec3>(d, positions));
+    anari::unmap(d, positions);
+  };
+  update(0.375f);
+  const std::array<std::array<unsigned, 3>, 2> indices = {
+      {{0, 1, 2}, {0, 2, 3}}};
+  anari::setParameter(d, g, "vertex.position", positions);
+  setTestArray(d, g, "primitive.index", indices, true);
+  anari::commitParameters(d, g);
+  ok = phase(d, f, w, "shared active count shrink", {0.375f, 0.375f}, offsets)
+      && ok;
   update(0.f); // no geometry/surface/group/instance recommit
   ok = phase(d, f, w, "shared unmap to zero", {0, 0}, offsets) && ok;
+  update(0.5f); // recovery also requires no higher-object recommit
+  ok = phase(d, f, w, "shared unmap recovery", {0.5f, 0.5f}, offsets) && ok;
   setTestArray(d, g, "vertex.position", vertices(0.25f), true);
   anari::commitParameters(d, g);
   ok = phase(d, f, w, "shared device replacement", {0.25f, 0.25f}, offsets)
