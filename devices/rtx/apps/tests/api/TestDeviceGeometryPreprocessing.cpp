@@ -58,24 +58,11 @@
 #include <cstdlib>
 #include <vector>
 #include "DeviceTestArray.h"
+#include "ReceiverTestSupport.h"
 
 using uvec2 = std::array<unsigned int, 2>;
 using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
-
-static void statusFunc(const void *,
-    ANARIDevice,
-    ANARIObject source,
-    ANARIDataType,
-    ANARIStatusSeverity severity,
-    ANARIStatusCode,
-    const char *message)
-{
-  if (severity <= ANARI_SEVERITY_ERROR) {
-    fprintf(stderr, "[ERROR][%p] %s\n", source, message);
-    std::exit(1);
-  }
-}
 
 struct ResidencyCase
 {
@@ -195,8 +182,8 @@ static anari::Light makeQuadLight(ANARIDevice device, float intensityScale)
 }
 
 // Render the floor lit by either the emissive quad (useMesh) or the ANARI quad
-// light, and return the linear framebuffer.
-static std::vector<vec4> render(ANARIDevice device,
+// light, measuring linear luminance without copying the framebuffer.
+static double render(ANARIDevice device,
     bool useMesh,
     int deviceInputs = 0,
     bool triangleSoup = false,
@@ -210,6 +197,7 @@ static std::vector<vec4> render(ANARIDevice device,
     lights.push_back(makeQuadLight(device, referenceIntensityScale));
 
   auto world = anari::newObject<anari::World>(device);
+  const visrtx::test::ObjectOwner worldOwner(device, world);
   anari::setParameterArray1D(
       device, world, "surface", surfaces.data(), surfaces.size());
   if (!lights.empty())
@@ -221,65 +209,28 @@ static std::vector<vec4> render(ANARIDevice device,
     anari::release(device, l);
   anari::commitParameters(device, world);
 
-  // Look across the floor toward +Z; the emitter at y=1.5 sits above the frame,
-  // so only its cast pool on the floor is visible.
-  auto camera = anari::newObject<anari::Camera>(device, "perspective");
-  anari::setParameter(device, camera, "position", vec3{0.f, 0.5f, -3.f});
-  anari::setParameter(device, camera, "direction", vec3{0.f, -0.15f, 1.f});
-  anari::setParameter(device, camera, "up", vec3{0.f, 1.f, 0.f});
-  anari::setParameter(
-      device, camera, "aspect", IMAGE_SIZE[0] / float(IMAGE_SIZE[1]));
-  anari::commitParameters(device, camera);
-
-  auto renderer = anari::newObject<anari::Renderer>(device, "interactive");
-  anari::setParameter(device, renderer, "background", vec4{0.f, 0.f, 0.f, 1.f});
-  anari::setParameter(device, renderer, "ambientRadiance", 0.f);
-  anari::setParameter(device, renderer, "pixelSamples", PIXEL_SAMPLES);
-  anari::setParameter(device, renderer, "fireflyFilterMode", "none");
-  anari::commitParameters(device, renderer);
-
-  auto frame = anari::newObject<anari::Frame>(device);
-  anari::setParameter(device, frame, "size", IMAGE_SIZE);
-  anari::setParameter(device, frame, "channel.color", ANARI_FLOAT32_VEC4);
-  anari::setAndReleaseParameter(device, frame, "world", world);
-  anari::setAndReleaseParameter(device, frame, "camera", camera);
-  anari::setAndReleaseParameter(device, frame, "renderer", renderer);
-  anari::commitParameters(device, frame);
-
-  anari::render(device, frame);
-  anari::wait(device, frame);
-
-  auto fb = anari::map<vec4>(device, frame, "channel.color");
-  std::vector<vec4> out(fb.data, fb.data + size_t(fb.width) * fb.height);
-  anari::unmap(device, frame, "channel.color");
-  anari::release(device, frame);
-  return out;
-}
-
-// Mean linear luminance over the lit floor region (lower-center of the frame).
-static double poolMeanLuminance(const std::vector<vec4> &fb)
-{
-  double sum = 0.0;
-  uint64_t n = 0;
-  for (uint32_t y = IMAGE_SIZE[1] / 8; y < IMAGE_SIZE[1] / 2; ++y) {
-    for (uint32_t x = 3 * IMAGE_SIZE[0] / 8; x < 5 * IMAGE_SIZE[0] / 8; ++x) {
-      const vec4 &p = fb[y * IMAGE_SIZE[0] + x];
-      sum += 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
-      ++n;
-    }
-  }
-  return n ? sum / double(n) : 0.0;
+  auto frame = visrtx::test::receiverFrame(
+      device, world, IMAGE_SIZE, "interactive", PIXEL_SAMPLES);
+  const visrtx::test::ObjectOwner frameOwner(device, frame);
+  // Bottom-left origin; only the floor's cast pool, never the emitter.
+  return visrtx::test::receiverLuminance(device,
+      frame,
+      IMAGE_SIZE,
+      {3 * IMAGE_SIZE[0] / 8,
+          5 * IMAGE_SIZE[0] / 8,
+          IMAGE_SIZE[1] / 8,
+          IMAGE_SIZE[1] / 2});
 }
 
 int main()
 {
-  auto device = makeVisRTXDevice(statusFunc);
+  auto device = makeVisRTXDevice(visrtx::test::exitOnErrorStatus);
   fprintf(stderr, "[case] triangle/reference\n");
-  const double reference = poolMeanLuminance(render(device, false));
+  const double reference = render(device, false);
   fprintf(stderr, "[case] triangle/reference-repeat\n");
-  const double repeat = poolMeanLuminance(render(device, false));
+  const double repeat = render(device, false);
   fprintf(stderr, "[case] triangle/reference-half-power\n");
-  const double wrong = poolMeanLuminance(render(device, false, 0, false, 0.5f));
+  const double wrong = render(device, false, 0, false, 0.5f);
   // Fixed 512 spp and the existing 5% threshold: repeat the oracle to bound
   // observed variation, then require a finite half-power oracle to be rejected
   // by the very same comparator used for residency acceptance.
@@ -294,8 +245,7 @@ int main()
     const char *geometry = soup ? "triangle-soup" : "indexed-triangle";
     for (const auto &residency : cases) {
       fprintf(stderr, "[case] %s/%s\n", geometry, residency.name);
-      const double mesh =
-          poolMeanLuminance(render(device, true, residency.deviceInputs, soup));
+      const double mesh = render(device, true, residency.deviceInputs, soup);
       const double error = std::abs(mesh - reference) / reference;
       const bool matches =
           equivalent(mesh, reference) && !equivalent(mesh, wrong);

@@ -36,6 +36,7 @@
 #include <cmath>
 #include <cstdio>
 #include "DeviceTestArray.h"
+#include "ReceiverTestSupport.h"
 
 using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
@@ -45,20 +46,6 @@ static constexpr unsigned WIDTH = 128, HEIGHT = 128;
 // oracle's 5% allowance. Repeated fresh oracles measure variation, and omitting
 // one light must fail this same threshold. Zero-area phases allow only 1e-6.
 static constexpr double REL_TOL = 0.05, BLACK_TOL = 1e-6;
-static void status(const void *,
-    ANARIDevice,
-    ANARIObject,
-    ANARIDataType,
-    ANARIStatusSeverity severity,
-    ANARIStatusCode,
-    const char *message)
-{
-  if (severity <= ANARI_SEVERITY_ERROR) {
-    fprintf(stderr, "%s\n", message);
-    std::exit(1);
-  }
-}
-
 static anari::Surface makeFloor(ANARIDevice device)
 {
   const std::array<vec3, 4> pos = {vec3{-6.f, 0.f, -6.f},
@@ -144,43 +131,23 @@ static anari::World worldWithFloor(ANARIDevice d)
 }
 static anari::Frame frame(ANARIDevice d, anari::World world)
 {
-  auto camera = anari::newObject<anari::Camera>(d, "perspective");
-  anari::setParameter(d, camera, "position", vec3{0, 0.5f, -3});
-  anari::setParameter(d, camera, "direction", vec3{0, -0.15f, 1});
-  anari::setParameter(d, camera, "up", vec3{0, 1, 0});
-  anari::setParameter(d, camera, "aspect", 1.f);
-  anari::commitParameters(d, camera);
-  auto renderer = anari::newObject<anari::Renderer>(d, "interactive");
-  anari::setParameter(d, renderer, "ambientRadiance", 0.f);
-  anari::setParameter(d, renderer, "background", vec4{0, 0, 0, 1});
-  anari::setParameter(d, renderer, "pixelSamples", 512);
-  anari::setParameter(d, renderer, "fireflyFilterMode", "none");
-  anari::commitParameters(d, renderer);
-  auto f = anari::newObject<anari::Frame>(d);
-  anari::setParameter(d, f, "size", std::array<unsigned, 2>{WIDTH, HEIGHT});
-  anari::setParameter(d, f, "channel.color", ANARI_FLOAT32_VEC4);
-  anari::setParameter(d, f, "world", world);
-  anari::setAndReleaseParameter(d, f, "camera", camera);
-  anari::setAndReleaseParameter(d, f, "renderer", renderer);
-  anari::commitParameters(d, f);
-  return f;
+  return visrtx::test::receiverFrame(
+      d, world, {WIDTH, HEIGHT}, "interactive", 512);
 }
 static Pools render(ANARIDevice d, anari::Frame f)
 {
   anari::render(d, f);
   anari::wait(d, f);
-  auto fb = anari::map<vec4>(d, f, "channel.color");
+  const visrtx::test::FrameMapping<vec4> mapping(d, f, "channel.color");
+  const auto *pixels = mapping.checkedData(WIDTH, HEIGHT, ANARI_FLOAT32_VEC4);
   Pools pools{};
-  const unsigned count = (HEIGHT / 2 - HEIGHT / 8) * (WIDTH / 4);
   for (unsigned side = 0; side < 2; ++side)
-    for (unsigned y = HEIGHT / 8; y < HEIGHT / 2; ++y)
-      for (unsigned x = WIDTH / 4 + side * WIDTH / 4;
-          x < WIDTH / 2 + side * WIDTH / 4;
-          ++x) {
-        const auto &p = fb.data[y * WIDTH + x];
-        pools[side] += (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / count;
-      }
-  anari::unmap(d, f, "channel.color");
+    pools[side] = visrtx::test::meanLuminance(pixels,
+        {WIDTH, HEIGHT},
+        {WIDTH / 4 + side * WIDTH / 4,
+            WIDTH / 2 + side * WIDTH / 4,
+            HEIGHT / 8,
+            HEIGHT / 2});
   return pools;
 }
 // Independent oracle: two authored analytic quads, not copies of the geometry
@@ -191,6 +158,7 @@ static Pools reference(ANARIDevice d,
     bool omitRight = false)
 {
   auto w = worldWithFloor(d);
+  const visrtx::test::ObjectOwner worldOwner(d, w);
   std::vector<anari::Light> lights;
   for (unsigned i = 0; i < 2; ++i) {
     if (widths[i] == 0 || (omitRight && i == 1))
@@ -212,10 +180,8 @@ static Pools reference(ANARIDevice d,
     anari::release(d, light);
   anari::commitParameters(d, w);
   auto f = frame(d, w);
-  const auto result = render(d, f);
-  anari::release(d, f);
-  anari::release(d, w);
-  return result;
+  const visrtx::test::ObjectOwner frameOwner(d, f);
+  return render(d, f);
 }
 static bool matches(const Pools &actual, const Pools &expected)
 {
@@ -263,7 +229,7 @@ static bool phase(ANARIDevice d,
 }
 int main()
 {
-  auto d = makeVisRTXDevice(status);
+  auto d = makeVisRTXDevice(visrtx::test::exitOnErrorStatus);
   auto g = geometry(d, 0.5f);
   const std::array<anari::Surface, 2> surfaces = {surface(d, g), surface(d, g)};
   std::array<float, 2> offsets = {-0.9f, 0.9f};
