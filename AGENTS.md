@@ -25,6 +25,7 @@ Local-first: these are working notes, not published artifacts.
 This project uses **Jujutsu (jj)**. Never use raw `git` in this repo.
 
 Key concepts:
+
 - Working copy is tracked automatically (no staging)
 - Changes are immutable once published — use `jj new` to start fresh work
 - `jj describe` sets commit message; `jj log` shows history
@@ -47,8 +48,8 @@ cd ../<workspace>                        # switch focus
 ### Feature Development Loop
 
 1. Build after each change: `just build`
-2. Commit with a terse message: `jj commit -m "Add foo support"`
-3. To iterate on an existing commit: `jj edit <rev>` → fix → `just build` → `jj new <tip>` to return
+1. Commit with a terse message: `jj commit -m "Add foo support"`
+1. To iterate on an existing commit: `jj edit <rev>` → fix → `just build` → `jj new <tip>` to return
 
 Keeps history clean: each commit is a complete, working change.
 

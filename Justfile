@@ -1,8 +1,8 @@
-mod cmake '~/_just/cmake'
-mod dotfiles '~/_just/dotfiles'
-mod repo '~/_just/repo'
+mod cmake x'$JUST_HELPERS/cmake'
+mod dotfiles x'$JUST_HELPERS/dotfiles'
+mod repo x'$JUST_HELPERS/repo'
 
-import '~/_just/dirs/mod.just'
+import x'$JUST_HELPERS/dirs/mod.just'
 
 cfg := env("cfg", "RelWithDebInfo")
 _source_dir := _ROOT_DIR
@@ -53,7 +53,7 @@ prepare: generate_envrc generate_clangd generate_vscode_tasks_json generate_vsco
 [private]
 _cmake_options_base := replace_regex('
     -DBUILD_SHARED_LIBS=OFF
-    -DOPTIX_FETCH_VERSION=9.0
+    -DOPTIX_FETCH_VERSION=9.1
     -DVISRTX_BUILD_GL_DEVICE=OFF
     -DVISRTX_BUILD_TESTS=ON
     -DVISRTX_MIN_ARCH=89
