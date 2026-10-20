@@ -1,8 +1,8 @@
-mod cmake '~/_just/cmake'
-mod dotfiles '~/_just/dotfiles'
-mod repo '~/_just/repo'
+mod cmake x'$JUST_HELPERS/cmake'
+mod dotfiles x'$JUST_HELPERS/dotfiles'
+mod repo x'$JUST_HELPERS/repo'
 
-import '~/_just/dirs/mod.just'
+import x'$JUST_HELPERS/dirs/mod.just'
 
 cfg := env("cfg", "RelWithDebInfo")
 _source_dir := _ROOT_DIR

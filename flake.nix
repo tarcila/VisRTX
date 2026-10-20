@@ -27,6 +27,7 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    just-helpers.url = "github:tarcila/just-helpers";
   };
 
   outputs =
@@ -37,6 +38,7 @@
       flake-utils,
       systems,
       treefmt-nix,
+      just-helpers,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -50,7 +52,9 @@
             allowUnfree = true;
             cudaSupport = system == "x86_64-linux" || system == "aarch64-linux";
           };
-          overlays = [ anari-nix.overlays.default ];
+          overlays = [
+            anari-nix.overlays.default
+          ];
         };
         # ANARI specific
         anariDevices =
@@ -77,7 +81,10 @@
           packages = with pkgs; [
             anari-cts
             jq
+            openusd
+            hdanari
           ];
+
           nativeBuildInputs = with pkgs; [
             gdb
             lldb
@@ -86,16 +93,14 @@
             valgrind
             watchexec
           ];
+
           buildInputs = with pkgs; [
             anari-sdk
             tbb
             libdecor
 
-            # Runtime PTX linking for the wavefront MDL per-material kernels
-            # (NVRTC to compile the shade shell, nvJitLink to link it with the
-            # MDL material PTX). Matches the 12.9 CUDA toolchain the build uses.
-            cudaPackages_13_3.cuda_nvrtc
-            cudaPackages_13_3.libnvjitlink
+            cudaPackages.cuda_nvrtc
+            cudaPackages.libnvjitlink
 
             python3Packages.pandas
             python3Packages.matplotlib
@@ -119,18 +124,16 @@
             catch2_3
           ];
 
-          inputsFrom = with pkgs; [
-            (visrtx.override { cudaPackages = cudaPackages_13_2; })
-            (vela.override { cudaPackages = cudaPackages_13_2; })
-          ];
+          inputsFrom = [ pkgs.visrtx ];
 
-          STOCKADE_SESSION = "anari";
-          LD_LIBRARY_PATH = "/run/opengl-driver/lib:${pkgs.mdl-sdk}/lib:${lib.makeLibraryPath anariDevices}";
+          PXR_PLUGINPATH_NAME = "${pkgs.hdanari}/plugin/usd";
+          LD_LIBRARY_PATH = "/run/opengl-driver/lib:${pkgs.mdl-sdk}/lib:${lib.makeLibraryPath anariDevices}:${pkgs.hdanari}/plugin/usd/";
           ANARI_LIBRARY = "visrtx";
           VSR_ANARI_LIBRARIES = lib.concatStringsSep "," (
             map (p: lib.removePrefix "anari-" p.pname) anariDevices
           );
           VSR_LUA_PACKAGE_PATHS = "/data/VSR/scripts";
+          JUST_HELPERS = just-helpers;
 
           shellHook = ''
             if test -n "''${VSCODE_IPC_HOOK_CLI}"
