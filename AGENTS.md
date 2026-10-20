@@ -25,6 +25,7 @@ Local-first: these are working notes, not published artifacts.
 This project uses **Jujutsu (jj)**. Never use raw `git` in this repo.
 
 Key concepts:
+
 - Working copy is tracked automatically (no staging)
 - Changes are immutable once published — use `jj new` to start fresh work
 - `jj describe` sets commit message; `jj log` shows history
@@ -47,8 +48,8 @@ cd ../<workspace>                        # switch focus
 ### Feature Development Loop
 
 1. Build after each change: `just build`
-2. Commit with a terse message: `jj commit -m "Add foo support"`
-3. To iterate on an existing commit: `jj edit <rev>` → fix → `just build` → `jj new <tip>` to return
+1. Commit with a terse message: `jj commit -m "Add foo support"`
+1. To iterate on an existing commit: `jj edit <rev>` → fix → `just build` → `jj new <tip>` to return
 
 Keeps history clean: each commit is a complete, working change.
 
@@ -87,3 +88,11 @@ nix develop        # or: direnv allow
 ```
 
 The shell wires up multiple ANARI devices (visrtx, barney, helide, cycles, ospray, visionaray; visgl on x86_64 Linux). For env vars (`VSR_ANARI_LIBRARIES`, `ANARI_LIBRARY`, …), `just prepare` writes an `.envrc` pinning this workspace's library name.
+
+
+## Note
+
+### CUDA ASan interaction
+
+ASan vs. CUDA. With default options, ASan reserves the shadow gap and the CUDA driver can't initialise → VisRTX emits an error through the status callback and returns null handles. This is a well-known interaction;
+    ASAN_OPTIONS=protect_shadow_gap=0 is the documented workaround, and it fixes the probe here. The handoff's runs never set it, so under sanitizers VisRTX was never actually a working device.
