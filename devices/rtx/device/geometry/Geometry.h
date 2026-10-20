@@ -36,7 +36,9 @@
 #include "array/Array1D.h"
 #include "gpu/gpu_objects.h"
 // std
+#include <initializer_list>
 #include <optional>
+#include <vector>
 
 namespace visrtx {
 
@@ -73,6 +75,7 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
 
   void commitParameters() override;
   void markFinalized() override;
+  void upload();
 
   virtual void populateBuildInput(OptixBuildInput &) const = 0;
   virtual int optixGeometryType() const = 0;
@@ -89,7 +92,10 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   void setPreparationFailed(bool failed);
 
  protected:
-  bool beginPreparation();
+  // Opt-in metadata reuse: list every subtype parameter except the five
+  // uniform attributes. The base adds primitive and vertex attribute arrays.
+  // Returns false after metadata publication, or if preparation cannot start.
+  bool beginPreparation(std::initializer_list<const char *> parameters = {});
   GeometryGPUData gpuData() const override = 0;
 
   void commitAttributes(const char *prefix, GeometryAttributes &attrs);
@@ -105,6 +111,20 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
   Preprocessing m_preprocessing;
 
  private:
+  struct PreparationParameter
+  {
+    size_t parameterIndex{0};
+    helium::AnariAny value;
+    helium::TimeStamp updated{0};
+    helium::TimeStamp finalized{0};
+    helium::TimeStamp modified{0};
+    const void *devicePointer{nullptr};
+
+    bool operator==(const PreparationParameter &other) const;
+  };
+  std::vector<PreparationParameter> m_preparedParameters;
+  bool m_hasPreparedData{false};
+  bool m_metadataOnlyFinalization{false};
   bool m_preparationFailed{false};
   bool m_inputRetirementFailed{false};
 };
