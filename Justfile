@@ -53,7 +53,7 @@ prepare: generate_envrc generate_clangd generate_vscode_tasks_json generate_vsco
 [private]
 _cmake_options_base := replace_regex('
     -DBUILD_SHARED_LIBS=OFF
-    -DOPTIX_FETCH_VERSION=9.0
+    -DOPTIX_FETCH_VERSION=9.1
     -DVISRTX_BUILD_GL_DEVICE=OFF
     -DVISRTX_BUILD_TESTS=ON
     -DVISRTX_MIN_ARCH=89
