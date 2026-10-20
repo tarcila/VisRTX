@@ -34,6 +34,8 @@
 #include "sampler/TextureStats.h"
 #include "utility/CudaImageTexture.h"
 
+#include "rectShaping.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -166,10 +168,7 @@ LightGPUData Rect::gpuData() const
   retval.rect.colorMapMean = m_colorMapMean;
   retval.rect.focus = m_focus;
   retval.rect.focusTint = m_focusTint;
-  retval.rect.coneAngle = m_coneAngle;
-  retval.rect.innerAngle = m_coneAngle * (1.f - m_coneSoftness);
-  retval.rect.cosOuterAngle = cosf(retval.rect.coneAngle);
-  retval.rect.cosInnerAngle = cosf(retval.rect.innerAngle);
+  rectFinalizeShaping(retval.rect, m_coneAngle, m_coneSoftness);
   retval.rect.side.back = (m_side == Side::BACK || m_side == Side::BOTH) ? 1 : 0;
   retval.rect.side.front = (m_side == Side::FRONT || m_side == Side::BOTH) ? 1 : 0;
   auto area = length(cross(m_edge1, m_edge2));

@@ -11,6 +11,7 @@
 // are deliberately not asserted: Pick Power only needs to be proportional.
 
 #include "gpu/lightPickPower.h"
+#include "light/rectShaping.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -54,6 +55,10 @@ static LightGPUData rectLight(
   ld.rect.oneOverArea = oneOverArea;
   ld.rect.side.front = front ? 1 : 0;
   ld.rect.side.back = back ? 1 : 0;
+  ld.rect.focus = 0.f;
+  ld.rect.focusTint = vec3(0.f);
+  // Unshaped default, through the same seam Rect::gpuData uses.
+  rectFinalizeShaping(ld.rect, kPi / 2.f, 0.f);
   return ld;
 }
 
@@ -137,12 +142,9 @@ int main()
     const auto shaped = [](float coneDeg, float softness, float focus,
                             const vec3 &tint) {
       auto ld = rectLight(1.f, 0.25f, true, false);
-      ld.rect.coneAngle = coneDeg * kPi / 180.f;
-      ld.rect.innerAngle = ld.rect.coneAngle * (1.f - softness);
-      ld.rect.cosOuterAngle = std::cos(ld.rect.coneAngle);
-      ld.rect.cosInnerAngle = std::cos(ld.rect.innerAngle);
       ld.rect.focus = focus;
       ld.rect.focusTint = tint;
+      rectFinalizeShaping(ld.rect, coneDeg * kPi / 180.f, softness);
       return ld;
     };
     const float full =

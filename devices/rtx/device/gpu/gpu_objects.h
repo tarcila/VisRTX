@@ -723,6 +723,14 @@ struct RectLightGPUData
   float cosInnerAngle;
   float focus;
   vec3 focusTint;
+  // Per-channel fraction of the unshaped Lambertian flux that survives the
+  // cone/focus shaping. Derived, never authored: set by rectFinalizeShaping
+  // (light/rectShaping.h), which is the only thing allowed to write it.
+  // rectFinalizeShaping sets this to 1 for an unshaped light, so Pick Power is
+  // unaffected unless shaping is actually authored. No default initializer: a
+  // LightGPUData holds these in a union, and a non-trivial member there deletes
+  // its default constructor.
+  vec3 shapedFluxFraction;
 };
 
 struct SpotLightGPUData
