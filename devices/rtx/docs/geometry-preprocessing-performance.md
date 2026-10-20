@@ -103,9 +103,8 @@ Release; OptiX 7.7; architecture `89-virtual`; MDL and MaterialX disabled in bot
 builds; shared cudart; native physically based materials; GL disabled.
 
 Use the **same executable** with either ABI-compatible device library. Verify
-loader selection with `ldd`. On this Nix installation, driver paths must precede
-CUDA link-time stub paths; a base run without that path loaded driver stubs and
-was discarded. No failing or unsupported base/device-input run enters the table.
+loader selection with `ldd`. One base run resolved CUDA link-time driver stubs
+instead of the real driver and was discarded. No failing or unsupported base/device-input run enters the table.
 
 Three fresh-process trials per revision, 21 iterations each, alternating base /
 branch order by trial. Table shows the median of each trial's warm-sample median.
@@ -157,48 +156,25 @@ The tiny byte count is misleading: per-call launch/readback overhead is material
 GPU activity, host waits, and preceding work overlap; these totals are not an
 additive model of wall time. Nsight can add instrumentation overhead.
 
-Local trace: `/tmp/visrtx-preprocessing-matched.nsys-rep`; an earlier trace from
-the development build is not used for the matched results. Traces are local,
-not durable repository artifacts. Reproduce with:
-
-```bash
-nsys profile --trace=cuda --sample=none -o /tmp/preprocessing \
-  env LD_LIBRARY_PATH=/run/opengl-driver/lib:/tmp/visrtx-perf-branch-build \
-  /tmp/visrtx-perf-branch-build/BenchmarkGeometryPreprocessing \
-  cylinder 32 0 6 1 64 replace 0 1
-nsys stats --report cuda_api_sum,cuda_gpu_mem_size_sum /tmp/preprocessing.nsys-rep
-```
+The trace was taken on the matched branch build with the `nsys` invocation in the
+skill below; an earlier trace from the development build is not used for the
+matched results. Traces are local scratch, not durable repository artifacts.
 
 ## Reproduction
 
-Create a separate jj workspace at the pinned base; do not rewrite the main
-workspace to run a comparison. Both configurations use:
+The pinned-control working tree, matched build settings, loader check, runner
+invocation, trace commands, and the rules for turning new numbers into a
+promote / rework / drop decision live in the project skill
+[`.agents/skills/benchmark-geometry-preprocessing/SKILL.md`](../../../.agents/skills/benchmark-geometry-preprocessing/SKILL.md).
+Build `BenchmarkCudaOrdering` alongside the preprocessing benchmark to repeat the
+ordering experiment above.
 
-```bash
-cmake -S SOURCE -B BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DVISRTX_BUILD_GL_DEVICE=OFF -DVISRTX_ENABLE_MDL_SUPPORT=OFF \
-  -DVISRTX_ENABLE_MATERIALX_SUPPORT=OFF -DVISRTX_ENABLE_NVML=ON \
-  -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared -DCMAKE_CUDA_ARCHITECTURES=89-virtual
-```
-
-Build `anari_library_visrtx` in the base. Add `-DVISRTX_BUILD_TESTS=ON` in the
-branch and build `BenchmarkGeometryPreprocessing` and `BenchmarkCudaOrdering`.
-The base need not contain the new benchmark source. With default library names:
-
-```bash
-LD_LIBRARY_PATH=/run/opengl-driver/lib:BASE_BUILD \
-  ldd BRANCH_BUILD/BenchmarkGeometryPreprocessing
-python3 devices/rtx/apps/tests/api/benchmark_preprocessing.py \
-  BRANCH_BUILD/BenchmarkGeometryPreprocessing BASE_BUILD BRANCH_BUILD results.json
-```
-
-The runner records raw results incrementally and stops on failures. It does not
-perform builds or rewrite revisions. Do not use mixed MDL/OptiX/compiler settings
-for the two sides. Existing custom library suffixes must also match.
+The scratch paths, GPU, driver and architecture recorded in this report describe
+the host that produced these numbers. They are provenance, not required setup.
 
 ## Isolated input-wait experiment
 
-A separate jj workspace (`/tmp/visrtx-perf-inputwait`) changes only the call inside
+A separate working tree changes only the call inside
 `waitForPreparationInputs()` from `cudaStreamSynchronize(nullptr)` to
 `cudaGetLastError()`, retaining error reporting, work-stream result completion,
 frame-publication synchronization, and all retirement waits. This is **not** a

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run paired, unprofiled pilots; retain raw output and per-process medians.
 
-Build one identical harness against ABI-compatible base/branch libraries. Supply
-CUDA driver paths before library paths on systems with link-time driver stubs.
-Not a CI timing assertion. First iteration is reported but excluded from warm
+Build one identical harness against ABI-compatible base/branch libraries. The
+environment is expected to already resolve the CUDA driver; only the device
+library under test is injected. Not a CI timing assertion. First iteration is reported but excluded from warm
 statistics; each trial is a fresh process. Device-resident inputs are a separate
 branch-only measurement, not an unsupported base comparison.
 """
@@ -20,9 +20,13 @@ p.add_argument("executable")
 p.add_argument("base_library_dir")
 p.add_argument("branch_library_dir")
 p.add_argument("output", type=Path)
-p.add_argument("--driver-dir", default="/run/opengl-driver/lib")
 p.add_argument("--trials", type=int, default=3)
 p.add_argument("--repeats", type=int, default=21)
+p.add_argument("--case", action="append", default=[], metavar="NAME",
+               help="run only the named default case; repeatable")
+p.add_argument("--extra-case", action="append", default=[],
+               metavar="NAME:COUNT:GEOMETRIES:MODE:FRAMES",
+               help="append a custom case; repeatable")
 a = p.parse_args()
 if a.trials < 2 or a.repeats < 3:
     p.error("need at least two trials and three repetitions")
@@ -34,6 +38,18 @@ cases = [
     ("unchanged-frame", 32, 64, "unchanged", 1),
     ("two-frames-replace", 32, 64, "replace", 2),
 ]
+if a.case:
+    known = {c[0] for c in cases}
+    unknown = [n for n in a.case if n not in known]
+    if unknown:
+        p.error(f"unknown case(s) {unknown}; known: {sorted(known)}")
+    cases = [c for c in cases if c[0] in a.case]
+for spec in a.extra_case:
+    try:
+        name, count, geometries, mode, frames = spec.split(":")
+        cases.append((name, int(count), int(geometries), mode, int(frames)))
+    except ValueError:
+        p.error(f"bad --extra-case {spec!r}; want NAME:COUNT:GEOMETRIES:MODE:FRAMES")
 records = []
 for name, count, geometries, mode, frames in cases:
     for trial in range(a.trials):
@@ -42,7 +58,7 @@ for name, count, geometries, mode, frames in cases:
             env = os.environ.copy()
             lib = a.base_library_dir if revision == "base" else a.branch_library_dir
             env["LD_LIBRARY_PATH"] = os.pathsep.join(
-                filter(None, [a.driver_dir, lib, env.get("LD_LIBRARY_PATH")]))
+                filter(None, [lib, env.get("LD_LIBRARY_PATH")]))
             command = [a.executable, "cylinder", str(count), "0",
                        str(a.repeats), "1", str(geometries), mode, str(frames), "1"]
             run = subprocess.run(command, env=env, capture_output=True, text=True)

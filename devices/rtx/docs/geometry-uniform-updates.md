@@ -69,9 +69,10 @@ Candidate: accompanying implementation. Both use matched Release/native-PBR,
 CUDA 13.2, OptiX 7.7, shared cudart, `89-virtual`, RTX 5880 Ada, driver 615.71.09.
 These are **GPU branch vs GPU branch** comparisons, not a new CPU baseline.
 
-Reproduce with the runner described in `geometry-preprocessing-performance.md`,
-using a separate control workspace/library built from the pinned revision.
-Raw three-trial × 21-iteration paired results: `preprocessing-uniform-updates.json`.
+Reproduce with the project skill
+[`.agents/skills/benchmark-geometry-preprocessing/SKILL.md`](../../../.agents/skills/benchmark-geometry-preprocessing/SKILL.md),
+using a separate control workspace and library built from the pinned revision
+above. Raw three-trial × 21-iteration paired results: `preprocessing-uniform-updates.json`.
 Each entry retains commands, stdout/stderr, and warm-sample median; labels `base`
 and `branch` mean control and optimized respectively.
 
@@ -121,11 +122,10 @@ work elimination rather than skipped rendering or relocated waits:
 | `optixAccelBuild` | 12 | 2 |
 | `optixAccelCompact` | 12 | 2 |
 
-Thus only initial preparation remains in the optimized trace. Local reports:
-`/tmp/visrtx-uniform-control.nsys-rep` and
-`/tmp/visrtx-uniform-updates.nsys-rep`; reproduce with the same `nsys` invocation
-as the earlier report, using `recommit` instead of `replace` and the respective
-library paths. Trace timing is not used for headline latency.
+Thus only initial preparation remains in the optimized trace. Reproduce with the
+skill's `nsys` invocation, using `recommit` instead of `replace` and each side's
+library path in turn. The reports themselves were local scratch and are not kept.
+Trace timing is not used for headline latency.
 
 ## Verification
 
