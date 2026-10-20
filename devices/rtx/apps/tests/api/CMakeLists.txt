@@ -72,6 +72,8 @@ add_executable(BenchmarkGeometryPreprocessing BenchmarkGeometryPreprocessing.cpp
 target_link_libraries(BenchmarkGeometryPreprocessing PRIVATE anari_library_visrtx anari::anari_static CUDA::cudart)
 make_test(TestDeviceGeometryPreprocessing)
 target_link_libraries(TestDeviceGeometryPreprocessing PRIVATE CUDA::cudart)
+make_test(TestGeometryUniformUpdates)
+target_link_libraries(TestGeometryUniformUpdates PRIVATE CUDA::cudart)
 make_test(TestSharedGeometryLifecycle)
 target_link_libraries(TestSharedGeometryLifecycle PRIVATE CUDA::cudart)
 make_test(TestSharedGeometryInputs)
