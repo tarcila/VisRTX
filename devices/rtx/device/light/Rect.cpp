@@ -125,6 +125,20 @@ void Rect::commitParameters()
     m_focusTint = vec3(0.f);
   }
   m_focus = std::max(m_focus, 0.f);
+  // focusTint is an attenuation factor, so it must stay in [0,1] per channel.
+  // A negative component makes rectFocusAttenuation's mix() negative, which
+  // drives the integrated flux fraction -- and with it the light's Pick Power
+  // -- negative; World::appendLight then clamps it to zero and the light is
+  // never picked by NEE even though it still emits over part of its cone. A
+  // component above 1 would amplify the Pick Power past the flux the light
+  // actually emits. Clamp rather than reject so a slightly out-of-range tint
+  // still renders.
+  if (glm::any(glm::lessThan(m_focusTint, vec3(0.f)))
+      || glm::any(glm::greaterThan(m_focusTint, vec3(1.f)))) {
+    reportMessage(
+        ANARI_SEVERITY_WARNING, "Quad focusTint outside [0,1]; clamping");
+    m_focusTint = glm::clamp(m_focusTint, vec3(0.f), vec3(1.f));
+  }
 
   auto side = getParamString("side", "front");
   if (side == "front")
