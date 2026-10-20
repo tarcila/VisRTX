@@ -34,7 +34,9 @@
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
 #include <anari/anari_cpp.hpp>
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -43,6 +45,11 @@
 using vec3 = std::array<float, 3>;
 using vec4 = std::array<float, 4>;
 static int errors = 0;
+static std::atomic<int> completions{0};
+static void complete(const void *, ANARIDevice, ANARIFrame)
+{
+  ++completions;
+}
 static void status(const void *,
     ANARIDevice,
     ANARIObject,
@@ -58,9 +65,9 @@ static void status(const void *,
 }
 int main(int argc, char **argv)
 {
-  if (argc != 5 && argc != 6) {
+  if (argc < 5 || argc > 10) {
     fprintf(stderr,
-        "usage: %s triangle|sphere|cone|cylinder|quad|curve|sdf count device repeats [shared-surfaces]\n",
+        "usage: %s triangle|sphere|cone|cylinder|quad|curve|sdf count device repeats [shared-surfaces] [distinct-geometries] [recommit|replace|unchanged] [frames:0=bounds] [emissive:0|1]\n",
         argv[0]);
     return 2;
   }
@@ -68,11 +75,21 @@ int main(int argc, char **argv)
   const size_t n = std::stoull(argv[2]);
   const bool device = std::atoi(argv[3]) != 0;
   const int repeats = std::atoi(argv[4]);
-  const int sharedSurfaces = argc == 6 ? std::atoi(argv[5]) : 1;
-  if (!n || repeats < 2 || sharedSurfaces < 1)
+  const int sharedSurfaces = argc >= 6 ? std::atoi(argv[5]) : 1;
+  const int distinctGeometries = argc >= 7 ? std::atoi(argv[6]) : 1;
+  const std::string mode = argc >= 8 ? argv[7] : "recommit";
+  const int numFrames = argc >= 9 ? std::atoi(argv[8]) : 0;
+  const bool emissive = argc >= 10 ? std::atoi(argv[9]) != 0 : true;
+  if (!n || repeats < 2 || sharedSurfaces < 1 || distinctGeometries < 1
+      || numFrames < 0
+      || (mode != "recommit" && mode != "replace" && mode != "unchanged")
+      || (type != "triangle" && type != "sphere" && type != "cone"
+          && type != "cylinder" && type != "quad" && type != "curve"
+          && type != "sdf"))
     return 2;
   auto d = makeVisRTXDevice(status);
-  auto geometry = anari::newObject<anari::Geometry>(d, type.c_str());
+  const auto setupStart = std::chrono::steady_clock::now();
+  std::vector<anari::Geometry> geometries;
   std::vector<vec3> positions;
   std::vector<float> radii;
   std::vector<unsigned> sphereIndices;
@@ -113,39 +130,48 @@ int main(int argc, char **argv)
         radii.push_back(0.005f);
     }
   }
-  if (type == "sdf")
-    setTestArray(d, geometry, "primitive.sdf", sdf, device, 0);
-  else
-    setTestArray(d, geometry, "vertex.position", positions, device, 0);
-  if (type == "triangle")
-    setTestArray(d, geometry, "primitive.index", triIndices, device, 0);
-  if (type == "quad")
-    setTestArray(d, geometry, "primitive.index", quadIndices, device, 0);
-  if (type == "sphere")
-    setTestArray(d, geometry, "primitive.index", sphereIndices, device, 0);
-  if (type == "cone" || type == "cylinder")
-    setTestArray(d, geometry, "primitive.index", tubeIndices, device, 0);
-  if (type != "curve" && !radii.empty())
-    setTestArray(d,
-        geometry,
-        type == "cylinder" ? "primitive.radius" : "vertex.radius",
-        radii,
-        device,
-        0);
-  if (type == "curve")
-    anari::setParameter(d, geometry, "radius", 0.01f);
-  anari::commitParameters(d, geometry);
+  auto setInputs = [&](anari::Geometry geometry) {
+    if (type == "sdf")
+      setTestArray(d, geometry, "primitive.sdf", sdf, device, 0);
+    else
+      setTestArray(d, geometry, "vertex.position", positions, device, 0);
+    if (type == "triangle")
+      setTestArray(d, geometry, "primitive.index", triIndices, device, 0);
+    if (type == "quad")
+      setTestArray(d, geometry, "primitive.index", quadIndices, device, 0);
+    if (type == "sphere")
+      setTestArray(d, geometry, "primitive.index", sphereIndices, device, 0);
+    if (type == "cone" || type == "cylinder")
+      setTestArray(d, geometry, "primitive.index", tubeIndices, device, 0);
+    if (type != "curve" && !radii.empty())
+      setTestArray(d,
+          geometry,
+          type == "cylinder" ? "primitive.radius" : "vertex.radius",
+          radii,
+          device,
+          0);
+    if (type == "curve")
+      anari::setParameter(d, geometry, "radius", 0.01f);
+    anari::commitParameters(d, geometry);
+  };
+  for (int i = 0; i < distinctGeometries; ++i) {
+    auto geometry = anari::newObject<anari::Geometry>(d, type.c_str());
+    setInputs(geometry);
+    geometries.push_back(geometry);
+  }
   auto material = anari::newObject<anari::Material>(d, "physicallyBased");
-  anari::setParameter(d, material, "emissive", vec3{1, 1, 1});
+  anari::setParameter(
+      d, material, "emissive", emissive ? vec3{1, 1, 1} : vec3{0, 0, 0});
   anari::commitParameters(d, material);
   std::vector<anari::Surface> surfaces;
-  for (int i = 0; i < sharedSurfaces; ++i) {
-    auto surface = anari::newObject<anari::Surface>(d);
-    anari::setParameter(d, surface, "geometry", geometry);
-    anari::setParameter(d, surface, "material", material);
-    anari::commitParameters(d, surface);
-    surfaces.push_back(surface);
-  }
+  for (auto geometry : geometries)
+    for (int i = 0; i < sharedSurfaces; ++i) {
+      auto surface = anari::newObject<anari::Surface>(d);
+      anari::setParameter(d, surface, "geometry", geometry);
+      anari::setParameter(d, surface, "material", material);
+      anari::commitParameters(d, surface);
+      surfaces.push_back(surface);
+    }
   anari::release(d, material);
   auto world = anari::newObject<anari::World>(d);
   anari::setParameterArray1D(
@@ -153,14 +179,53 @@ int main(int argc, char **argv)
   for (auto surface : surfaces)
     anari::release(d, surface);
   anari::commitParameters(d, world);
-  // Query completes required preprocessing and AS builds, but performs no ray
-  // tracing. Later iterations invalidate geometry without replacing its inputs.
+  std::vector<anari::Frame> frames;
+  for (int i = 0; i < numFrames; ++i) {
+    auto camera = anari::newObject<anari::Camera>(d, "perspective");
+    anari::setParameter(d, camera, "position", vec3{0, 0, -3});
+    anari::setParameter(d, camera, "direction", vec3{0, 0, 1});
+    anari::commitParameters(d, camera);
+    auto renderer = anari::newObject<anari::Renderer>(d, "interactive");
+    anari::setParameter(d, renderer, "sampleLimit", 0);
+    anari::setParameter(d, renderer, "pixelSamples", 1);
+    anari::commitParameters(d, renderer);
+    auto frame = anari::newObject<anari::Frame>(d);
+    anari::setParameter(d, frame, "size", std::array<unsigned, 2>{64, 64});
+    anari::setParameter(d, frame, "channel.color", ANARI_FLOAT32_VEC4);
+    anari::setParameter(d, frame, "world", world);
+    ANARIFrameCompletionCallback callback = complete;
+    anari::setParameter(d,
+        frame,
+        "frameCompletionCallback",
+        ANARI_FRAME_COMPLETION_CALLBACK,
+        &callback);
+    anari::setAndReleaseParameter(d, frame, "camera", camera);
+    anari::setAndReleaseParameter(d, frame, "renderer", renderer);
+    anari::commitParameters(d, frame);
+    frames.push_back(frame);
+  }
+  // Bounds-only measures GPU-ready acceleration structures; render mode also
+  // includes registry publication and completed tracing. No pre-query in render
+  // mode: it would move update work outside the submission measurement.
   double warm = 0;
   for (int iteration = 0; iteration < repeats; ++iteration) {
     const auto start = std::chrono::steady_clock::now();
-    anari::setParameter(
-        d, geometry, "attribute0", vec4{float(iteration), 0, 0, 0});
-    anari::commitParameters(d, geometry);
+    if (iteration > 0) {
+      for (auto geometry : geometries) {
+        if (mode == "replace")
+          setInputs(geometry); // Include allocation, staging, and H2D costs.
+        else if (mode == "recommit") {
+          anari::setParameter(
+              d, geometry, "attribute0", vec4{float(iteration), 0, 0, 0});
+          anari::commitParameters(d, geometry);
+        }
+      }
+    }
+    for (auto frame : frames)
+      anari::render(d, frame);
+    const auto submitted = std::chrono::steady_clock::now();
+    for (auto frame : frames)
+      anari::wait(d, frame);
     std::array<float, 6> bounds{};
     const bool ok = anariGetProperty(d,
         world,
@@ -169,24 +234,61 @@ int main(int argc, char **argv)
         bounds.data(),
         sizeof(bounds),
         ANARI_WAIT);
-    const double ms = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - start)
-                          .count();
-    if (!ok || errors)
+    const auto completed = std::chrono::steady_clock::now();
+    const double ms =
+        std::chrono::duration<double, std::milli>(completed - start).count();
+    if (!ok || errors || completions != (iteration + 1) * numFrames)
       return 1;
-    if (iteration == 0)
-      printf("first_ms=%.6f\n", ms);
-    else
+    // Validation is outside the timed interval. Never accept a skipped frame
+    // or non-finite output as a faster completed render.
+    for (auto frame : frames) {
+      int samples = 0;
+      if (!anari::getProperty(d, frame, "numSamples", samples) || samples < 1) {
+        fprintf(
+            stderr, "unexpected samples=%d iteration=%d\n", samples, iteration);
+        return 1;
+      }
+      auto pixels = anari::map<vec4>(d, frame, "channel.color");
+      if (!pixels.data)
+        return 1;
+      for (size_t i = 0; i < size_t(pixels.width) * pixels.height; ++i)
+        for (float value : pixels.data[i])
+          if (!std::isfinite(value))
+            return 1;
+      anari::unmap(d, frame, "channel.color");
+    }
+    for (float value : bounds)
+      if (!std::isfinite(value))
+        return 1;
+    printf("sample iteration=%d ms=%.6f submit_ms=%.6f\n",
+        iteration,
+        ms,
+        std::chrono::duration<double, std::milli>(submitted - start).count());
+    if (iteration == 0) {
+      printf("first_ms=%.6f setup_to_ready_ms=%.6f\n",
+          ms,
+          std::chrono::duration<double, std::milli>(completed - setupStart)
+              .count());
+    } else
       warm += ms;
   }
+  printf("mode=%s geometries=%d shared_surfaces=%d frames=%d emissive=%d\n",
+      mode.c_str(),
+      distinctGeometries,
+      sharedSurfaces,
+      numFrames,
+      emissive);
   printf("type=%s count=%zu device=%d warm_rebuild_ms=%.6f repeats=%d\n",
       type.c_str(),
       n,
       device,
       warm / (repeats - 1),
       repeats);
+  for (auto frame : frames)
+    anari::release(d, frame);
   anari::release(d, world);
-  anari::release(d, geometry);
+  for (auto geometry : geometries)
+    anari::release(d, geometry);
   anari::release(d, d);
   return 0;
 }
