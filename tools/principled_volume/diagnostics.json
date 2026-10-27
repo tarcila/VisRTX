@@ -1,0 +1,32 @@
+{
+  "description": "Constant-medium configurations; no voxel files needed. Radiance is linear RGB. Ray length is measured in world units. Disable external illumination except specified incident background. These are expectations, not evidence of renderer execution.",
+  "bounds": [[0, 0, 0], [2, 2, 2]],
+  "ray": {"origin": [-1, 1, 1], "direction": [1, 0, 0], "medium_path_length": 2},
+  "cases": [
+    {
+      "name": "colored_beer_lambert",
+      "parameters": {"density": 1, "transmissionColor": [0.5, 0.25, 0.125], "transmissionDistance": 1, "scatteringColor": [0, 0, 0]},
+      "background": [1, 1, 1],
+      "expected_radiance": [0.25, 0.0625, 0.015625]
+    },
+    {
+      "name": "independent_emission_in_vacuum",
+      "parameters": {"density": 0, "emission": [1, 2, 4]},
+      "background": [0, 0, 0],
+      "expected_radiance": [2, 4, 8],
+      "expected_alpha": 0
+    },
+    {
+      "name": "absorbing_emitter",
+      "parameters": {"density": 1, "transmissionColor": [0.36787944117144233, 0.36787944117144233, 0.36787944117144233], "transmissionDistance": 1, "scatteringColor": [0, 0, 0], "emission": [2, 3, 4]},
+      "background": [0, 0, 0],
+      "expected_radiance": [1.7293294335267746, 2.593994150290162, 3.458658867053549]
+    },
+    {
+      "name": "pure_scattering_cannot_emit_thermally",
+      "parameters": {"density": 1, "scatteringColor": [1, 1, 1], "temperature": 2400, "blackbodyIntensity": 1},
+      "background": [0, 0, 0],
+      "expected_radiance": [0, 0, 0]
+    }
+  ]
+}

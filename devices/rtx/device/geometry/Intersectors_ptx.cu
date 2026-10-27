@@ -32,6 +32,7 @@
 #include "geometry/IsosurfaceLinear.h"
 #include "geometry/IsosurfaceSample.h"
 #include "gpu/gpu_math.h"
+#include "gpu/aggregateVolumeData.h"
 #include "gpu/gridTraversal.h"
 #include "gpu/intersectPrimitives.h"
 #include "gpu/shading_api.h"
@@ -220,6 +221,18 @@ VISRTX_DEVICE void intersectVolume()
   const auto &ss = ray::screenSample();
   const auto &frameData = *ss.frameData;
   const auto &volumeData = ray::volumeData(frameData);
+  // Current renderer transport is TF1D-only. Reject before any TF payload or
+  // field-index access; a principled payload may have no fields at all.
+  if (volumeData.type != VolumeType::TF1D)
+    return;
+  if (frameData.referenceVolumes) {
+    const auto &scene=*frameData.referenceVolumes;
+    const auto index=DeviceObjectIndex(&volumeData-frameData.registry.volumes);
+    bool eligible=false;
+    for(size_t i=0;i<scene.count;++i)
+      eligible |= scene.occurrences[i].volume.registryIndex==index;
+    if(!eligible)return;
+  }
 
   if (box1 t; rayBoxIntersection(ray::localOrigin(),
           ray::localDirection(),

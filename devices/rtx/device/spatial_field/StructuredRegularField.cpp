@@ -30,6 +30,7 @@
  */
 
 #include "StructuredRegularField.h"
+#include "FieldTexture.h"
 
 #include "gpu/gpu_decl.h"
 #include "gpu/shadingState.h"
@@ -58,6 +59,7 @@ static bool validFieldDataType(anari::DataType format)
   case ANARI_UFIXED16:
   case ANARI_FLOAT32:
   case ANARI_FLOAT64:
+  case ANARI_FLOAT32_VEC3:
     return true;
   default:
     break;
@@ -131,28 +133,49 @@ void StructuredRegularField::finalize()
   }
 
   const auto dims = m_data->size();
-
-  auto desc = cudaCreateChannelDesc(
-      anari::sizeOf(format) * 8, 0, 0, 0, getCudaChannelFormatKind(format));
-  cudaMalloc3DArray(
-      &m_cudaArray, &desc, make_cudaExtent(dims.x, dims.y, dims.z));
-
-  // The field samples its own CUDA array: copy straight from the host data
-  // rather than through a linear device copy, which would only double peak
-  // memory. App-provided device memory is copied as is.
+  if (dims.x == 0 || dims.y == 0 || dims.z == 0) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "spatial field data dimensions must be nonzero");
+    return;
+  }
   const void *src = m_data->data(AddressSpace::HOST);
   if (!src)
     src = m_data->dataGPU();
-
-  cudaMemcpy3DParms copyParams;
-  std::memset(&copyParams, 0, sizeof(copyParams));
-  copyParams.srcPtr = make_cudaPitchedPtr(
-      const_cast<void *>(src), dims.x * anari::sizeOf(format), dims.x, dims.y);
-  copyParams.dstArray = m_cudaArray;
-  copyParams.extent = make_cudaExtent(dims.x, dims.y, dims.z);
-  copyParams.kind = cudaMemcpyDefault;
-
-  cudaMemcpy3D(&copyParams);
+  if (format == ANARI_FLOAT32_VEC3) {
+    const auto error =
+        uploadRGBFieldArray(m_cudaArray, src, uvec3(dims.x, dims.y, dims.z));
+    if (error != cudaSuccess) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "unable to upload RGB field: %s",
+          cudaGetErrorString(error));
+      cleanup();
+      return;
+    }
+  } else if (format == ANARI_FLOAT64) {
+    const auto error =
+        uploadDoubleFieldArray(m_cudaArray, src, uvec3(dims.x, dims.y, dims.z));
+    if (error != cudaSuccess) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "unable to upload double field: %s",
+          cudaGetErrorString(error));
+      cleanup();
+      return;
+    }
+  } else {
+    auto desc = cudaCreateChannelDesc(
+        anari::sizeOf(format) * 8, 0, 0, 0, getCudaChannelFormatKind(format));
+    cudaMalloc3DArray(
+        &m_cudaArray, &desc, make_cudaExtent(dims.x, dims.y, dims.z));
+    cudaMemcpy3DParms copyParams{};
+    copyParams.srcPtr = make_cudaPitchedPtr(const_cast<void *>(src),
+        dims.x * anari::sizeOf(format),
+        dims.x,
+        dims.y);
+    copyParams.dstArray = m_cudaArray;
+    copyParams.extent = make_cudaExtent(dims.x, dims.y, dims.z);
+    copyParams.kind = cudaMemcpyDefault;
+    cudaMemcpy3D(&copyParams);
+  }
 
   cudaResourceDesc resDesc;
   std::memset(&resDesc, 0, sizeof(resDesc));
@@ -170,15 +193,25 @@ void StructuredRegularField::finalize()
       isFloat(format) ? cudaReadModeElementType : cudaReadModeNormalizedFloat;
   texDesc.normalizedCoords = 0;
 
-  cudaCreateTextureObject(&m_textureObject, &resDesc, &texDesc, nullptr);
+  const auto textureError =
+      cudaCreateTextureObject(&m_textureObject, &resDesc, &texDesc, nullptr);
+  if (textureError != cudaSuccess) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "unable to create field texture: %s",
+        cudaGetErrorString(textureError));
+    cleanup();
+    return;
+  }
 
-  buildGrid();
+  m_valid = true;
+  if (format != ANARI_FLOAT32_VEC3)
+    buildGrid();
   upload();
 }
 
 bool StructuredRegularField::isValid() const
 {
-  return m_data && validFieldDataType(m_data->elementType());
+  return m_valid;
 }
 
 box3 StructuredRegularField::bounds() const
@@ -202,7 +235,11 @@ float StructuredRegularField::stepSize() const
 
 SpatialFieldGPUData StructuredRegularField::gpuData() const
 {
-  SpatialFieldGPUData sf;
+  SpatialFieldGPUData sf{};
+  sf.storageType = StoredFieldType::StructuredRegular;
+  sf.valueType = m_data->elementType() == ANARI_FLOAT32_VEC3
+      ? FieldValueType::RGB
+      : FieldValueType::Scalar;
   auto dims = m_data->size();
   sf.samplerCallableIndex = SbtCallableEntryPoints::SpatialFieldSamplerRegular;
   sf.data.structuredRegular.texObj = m_textureObject;
@@ -213,7 +250,11 @@ SpatialFieldGPUData StructuredRegularField::gpuData() const
   sf.data.structuredRegular.filter = m_filter == "nearest"
       ? SpatialFieldFilter::Nearest
       : SpatialFieldFilter::Linear;
-  sf.grid = m_uniformGrid.gpuData();
+  // RGB fields have no scalar TF/isosurface acceleration data.
+  if (sf.valueType == FieldValueType::Scalar)
+    sf.grid = m_uniformGrid.gpuData();
+  else
+    sf.samplerCallableIndex = SbtCallableEntryPoints::Invalid;
 
   sf.roi.lower = m_roi.lower;
   sf.roi.upper = m_roi.upper;
@@ -223,6 +264,7 @@ SpatialFieldGPUData StructuredRegularField::gpuData() const
 
 void StructuredRegularField::cleanup()
 {
+  m_valid = false;
   if (m_textureObject)
     cudaDestroyTextureObject(m_textureObject);
   if (m_cudaArray)
@@ -230,6 +272,25 @@ void StructuredRegularField::cleanup()
   m_textureObject = {};
   m_cudaArray = {};
   m_uniformGrid.cleanup();
+}
+
+std::unique_ptr<StoredFieldReference>
+StructuredRegularField::createReferenceField(
+    optical_reference::FieldRevision key) const
+{
+  const auto dims = m_data->size();
+  const void *source = m_data->data(AddressSpace::HOST);
+  if (!source)
+    source = m_data->dataGPU();
+  return StoredFieldReference::dense(source,
+      m_data->elementType(),
+      uvec3(dims.x, dims.y, dims.z),
+      m_origin,
+      m_spacing,
+      m_cellCentered,
+      m_filter != "nearest",
+      fieldBindingDomain(bounds(), m_roi),
+      key);
 }
 
 void StructuredRegularField::buildGrid()

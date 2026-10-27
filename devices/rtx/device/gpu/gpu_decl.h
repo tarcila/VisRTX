@@ -36,6 +36,7 @@
 #ifdef __CUDACC__
 #define VISRTX_HOST_DEVICE inline __host__ __device__
 #define VISRTX_FORCE_INLINE __forceinline__
+#define VISRTX_NOINLINE __noinline__
 
 #define VISRTX_GLOBAL extern "C" __global__
 #define VISRTX_DEVICE inline __device__
@@ -43,6 +44,7 @@
 
 #else
 #define VISRTX_HOST_DEVICE inline
+#define VISRTX_NOINLINE
 #define VISRTX_GLOBAL extern "C"
 #define VISRTX_DEVICE inline
 #define VISRTX_CALLABLE extern "C"

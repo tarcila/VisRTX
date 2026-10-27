@@ -40,12 +40,15 @@
 #include "optix_visrtx.h"
 #include "surface/Surface.h"
 #include "utility/AnariTypeHelpers.h"
+#include "utility/ScopedReferenceRounding.h"
 #include "world/Group.h"
 
-#include <glm/gtc/matrix_inverse.hpp>
 #include <cassert>
 #include <cmath>
+#include <glm/gtc/matrix_inverse.hpp>
+#include <limits>
 #include <set>
+#include <stdexcept>
 
 #ifdef USE_MDL
 #include "geometry/ComputeTangent.h"
@@ -158,6 +161,10 @@ void World::commitParameters()
 
 void World::finalize()
 {
+  m_referenceBuilt = false;
+  m_referenceView = {};
+  m_referenceOccurrences.reset();
+  m_referenceDependencies.clear();
   const bool addZeroInstance =
       m_zeroSurfaceData || m_zeroVolumeData || m_zeroLightData;
   if (addZeroInstance)
@@ -310,6 +317,115 @@ void World::rebuildWorld()
 
     m_objectUpdates.lastTLASBuild = helium::newTimeStamp();
   }
+}
+
+bool World::hasPrincipledVolumes() const
+{
+  for (auto *instance:m_instances)
+    for (auto *volume:instance->group()->volumes())
+      if (volume->volumeType()==VolumeType::PRINCIPLED) return true;
+  return false;
+}
+
+helium::TimeStamp World::volumePublicationStamp() const
+{
+  return m_objectUpdates.lastTLASBuild;
+}
+
+AggregateVolumeSceneGPUData World::referenceVolumes(bool omitUnavailable)
+{
+  // Explicit consumer request after commit flushing; legacy renderers do not
+  // allocate this list or force TF reference construction.
+  rebuildWorld();
+  if (m_referenceBuilt && m_referenceOmissions==omitUnavailable
+      && m_referenceTLASBuild == m_objectUpdates.lastTLASBuild) {
+    bool current = true;
+    for (const auto &dependency : m_referenceDependencies)
+      current &= dependency.volume->lastFinalized() == dependency.finalized;
+    if (current)
+      return m_referenceView;
+  }
+  m_referenceBuilt = false;
+  m_referenceView = {};
+  m_referenceOccurrences.reset();
+  m_referenceDependencies.clear();
+  const ScopedReferenceRounding rounding;
+  std::vector<VolumeOccurrenceGPUData> occurrences;
+  std::set<Volume *> retained;
+  size_t placement = 0;
+  for (auto *instance : m_instances) {
+    auto *group = instance->group();
+    const size_t transforms = instance->numTransforms();
+    if (transforms > std::numeric_limits<size_t>::max() - placement) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "aggregate volume placement count is unrepresentable; no reference view published");
+      return {};
+    }
+    if (group->volumes().empty()) {
+      placement += transforms;
+      continue;
+    }
+    for (size_t t = 0; t < transforms; ++t, ++placement) {
+      const glm::dmat4 objectToWorld(mat4(instance->xfm(t)));
+      const auto inverse = glm::affineInverse(objectToWorld);
+      VolumeOccurrenceGPUData occurrence;
+      occurrence.placement = placement;
+      for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 4; ++col) {
+          if (!std::isfinite(objectToWorld[col][row])
+              || !std::isfinite(inverse[col][row])) {
+            reportMessage(ANARI_SEVERITY_WARNING,
+                "aggregate volume transform is not usable; no reference view published");
+            return {};
+          }
+          occurrence.worldToObject[row][col] = inverse[col][row];
+        }
+      for (size_t i = 0; i < group->volumes().size(); ++i) {
+        auto *volume = group->volumes()[i];
+        if (retained.insert(volume).second)
+          m_referenceDependencies.push_back(
+              {helium::IntrusivePtr<Volume>(volume), volume->lastFinalized()});
+        occurrence.volume = volume->referenceVolume();
+        occurrence.groupSlot = group->volumeOccurrenceSlot(i);
+        const bool usable = (occurrence.volume.type == VolumeType::PRINCIPLED
+                                && occurrence.volume.principled)
+            || (occurrence.volume.type == VolumeType::TF1D
+                && occurrence.volume.transfer);
+        if (!usable) {
+          if (omitUnavailable) {
+            volume->reportMessage(ANARI_SEVERITY_WARNING,
+                "interactive/default omits this volume: typed optical reference unavailable; use supported stored fields and finite classification metadata");
+            continue;
+          }
+          volume->reportMessage(ANARI_SEVERITY_WARNING,
+              "aggregate optical reference unavailable for this volume; no partial scene view published");
+          return {};
+        }
+        occurrences.push_back(occurrence);
+      }
+    }
+  }
+  if (!occurrences.empty()) {
+    m_referenceOccurrences.reserve(
+        occurrences.size() * sizeof(VolumeOccurrenceGPUData));
+    auto error = cudaMemcpy(m_referenceOccurrences.ptr(),
+        occurrences.data(),
+        occurrences.size() * sizeof(VolumeOccurrenceGPUData),
+        cudaMemcpyHostToDevice);
+    if (error != cudaSuccess)
+      throw std::runtime_error(cudaGetErrorString(error));
+    error = cudaStreamSynchronize(nullptr);
+    if (error != cudaSuccess)
+      throw std::runtime_error(cudaGetErrorString(error));
+  }
+  m_referenceView = {m_referenceOccurrences.ptrAs<VolumeOccurrenceGPUData>(),
+      occurrences.size(),
+      true,
+      helium::newTimeStamp()};
+  m_referenceTLASBuild = m_objectUpdates.lastTLASBuild;
+  m_referenceBuilt = true;
+  m_referenceOmissions = omitUnavailable;
+  return m_referenceView;
 }
 
 void World::populateOptixInstances()
@@ -501,8 +617,7 @@ void World::buildInstanceSurfaceGPUData()
 
       const mat4 o2wMat4 = mat4(inst->xfm(t));
       const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
-      const mat3x4 w2o =
-          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+      const mat3x4 w2o = glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
 
       auto assignXfm = [&](InstanceSurfaceGPUData &g) {
         g.objectToWorld = o2w;
@@ -519,20 +634,18 @@ void World::buildInstanceSurfaceGPUData()
         ++instID;
       }
       if (group->containsCurveGeometry()) {
-        sd[instID] =
-            makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
-                inst->uniformAttributes(),
-                id,
-                t);
+        sd[instID] = makeInstanceGPUData(group->surfaceCurveGPUIndices().data(),
+            inst->uniformAttributes(),
+            id,
+            t);
         assignXfm(sd[instID]);
         ++instID;
       }
       if (group->containsUserGeometry()) {
-        sd[instID] =
-            makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
-                inst->uniformAttributes(),
-                id,
-                t);
+        sd[instID] = makeInstanceGPUData(group->surfaceUserGPUIndices().data(),
+            inst->uniformAttributes(),
+            id,
+            t);
         assignXfm(sd[instID]);
         ++instID;
       }
@@ -557,8 +670,7 @@ void World::buildInstanceVolumeGPUData()
 
       const mat4 o2wMat4 = mat4(inst->xfm(t));
       const mat3x4 o2w = glm::transpose(mat4x3(o2wMat4));
-      const mat3x4 w2o =
-          glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
+      const mat3x4 w2o = glm::transpose(mat4x3(glm::affineInverse(o2wMat4)));
 
       InstanceVolumeGPUData g;
       g.objectToWorld = o2w;
@@ -588,8 +700,8 @@ void World::synthesizeGeometryLights()
 {
   // Configure or drop each candidate surface's Geometry Light from current
   // material + geometry state. Runs over triangle and user (custom-primitive,
-  // e.g. sphere) surfaces; isSampleableEmitter gates out non-area-samplable ones.
-  // Object-space, so done once per group; the fill pass instances it per
+  // e.g. sphere) surfaces; isSampleableEmitter gates out non-area-samplable
+  // ones. Object-space, so done once per group; the fill pass instances it per
   // transform like an authored light. The light carries the material's mean
   // radiance (Pick Power); the sampler evaluates the material at the sampled
   // point when its emission is not constant.
@@ -667,10 +779,10 @@ void World::buildInstanceLightGPUData()
 
   size_t lightIndex = 0;
   size_t hdriIndex = 0;
-  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid out
-  // per (instance, transform) as [triangle?][curve?][user?]. Tracking the same
-  // cursor here recovers each Geometry Light's surface-instance index without a
-  // side table.
+  // Mirrors buildInstanceSurfaceGPUData's instID: surface instances are laid
+  // out per (instance, transform) as [triangle?][curve?][user?]. Tracking the
+  // same cursor here recovers each Geometry Light's surface-instance index
+  // without a side table.
   size_t surfaceInstanceCursor = 0;
 
   std::for_each(m_instances.begin(), m_instances.end(), [&](auto *inst) {
@@ -798,9 +910,8 @@ void World::buildLightPickCdf()
   //
   // Fall back to unit radius so an empty scene still weights the infinite
   // lights nonzero.
-  m_sceneRadius = empty(m_illuminatedBounds)
-      ? 1.0f
-      : 0.5f
+  m_sceneRadius = empty(m_illuminatedBounds) ? 1.0f
+                                             : 0.5f
           * glm::length(m_illuminatedBounds.upper - m_illuminatedBounds.lower);
   if (!(m_sceneRadius > 0.0f) || !std::isfinite(m_sceneRadius))
     m_sceneRadius = 1.0f;

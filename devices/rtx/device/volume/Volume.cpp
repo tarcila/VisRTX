@@ -31,13 +31,14 @@
 
 #include "Volume.h"
 // specific types
+#include "PrincipledVolume.h"
 #include "TransferFunction1D.h"
 #include "UnknownVolume.h"
 
 namespace visrtx {
 
-Volume::Volume(DeviceGlobalState *d)
-    : RegisteredObject<VolumeGPUData>(ANARI_VOLUME, d)
+Volume::Volume(DeviceGlobalState *d, VolumeType type)
+    : RegisteredObject<VolumeGPUData>(ANARI_VOLUME, d), m_type(type)
 {
   setRegistry(d->registry.volumes);
 }
@@ -64,6 +65,16 @@ bool Volume::isVisible() const
   return m_visible;
 }
 
+VolumeType Volume::volumeType() const
+{
+  return m_type;
+}
+
+ReferenceVolumeGPUData Volume::referenceVolume()
+{
+  return {};
+}
+
 OptixBuildInput Volume::buildInput() const
 {
   OptixBuildInput buildInput{};
@@ -87,7 +98,9 @@ OptixBuildInput Volume::buildInput() const
 
 Volume *Volume::createInstance(std::string_view subtype, DeviceGlobalState *d)
 {
-  if (subtype == "transferFunction1D" || subtype == "scivis")
+  if (subtype == "principledVolume")
+    return new PrincipledVolume(d);
+  else if (subtype == "transferFunction1D" || subtype == "scivis")
     return new TransferFunction1D(d);
   else
     return new UnknownVolume(subtype, d);
@@ -96,6 +109,7 @@ Volume *Volume::createInstance(std::string_view subtype, DeviceGlobalState *d)
 VolumeGPUData Volume::gpuData() const
 {
   VolumeGPUData retval{};
+  retval.type = m_type;
   retval.id = m_id;
   return retval;
 }

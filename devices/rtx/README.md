@@ -185,6 +185,36 @@ Float) with rectilinear coordinate transforms.
 This type automatically detects the grid type from the NanoVDB metadata and
 routes to the appropriate sampler implementation.
 
+#### Typed spatial-field groundwork
+
+The stored-field backends now accept linear RGB data: `FLOAT32_VEC3` arrays for
+`structuredRegular` and `structuredRectilinear`, and NanoVDB `Vec3f` grids for
+`nanovdb` and `nanovdbRectilinear`. RGB sampling preserves all three channels;
+there is no sRGB decoding, implicit scalar broadcast, or alpha channel.
+Existing scalar formats and scalar sampling paths remain separate.
+
+A field's read-only `valueType` property (`ANARI_DATA_TYPE`, with `ANARI_WAIT`
+to flush commits) returns `ANARI_FLOAT32`, `ANARI_FLOAT32_VEC3`, or
+`ANARI_UNKNOWN` for an invalid field. Scalar fixed-point storage still samples
+as float. TF1D volumes and isosurfaces require scalar fields and diagnose RGB
+inputs instead of using one component.
+
+Rectilinear coordinate arrays must match each voxel dimension for node-centered
+data, or that dimension plus one for cell-centered data. Type/shape checks occur
+at finalization, without field-content validation scans. NanoVDB metadata must be
+host-visible and describe one complete supported grid.
+
+This is preparatory support, not an advertised `principledVolume` extension.
+RGB fields do not build the scalar TF/isosurface acceleration grid. The factory now
+creates `principledVolume` objects with committed bindings, stored reference
+snapshots and optical bounds. Interactive/default have experimental preview
+transport; Quality/Fast/Debug/Test still diagnose and omit principled contributions.
+See [the preview implementation record](docs/interactive-volume-preview.md),
+[object integration record](docs/principled-volume-object.md), and
+[API contract](../../principledVolume.md). Full qualification and discovery
+remain pending. Existing custom scalar callable signatures are unchanged; custom
+fields are not implicitly supported by the new stored-field sampling adapter.
+
 #### VISRTX_MATERIAL_MDL
 
 The `mdl` material type exposes NVIDIA's [Material Definition Language

@@ -40,8 +40,7 @@
 namespace visrtx {
 
 VISRTX_DEVICE void initStructuredRectilinearSampler(
-    StructuredRectilinearSamplerState &state,
-    const SpatialFieldGPUData *field)
+    StructuredRectilinearSamplerState &state, const SpatialFieldGPUData *field)
 {
   const auto &data = field->data.structuredRectilinear;
 
@@ -94,6 +93,15 @@ VISRTX_DEVICE float sampleValue(const StructuredRectilinearSamplerState &state,
 {
   const auto c = structuredRectilinearCoord(state, p);
   return tex3D<float>(state.texObj, c.x, c.y, c.z);
+}
+
+VISRTX_DEVICE vec3 sampleRGB(const StructuredRectilinearSamplerState &state,
+    const SpatialFieldGPUData &,
+    const vec3 &p)
+{
+  const auto c = structuredRectilinearCoord(state, p);
+  const auto value = tex3D<float4>(state.texObj, c.x, c.y, c.z);
+  return vec3(value.x, value.y, value.z);
 }
 
 VISRTX_DEVICE vec3 sampleNormal(const StructuredRectilinearSamplerState &state,

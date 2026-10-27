@@ -34,10 +34,27 @@
 // sampling stays inline (StructuredRegularSamplerInline.h) since the bodies
 // below resolve sampleValue/sampleNormal by ADL on the concrete state type.
 
+#include "StoredFieldReferenceSampler.h"
 #include "StructuredRegularSamplerInline.h"
 #include "gpu/volumeIntegrationDetail.h"
 
 using namespace visrtx;
+
+// Reference sampling is isolated from the renderer module to keep multi-backend
+// traversal/decoding from being duplicated at every optical-property callsite.
+VISRTX_CALLABLE float __direct_callable__sampleReferenceScalar(
+    const StoredFieldReferenceGPUData *field, const vec3 *p)
+{
+  StoredFieldReferenceSampler sampler{field};
+  return sampler.sample<float>(0, *p);
+}
+
+VISRTX_CALLABLE vec3 __direct_callable__sampleReferenceRGB(
+    const StoredFieldReferenceGPUData *field, const vec3 *p)
+{
+  StoredFieldReferenceSampler sampler{field};
+  return sampler.sample<vec3>(0, *p);
+}
 
 // Woodcock-body callables — single variant, no macro fan-out.
 VISRTX_CALLABLE float __direct_callable__sampleDistanceStructuredRegular(

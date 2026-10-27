@@ -31,8 +31,9 @@
 
 #pragma once
 
-#include "space_skipping/UniformGrid.h"
 #include "RegisteredObject.h"
+#include "StoredFieldReference.h"
+#include "space_skipping/UniformGrid.h"
 
 namespace visrtx {
 
@@ -45,13 +46,52 @@ struct SpatialField : public RegisteredObject<SpatialFieldGPUData>
 
   virtual float stepSize() const = 0;
 
+  // Query after successful finalization. Existing custom fields default scalar.
+  FieldValueType valueType() const;
+
+  bool getProperty(const std::string_view &name,
+      ANARIDataType type,
+      void *ptr,
+      uint64_t size,
+      uint32_t flags) override;
+
   void markFinalized() override;
+
+  // Lazy reference snapshot: range and sampler are built together from the
+  // finalized inputs. No renderer is migrated by exposing this internal seam.
+  const StoredFieldReference *referenceField();
 
   static SpatialField *createInstance(
       std::string_view subtype, DeviceGlobalState *d);
 
   UniformGrid m_uniformGrid;
+
+ protected:
+  virtual std::unique_ptr<StoredFieldReference> createReferenceField(
+      optical_reference::FieldRevision key) const;
+
+ private:
+  uint64_t m_referenceIdentity{0};
+  uint64_t m_referenceRevision{0};
+  bool m_referenceAttempted{false};
+  std::unique_ptr<StoredFieldReference> m_reference;
 };
+
+// Inlined definitions ////////////////////////////////////////////////////////
+
+inline const StoredFieldReference *SpatialField::referenceField()
+{
+  if (!isValid())
+    return nullptr;
+  if (!m_referenceAttempted) {
+    auto snapshot = createReferenceField({m_referenceIdentity,
+        m_referenceRevision,
+        STORED_FIELD_REFERENCE_CONTRACT});
+    m_reference = std::move(snapshot);
+    m_referenceAttempted = true;
+  }
+  return m_reference.get();
+}
 
 } // namespace visrtx
 

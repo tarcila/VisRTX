@@ -188,6 +188,8 @@ set(SOURCES
   sampler/UnknownSampler.cpp
 
   spatial_field/SpatialField.cpp
+  spatial_field/StoredFieldReference.cpp
+  spatial_field/FieldTexture.cu
   spatial_field/NvdbRectilinearField.cpp
   spatial_field/NvdbRegularField.cpp
   spatial_field/StructuredRectilinearField.cpp
@@ -211,6 +213,7 @@ set(SOURCES
   utility/PPM.cpp
   utility/TaskExecutor.cpp
 
+  volume/PrincipledVolume.cpp
   volume/TransferFunction1D.cpp
   volume/UnknownVolume.cpp
   volume/Volume.cpp
@@ -243,6 +246,16 @@ if(VISRTX_ENABLE_MDL_SUPPORT)
   )
 endif()
 
+# Reference snapshot and volume-bound construction need controlled host arithmetic.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties(spatial_field/StoredFieldReference.cpp
+    volume/PrincipledVolume.cpp PROPERTIES
+    COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off;-frounding-math")
+elseif(MSVC)
+  set_source_files_properties(spatial_field/StoredFieldReference.cpp
+    volume/PrincipledVolume.cpp PROPERTIES
+    COMPILE_OPTIONS "/fp:strict")
+endif()
 project_sources(PRIVATE ${SOURCES})
 set(CUDA_SOURCES ${SOURCES})
 list(FILTER CUDA_SOURCES INCLUDE REGEX ".*\\.cu$")
@@ -464,6 +477,11 @@ install(FILES
   ${CMAKE_CURRENT_LIST_DIR}/../apps/tests/unit/sobol/LICENSE.joe-kuo
   ${CMAKE_CURRENT_LIST_DIR}/../apps/tests/unit/sobol/NOTICE
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/VisRTX/licenses/sobol)
+
+# Embedded CIE-derived numbers remain separately licensed data.
+install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/gpu/blackbody/data/
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/VisRTX/blackbody
+  COMPONENT blackbody-data)
 
 install(TARGETS ${PROJECT_NAME}
   EXPORT VisRTX_Exports

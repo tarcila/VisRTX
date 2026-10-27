@@ -45,8 +45,7 @@ VISRTX_DEVICE void initStructuredRegularSampler(
   state.texObj = field->data.structuredRegular.texObj;
   state.origin = field->data.structuredRegular.origin;
   state.invSpacing = field->data.structuredRegular.invSpacing;
-  state.offset =
-      vec3(field->data.structuredRegular.cellCentered ? 0.0f : 0.5f);
+  state.offset = vec3(field->data.structuredRegular.cellCentered ? 0.0f : 0.5f);
   state.dims = field->data.structuredRegular.dims;
   state.filter = field->data.structuredRegular.filter;
 }
@@ -61,6 +60,15 @@ VISRTX_DEVICE float sampleValue(const StructuredRegularSamplerState &state,
 {
   const auto coords = (p - state.origin) * state.invSpacing + state.offset;
   return tex3D<float>(state.texObj, coords.x, coords.y, coords.z);
+}
+
+VISRTX_DEVICE vec3 sampleRGB(const StructuredRegularSamplerState &state,
+    const SpatialFieldGPUData &,
+    const vec3 &p)
+{
+  const auto c = (p - state.origin) * state.invSpacing + state.offset;
+  const auto value = tex3D<float4>(state.texObj, c.x, c.y, c.z);
+  return vec3(value.x, value.y, value.z);
 }
 
 VISRTX_DEVICE vec3 sampleNormal(const StructuredRegularSamplerState &state,

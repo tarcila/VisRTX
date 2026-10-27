@@ -65,6 +65,11 @@ void Isosurface::finalize()
         "missing required parameter 'field' on isosurface geometry");
     return;
   }
+  if (!m_field->isValid() || m_field->valueType() != FieldValueType::Scalar) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "isosurface requires a valid scalar spatial field");
+    return;
+  }
   if (m_field->m_uniformGrid.m_valueRanges == nullptr) {
     // The field's space-skipping grid isn't built yet; a field committed before
     // this geometry re-triggers finalize via the field ChangeObserverPtr once
@@ -158,6 +163,7 @@ void Isosurface::dropUndersizedPrimitiveArrays()
 bool Isosurface::isValid() const
 {
   return m_field && m_field->isValid()
+      && m_field->valueType() == FieldValueType::Scalar
       && m_field->m_uniformGrid.m_valueRanges != nullptr
       && ((m_isovalueArray && m_isovalueArray->size() > 0) || m_hasScalarIsovalue);
 }

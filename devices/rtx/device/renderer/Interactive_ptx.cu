@@ -29,6 +29,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+// Keep reference field decoding behind the same tested sampler implementation,
+// reached through bounded direct-callables rather than expanded into raygen.
+#define VISRTX_REFERENCE_OPTIX_CALLS
+
 // visrtx
 #include "gpu/evalShading.h"
 #include "gpu/gpu_math.h"
@@ -36,6 +40,7 @@
 #include "gpu/gpu_util.h"
 #include "gpu/intersectRay.h"
 #include "gpu/renderer/common.h"
+#include "gpu/renderer/interactiveVolumeRaygen.h"
 #include "gpu/renderer/raygen_helpers.h"
 #include "gpu/renderer/shadowTransmittance.h"
 #include "gpu/sampleLight.h"
@@ -166,16 +171,13 @@ struct InteractiveShadingPolicy
           {hit.epsilon, shadowDist},
       };
 
-      // Surface shadows are tinted (vec3); volume shadows stay scalar.
       const vec3 surfaceTransmittance =
           surfaceShadowTransmittance(ss, shadowRay);
-      const float volumeTransmittance =
-          1.0f - volumeShadowOpacity(ss, shadowRay);
-      const vec3 attenuation = surfaceTransmittance * volumeTransmittance;
-
-      if (glm::all(
-              glm::lessThanEqual(attenuation, vec3(MIN_CONTRIBUTION_EPSILON))))
-        return;
+      // Geometry robustness offsets do not shorten the optical connection.
+      const float opticalDistance =
+          lightSample.dist + dot(shadowOrigin - hit.hitpoint, lightSample.dir);
+      const auto volumeTransmittance = volume_preview::attenuation(frameData,
+          Ray{hit.hitpoint, lightSample.dir, {0.f, opticalDistance}});
 
       const vec3 fCos =
           materialEvalBsdf(shadingState, -ray.dir, lightSample.dir);
@@ -212,7 +214,8 @@ struct InteractiveShadingPolicy
         thisLightContrib *= pSum > 0.0f ? envFoldedPdf / pSum : 0.0f;
       }
 
-      contrib += weight * thisLightContrib * attenuation;
+      contrib += vec3(double(weight) * glm::dvec3(thisLightContrib)
+          * glm::dvec3(surfaceTransmittance) * volumeTransmittance);
     };
 
     // `maxSampledLights` caps the shadow-ray budget per hit. When the scene has
@@ -280,9 +283,11 @@ struct InteractiveShadingPolicy
                 dirC,
                 {hit.epsilon, std::numeric_limits<float>::max()},
             };
-            const vec3 attenuation = surfaceShadowTransmittance(ss, shadowRay)
-                * (1.0f - volumeShadowOpacity(ss, shadowRay));
-            contrib += contribC * attenuation;
+            const auto attenuation =
+                glm::dvec3(surfaceShadowTransmittance(ss, shadowRay))
+                * volume_preview::attenuation(
+                    frameData, Ray{hit.hitpoint, dirC, {0.f, INFINITY}});
+            contrib += vec3(glm::dvec3(contribC) * attenuation);
           }
         }
       }
@@ -336,7 +341,12 @@ struct InteractiveShadingPolicy
         // for Interactive.
         if (!bounceHit.material->emissionIsSampleable)
           color += materialEvaluateEmission(bounceShadingState, -bounceRay.dir);
-        contrib += color * nextRay.contributionWeight;
+        const float distance =
+            dot(bounceHit.hitpoint - hit.hitpoint, bounceRay.dir);
+        const auto transmission = volume_preview::attenuation(
+            frameData, Ray{hit.hitpoint, bounceRay.dir, {0.f, distance}});
+        contrib += vec3(glm::dvec3(color)
+            * glm::dvec3(nextRay.contributionWeight) * transmission);
       } else {
         vec3 hdri;
         // Illumination, not the camera backdrop: an indirect bounce must see
@@ -361,7 +371,10 @@ struct InteractiveShadingPolicy
           const float wBsdf = isinf(nextRay.pdf)
               ? 1.0f
               : nextRay.pdf / (nextRay.pdf + pLight + pCosine);
-          contrib += wBsdf * hdri * nextRay.contributionWeight;
+          const auto transmission = volume_preview::attenuation(
+              frameData, Ray{hit.hitpoint, bounceRay.dir, {0.f, INFINITY}});
+          contrib += vec3(double(wBsdf) * glm::dvec3(hdri)
+              * glm::dvec3(nextRay.contributionWeight) * transmission);
         }
       }
     }
@@ -407,8 +420,7 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
     transmittance *= (1.0f - alpha * (1.0f - T));
 
-    if (glm::all(
-            glm::lessThanEqual(transmittance, vec3(1.f - OPACITY_THRESHOLD))))
+    if (glm::all(glm::lessThanEqual(transmittance, vec3(0.f))))
       optixTerminateRay();
     else
       optixIgnoreIntersection();
@@ -457,13 +469,29 @@ VISRTX_GLOBAL void __miss__shading()
   }
 }
 
+VISRTX_CALLABLE void __direct_callable__referenceAttenuation(
+    const FrameGPUData *fd, const Ray *ray, glm::dvec3 *result)
+{
+  *result = volume_preview::integrateAttenuation(*fd, *ray);
+}
+
+VISRTX_CALLABLE void __continuation_callable__referenceCameraSegment(
+    ScreenSample *ss,
+    const aggregate_volume::Ray *ray,
+    double begin,
+    double end,
+    volume_preview::CameraIntegral *integral)
+{
+  volume_preview::integrateCameraSegment(*ss, *ray, begin, end, *integral);
+}
+
 VISRTX_GLOBAL void __raygen__()
 {
   auto ss = createScreenSample(frameData);
   if (pixelOutOfFrame(ss.pixel, frameData.fb))
     return;
 
-  renderPixel<InteractiveShadingPolicy>(frameData, ss);
+  renderInteractivePixel<InteractiveShadingPolicy>(frameData, ss);
 }
 
 } // namespace visrtx

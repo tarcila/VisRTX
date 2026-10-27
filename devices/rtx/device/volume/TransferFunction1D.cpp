@@ -30,7 +30,10 @@
  */
 
 #include "TransferFunction1D.h"
+#include "utility/ScopedReferenceRounding.h"
 #include "utility/colorMapHelpers.h"
+
+#include <stdexcept>
 
 namespace visrtx {
 
@@ -74,9 +77,19 @@ void TransferFunction1D::commitParameters()
 
 void TransferFunction1D::finalize()
 {
+  m_referenceAttempted = false;
+  m_reference = {};
+  m_referencePayload.reset();
+  m_referenceColors.reset();
   if (!m_field) {
     reportMessage(ANARI_SEVERITY_WARNING,
         "missing parameter 'value' on transferFunction1D ANARIVolume");
+    return;
+  }
+
+  if (!m_field->isValid() || m_field->valueType() != FieldValueType::Scalar) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "transferFunction1D requires a valid scalar spatial field");
     return;
   }
 
@@ -96,7 +109,71 @@ void TransferFunction1D::finalize()
 
 bool TransferFunction1D::isValid() const
 {
-  return m_field && m_field->isValid();
+  return m_field && m_field->isValid()
+      && m_field->valueType() == FieldValueType::Scalar;
+}
+
+ReferenceVolumeGPUData TransferFunction1D::referenceVolume()
+{
+  if (!isValid())
+    return {};
+  if (m_referenceAttempted)
+    return m_reference;
+  const auto unavailable = [&]() {
+    m_referenceAttempted = true;
+    return ReferenceVolumeGPUData{};
+  };
+  const ScopedReferenceRounding rounding;
+  const auto *field = m_field->referenceField();
+  if (!field || m_tf.empty())
+    return unavailable();
+  const double limit =
+      optical_reference::promote(std::numeric_limits<float>::max());
+  if (!optical_reference::validRange(
+          {m_valueRange.lower, m_valueRange.upper}, -limit, limit, false)
+      || !(optical_reference::promote(m_valueRange.lower)
+          < optical_reference::promote(m_valueRange.upper)))
+    return unavailable();
+  optical_reference::RawRange<float> alpha;
+  for (const auto &color : m_tf)
+    alpha = optical_reference::extendRange(alpha, color.w);
+  TransferFunctionReferenceGPUData data;
+  if (!optical_reference::buildTransferBounds({alpha.lower, alpha.upper},
+          {m_unitDistance, m_unitDistance},
+          data.opticalBounds))
+    return unavailable();
+  data.field = field->gpuData();
+  data.valueRange = m_valueRange;
+  data.unitDistance = m_unitDistance;
+  data.colorCount = uint32_t(m_tf.size());
+  m_referenceColors.reserve(m_tf.size() * sizeof(vec4));
+  auto error = cudaMemcpy(m_referenceColors.ptr(),
+      m_tf.data(),
+      m_tf.size() * sizeof(vec4),
+      cudaMemcpyHostToDevice);
+  if (error != cudaSuccess)
+    throw std::runtime_error(cudaGetErrorString(error));
+  data.colors = m_referenceColors.ptrAs<vec4>();
+  m_referencePayload.reserve(sizeof(data));
+  error = cudaMemcpy(
+      m_referencePayload.ptr(), &data, sizeof(data), cudaMemcpyHostToDevice);
+  if (error != cudaSuccess)
+    throw std::runtime_error(cudaGetErrorString(error));
+  error = cudaStreamSynchronize(nullptr);
+  if (error != cudaSuccess)
+    throw std::runtime_error(cudaGetErrorString(error));
+  double step=std::numeric_limits<double>::max();
+  const auto domain=field->descriptor().domain;
+  for(int c=0;c<3;++c)
+    step=std::min(step,.5*(optical_reference::promote(domain.upper[c])-optical_reference::promote(domain.lower[c])));
+  const double hint=optical_reference::promote(m_field->stepSize());
+  if(hint>0. && std::isfinite(hint)) step=std::min(step,hint);
+  m_reference = {VolumeType::TF1D,
+      field->descriptor().domain,
+      nullptr,
+      m_referencePayload.ptrAs<TransferFunctionReferenceGPUData>(), step, index()};
+  m_referenceAttempted = true;
+  return m_reference;
 }
 
 VolumeGPUData TransferFunction1D::gpuData() const

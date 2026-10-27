@@ -458,10 +458,14 @@ int testTransmission(anari::Device d, const char *subtype)
         const double t1 =
             full ? 0. : visibility(mode, radial ? (12. - p % 3) * 1.25 : 13.);
         for (unsigned c = 0; c < 3; ++c) {
-          // Thin native PBR: no metal/volume attenuation, so the material's
-          // straight-through filter is transmission * baseColor. This is
-          // independent of fog visibility and of the scalar coverage alpha.
-          const double through = 1. - alpha + alpha * 0.75 * TINT[c];
+          // Interactive/default now assign fog ownership at the first
+          // covered surface: tinted transmission keeps that owner, whereas
+          // coverage holes may acquire fog at the rear surface. Fast retains
+          // the legacy per-layer cueing of all straight-through throughput.
+          const bool singleOwner = std::string(subtype) == "interactive"
+              || std::string(subtype) == "default";
+          const double through =
+              1. - alpha + (singleOwner ? 0. : alpha * 0.75 * TINT[c]);
           expected[p][c] =
               (alpha * (1. - t0) + through * 0.5 * (1. - t1)) * FOG_COLOR[c];
         }

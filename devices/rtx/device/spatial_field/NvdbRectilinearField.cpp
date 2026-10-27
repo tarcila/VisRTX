@@ -31,6 +31,7 @@
 
 #include "NvdbRectilinearField.h"
 #include "RectilinearLUT.h"
+#include "StoredFieldTypes.h"
 #include "gpu/gpu_decl.h"
 #include "gpu/gpu_math.h"
 #include "gpu/shadingState.h"
@@ -109,6 +110,11 @@ void NvdbRectilinearField::finalize()
   }
 
   const void *dataPtr = m_data->data(AddressSpace::HOST);
+  if (!dataPtr || m_data->size() < sizeof(nanovdb::GridMetaData)) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "NanoVDB field requires a complete host-visible grid buffer");
+    return;
+  }
   const auto *gridData = static_cast<const nanovdb::GridData *>(dataPtr);
 
   if (!gridData->isValid()) {
@@ -117,6 +123,13 @@ void NvdbRectilinearField::finalize()
     return;
   }
 
+  if (!supportedNanoVDBFieldType(gridData->mGridType)
+      || gridData->mGridSize > m_data->size()
+      || gridData->mGridSize < sizeof(nanovdb::GridMetaData)) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "unsupported NanoVDB field type or truncated grid buffer");
+    return;
+  }
   m_gridMetadata = nanovdb::GridMetaData(gridData);
 
   if (m_gridMetadata->gridCount() != 1) {
@@ -151,11 +164,18 @@ void NvdbRectilinearField::finalize()
     const auto *axisData = static_cast<const float *>(
         (*axisArrays[axis])->data(AddressSpace::HOST));
     size_t numCoords = (*axisArrays[axis])->size();
+    const size_t expected = size_t(m_gridMetadata->indexBBox().dim()[axis])
+        + (m_cellCentered ? 1 : 0);
+    if (numCoords != expected || numCoords < 2 || !axisData) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "rectilinear axis %d shape must match field dimensions and data centering",
+          axis);
+      cleanup();
+      return;
+    }
 
-    if (!RectilinearLUT::buildAxisLUT(axisData,
-            numCoords,
-            m_axisLutTextures[axis],
-            m_axisLutArrays[axis])
+    if (!RectilinearLUT::buildAxisLUT(
+            axisData, numCoords, m_axisLutTextures[axis], m_axisLutArrays[axis])
         || !RectilinearLUT::buildInverseAxisLUT(axisData,
             numCoords,
             m_invAxisLutTextures[axis],
@@ -184,14 +204,15 @@ void NvdbRectilinearField::finalize()
     }
   }
 
-  buildGrid();
+  m_valid = true;
+  if (m_gridMetadata->gridType() != nanovdb::GridType::Vec3f)
+    buildGrid();
   upload();
 }
 
 bool NvdbRectilinearField::isValid() const
 {
-  return m_data && m_data->elementType() == ANARI_UINT8 && m_axisArrayX
-      && m_axisArrayY && m_axisArrayZ;
+  return m_valid;
 }
 
 box3 NvdbRectilinearField::bounds() const
@@ -233,7 +254,11 @@ float NvdbRectilinearField::stepSize() const
 
 SpatialFieldGPUData NvdbRectilinearField::gpuData() const
 {
-  SpatialFieldGPUData sf;
+  SpatialFieldGPUData sf{};
+  sf.storageType = StoredFieldType::NanoVDBRectilinear;
+  sf.valueType = m_gridMetadata->gridType() == nanovdb::GridType::Vec3f
+      ? FieldValueType::RGB
+      : FieldValueType::Scalar;
 
   // Map grid type to rectilinear callable index
   auto gridType = m_gridMetadata->gridType();
@@ -278,7 +303,8 @@ SpatialFieldGPUData NvdbRectilinearField::gpuData() const
   sf.data.nvdbRectilinear.invAxisLUT[2] = m_invAxisLutTextures[2];
   sf.data.nvdbRectilinear.invAvgVoxelSize = m_invAvgVoxelSize;
 
-  sf.grid = m_uniformGrid.gpuData();
+  if (sf.valueType == FieldValueType::Scalar)
+    sf.grid = m_uniformGrid.gpuData();
 
   sf.roi.lower = m_roi.lower;
   sf.roi.upper = m_roi.upper;
@@ -288,6 +314,8 @@ SpatialFieldGPUData NvdbRectilinearField::gpuData() const
 
 void NvdbRectilinearField::cleanup()
 {
+  m_valid = false;
+  m_gridMetadata.reset();
   for (int i = 0; i < 3; ++i) {
     if (m_axisLutTextures[i])
       cudaDestroyTextureObject(m_axisLutTextures[i]);
@@ -306,6 +334,27 @@ void NvdbRectilinearField::cleanup()
       vec3(std::numeric_limits<float>::lowest()));
 
   m_uniformGrid.cleanup();
+}
+
+std::unique_ptr<StoredFieldReference>
+NvdbRectilinearField::createReferenceField(
+    optical_reference::FieldRevision key) const
+{
+  ReferenceAxes axes;
+  const Array1D *arrays[3] = {
+      m_axisArrayX.get(), m_axisArrayY.get(), m_axisArrayZ.get()};
+  for (int c = 0; c < 3; ++c) {
+    axes.values[c] =
+        static_cast<const float *>(arrays[c]->data(AddressSpace::HOST));
+    axes.count[c] = arrays[c]->size();
+  }
+  return StoredFieldReference::sparse(m_data->data(AddressSpace::HOST),
+      m_data->size(),
+      m_cellCentered,
+      m_filter != "nearest",
+      fieldBindingDomain(bounds(), m_roi),
+      key,
+      &axes);
 }
 
 void NvdbRectilinearField::buildGrid()

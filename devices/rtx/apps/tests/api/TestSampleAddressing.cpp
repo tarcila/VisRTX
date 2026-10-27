@@ -332,19 +332,16 @@ static bool run(anari::Device d,
       for (unsigned y = 0; y < SIZE; ++y) {
         for (unsigned x = 0; x < SIZE; ++x) {
           int count = (launch + 1) * spp;
-          const int divisor = checkerboard ? launch / 4 + 1 : launch * spp + 1;
           if (checkerboard) {
             const int tile = (x & 1) | ((y & 1) << 1);
             count = launch / 4 + int(tile <= launch % 4);
           }
-          // The mapped albedo channel retains its existing pre-launch
-          // (completedSamples+1) divisor, including sparse checkerboard tiles.
-          // Color compositing has its own normalization/initial tile redirect.
-          // Preserve both; addressing must not repair counter normalization.
-          Vec3 want = count ? expected(x, y, count, perspective, aperture)
-                            : Vec3{0.f, 0.f, 0.f};
-          for (float &v : want)
-            v *= float(count) / divisor;
+          // Public AOV resolve now shares color's actual sample-count and
+          // initial checkerboard-source convention, rather than the former
+          // pre-launch divisor. The ordinal oracle remains independent.
+          Vec3 want = count
+              ? expected(x, y, count, perspective, aperture)
+              : expected(x & ~1u, y & ~1u, 1, perspective, aperture);
           for (int c = 0; c < 3; ++c) {
             const float got = actual.albedo[y * SIZE + x][c];
             // Float ray setup, trig, intersection and barycentrics versus

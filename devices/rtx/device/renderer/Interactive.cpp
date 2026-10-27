@@ -33,6 +33,8 @@
 // ptx
 #include "Interactive_ptx.h"
 
+#include <cmath>
+
 namespace visrtx {
 
 static const std::vector<HitgroupFunctionNames> g_interactiveHitNames = {
@@ -41,8 +43,7 @@ static const std::vector<HitgroupFunctionNames> g_interactiveHitNames = {
 };
 
 static const std::vector<std::string> g_interactiveMissNames = {
-    "__miss__shading", "__miss__shadow"
-};
+    "__miss__shading", "__miss__shadow"};
 
 Interactive::Interactive(DeviceGlobalState *s) : Renderer(s, 0.f) {}
 
@@ -52,11 +53,25 @@ void Interactive::commitParameters()
   m_fog = parseFogParameters().value_or(FogGPUData{});
   m_lightFalloff = std::clamp(getParam<float>("lightFalloff", 1.f), 0.f, 1.f);
   m_aoSamples = std::clamp(getParam<int>("ambientSamples", 1), 0, 256);
-  m_volumeSamplingRateShadows = std::clamp(
-      getParam<float>("volumeSamplingRateShadows", 0.0125f), 1e-4f, 10.f);
-  // <= 0 is the "sample all lights" sentinel; clamp negatives to 0 so the kernel
-  // sees a single unambiguous unlimited value.
+  // Experimental reference defaults; latency/default promotion is separate.
+  m_volumeSamplingRate =
+      std::max(getParam<float>("volumeSamplingRate", 1.f), 1e-3f);
+  m_volumeSamplingRateShadows =
+      std::max(getParam<float>("volumeSamplingRateShadows", 1.f), 1e-4f);
+  if (!std::isfinite(m_volumeSamplingRate)
+      || !std::isfinite(m_volumeSamplingRateShadows)) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "Interactive sampling rates must be finite; using reference rates 1/1");
+    m_volumeSamplingRate = m_volumeSamplingRateShadows = 1.f;
+  }
+  // <= 0 is the "sample all lights" sentinel; clamp negatives to 0 so the
+  // kernel sees a single unambiguous unlimited value.
   m_maxSampledLights = std::max(getParam<int>("maxSampledLights", 8), 0);
+}
+
+bool Interactive::usesReferenceVolumes() const
+{
+  return true;
 }
 
 void Interactive::populateFrameData(FrameGPUData &fd) const
@@ -70,6 +85,8 @@ void Interactive::populateFrameData(FrameGPUData &fd) const
   interactive.inverseVolumeSamplingRateShadows =
       1.f / m_volumeSamplingRateShadows;
   interactive.maxSampledLights = m_maxSampledLights;
+  fd.referenceVolumeRate = double(m_volumeSamplingRate);
+  fd.referenceShadowRate = double(m_volumeSamplingRateShadows);
 }
 
 OptixModule Interactive::optixModule() const

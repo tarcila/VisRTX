@@ -30,6 +30,7 @@
  */
 
 #include "NvdbRegularField.h"
+#include "StoredFieldTypes.h"
 #include "gpu/gpu_decl.h"
 #include "gpu/shadingState.h"
 
@@ -91,6 +92,11 @@ void NvdbRegularField::finalize()
   }
 
   const void *dataPtr = m_data->data(AddressSpace::HOST);
+  if (!dataPtr || m_data->size() < sizeof(nanovdb::GridMetaData)) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "NanoVDB field requires a complete host-visible grid buffer");
+    return;
+  }
   const auto *gridData = static_cast<const nanovdb::GridData *>(dataPtr);
 
   if (!gridData->isValid()) {
@@ -99,6 +105,13 @@ void NvdbRegularField::finalize()
     return;
   }
 
+  if (!supportedNanoVDBFieldType(gridData->mGridType)
+      || gridData->mGridSize > m_data->size()
+      || gridData->mGridSize < sizeof(nanovdb::GridMetaData)) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "unsupported NanoVDB field type or truncated grid buffer");
+    return;
+  }
   m_gridMetadata = nanovdb::GridMetaData(gridData);
 
   if (m_gridMetadata->gridCount() != 1) {
@@ -117,13 +130,15 @@ void NvdbRegularField::finalize()
   auto voxelSize = m_gridMetadata->voxelSize();
   m_voxelSize = glm::vec3(voxelSize[0], voxelSize[1], voxelSize[2]);
 
-  buildGrid();
+  m_valid = true;
+  if (m_gridMetadata->gridType() != nanovdb::GridType::Vec3f)
+    buildGrid();
   upload();
 }
 
 bool NvdbRegularField::isValid() const
 {
-  return m_data && m_data->elementType() == ANARI_UINT8;
+  return m_valid;
 }
 
 box3 NvdbRegularField::bounds() const
@@ -138,7 +153,11 @@ float NvdbRegularField::stepSize() const
 
 SpatialFieldGPUData NvdbRegularField::gpuData() const
 {
-  SpatialFieldGPUData sf;
+  SpatialFieldGPUData sf{};
+  sf.storageType = StoredFieldType::NanoVDB;
+  sf.valueType = m_gridMetadata->gridType() == nanovdb::GridType::Vec3f
+      ? FieldValueType::RGB
+      : FieldValueType::Scalar;
 
   // Map grid type to callable index
   auto gridType = m_gridMetadata->gridType();
@@ -182,7 +201,8 @@ SpatialFieldGPUData NvdbRegularField::gpuData() const
       safeInvTwo(m_voxelSize.y),
       safeInvTwo(m_voxelSize.z));
 
-  sf.grid = m_uniformGrid.gpuData();
+  if (sf.valueType == FieldValueType::Scalar)
+    sf.grid = m_uniformGrid.gpuData();
 
   sf.roi.lower = m_roi.lower;
   sf.roi.upper = m_roi.upper;
@@ -192,7 +212,20 @@ SpatialFieldGPUData NvdbRegularField::gpuData() const
 
 void NvdbRegularField::cleanup()
 {
+  m_valid = false;
+  m_gridMetadata.reset();
   m_uniformGrid.cleanup();
+}
+
+std::unique_ptr<StoredFieldReference> NvdbRegularField::createReferenceField(
+    optical_reference::FieldRevision key) const
+{
+  return StoredFieldReference::sparse(m_data->data(AddressSpace::HOST),
+      m_data->size(),
+      m_cellCentered,
+      m_filter != "nearest",
+      fieldBindingDomain(bounds(), m_roi),
+      key);
 }
 
 void NvdbRegularField::buildGrid()

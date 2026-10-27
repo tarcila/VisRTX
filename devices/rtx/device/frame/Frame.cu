@@ -267,6 +267,7 @@ void launchPrepareDenoiseInputs(const vec4 *accumColor,
 }
 
 __global__ void compositeBackground(vec4 *__restrict__ accumColor,
+    const vec3 *__restrict__ backdropWeight,
     vec4 *__restrict__ pixelBuf,
     uint32_t *__restrict__ uintBuf,
     RendererGPUData renderer,
@@ -322,7 +323,10 @@ __global__ void compositeBackground(vec4 *__restrict__ accumColor,
   vec3 rgb = vec3(rendered);
   float alpha = rendered.a;
 
-  accumulateValue(rgb, vec3(bg), alpha);
+  if (backdropWeight)
+    rgb += (backdropWeight[sourceIdx] / float(divisor)) * vec3(bg);
+  else
+    accumulateValue(rgb, vec3(bg), alpha);
   accumulateValue(alpha, bg.a, alpha);
 
   vec4 rgba = vec4(rgb, alpha);
@@ -336,6 +340,7 @@ __global__ void compositeBackground(vec4 *__restrict__ accumColor,
 }
 
 void launchCompositeBackground(vec4 *accumColor,
+    const vec3 *backdropWeight,
     vec4 *pixelBuf,
     uint32_t *uintBuf,
     const RendererGPUData &renderer,
@@ -353,6 +358,7 @@ void launchCompositeBackground(vec4 *accumColor,
   const uint32_t blockSize = 256;
   const uint32_t gridSize = (nPixels + blockSize - 1) / blockSize;
   compositeBackground<<<gridSize, blockSize, 0, stream>>>(accumColor,
+      backdropWeight,
       pixelBuf,
       uintBuf,
       renderer,
@@ -382,22 +388,20 @@ bool isValidNormalType(ANARIDataType t)
 // `anari::sizeOf(type)` bytes per pixel.
 __global__ void resolveVec3Channel(const vec3 *__restrict__ accum,
     uint8_t *__restrict__ out,
-    uint32_t numPixels,
+    uvec2 size,
     ANARIDataType type,
-    bool isNormal,
-    float invFrameID)
+    int frameID,
+    int checkerboardID)
 {
   const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= numPixels)
+  if (idx >= size.x * size.y)
     return;
-
-  vec3 v = accum[idx];
-  if (isNormal) {
-    const float len = glm::length(v);
-    v = len > 0.f ? v / len : vec3(0.f);
-  } else {
-    v *= invFrameID;
-  }
+  uint32_t sourceIdx;
+  int divisor;
+  const bool available =
+      resolveSample(idx, size, frameID, checkerboardID, sourceIdx, divisor);
+  const vec3 vMean = available ? accum[sourceIdx] / float(divisor) : vec3(0.f);
+  vec3 v = vMean; // public normal is an arithmetic mean, not a unit guide
 
   switch (type) {
   case ANARI_FIXED16_VEC3: {
@@ -426,6 +430,10 @@ __global__ void resolveVec3Channel(const vec3 *__restrict__ accum,
 Frame::Frame(DeviceGlobalState *d) : helium::BaseFrame(d), m_denoiser(d)
 {
   data().mdlAnimationTime = 0.f;
+  data().referenceVolumes = nullptr;
+  data().referenceVolumeRate = data().referenceShadowRate = 1.;
+  data().fb.buffers.guideAlbedo = data().fb.buffers.guideNormal = nullptr;
+  data().fb.buffers.backdropWeight = nullptr;
   cudaEventCreate(&m_eventStart);
   cudaEventCreate(&m_eventEnd);
 
@@ -513,6 +521,21 @@ void Frame::finalize()
 
   auto &hd = data();
 
+  const std::array<uint64_t, 12> topology{hd.fb.size.x,
+      hd.fb.size.y,
+      uint64_t(m_colorType),
+      uint64_t(m_depthType),
+      uint64_t(m_primIDType),
+      uint64_t(m_objIDType),
+      uint64_t(m_instIDType),
+      uint64_t(m_albedoType),
+      uint64_t(m_normalType),
+      uint64_t(m_denoise),
+      uint64_t(m_denoiseUsingAlbedo) | (uint64_t(m_denoiseUsingNormal) << 1),
+      uint64_t(m_referenceOutput)};
+  if (topology != m_bufferTopology)
+    m_nextFrameReset = true;
+  m_bufferTopology = topology;
   const bool useFloatFB = m_denoise || m_colorType == ANARI_FLOAT32_VEC4;
 
   hd.fb.invSize = 1.f / vec2(hd.fb.size);
@@ -520,10 +543,8 @@ void Frame::finalize()
   const bool channelPrimID = m_primIDType == ANARI_UINT32;
   const bool channelObjID = m_objIDType == ANARI_UINT32;
   const bool channelInstID = m_instIDType == ANARI_UINT32;
-  const bool channelAlbedo =
-      m_denoiseUsingAlbedo || (m_albedoType != ANARI_UNKNOWN);
-  const bool channelNormal =
-      m_denoiseUsingNormal || (m_normalType != ANARI_UNKNOWN);
+  const bool channelAlbedo = m_albedoType != ANARI_UNKNOWN;
+  const bool channelNormal = m_normalType != ANARI_UNKNOWN;
 
   const bool channelDepth = m_depthType == ANARI_FLOAT32 || channelPrimID
       || channelObjID || channelInstID;
@@ -557,6 +578,19 @@ void Frame::finalize()
   else
     m_accumNormal.reset();
 
+  if (m_referenceOutput)
+    m_backdropWeight.reserve(numPixels() * sizeof(vec3));
+  else
+    m_backdropWeight.reset();
+  if (m_denoiseUsingAlbedo)
+    m_guideAlbedo.reserve(numPixels() * sizeof(vec3));
+  else
+    m_guideAlbedo.reset();
+  if (m_denoiseUsingNormal)
+    m_guideNormal.reserve(numPixels() * sizeof(vec3));
+  else
+    m_guideNormal.reset();
+
   if (m_denoise) {
     m_denoiseInput.reserve(numPixels() * sizeof(vec4));
     if (m_denoiseUsingAlbedo)
@@ -575,6 +609,9 @@ void Frame::finalize()
 
   hd.fb.buffers.colorAccumulation = m_accumColor.ptrAs<vec4>();
   hd.fb.buffers.lumStats = m_lumStats.ptrAs<PixelLumStats>();
+  hd.fb.buffers.backdropWeight = m_backdropWeight.ptrAs<vec3>();
+  hd.fb.buffers.guideAlbedo = m_guideAlbedo.ptrAs<vec3>();
+  hd.fb.buffers.guideNormal = m_guideNormal.ptrAs<vec3>();
 
   hd.fb.buffers.depth = channelDepth ? m_depthBuffer.dataDevice() : nullptr;
   hd.fb.buffers.primID = channelPrimID ? m_primIDBuffer.dataDevice() : nullptr;
@@ -679,13 +716,51 @@ void Frame::renderFrame()
   instrument::rangePop(); // rebuild BVHs
   instrument::rangePop(); // update scene
 
+  const bool wasReference = m_referenceOutput;
+  m_referenceOutput = m_renderer->usesReferenceVolumes();
+  AggregateVolumeSceneGPUData volumeScene;
+  if (m_referenceOutput) {
+    volumeScene = m_world->referenceVolumes(true);
+    if (!volumeScene.complete) {
+      reportMessage(
+          ANARI_SEVERITY_ERROR, "unable to prepare Interactive optical scene");
+      return;
+    }
+    m_volumeReference.reserve(sizeof(volumeScene));
+    auto error=cudaMemcpy(m_volumeReference.ptr(), &volumeScene,
+        sizeof(volumeScene), cudaMemcpyHostToDevice);
+    if(error!=cudaSuccess)throw std::runtime_error(cudaGetErrorString(error));
+    error=cudaStreamSynchronize(nullptr);
+    if(error!=cudaSuccess)throw std::runtime_error(cudaGetErrorString(error));
+  } else if (m_world->hasPrincipledVolumes()
+      && (m_volumeWarningStamp != m_world->volumePublicationStamp()
+          || m_volumeWarningRenderer != m_renderer->lastFinalized())) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "principledVolume unsupported by renderer '%s'; omitted; use interactive/default",
+        m_renderer->subtypeName().c_str());
+    m_volumeWarningStamp = m_world->volumePublicationStamp();
+    m_volumeWarningRenderer = m_renderer->lastFinalized();
+  }
+  const bool media = m_referenceOutput && volumeScene.count > 0;
   bool wasDenoising = m_denoise;
   bool wasDenoisingUsingAlbedo = m_denoiseUsingAlbedo;
   bool wasDenoisingUsingNormal = m_denoiseUsingNormal;
   m_denoise = m_renderer->denoise();
-  m_denoiseUsingAlbedo = m_renderer->denoiseUsingAlbedo();
-  m_denoiseUsingNormal = m_renderer->denoiseUsingNormal();
-  if (m_denoise != wasDenoising
+  m_denoiseUsingAlbedo =
+      m_denoise && !media && m_renderer->denoiseUsingAlbedo();
+  m_denoiseUsingNormal =
+      m_denoise && !media && m_renderer->denoiseUsingNormal();
+  if (media && m_denoise
+      && (m_renderer->denoiseUsingAlbedo() || m_renderer->denoiseUsingNormal())
+      && (m_guideWarningGeneration != volumeScene.generation
+          || m_guideWarningRenderer != m_renderer->lastFinalized())) {
+    reportMessage(ANARI_SEVERITY_WARNING,
+        "renderer '%s': volume guides are not qualified; effective denoiseMode is color; public AOVs remain available",
+        m_renderer->subtypeName().c_str());
+    m_guideWarningGeneration = volumeScene.generation;
+    m_guideWarningRenderer = m_renderer->lastFinalized();
+  }
+  if (m_referenceOutput != wasReference || m_denoise != wasDenoising
       || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
       || m_denoiseUsingNormal != wasDenoisingUsingNormal)
     this->finalize();
@@ -709,6 +784,9 @@ void Frame::renderFrame()
   m_renderer->populateFrameData(hd);
   m_camera->populateFrameData(hd.camera, hd.fb.size);
   hd.world = m_world->gpuData();
+  hd.referenceVolumes = m_referenceOutput
+      ? m_volumeReference.ptrAs<AggregateVolumeSceneGPUData>()
+      : nullptr;
 
   // The TRIM top-k buffer is `trim` times the color buffer, so allocate it only
   // while that mode is active. trim is a renderer parameter, hence resolved
@@ -756,7 +834,7 @@ void Frame::renderFrame()
   if (checkerboarding())
     hd.fb.frameID += int(hd.fb.checkerboardID == 3);
   else
-    hd.fb.frameID += m_renderer->spp();
+    hd.fb.frameID += hd.renderer.numIterations;
 
   const bool useFloatOutput = m_denoise || m_colorType == ANARI_FLOAT32_VEC4;
 
@@ -776,8 +854,8 @@ void Frame::renderFrame()
   if (m_denoise) {
     if (denoiseThisFrame) {
       launchPrepareDenoiseInputs(m_accumColor.ptrAs<vec4>(),
-          m_accumAlbedo.ptrAs<vec3>(),
-          m_accumNormal.ptrAs<vec3>(),
+          m_guideAlbedo.ptrAs<vec3>(),
+          m_guideNormal.ptrAs<vec3>(),
           m_denoiseInput.ptrAs<vec4>(),
           m_denoiseAlbedo.ptrAs<vec3>(),
           m_denoiseNormal.ptrAs<vec3>(),
@@ -795,6 +873,7 @@ void Frame::renderFrame()
     }
 
     launchCompositeBackground(m_accumColor.ptrAs<vec4>(),
+        m_backdropWeight.ptrAs<vec3>(),
         (vec4 *)m_pixelBuffer.dataDevice(),
         nullptr,
         hd.renderer,
@@ -814,6 +893,7 @@ void Frame::renderFrame()
         : m_colorType == ANARI_UFIXED8_RGBA_SRGB ? FrameFormat::SRGB
                                                  : FrameFormat::UINT;
     launchCompositeBackground(m_accumColor.ptrAs<vec4>(),
+        m_backdropWeight.ptrAs<vec3>(),
         useFloatOutput ? (vec4 *)m_pixelBuffer.dataDevice() : nullptr,
         useFloatOutput ? nullptr : (uint32_t *)m_pixelBuffer.dataDevice(),
         hd.renderer,
@@ -1056,8 +1136,7 @@ void *Frame::mapInstIDBuffer(bool gpu)
 
 void Frame::resolveVec3Buffer(const DeviceBuffer &accum,
     HostDeviceArray<uint8_t> &out,
-    ANARIDataType type,
-    bool isNormal)
+    ANARIDataType type)
 {
   auto &state = *deviceState();
   const uint32_t nPixels = uint32_t(numPixels());
@@ -1066,15 +1145,15 @@ void Frame::resolveVec3Buffer(const DeviceBuffer &accum,
   resolveVec3Channel<<<gridSize, blockSize, 0, state.stream>>>(
       accum.ptrAs<vec3>(),
       out.dataDevice(),
-      nPixels,
+      data().fb.size,
       type,
-      isNormal,
-      m_invFrameID);
+      data().fb.frameID,
+      data().fb.checkerboardID);
 }
 
 void *Frame::mapAlbedoBuffer(bool gpu)
 {
-  resolveVec3Buffer(m_accumAlbedo, m_albedoBuffer, m_albedoType, false);
+  resolveVec3Buffer(m_accumAlbedo, m_albedoBuffer, m_albedoType);
   if (gpu)
     return m_albedoBuffer.dataDevice();
   else {
@@ -1085,7 +1164,7 @@ void *Frame::mapAlbedoBuffer(bool gpu)
 
 void *Frame::mapNormalBuffer(bool gpu)
 {
-  resolveVec3Buffer(m_accumNormal, m_normalBuffer, m_normalType, true);
+  resolveVec3Buffer(m_accumNormal, m_normalBuffer, m_normalType);
   if (gpu)
     return m_normalBuffer.dataDevice();
   else {
@@ -1144,10 +1223,8 @@ void Frame::newFrame()
     const bool channelPrimID = m_primIDType == ANARI_UINT32;
     const bool channelObjID = m_objIDType == ANARI_UINT32;
     const bool channelInstID = m_instIDType == ANARI_UINT32;
-    const bool channelAlbedo =
-        m_denoiseUsingAlbedo || (m_albedoType != ANARI_UNKNOWN);
-    const bool channelNormal =
-        m_denoiseUsingNormal || (m_normalType != ANARI_UNKNOWN);
+    const bool channelAlbedo = m_albedoType != ANARI_UNKNOWN;
+    const bool channelNormal = m_normalType != ANARI_UNKNOWN;
 
     const bool channelDepth = m_depthType == ANARI_FLOAT32 || channelPrimID
         || channelObjID || channelInstID;
@@ -1166,6 +1243,12 @@ void Frame::newFrame()
           numPixels() * size_t(hd.renderer.fireflyFilterTrim),
           vec4(0.0f, 0.0f, 0.0f, -1.0f)); // w<0 marks an empty top-k slot
     }
+
+    for (auto *buffer : {&m_backdropWeight, &m_guideAlbedo, &m_guideNormal})
+      if (buffer->ptr())
+        thrust::fill_n(thrust::device_pointer_cast(buffer->ptrAs<vec3>()),
+            numPixels(),
+            vec3(0.f));
 
     // Conditionally initialize other buffers
     if (channelDepth) {

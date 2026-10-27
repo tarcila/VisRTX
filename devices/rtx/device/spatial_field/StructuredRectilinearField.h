@@ -50,10 +50,13 @@ struct StructuredRectilinearField : public SpatialField
   float stepSize() const override;
 
  private:
+  bool m_valid{false};
   SpatialFieldGPUData gpuData() const override;
   void cleanup();
 
   void buildGrid();
+  std::unique_ptr<StoredFieldReference> createReferenceField(
+      optical_reference::FieldRevision key) const override;
 
   std::string m_filter;
   bool m_cellCentered{false};

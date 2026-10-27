@@ -63,6 +63,25 @@ make_test(TestConeCylinderDegenerate)
 make_test(TestConeCylinderTransparency)
 make_test(TestRotatedSphereShading)
 make_test(TestIsosurfaceRamp)
+make_test(TestSpatialFieldRGB)
+make_test(TestPrincipledVolume)
+make_test(TestPrincipledInteractive)
+target_include_directories(TestPrincipledInteractive PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+make_test(TestInteractiveVolumePolicy)
+set_tests_properties(TestInteractiveVolumePolicy PROPERTIES TIMEOUT 180
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+target_compile_definitions(TestPrincipledInteractive PRIVATE
+  BLACKBODY_ORACLE="${CMAKE_CURRENT_LIST_DIR}/../../../device/gpu/blackbody/data/reference.txt")
+set_tests_properties(TestPrincipledInteractive PROPERTIES TIMEOUT 180
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+set_tests_properties(TestPrincipledVolume PROPERTIES TIMEOUT 180
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+target_include_directories(TestSpatialFieldRGB PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+# Prefer the library under test over an installed device in the shell environment.
+set_tests_properties(TestSpatialFieldRGB PROPERTIES
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
 make_test(TestPrimitiveInterior)
 make_test(TestGroundSphereShadows)
 make_test(TestPowerLightPick)

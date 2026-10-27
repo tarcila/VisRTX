@@ -106,8 +106,12 @@ enum class SbtCallableEntryPoints : uint32_t
   // based on CustomFieldType in the field data
   SpatialFieldSamplerCustom = SpatialFieldSamplerNvdbRectilinearFloat
       + int(SpatialFieldSamplerEntryPoints::Count),
-  Last = SpatialFieldSamplerCustom
+  ReferenceFieldScalar = SpatialFieldSamplerCustom
       + int(SpatialFieldSamplerEntryPoints::CustomCount),
+  ReferenceFieldRGB = ReferenceFieldScalar + 1,
+  ReferenceAttenuation = ReferenceFieldRGB + 1,
+  ReferenceCameraSegment = ReferenceAttenuation + 1,
+  Last = ReferenceCameraSegment + 1,
 };
 
 } // namespace visrtx

@@ -50,13 +50,13 @@
             "ANARI_STRING"
           ],
           "tags": [],
-          "default": "colorAlbedoNormal",
+          "default": "color",
           "values": [
             "colorAlbedoNormal",
             "colorAlbedo",
             "color"
           ],
-          "description": "mode controlling buffers given to the denoiser"
+          "description": "requested denoiser guides; eligible reference media force effective color-only denoising with a warning when guides are requested; public albedo and normal remain available"
         },
         {
           "name": "fireflyFilterMode",
@@ -188,10 +188,9 @@
             "ANARI_FLOAT32"
           ],
           "tags": [],
-          "default": 0.125,
+          "default": 1.0,
           "minimum": 0.001,
-          "maximum": 10.0,
-          "description": "sampling rate of volumes when ray marching primary visibility"
+          "description": "finite primary-volume quadrature rate relative to field resolution or domain fallback; larger rates refine anchored cells; 1 is an experimental qualification starting point, not a measured latency optimum"
         },
         {
           "name": "volumeSamplingRateShadows",
@@ -199,10 +198,9 @@
             "ANARI_FLOAT32"
           ],
           "tags": [],
-          "default": 0.0125,
+          "default": 1.0,
           "minimum": 0.0001,
-          "maximum": 10.0,
-          "description": "sampling rate of volumes when ray marching shadows"
+          "description": "finite shadow-volume quadrature rate relative to field resolution or domain fallback; larger rates refine anchored cells; 1 is an experimental qualification starting point, not a measured latency optimum"
         },
         {
           "name": "cutPlane",

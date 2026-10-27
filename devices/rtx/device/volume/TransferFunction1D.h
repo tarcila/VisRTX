@@ -32,8 +32,8 @@
 #pragma once
 
 #include "array/Array1D.h"
-#include "volume/Volume.h"
 #include "spatial_field/SpatialField.h"
+#include "volume/Volume.h"
 
 namespace visrtx {
 
@@ -45,6 +45,7 @@ struct TransferFunction1D : public Volume
   void commitParameters() override;
   void finalize() override;
   bool isValid() const override;
+  ReferenceVolumeGPUData referenceVolume() override;
 
  private:
   VolumeGPUData gpuData() const override;
@@ -67,6 +68,11 @@ struct TransferFunction1D : public Volume
 
   cudaArray_t m_cudaArray{};
   cudaTextureObject_t m_textureObject{};
+
+  bool m_referenceAttempted{false};
+  ReferenceVolumeGPUData m_reference;
+  DeviceBuffer m_referenceColors;
+  DeviceBuffer m_referencePayload;
 };
 
 } // namespace visrtx

@@ -75,13 +75,13 @@ VISRTX_DEVICE void initNvdbRectilinearSampler(
 
   // NanoVDB's index space spans [0, N] over the world bbox (N voxels as cells),
   // mapped to the axis LUT's [0,1] domain by scaleDown then back by scaleUp.
-  // offsetDown is +min (min-relative): a grid whose index bbox does not start at
-  // 0 (any real index-centered NanoVDB grid) otherwise drives the normalized
-  // coord negative, the LUT clamps it, and every sample collapses to a constant.
-  // span = N-1, clamped to >=1 so a degenerate 1-node axis can't make scaleUp 0
-  // (the DDA's boundaryPos divides by scaleUp). A 1-node rectilinear axis is
-  // already rejected upstream — the axis LUT needs >= 2 coords — so this is just
-  // defensive against NaN.
+  // offsetDown is +min (min-relative): a grid whose index bbox does not start
+  // at 0 (any real index-centered NanoVDB grid) otherwise drives the normalized
+  // coord negative, the LUT clamps it, and every sample collapses to a
+  // constant. span = N-1, clamped to >=1 so a degenerate 1-node axis can't make
+  // scaleUp 0 (the DDA's boundaryPos divides by scaleUp). A 1-node rectilinear
+  // axis is already rejected upstream — the axis LUT needs >= 2 coords — so
+  // this is just defensive against NaN.
   const nanovdb::Vec3f span(dims[0] > 1.f ? dims[0] - 1.f : 1.f,
       dims[1] > 1.f ? dims[1] - 1.f : 1.f,
       dims[2] > 1.f ? dims[2] - 1.f : 1.f);
@@ -89,7 +89,8 @@ VISRTX_DEVICE void initNvdbRectilinearSampler(
   state.offsetDown = nanovdb::Vec3f(indexBBox.min());
   if (field->data.nvdbRectilinear.cellCentered) {
     // Cell-centered: cells fill [0,N], no stretch. scaleDown 1/(N-1) cancels
-    // scaleUp (N-1) to an identity LUT map; the -0.5 offset samples cell centers.
+    // scaleUp (N-1) to an identity LUT map; the -0.5 offset samples cell
+    // centers.
     state.scaleDown = nanovdb::Vec3f(1.0f) / span;
     state.offsetUp = nanovdb::Vec3f(-0.5f) + state.offsetDown;
   } else {
@@ -162,6 +163,19 @@ VISRTX_DEVICE float sampleValue(
     const vec3 &p)
 {
   return sampleAtIndexRectilinear(state, worldToIndexRectilinear(state, &p));
+}
+
+VISRTX_DEVICE vec3 sampleRGB(
+    const NvdbRectilinearSamplerState<nanovdb::Vec3f> &state,
+    const SpatialFieldGPUData &,
+    const vec3 &p)
+{
+  const auto c = clampNvdb(
+      worldToIndexRectilinear(state, &p), state.indexMin, state.indexMax);
+  const auto value = state.filter == SpatialFieldFilter::Nearest
+      ? state.nearestSampler(c)
+      : state.linearSampler(c);
+  return vec3(value[0], value[1], value[2]);
 }
 
 template <typename ValueType>

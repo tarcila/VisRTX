@@ -203,6 +203,235 @@ if(UNIX)
   endforeach()
 endif()
 
+# Shared optical coefficients and typed bindings, independent of OptiX/ANARI.
+add_executable(rtx_test_VolumeOptics test_VolumeOptics.cpp)
+target_include_directories(rtx_test_VolumeOptics PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+target_link_libraries(rtx_test_VolumeOptics PRIVATE visrtx::glm)
+target_compile_features(rtx_test_VolumeOptics PRIVATE cxx_std_17)
+add_test(NAME rtx::VolumeOptics COMMAND rtx_test_VolumeOptics)
+
+# Run identical cases on CUDA, also with the production PTX fast-math setting.
+foreach(variant IN ITEMS CUDA CUDAFastMath)
+  set(target rtx_test_VolumeOptics${variant})
+  add_executable(${target} test_VolumeOptics.cu)
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+  target_link_libraries(${target} PRIVATE visrtx::glm CUDA::cudart)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE --expt-relaxed-constexpr)
+  if(variant STREQUAL "CUDAFastMath")
+    target_compile_options(${target} PRIVATE --use_fast_math)
+  endif()
+  add_test(NAME rtx::VolumeOptics${variant} COMMAND ${target})
+  set_tests_properties(rtx::VolumeOptics${variant} PROPERTIES
+    SKIP_RETURN_CODE 77 TIMEOUT 60)
+endforeach()
+
+# Calibrated production blackbody against independent direct spectral data.
+add_executable(rtx_test_Blackbody test_Blackbody.cpp)
+add_executable(rtx_test_BlackbodyCUDA test_Blackbody.cu)
+add_executable(rtx_test_BlackbodyCUDAFastMath test_Blackbody.cu)
+foreach(target rtx_test_Blackbody rtx_test_BlackbodyCUDA rtx_test_BlackbodyCUDAFastMath)
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+  target_link_libraries(${target} PRIVATE visrtx::glm CUDA::cudart)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  target_compile_definitions(${target} PRIVATE
+    BLACKBODY_ORACLE="${CMAKE_CURRENT_LIST_DIR}/../../../device/gpu/blackbody/data/reference.txt")
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
+endforeach()
+target_compile_options(rtx_test_BlackbodyCUDAFastMath PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+add_test(NAME rtx::BlackbodyOracle COMMAND Python3::Interpreter -B
+  ${CMAKE_CURRENT_LIST_DIR}/../../../../../tools/principled_volume/blackbody_reference.py)
+set_tests_properties(rtx::BlackbodyOracle PROPERTIES TIMEOUT 60)
+add_test(NAME rtx::BlackbodyInstall COMMAND ${CMAKE_COMMAND}
+  -DBUILD_DIR=${CMAKE_BINARY_DIR} -DCONFIG=$<CONFIG>
+  -DSOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}/../../../device/gpu/blackbody/data
+  -DDATA_DIR=${CMAKE_INSTALL_DATAROOTDIR}
+  -P ${CMAKE_CURRENT_LIST_DIR}/blackbody/checkInstall.cmake)
+set_tests_properties(rtx::BlackbodyInstall PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+
+# Isolated reference optics.
+add_executable(rtx_test_VolumeOpticsReference test_VolumeOpticsReference.cpp)
+add_executable(rtx_test_VolumeOpticsReferenceCUDA test_VolumeOpticsReference.cu)
+add_executable(rtx_test_VolumeOpticsReferenceCUDAFastMath test_VolumeOpticsReference.cu)
+foreach(target rtx_test_VolumeOpticsReference rtx_test_VolumeOpticsReferenceCUDA
+    rtx_test_VolumeOpticsReferenceCUDAFastMath)
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+  target_link_libraries(${target} PRIVATE visrtx::glm CUDA::cudart)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_definitions(${target} PRIVATE
+    VOLUME_LOG_ORACLE="${CMAKE_CURRENT_LIST_DIR}/volumeReference/log-oracle.txt")
+  target_compile_options(${target} PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:-fno-fast-math;-ffp-contract=off>)
+  elseif(MSVC)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/fp:strict>)
+  endif()
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
+endforeach()
+target_compile_options(rtx_test_VolumeOpticsReferenceCUDAFastMath PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+add_test(NAME rtx::VolumeLogOracle
+  COMMAND Python3::Interpreter -B ${CMAKE_CURRENT_LIST_DIR}/volumeReference/oracle.py)
+set_tests_properties(rtx::VolumeLogOracle PROPERTIES TIMEOUT 30)
+
+# Raw-range/revision preparation and controlled reference bindings.
+add_executable(rtx_test_ReferenceFieldBindings test_ReferenceFieldBindings.cpp)
+add_executable(rtx_test_ReferenceFieldBindingsCUDA test_ReferenceFieldBindings.cu)
+add_executable(rtx_test_ReferenceFieldBindingsCUDAFastMath test_ReferenceFieldBindings.cu)
+foreach(target rtx_test_ReferenceFieldBindings rtx_test_ReferenceFieldBindingsCUDA
+    rtx_test_ReferenceFieldBindingsCUDAFastMath)
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+  target_link_libraries(${target} PRIVATE visrtx::glm CUDA::cudart)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:-fno-fast-math;-ffp-contract=off>)
+  elseif(MSVC)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/fp:strict>)
+  endif()
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
+endforeach()
+target_compile_options(rtx_test_ReferenceFieldBindingsCUDAFastMath PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+
+# Real dense CUDA textures and NanoVDB Vec3f trees through typed bindings.
+add_executable(rtx_test_StoredFieldSampler
+  test_StoredFieldSampler.cu
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device/spatial_field/FieldTexture.cu
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device/utility/MemoryAllocation.cpp)
+target_include_directories(rtx_test_StoredFieldSampler PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include
+  ${OptiX_ROOT_DIR}/include)
+target_link_libraries(rtx_test_StoredFieldSampler PRIVATE
+  visrtx::glm anari::anari_headers CUDA::cudart)
+target_compile_definitions(rtx_test_StoredFieldSampler PRIVATE GLM_ENABLE_EXPERIMENTAL)
+set_target_properties(rtx_test_StoredFieldSampler PROPERTIES
+  CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+target_compile_options(rtx_test_StoredFieldSampler PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+add_test(NAME rtx::StoredFieldSampler COMMAND rtx_test_StoredFieldSampler)
+set_tests_properties(rtx::StoredFieldSampler PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+# Concrete field snapshots after public ANARI commit/update, then direct CUDA
+# sampling at the private reference seam (no new public sampling property).
+add_executable(rtx_test_StoredFieldReference test_StoredFieldReference.cu
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device/utility/MemoryAllocation.cpp)
+target_include_directories(rtx_test_StoredFieldReference PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+target_link_libraries(rtx_test_StoredFieldReference PRIVATE
+  anari_library_visrtx anari::anari_static anari::helium visrtx::glm
+  OptiX::OptiX CUDA::cudart)
+target_compile_definitions(rtx_test_StoredFieldReference PRIVATE GLM_ENABLE_EXPERIMENTAL)
+set_target_properties(rtx_test_StoredFieldReference PROPERTIES
+  CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+target_compile_options(rtx_test_StoredFieldReference PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math;--expt-relaxed-constexpr;--extended-lambda>)
+add_test(NAME rtx::StoredFieldReference COMMAND rtx_test_StoredFieldReference)
+set_tests_properties(rtx::StoredFieldReference PROPERTIES TIMEOUT 120
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+
+# Public commits with direct inspection/execution of the private GPU payload.
+add_executable(rtx_test_PrincipledVolumeState test_PrincipledVolumeState.cu
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device/utility/MemoryAllocation.cpp)
+target_include_directories(rtx_test_PrincipledVolumeState PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+target_link_libraries(rtx_test_PrincipledVolumeState PRIVATE
+  anari_library_visrtx anari::anari_static anari::helium visrtx::glm
+  OptiX::OptiX CUDA::cudart)
+target_compile_definitions(rtx_test_PrincipledVolumeState PRIVATE GLM_ENABLE_EXPERIMENTAL)
+set_target_properties(rtx_test_PrincipledVolumeState PROPERTIES
+  CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+target_compile_options(rtx_test_PrincipledVolumeState PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math;--expt-relaxed-constexpr;--extended-lambda>)
+add_test(NAME rtx::PrincipledVolumeState COMMAND rtx_test_PrincipledVolumeState)
+set_tests_properties(rtx::PrincipledVolumeState PROPERTIES TIMEOUT 120
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+
+# The production preview step selector, including representability fallbacks.
+add_executable(rtx_test_PreviewLattice test_PreviewLattice.cpp)
+add_executable(rtx_test_PreviewLatticeCUDA test_PreviewLattice.cu)
+add_executable(rtx_test_PreviewLatticeCUDAFastMath test_PreviewLattice.cu)
+foreach(target rtx_test_PreviewLattice rtx_test_PreviewLatticeCUDA rtx_test_PreviewLatticeCUDAFastMath)
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device
+    ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+  target_link_libraries(${target} PRIVATE visrtx::glm anari::anari_headers OptiX::OptiX CUDA::cudart)
+  target_compile_definitions(${target} PRIVATE GLM_ENABLE_EXPERIMENTAL)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
+endforeach()
+target_compile_options(rtx_test_PreviewLatticeCUDAFastMath PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+
+# Counted aggregate traversal and optical consumption, independent analytic oracles.
+add_executable(rtx_test_AggregateVolume test_AggregateVolume.cpp)
+add_executable(rtx_test_AggregateVolumeCUDA test_AggregateVolume.cpp test_AggregateVolume.cu)
+add_executable(rtx_test_AggregateVolumeCUDAFastMath test_AggregateVolume.cpp test_AggregateVolume.cu)
+target_compile_definitions(rtx_test_AggregateVolumeCUDA PRIVATE AGGREGATE_CUDA)
+target_compile_definitions(rtx_test_AggregateVolumeCUDAFastMath PRIVATE AGGREGATE_CUDA)
+foreach(target rtx_test_AggregateVolume rtx_test_AggregateVolumeCUDA rtx_test_AggregateVolumeCUDAFastMath)
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device
+    ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+  target_link_libraries(${target} PRIVATE visrtx::glm anari::anari_headers OptiX::OptiX CUDA::cudart)
+  target_compile_definitions(${target} PRIVATE GLM_ENABLE_EXPERIMENTAL)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 120)
+endforeach()
+target_compile_options(rtx_test_AggregateVolumeCUDAFastMath PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+
+add_executable(rtx_test_WorldVolumeReference test_WorldVolumeReference.cu
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device/utility/MemoryAllocation.cpp)
+target_include_directories(rtx_test_WorldVolumeReference PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+target_link_libraries(rtx_test_WorldVolumeReference PRIVATE
+  anari_library_visrtx anari::anari_static anari::helium visrtx::glm OptiX::OptiX CUDA::cudart)
+target_compile_definitions(rtx_test_WorldVolumeReference PRIVATE GLM_ENABLE_EXPERIMENTAL)
+set_target_properties(rtx_test_WorldVolumeReference PROPERTIES
+  CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+target_compile_options(rtx_test_WorldVolumeReference PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math;--expt-relaxed-constexpr;--extended-lambda>)
+add_test(NAME rtx::WorldVolumeReference COMMAND rtx_test_WorldVolumeReference)
+set_tests_properties(rtx::WorldVolumeReference PROPERTIES TIMEOUT 120
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+
 # Standard-library-only executor tests.
 find_package(Threads REQUIRED)
 add_executable(rtx_test_TaskExecutor

@@ -32,18 +32,25 @@
 #pragma once
 
 #include "RegisteredObject.h"
+#include "gpu/aggregateVolumeData.h"
 
 namespace visrtx {
 
 struct Volume : public RegisteredObject<VolumeGPUData>
 {
-  Volume(DeviceGlobalState *d);
+  Volume(DeviceGlobalState *d, VolumeType type = VolumeType::TF1D);
   ~Volume() = default;
 
   void commitParameters() override;
   void markFinalized() override;
 
   bool isVisible() const;
+  // Intrinsic kind is available even before successful finalization.
+  VolumeType volumeType() const;
+
+  // Internal preparation seam; callers flush commits before requesting a view.
+  // UNKNOWN means unavailable, not a zero-contribution substitute.
+  virtual ReferenceVolumeGPUData referenceVolume();
 
   OptixBuildInput buildInput() const;
 
@@ -57,6 +64,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   mutable CUdeviceptr m_aabbsBufferPtr{};
   uint32_t m_id{~0u};
   bool m_visible{true};
+  const VolumeType m_type;
 };
 
 } // namespace visrtx

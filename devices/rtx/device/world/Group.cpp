@@ -333,15 +333,27 @@ void Group::partitionValidGeometriesByType()
   }
 }
 
+const std::vector<Volume *> &Group::volumes() const
+{
+  return m_volumes;
+}
+
+size_t Group::volumeOccurrenceSlot(size_t i) const
+{
+  return m_volumeSlots[i];
+}
+
 void Group::partitionValidVolumes()
 {
   m_volumes.clear();
+  m_volumeSlots.clear();
   if (!m_volumeData)
     return;
 
   auto volumes = make_Span(
       (Volume **)m_volumeData->handlesBegin(), m_volumeData->totalSize());
-  for (auto v : volumes) {
+  for (size_t slot = 0; slot < volumes.size(); ++slot) {
+    auto *v = volumes[slot];
     if (!(v && v->isValid() && v->isVisible())) {
       if (v && !v->isValid()) {
         reportMessage(ANARI_SEVERITY_WARNING,
@@ -350,7 +362,10 @@ void Group::partitionValidVolumes()
       }
       continue;
     }
+    // Preserve intrinsic membership/bounds. Renderer preparation owns support
+    // diagnostics; legacy intersection still skips unsupported payloads.
     m_volumes.push_back(v);
+    m_volumeSlots.push_back(slot);
   }
 }
 

@@ -59,6 +59,14 @@ struct World : public Object
 
   void rebuildWorld();
 
+  // Explicit internal preparation after the caller flushes commits. Current
+  // renderers do not request/consume this view yet. Borrowed until the next
+  // relevant scene update; unchanged requests reuse the publication. Incomplete
+  // views must not be rendered.
+  virtual AggregateVolumeSceneGPUData referenceVolumes(bool omitUnavailable = false);
+  bool hasPrincipledVolumes() const;
+  helium::TimeStamp volumePublicationStamp() const;
+
  private:
   void populateOptixInstances();
   void rebuildBLASs();
@@ -129,6 +137,17 @@ struct World : public Object
   HostDeviceArray<OptixInstance> m_optixVolumeInstances;
 
   HostDeviceArray<InstanceVolumeGPUData> m_instanceVolumeGPUData;
+  struct ReferenceDependency
+  {
+    helium::IntrusivePtr<Volume> volume;
+    helium::TimeStamp finalized;
+  };
+  std::vector<ReferenceDependency> m_referenceDependencies;
+  DeviceBuffer m_referenceOccurrences;
+  AggregateVolumeSceneGPUData m_referenceView;
+  helium::TimeStamp m_referenceTLASBuild{0};
+  bool m_referenceBuilt{false};
+  bool m_referenceOmissions{false};
 
   // Lights //
 
@@ -153,7 +172,8 @@ struct World : public Object
 
   // Power-proportional Light Pick, rebuilt with the light instances.
   HostDeviceArray<double> m_lightPickCdf;
-  // Per-slot discrete pick probability (power_i/total), parallel to m_lightPickCdf.
+  // Per-slot discrete pick probability (power_i/total), parallel to
+  // m_lightPickCdf.
   HostDeviceArray<float> m_lightPickDelta;
   float m_totalLightPower{0.f};
   float m_hdriPower{0.f};

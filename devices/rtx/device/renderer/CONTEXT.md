@@ -58,6 +58,35 @@ during volume integration.
 Where a material parameter gets its value: an inline constant, a geometry
 attribute, or a sampler.
 
+**Medium Domain**:
+The spatial region in which a participating medium can contribute absorption,
+scattering, or emission. It is distinct from the data coverage of any input field.
+
+**Extinction**:
+Removal of light from an unscattered beam per unit path length, comprising
+absorption and scattering out of that beam.
+
+**Scattering Albedo**:
+The fraction of extinction attributable to scattering rather than absorption.
+_Avoid_: volume color (ambiguous with source color or emission)
+
+**Transmission Color**:
+The RGB fraction of an unscattered beam surviving a specified reference distance
+through a reference-density medium.
+_Avoid_: absorption color (ambiguous about which colors survive)
+
+**Source Color**:
+Emission divided by extinction where extinction is nonzero; the color used in
+emission–absorption compositing. It is not an independent emission coefficient.
+
+**Emission Coefficient**:
+Radiance added per unit path length by a medium, independently of incident light.
+It can be nonzero even where extinction is zero.
+
+**Outside Value**:
+A field binding's sample value beyond that field's sampling domain. It is distinct
+from a sparse field's background value within its domain.
+
 **Light Pick**:
 Choosing the one pick candidate — a light instance or the ambient term — a
 next-event-estimation (NEE) sample is drawn from, with probability

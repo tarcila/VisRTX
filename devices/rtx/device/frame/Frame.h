@@ -40,6 +40,7 @@
 // helium
 #include "helium/BaseFrame.h"
 // std
+#include <array>
 #include <memory>
 
 namespace visrtx {
@@ -88,8 +89,7 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   void newFrame();
   void resolveVec3Buffer(const DeviceBuffer &accum,
       HostDeviceArray<uint8_t> &out,
-      ANARIDataType type,
-      bool isNormal);
+      ANARIDataType type);
   size_t numPixels() const;
 
   //// Data ////
@@ -102,6 +102,12 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   bool m_nextFrameReset{true};
   bool m_mdlAnimationTimeChanged{false};
   bool m_frameMappedOnce{false}; // NOTE(jda) - for instrumented events
+  bool m_referenceOutput{false};
+  std::array<uint64_t, 12> m_bufferTopology{};
+  helium::TimeStamp m_volumeWarningStamp{0};
+  helium::TimeStamp m_volumeWarningRenderer{0};
+  uint64_t m_guideWarningGeneration{0};
+  helium::TimeStamp m_guideWarningRenderer{0};
 
   bool m_manualAccumulationRestart{false};
   uint64_t m_lastRenderedAccumulationVersion{0};
@@ -127,6 +133,10 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   DeviceBuffer m_accumColor; // vec4
   DeviceBuffer m_accumAlbedo; // vec3
   DeviceBuffer m_accumNormal; // vec3
+  DeviceBuffer m_guideAlbedo; // separate heuristic sums
+  DeviceBuffer m_guideNormal;
+  DeviceBuffer m_backdropWeight; // vec3, unfiltered RGB boundary weight
+  DeviceBuffer m_volumeReference; // AggregateVolumeSceneGPUData
   DeviceBuffer m_lumStats; // PixelLumStats: per-channel Welford + count
   DeviceBuffer m_trimTopK; // TRIM mode: trim*vec4 brightest samples per pixel
 

@@ -53,10 +53,13 @@ struct NvdbRectilinearField : public SpatialField
   float stepSize() const override;
 
  private:
+  bool m_valid{false};
   SpatialFieldGPUData gpuData() const override;
   void cleanup();
 
   void buildGrid();
+  std::unique_ptr<StoredFieldReference> createReferenceField(
+      optical_reference::FieldRevision key) const override;
 
   box3 m_bounds;
   vec3 m_voxelSize;

@@ -73,11 +73,13 @@ struct Group : public Object
 
   DeviceObjectIndex firstHDRI() const;
   const std::vector<Light *> &lights() const;
+  const std::vector<Volume *> &volumes() const;
+  size_t volumeOccurrenceSlot(size_t i) const;
 
   // Triangle surfaces, the Stage 1 candidates for Geometry Light synthesis.
   const std::vector<Surface *> &surfacesTriangle() const;
-  // Custom-primitive surfaces (spheres, cylinders, cones, …); the area-samplable
-  // ones (Stage 1.5: Sphere) are also Geometry Light candidates.
+  // Custom-primitive surfaces (spheres, cylinders, cones, …); the
+  // area-samplable ones (Stage 1.5: Sphere) are also Geometry Light candidates.
   const std::vector<Surface *> &surfacesUser() const;
 
   void rebuildSurfaceBVHs();
@@ -108,6 +110,7 @@ struct Group : public Object
 
   helium::ChangeObserverPtr<ObjectArray> m_volumeData;
   std::vector<Volume *> m_volumes;
+  std::vector<size_t> m_volumeSlots;
 
   DeviceBuffer m_volumeObjectIndices;
 

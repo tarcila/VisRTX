@@ -54,17 +54,20 @@ struct NvdbRegularField : public SpatialField
   float stepSize() const override;
 
  private:
+  bool m_valid{false};
   SpatialFieldGPUData gpuData() const override;
   void cleanup();
 
   void buildGrid();
+  std::unique_ptr<StoredFieldReference> createReferenceField(
+      optical_reference::FieldRevision key) const override;
 
   box3 m_bounds;
   vec3 m_voxelSize;
   std::string m_filter;
   bool m_cellCentered{true};
   box3 m_roi{box3(vec3(std::numeric_limits<float>::lowest()),
-                  vec3(std::numeric_limits<float>::max()))};
+      vec3(std::numeric_limits<float>::max()))};
   helium::ChangeObserverPtr<Array1D> m_data;
   std::optional<nanovdb::GridMetaData> m_gridMetadata;
   DeviceBuffer m_deviceBuffer;

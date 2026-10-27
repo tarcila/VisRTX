@@ -1,0 +1,9 @@
+{
+  "seed": 42,
+  "resolution": 128,
+  "density_scale": 5.0,
+  "detail_strength": 0.16,
+  "temperature_min": 800.0,
+  "temperature_max": 2400.0,
+  "emission_scale": 3.0
+}

@@ -39,6 +39,7 @@ struct Interactive : public Renderer
 {
   Interactive(DeviceGlobalState *s);
   void commitParameters() override;
+  bool usesReferenceVolumes() const override;
   void populateFrameData(FrameGPUData &fd) const override;
   OptixModule optixModule() const override;
   Span<HitgroupFunctionNames> hitgroupSbtNames() const override;

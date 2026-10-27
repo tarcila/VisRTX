@@ -127,7 +127,7 @@ VISRTX_DEVICE float nvdbSampleAtIndex(
 {
   const auto c = clampNvdb(idx, state.indexMin, state.indexMax);
   return state.filter == SpatialFieldFilter::Nearest ? state.nearestSampler(c)
-                                                      : state.linearSampler(c);
+                                                     : state.linearSampler(c);
 }
 
 // Shared per-sample API (see gpu/volumeIntegrationDetail.h). sampleValue
@@ -142,20 +142,38 @@ VISRTX_DEVICE float sampleValue(const NvdbRegularSamplerState<ValueType> &state,
   return nvdbSampleAtIndex(state, nvdbIndexPos(state, p));
 }
 
+VISRTX_DEVICE vec3 sampleRGB(
+    const NvdbRegularSamplerState<nanovdb::Vec3f> &state,
+    const SpatialFieldGPUData &,
+    const vec3 &p)
+{
+  const auto c =
+      clampNvdb(nvdbIndexPos(state, p), state.indexMin, state.indexMax);
+  const auto value = state.filter == SpatialFieldFilter::Nearest
+      ? state.nearestSampler(c)
+      : state.linearSampler(c);
+  return vec3(value[0], value[1], value[2]);
+}
+
 template <typename ValueType>
-VISRTX_DEVICE vec3 sampleNormal(
-    const NvdbRegularSamplerState<ValueType> &state,
+VISRTX_DEVICE vec3 sampleNormal(const NvdbRegularSamplerState<ValueType> &state,
     const SpatialFieldGPUData &,
     const vec3 &p)
 {
   // Central differences at ±1 voxel in index space, mapped to object space.
   const auto indexPos = nvdbIndexPos(state, p);
-  const float sxp = nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(1, 0, 0));
-  const float sxn = nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(1, 0, 0));
-  const float syp = nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(0, 1, 0));
-  const float syn = nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(0, 1, 0));
-  const float szp = nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(0, 0, 1));
-  const float szn = nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(0, 0, 1));
+  const float sxp =
+      nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(1, 0, 0));
+  const float sxn =
+      nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(1, 0, 0));
+  const float syp =
+      nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(0, 1, 0));
+  const float syn =
+      nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(0, 1, 0));
+  const float szp =
+      nvdbSampleAtIndex(state, indexPos + nanovdb::Vec3f(0, 0, 1));
+  const float szn =
+      nvdbSampleAtIndex(state, indexPos - nanovdb::Vec3f(0, 0, 1));
   return vec3((sxp - sxn) * state.scale[0] * state.invTwoVoxelSize[0],
       (syp - syn) * state.scale[1] * state.invTwoVoxelSize[1],
       (szp - szn) * state.scale[2] * state.invTwoVoxelSize[2]);

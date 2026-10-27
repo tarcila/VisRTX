@@ -492,6 +492,16 @@ int Renderer::sampleLimit() const
   return m_sampleLimit;
 }
 
+bool Renderer::usesReferenceVolumes() const
+{
+  return false;
+}
+
+const std::string &Renderer::subtypeName() const
+{
+  return m_subtype;
+}
+
 Renderer *Renderer::createInstance(
     std::string_view subtype, DeviceGlobalState *d)
 {
@@ -503,6 +513,8 @@ Renderer *Renderer::createInstance(
     subtype = overrideType;
 
   retval = make_renderer(subtype, d);
+  if (retval)
+    retval->m_subtype = std::string(subtype);
 
   return retval;
 }
@@ -1066,6 +1078,38 @@ void Renderer::initOptixPipeline()
     callableDescs[SBT_CALLABLE_CUSTOM_OFFSET
         + int(SpatialFieldSamplerEntryPoints::RayMarchVolume)] = samplerDesc;
 
+    if (usesReferenceVolumes()) {
+      samplerDesc.callables.moduleDC = state.fieldSamplers.structuredRegular;
+      samplerDesc.callables.entryFunctionNameDC =
+          "__direct_callable__sampleReferenceScalar";
+      callableDescs[int(SbtCallableEntryPoints::ReferenceFieldScalar)] =
+          samplerDesc;
+      samplerDesc.callables.entryFunctionNameDC =
+          "__direct_callable__sampleReferenceRGB";
+      callableDescs[int(SbtCallableEntryPoints::ReferenceFieldRGB)] =
+          samplerDesc;
+      samplerDesc.callables.moduleDC = state.rendererModules.interactive;
+      samplerDesc.callables.entryFunctionNameDC =
+          "__direct_callable__referenceAttenuation";
+      callableDescs[int(SbtCallableEntryPoints::ReferenceAttenuation)] =
+          samplerDesc;
+      OptixProgramGroupDesc cameraDesc{};
+      cameraDesc.kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;
+      cameraDesc.callables.moduleCC = state.rendererModules.interactive;
+      cameraDesc.callables.entryFunctionNameCC =
+          "__continuation_callable__referenceCameraSegment";
+      callableDescs[int(SbtCallableEntryPoints::ReferenceCameraSegment)] =
+          cameraDesc;
+    } else {
+      // Reserve the ABI slots without linking preview transport into legacy
+      // renderer pipelines. These placeholders are never called there.
+      for (int slot = int(SbtCallableEntryPoints::ReferenceFieldScalar);
+          slot < int(SbtCallableEntryPoints::Last);
+          ++slot)
+        callableDescs[slot] = callableDescs[int(SbtCallableEntryPoints::Matte)
+            + int(SurfaceShaderEntryPoints::EvaluateOpacity)];
+    }
+
 #ifdef USE_MDL
     if (state.mdl) {
       // Copy bytes and their version on the registry's owning thread. Material
@@ -1288,8 +1332,8 @@ void Renderer::initOptixPipeline()
     OPTIX_CHECK(optixUtilComputeStackSizes(&stackSizes,
         pipelineLinkOptions
             .maxTraceDepth, // Reuse pipeline configured trace depth.
-        0, // We don't rely on continuation, but direct calls
-        2, // TBC if 2 is enough
+        usesReferenceVolumes() ? 1 : 0, // Camera segment owns shadow traces.
+        2, // Preview attenuation -> field sample; custom sampling also nests.
         &directCallableStackSizeFromTraversal,
         &directCallableStackSizeFromState,
         &continuationStackSize));

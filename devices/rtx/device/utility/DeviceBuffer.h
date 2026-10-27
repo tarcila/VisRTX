@@ -32,6 +32,9 @@
 #pragma once
 
 #include "MemoryAllocation.h"
+
+#include <cuda_runtime_api.h>
+
 // std
 #include <stdexcept>
 #include <type_traits>

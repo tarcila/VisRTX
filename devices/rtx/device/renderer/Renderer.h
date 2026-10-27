@@ -71,6 +71,8 @@ struct Renderer : public Object
   virtual Span<std::string> missSbtNames() const;
 
   virtual void populateFrameData(FrameGPUData &fd) const;
+  virtual bool usesReferenceVolumes() const;
+  const std::string &subtypeName() const;
 
   OptixPipeline pipeline();
   const OptixShaderBindingTable *sbt();
@@ -154,6 +156,7 @@ struct Renderer : public Object
   HitgroupFunctionNames m_defaultHitgroupNames;
   std::string m_defaultMissName{"__miss__"};
   float m_defaultAmbientRadiance{0.f};
+  std::string m_subtype;
 
 #ifdef USE_MDL
   helium::TimeStamp m_lastMDLMaterialLibraryUpdateCheck{};

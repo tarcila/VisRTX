@@ -672,11 +672,20 @@ VISRTX_DEVICE void accumPixelSample(const FrameGPUData &frame,
     const uvec2 &pixel,
     const vec4 &color,
     const vec3 &albedo,
-    const vec3 &normal)
+    const vec3 &normal,
+    const vec3 *guideAlbedo = nullptr,
+    const vec3 *guideNormal = nullptr)
 {
   const auto &fb = frame.fb;
   const uint32_t idx = detail::pixelIndex(fb, pixel);
 
+  // Output coverage/AOV/guide bookkeeping is not a radiance filter. In
+  // particular the existing TRIM rejection must not skip these sample sums.
+  fb.buffers.colorAccumulation[idx].a += color.a;
+  detail::accumValue(fb.buffers.albedo, idx, albedo);
+  detail::accumValue(fb.buffers.normal, idx, normal);
+  detail::accumValue(fb.buffers.guideAlbedo, idx, guideAlbedo ? *guideAlbedo : albedo);
+  detail::accumValue(fb.buffers.guideNormal, idx, guideNormal ? *guideNormal : normal);
   vec4 c;
   switch (frame.renderer.fireflyFilterMode) {
   case FireflyFilterMode::TONEMAP:
@@ -730,9 +739,8 @@ VISRTX_DEVICE void accumPixelSample(const FrameGPUData &frame,
     break;
   }
 
+  c.a = 0.f;
   detail::accumValue(fb.buffers.colorAccumulation, idx, c);
-  detail::accumValue(fb.buffers.albedo, idx, albedo);
-  detail::accumValue(fb.buffers.normal, idx, normal);
 }
 
 } // namespace visrtx

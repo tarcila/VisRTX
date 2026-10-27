@@ -10,6 +10,58 @@
       "name" : "default",
       "parameters": [
         {
+          "name": "denoise",
+          "types": [
+            "ANARI_BOOL"
+          ],
+          "tags": [],
+          "default": false,
+          "description": "enable the OptiX denoiser"
+        },
+        {
+          "name": "denoiseStart",
+          "types": [
+            "ANARI_INT32"
+          ],
+          "tags": [],
+          "default": 0,
+          "description": "accumulated sample count at which denoising starts; negative values count back from sampleLimit (-1 == only the final frame)"
+        },
+        {
+          "name": "denoiseMode",
+          "types": [
+            "ANARI_STRING"
+          ],
+          "tags": [],
+          "default": "color",
+          "values": [
+            "colorAlbedoNormal",
+            "colorAlbedo",
+            "color"
+          ],
+          "description": "requested denoiser guides; eligible reference media force effective color-only denoising with a warning when guides are requested; public albedo and normal remain available"
+        },
+        {
+          "name": "volumeSamplingRate",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 0.001,
+          "description": "finite primary-volume quadrature rate relative to field resolution or domain fallback; larger rates refine anchored cells; 1 is an experimental qualification starting point, not a measured latency optimum"
+        },
+        {
+          "name": "volumeSamplingRateShadows",
+          "types": [
+            "ANARI_FLOAT32"
+          ],
+          "tags": [],
+          "default": 1,
+          "minimum": 0.0001,
+          "description": "finite shadow-volume quadrature rate relative to field resolution or domain fallback; larger rates refine anchored cells; 1 is an experimental qualification starting point, not a measured latency optimum"
+        },
+        {
           "name": "cutPlane",
           "types": [
             "ANARI_FLOAT32_VEC4"

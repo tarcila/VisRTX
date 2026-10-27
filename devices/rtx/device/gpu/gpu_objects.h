@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include "gpu/fieldBinding.h"
 #include "gpu/gpu_math.h"
 #include "gpu/materialAttributes.h"
 #include "gpu/sbt.h"
@@ -628,6 +629,15 @@ struct CustomFieldData
   alignas(8) uint8_t fieldData[256];
 };
 
+enum class StoredFieldType : uint8_t
+{
+  Custom,
+  StructuredRegular,
+  StructuredRectilinear,
+  NanoVDB,
+  NanoVDBRectilinear
+};
+
 struct SpatialFieldGPUData
 {
   SbtCallableEntryPoints samplerCallableIndex{SbtCallableEntryPoints::Invalid};
@@ -641,14 +651,19 @@ struct SpatialFieldGPUData
   } data;
   UniformGridData grid;
   box3 roi;
+  FieldValueType valueType{FieldValueType::Scalar};
+  StoredFieldType storageType{StoredFieldType::Custom};
 };
 
 // Volume //
 
+struct PrincipledVolumeGPUData;
+
 enum class VolumeType
 {
   TF1D,
-  UNKNOWN
+  UNKNOWN,
+  PRINCIPLED
 };
 
 struct TF1DVolumeGPUData
@@ -667,6 +682,7 @@ struct VolumeGPUData
   union
   {
     TF1DVolumeGPUData tf1d{};
+    const PrincipledVolumeGPUData *principled;
   } data;
   float stepSize;
   box3 bounds;
@@ -894,16 +910,18 @@ struct WorldGPUData
   // Power-proportional Light Pick (built in World::buildInstanceLightGPUData).
   // Normalized cumulative Pick Power over lightInstances (length
   // numLightInstances, last entry == 1); pick a slot with inverseSampleCDF.
-  // Double so a dim light's mass (below float epsilon of the total) survives the
-  // adjacent-difference of two ≈1.0 CDF values — else it is unselectable while
-  // the hit-side pNee is still positive, biasing the deposit's MIS weight. (The
-  // 24-bit pick sample floors selection at ~2^-24 regardless; the double CDF only
-  // widens which dim slots the differencing can resolve, not which are reachable.)
+  // Double so a dim light's mass (below float epsilon of the total) survives
+  // the adjacent-difference of two ≈1.0 CDF values — else it is unselectable
+  // while the hit-side pNee is still positive, biasing the deposit's MIS
+  // weight. (The 24-bit pick sample floors selection at ~2^-24 regardless; the
+  // double CDF only widens which dim slots the differencing can resolve, not
+  // which are reachable.)
   const double *lightPickCdf;
-  // Per-slot discrete pick probability power_i/total (length numLightInstances),
-  // precomputed host-side. Read this directly instead of differencing adjacent
-  // lightPickCdf entries: a standalone float represents a selected dim light's
-  // mass accurately, where the adjacent-difference of two ≈1.0 values would not.
+  // Per-slot discrete pick probability power_i/total (length
+  // numLightInstances), precomputed host-side. Read this directly instead of
+  // differencing adjacent lightPickCdf entries: a standalone float represents a
+  // selected dim light's mass accurately, where the adjacent-difference of two
+  // ≈1.0 values would not.
   const float *lightPickDelta;
   float totalLightPower; // sum of un-normalized instance Pick Powers
   float hdriPower; // subset sum over HDRI instances (env-MIS pick probability)
@@ -936,7 +954,8 @@ struct InteractiveRendererGPUData
   vec3 aoColor;
   float aoIntensity;
   float inverseVolumeSamplingRateShadows;
-  int maxSampledLights; // NEE shadow-ray budget per hit; <= 0 samples all lights
+  int maxSampledLights; // NEE shadow-ray budget per hit; <= 0 samples all
+                        // lights
 };
 
 union RendererParametersGPUData
@@ -1062,6 +1081,9 @@ struct FrameBuffers
   uint32_t *instID;
   glm::vec3 *albedo;
   glm::vec3 *normal;
+  glm::vec3 *guideAlbedo;
+  glm::vec3 *guideNormal;
+  glm::vec3 *backdropWeight;
 };
 
 struct FramebufferGPUData
@@ -1074,6 +1096,8 @@ struct FramebufferGPUData
   glm::vec2 invSize;
 };
 
+struct AggregateVolumeSceneGPUData;
+
 struct FrameGPUData
 {
   float mdlAnimationTime;
@@ -1081,6 +1105,9 @@ struct FrameGPUData
   RendererGPUData renderer;
   WorldGPUData world;
   CameraGPUData camera;
+  const AggregateVolumeSceneGPUData *referenceVolumes;
+  double referenceVolumeRate;
+  double referenceShadowRate;
 
   // Objects //
 

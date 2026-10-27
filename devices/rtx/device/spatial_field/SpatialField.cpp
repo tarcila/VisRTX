@@ -44,10 +44,44 @@ SpatialField::SpatialField(DeviceGlobalState *s)
     : RegisteredObject<SpatialFieldGPUData>(ANARI_SPATIAL_FIELD, s)
 {
   setRegistry(s->registry.fields);
+  m_referenceIdentity = helium::newTimeStamp();
+  m_referenceRevision = helium::newTimeStamp();
+}
+
+FieldValueType SpatialField::valueType() const
+{
+  return gpuData().valueType;
+}
+
+bool SpatialField::getProperty(const std::string_view &name,
+    ANARIDataType type,
+    void *ptr,
+    uint64_t size,
+    uint32_t flags)
+{
+  if (flags & ANARI_WAIT)
+    deviceState()->commitBuffer.flush();
+  if (name == "valueType" && type == ANARI_DATA_TYPE) {
+    const ANARIDataType value = !isValid()   ? ANARI_UNKNOWN
+        : valueType() == FieldValueType::RGB ? ANARI_FLOAT32_VEC3
+                                             : ANARI_FLOAT32;
+    helium::writeToVoidP(ptr, value);
+    return true;
+  }
+  return Object::getProperty(name, type, ptr, size, flags);
+}
+
+std::unique_ptr<StoredFieldReference> SpatialField::createReferenceField(
+    optical_reference::FieldRevision) const
+{
+  return {}; // Custom/unknown fields do not implicitly opt into this contract.
 }
 
 void SpatialField::markFinalized()
 {
+  m_reference.reset();
+  m_referenceAttempted = false;
+  m_referenceRevision = helium::newTimeStamp();
   Object::markFinalized();
   deviceState()->objectUpdates.lastVolumeBLASChange = helium::newTimeStamp();
 }
@@ -64,13 +98,14 @@ SpatialField *SpatialField::createInstance(
     return new NvdbRegularField(d);
   else if (subtype == "nanovdbRectilinear")
     return new NvdbRectilinearField(d);
-  
+
   // Try registry for custom field types (registered at static init time)
   std::string subtypeStr(subtype);
-  if (auto* customField = SpatialFieldRegistry::instance().create(d, subtypeStr)) {
+  if (auto *customField =
+          SpatialFieldRegistry::instance().create(d, subtypeStr)) {
     return customField;
   }
-  
+
   // Unknown type
   return new UnknownSpatialField(subtype, d);
 }

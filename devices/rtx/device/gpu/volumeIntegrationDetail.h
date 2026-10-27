@@ -43,6 +43,7 @@
 #include "gpu/gridTraversal.h"
 #include "gpu/sbt.h"
 #include "gpu/shadingState.h"
+#include "gpu/volumeOptics.h"
 
 // PCG RNG, see gpu/pcg.h
 
@@ -99,16 +100,7 @@ VISRTX_DEVICE vec4 classifySample(const VolumeGPUData &v, float s)
 VISRTX_DEVICE float opacityToExtinction(
     float opacity, float oneOverUnitDistance)
 {
-  constexpr float OPACITY_EPSILON = 1e-7f;
-  // Clamp ceiling at 1 - 2^-24 (largest float strictly less than 1) so
-  // 1 - α stays representable for log(). The cell majorant is computed with
-  // the same clamp; any non-saturating candidate's σ_t therefore stays ≤
-  // σ_maj — load-bearing invariant for the residual ratio-tracking estimator.
-  constexpr float OPACITY_CEILING = 1.f - 0x1p-24f;
-  const float clampedOpacity = glm::clamp(opacity, 0.f, OPACITY_CEILING);
-  if (clampedOpacity <= OPACITY_EPSILON || !(oneOverUnitDistance > 0.f))
-    return 0.f;
-  return -logf(1.f - clampedOpacity) * oneOverUnitDistance;
+  return transferFunctionExtinction(opacity, oneOverUnitDistance);
 }
 
 // Shadow ratio-track RR. Returns true on kill. Survive with
