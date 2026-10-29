@@ -38,6 +38,7 @@
 // std
 #include <initializer_list>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace visrtx {
@@ -93,7 +94,8 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
 
  protected:
   // Opt-in metadata reuse: list every subtype parameter except the five
-  // uniform attributes. The base adds primitive and vertex attribute arrays.
+  // uniform attributes. This declaration must stay fixed for the subtype;
+  // lookup names are cached. The base adds primitive and vertex arrays.
   // Returns false after metadata publication, or if preparation cannot start.
   bool beginPreparation(std::initializer_list<const char *> parameters = {});
   GeometryGPUData gpuData() const override = 0;
@@ -122,7 +124,10 @@ struct Geometry : public RegisteredObject<GeometryGPUData>
 
     bool operator==(const PreparationParameter &other) const;
   };
+  bool canRetainPreparationInputs() const;
+
   std::vector<PreparationParameter> m_preparedParameters;
+  std::vector<std::string> m_preparationParameterNames;
   bool m_hasPreparedData{false};
   bool m_metadataOnlyFinalization{false};
   bool m_preparationFailed{false};
