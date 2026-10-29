@@ -51,6 +51,7 @@ enum class Failure
 {
   NONE,
   ALLOCATION,
+  READBACK_ALLOCATION,
   COPY,
   WORK_SYNC,
   COPY_SYNC,
@@ -118,6 +119,15 @@ void complete(const void *, ANARIDevice, ANARIFrame)
   ++completions;
 }
 } // namespace
+
+extern "C" cudaError_t cudaMallocHost(void **ptr, size_t bytes)
+{
+  if (bytes == 16 && inject(Failure::READBACK_ALLOCATION)) {
+    *ptr = nullptr;
+    return cudaErrorMemoryAllocation;
+  }
+  return next<decltype(&cudaMallocHost)>("cudaMallocHost")(ptr, bytes);
+}
 
 extern "C" cudaError_t cudaMalloc(void **ptr, size_t bytes)
 {
@@ -223,10 +233,16 @@ extern "C" cudaError_t cudaStreamSynchronize(cudaStream_t stream)
 
 int main(int argc, char **argv)
 {
+  const bool pendingRetirement =
+      argc > 1 && std::strcmp(argv[1], "pending-retirement") == 0;
   const bool isosurfaceFailure =
       argc > 1 && std::strcmp(argv[1], "isosurface") == 0;
   const bool sphereFailure =
       argc > 1 && std::strncmp(argv[1], "sphere", 6) == 0;
+  const bool batchCompletion =
+      sphereFailure && std::strncmp(argv[1], "sphere-batch-", 13) == 0;
+  const bool batchUploadCompletion = batchCompletion
+      && std::strcmp(argv[1], "sphere-batch-upload-completion") == 0;
   const bool sphereUpload =
       argc > 1 && std::strncmp(argv[1], "sphere-upload-", 14) == 0;
   const bool partialUpload =
@@ -265,9 +281,9 @@ int main(int argc, char **argv)
       ANARI_FLOAT32_VEC3,
       vertices.size());
   auto geometry = anari::newObject<anari::Geometry>(d,
-      isosurfaceFailure   ? "isosurface"
-          : sphereFailure ? "sphere"
-                          : "curve");
+      isosurfaceFailure                          ? "isosurface"
+          : (sphereFailure || pendingRetirement) ? "sphere"
+                                                 : "curve");
   if (partialUpload) {
     const std::array<float, 6> radii{0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f};
     anari::setParameterArray1D(
@@ -303,10 +319,15 @@ int main(int argc, char **argv)
   anari::commitParameters(d, surface);
   std::vector<anari::Surface> surfaces{surface};
   anari::Geometry sibling = nullptr;
-  if (curveFailure && !isosurfaceFailure && !sphereFailure) {
-    sibling = anari::newObject<anari::Geometry>(d, "curve");
-    anari::setParameterArray1D(
-        d, sibling, "vertex.position", vertices.data(), 4);
+  if ((curveFailure && !isosurfaceFailure && !sphereFailure)
+      || batchCompletion) {
+    sibling = anari::newObject<anari::Geometry>(
+        d, batchCompletion ? "sphere" : "curve");
+    if (batchCompletion && !batchUploadCompletion)
+      anari::setParameter(d, sibling, "vertex.position", array);
+    else
+      anari::setParameterArray1D(
+          d, sibling, "vertex.position", vertices.data(), 4);
     anari::setParameter(d, sibling, "radius", 0.1f);
     anari::commitParameters(d, sibling);
     auto siblingMaterial = anari::newObject<anari::Material>(d, "matte");
@@ -364,7 +385,22 @@ int main(int argc, char **argv)
         != 0;
   };
   bool ok = errors == 0;
-  if (registryFailure) {
+  if (pendingRetirement) {
+    uint8_t valid = 0;
+    ok =
+        anariGetProperty(
+            d, geometry, "valid", ANARI_BOOL, &valid, sizeof(valid), ANARI_WAIT)
+        && valid && ok;
+    failure = Failure::PREPARATION_SYNC;
+    anari::release(d, array);
+    ok = injections == 1 && errors > 0 && ok;
+    cudaFree(deviceVertices);
+    deviceVertices = nullptr;
+    ok = !haveBounds() && ok;
+    anari::render(d, frame);
+    anari::wait(d, frame);
+    ok = completions == 0 && ok;
+  } else if (registryFailure) {
     ok = haveBounds() && ok;
     anari::render(d, frame);
     anari::wait(d, frame);
@@ -455,7 +491,11 @@ int main(int argc, char **argv)
       failure = Failure::UPLOAD_COPY;
     if (sphereUpload && std::strcmp(argv[1], "sphere-upload-completion") == 0)
       failure = Failure::UPLOAD_SYNC;
-    if (sphereFailure && std::strcmp(argv[1], "sphere-completion") == 0)
+    if (sphereFailure
+        && std::strcmp(argv[1], "sphere-readback-allocation") == 0)
+      failure = Failure::READBACK_ALLOCATION;
+    if ((sphereFailure && std::strcmp(argv[1], "sphere-completion") == 0)
+        || batchCompletion)
       failure = Failure::PREPARATION_SYNC;
     if (sphereFailure && std::strcmp(argv[1], "sphere-dependency") == 0)
       failure = Failure::PREPARATION_DEPENDENCY;
@@ -470,6 +510,13 @@ int main(int argc, char **argv)
     anari::setParameter(
         d, geometry, isosurfaceFailure ? "isovalue" : "radius", 0.2f);
     anari::commitParameters(d, geometry);
+    if (batchCompletion) {
+      // A completion error invalidates the whole pending batch, not just its
+      // first geometry. Repreparing only that geometry cannot publish a world.
+      ok = !haveBounds() && errors == beforeErrors && ok;
+      anari::setParameter(d, sibling, "radius", 0.25f);
+      anari::commitParameters(d, sibling);
+    }
     ok = haveBounds() && errors == beforeErrors && ok;
     anari::render(d, frame);
     anari::wait(d, frame);
