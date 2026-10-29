@@ -25,7 +25,8 @@ existing full-preparation behavior; they do not opt in.
 
 ## Reuse contract
 
-`Geometry::beginPreparation(parameters)` is the opt-in seam. A subtype must list
+`Geometry::declarePreparationParameters(parameters)` is the opt-in seam, called
+once in the subtype constructor before its first commit. A subtype must list
 **every non-uniform parameter it consumes**, including parameters read lazily
 by tangent generation or `gpuData()`. The base adds primitive and vertex
 attribute arrays and primitive IDs. When adding a subtype parameter, update its
@@ -47,8 +48,12 @@ Only present parameters occupy snapshot storage. The cached `AnariAny` values
 retain internal references to the current input objects until replacement or
 geometry destruction; they do not copy authored data. This also prevents cached
 parameter identity from becoming a dangling object pointer. The extra reference
-lifetime is intentional; old snapshot references are dropped on the next full
-preparation after the retirement check.
+lifetime is intentional. For a multi-geometry input batch, obsolete snapshot
+references are dropped after commit-time retirement checks and parameter reads,
+before replacement input uploads are allocated. This avoids retaining a whole
+cohort of obsolete device copies through the replacement batch. Single-geometry
+and observer-only updates retain the existing snapshot replacement order during
+full preparation.
 
 Uniform values are excluded because they do not change geometric area or bounds.
 Geometry Light synthesis uses the material's emission estimate, while sampled
@@ -90,12 +95,18 @@ serialized; each event wait captures the corresponding record before the event
 is reused.
 
 - Full preparation imports prior render work before overwriting derived buffers.
-- For the seven opt-in geometry types, pending host uploads of declared arrays
-  are batched on the preparation stream before finalization. The committed
-  snapshot retains source arrays through completion. Uploaded timestamps and
-  device-pointer snapshots are published only after the whole batch succeeds;
-  partial failures remain dirty and are retried. Legacy consumers can safely
-  use the completed device copy afterward.
+- For the seven opt-in geometry types, parameter commits capture references to
+  dirty declared host arrays. The first geometry finalizer submits the captured
+  inputs across geometries on the preparation stream and waits once before any
+  finalizer consumes them. Shared arrays are deduplicated by handle and data
+  version. Sources remain retained through completion; only successful geometry
+  submissions mark their still-current array versions uploaded. A failed
+  geometry remains unprepared even if another geometry successfully shares one
+  of its arrays. Legacy consumers can safely use completed copies afterward.
+- Observer-only updates, or arrays modified after submission, retain the local
+  per-geometry upload path. A later geometry commit or observer update may retry
+  a failed input generation; unchanged failed inputs cannot silently become
+  prepared. Uniform-only reuse does not capture or submit an upload batch.
 - These checked geometry kernels no longer import the default stream: authored
   inputs are ready before they run. Other array consumers retain their existing
   upload path.
@@ -182,9 +193,11 @@ source/result lifetime ordering remains the collection queue's responsibility.
 move/reset, pool-before-lease teardown, concurrent leases, and asynchronous DMA
 into separate slots on a page.
 
-Host input upload batches still complete per geometry to preserve their source
-lifetime and existing legacy consumers;
-quad/curve generated-data completion, tangent generation, and field/isosurface
+Committed host inputs now complete in a cross-geometry batch before finalizers
+run. Observer-only input updates remain conservative. Last-public-release of
+shared host arrays during an active upload joins the preparation stream before
+the application may free its source memory. Quad/curve generated-data completion,
+tangent generation, and field/isosurface
 preparation retain their current synchronous paths. This does not introduce
 independent scene generations or concurrent in-place replacement during tracing.
 
@@ -193,15 +206,20 @@ captured-device inputs, last-reference queue ownership through teardown, unrelat
 numeric failures, and collection-time callback reentry. Injection cases also
 cover pinned-readback allocation failure, completion failure across multiple
 queued geometries, an intervening upload completion failure, and shared CUDA
-array retirement while preparation remains pending.
+array retirement while preparation remains pending. `TestGeometryInputBatch`
+checks submission-before-wait across multiple geometries, shared-array dedup,
+uniform-only and observer-only controls, coalesced unmaps/commits, and host-source
+retirement during an active copy. Input failure cases cover batch-wide completion
+failure and recovery through an array unmap without a geometry recommit.
 
 ## Remaining work
 
 Broader array/shading invalidation precision, reducing the extra CPU snapshot
 comparison cost, batched readback/dispatch, and fine-grained area-vs-bounds
 invalidation are separate improvements. Registry, bounds, and area-result
-collection now span geometries. Batching the remaining host-input uploads and
-legacy finalizers requires further producer migration while preserving source
-lifetimes and failure propagation. This change does not repack or download
+collection and committed input uploads now span geometries. Observer-only input
+batching, legacy finalizers, and allocation-related synchronization require
+further producer migration while preserving source lifetimes and failure
+propagation. This change does not repack or download
 inputs, introduce CPU preprocessing, or weaken the guarantee that changed inputs
 are prepared on the GPU before their derived data is published.

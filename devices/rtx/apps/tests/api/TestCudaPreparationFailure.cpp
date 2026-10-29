@@ -245,10 +245,15 @@ int main(int argc, char **argv)
       argc > 1 && std::strncmp(argv[1], "sphere", 6) == 0;
   const bool batchCompletion =
       sphereFailure && std::strncmp(argv[1], "sphere-batch-", 13) == 0;
+  const bool inputBatchCompletion = batchCompletion
+      && std::strcmp(argv[1], "sphere-batch-input-completion") == 0;
   const bool batchUploadCompletion = batchCompletion
-      && std::strcmp(argv[1], "sphere-batch-upload-completion") == 0;
-  const bool sphereUpload =
-      argc > 1 && std::strncmp(argv[1], "sphere-upload-", 14) == 0;
+      && (std::strcmp(argv[1], "sphere-batch-upload-completion") == 0
+          || inputBatchCompletion);
+  const bool sphereUpload = inputBatchCompletion
+      || (argc > 1 && std::strncmp(argv[1], "sphere-upload-", 14) == 0);
+  const bool observerRecovery =
+      sphereUpload && std::strcmp(argv[1], "sphere-upload-observer") == 0;
   const bool partialUpload =
       sphereUpload && std::strcmp(argv[1], "sphere-upload-partial") == 0;
   const bool bvhFailure = argc > 1
@@ -312,7 +317,7 @@ int main(int argc, char **argv)
     anari::setParameter(d, geometry, "isovalue", 3.5f);
   } else {
     anari::setParameter(d, geometry, "vertex.position", array);
-    anari::setParameter(d, geometry, "radius", 0.1f);
+    anari::setParameter(d, geometry, "radius", observerRecovery ? 0.2f : 0.1f);
   }
   anari::commitParameters(d, geometry);
   auto material = anari::newObject<anari::Material>(d, "matte");
@@ -491,7 +496,9 @@ int main(int argc, char **argv)
       allocationBytes =
           partialUpload ? vertices.size() * sizeof(float) : sizeof(vertices);
     failure = isosurfaceFailure ? Failure::WORK_SYNC : Failure::ALLOCATION;
-    if (sphereUpload && std::strcmp(argv[1], "sphere-upload-copy") == 0)
+    if (sphereUpload
+        && (std::strcmp(argv[1], "sphere-upload-copy") == 0
+            || observerRecovery))
       failure = Failure::UPLOAD_COPY;
     if (sphereUpload && std::strcmp(argv[1], "sphere-upload-completion") == 0)
       failure = Failure::UPLOAD_SYNC;
@@ -511,9 +518,15 @@ int main(int argc, char **argv)
     anari::wait(d, frame);
     ok = completions == 0 && ok;
     const int beforeErrors = errors;
-    anari::setParameter(
-        d, geometry, isosurfaceFailure ? "isovalue" : "radius", 0.2f);
-    anari::commitParameters(d, geometry);
+    if (observerRecovery) {
+      if (!anariMapArray(d, array))
+        return 1;
+      anariUnmapArray(d, array); // New array version, no geometry recommit.
+    } else {
+      anari::setParameter(
+          d, geometry, isosurfaceFailure ? "isovalue" : "radius", 0.2f);
+      anari::commitParameters(d, geometry);
+    }
     if (batchCompletion) {
       // A completion error invalidates the whole pending batch, not just its
       // first geometry. Repreparing only that geometry cannot publish a world.
