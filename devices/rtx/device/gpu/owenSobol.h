@@ -52,7 +52,9 @@
 //   10..11 light category / instance selection
 //   12..15 first four sequential material draws (then PCG)
 // Surface dimensions are reused with bounce/transparency reseeding.
-// Material dimensions remain reserved for next-ray integration.
+// Material consumption includes categorical lobe decisions and remains
+// branch-dependent, not fixed semantic roles. Draws on each chosen branch are
+// sequenced explicitly; they are not eagerly consumed across early returns.
 //
 // sampleIndex is a uint32 binary ordinal (period 2^32), not a Gray-code
 // index. Renderer addressing and the first-camera-sample center override
