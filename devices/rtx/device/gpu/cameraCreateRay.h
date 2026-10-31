@@ -95,10 +95,11 @@ VISRTX_DEVICE Ray rayBufferCreateRay(const CameraGPUData &c, uvec2 pixel)
   return ray;
 }
 
-// sampleIdx is a (frame-counter × spp_loop) ordinal advancing once per
-// camera sample within the frame's accumulation. Owen-scrambled Sobol
-// dims 0/1 = sub-pixel jitter, 2/3 = lens aperture. Pixel seed
-// decorrelates neighbors without sharing those dimensions with lighting.
+// sampleIdx is completedSamples + within-batch iteration (sampleOrdinal),
+// advancing once per camera sample, not frame-counter times spp. Sobol dims
+// 0/1 = pixel jitter, 2/3 = aperture. The first accumulated sample overrides
+// pixel jitter with the center, but still samples the aperture at ordinal zero.
+// Ray-buffer cameras bypass both. Pixel seeds are independent of batching.
 VISRTX_DEVICE Ray makePrimaryRay(
     ScreenSample &ss, uint32_t sampleIdx, bool centerPixel = false)
 {
