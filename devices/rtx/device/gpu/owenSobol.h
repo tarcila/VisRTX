@@ -51,7 +51,8 @@
 //   8..9   HDRI within-texel jitter
 //   10..11 light category / instance selection
 //   12..15 first four sequential material draws (then PCG)
-// Surface and material dimensions are reserved for renderer integration.
+// Surface dimensions are reused with bounce/transparency reseeding.
+// Material dimensions remain reserved for next-ray integration.
 //
 // sampleIndex is a uint32 binary ordinal (period 2^32), not a Gray-code
 // index. Renderer addressing and the first-camera-sample center override
@@ -129,6 +130,16 @@ VISRTX_HOST_DEVICE uint32_t owenPixelSeed(uint32_t x, uint32_t y)
   v *= 0x846ca68bu;
   v ^= v >> 16;
   return v;
+}
+
+// Bounce 0 / no alpha pass-through keeps the camera pixel seed (XOR 0).
+// Later bounces and coverage-continue vertices reseed so dims 4–15 can be
+// reused without repeating an earlier vertex's sequence.
+VISRTX_HOST_DEVICE uint32_t owenBounceSeed(
+    uint32_t pixelSeed, int bounce, int transparency = 0)
+{
+  return pixelSeed ^ (0x9e3779b9u * uint32_t(bounce))
+      ^ (0x85ebca6bu * uint32_t(transparency));
 }
 
 // Exact 24-bit half-open grid; zero is a legal sample, not an error.
