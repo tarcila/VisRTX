@@ -297,7 +297,7 @@ struct InteractiveShadingPolicy
     // owned by the flat compositing loop, so a through-surface continuation is
     // discarded here to avoid double-counting the transmitted background.
     NextRay nextRay = materialNextRay(shadingState, ray, ss.rs);
-    if (!continuesThroughSurface(nextRay)
+    if (!isDead(nextRay) && !continuesThroughSurface(nextRay)
         && glm::any(glm::greaterThan(
             nextRay.contributionWeight, glm::vec3(MIN_CONTRIBUTION_EPSILON)))) {
       Ray bounceRay = {

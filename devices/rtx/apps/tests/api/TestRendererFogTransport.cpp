@@ -533,12 +533,19 @@ int testHdrRadiance(anari::Device d)
     const auto baseline = scene.render();
     const std::string label = indirect ? "HDR reflection" : "HDR emission";
     if (indirect) {
-      // Establish a live reflected HDR signal without a noisy mean oracle:
-      // every paired pixel must see at least half of tint * emitter radiance.
-      for (const auto &pixel : baseline.color)
-        for (unsigned c = 0; c < 3; ++c)
-          failures += !std::isfinite(pixel[c])
-              || pixel[c] < 0.5 * TINT[c] * HDR_EMISSION[c];
+      // The native 1/8 broad proposal can legitimately return a dim sample;
+      // a one-sample pixel is no longer a deterministic mirror observation.
+      // Require the narrow branch's HDR population at six binomial standard
+      // deviations, and retain finite/paired affine checks on EVERY pixel.
+      const double lower = .875 * PIXELS - 6. * std::sqrt(.875 * .125 * PIXELS);
+      for (unsigned c = 0; c < 3; ++c) {
+        unsigned live = 0;
+        for (const auto &pixel : baseline.color) {
+          failures += !std::isfinite(pixel[c]);
+          live += pixel[c] >= 0.5 * TINT[c] * HDR_EMISSION[c];
+        }
+        failures += live < lower;
+      }
     } else {
       const std::vector<Vec4> expected(
           PIXELS, {HDR_EMISSION[0], HDR_EMISSION[1], HDR_EMISSION[2], 1.f});

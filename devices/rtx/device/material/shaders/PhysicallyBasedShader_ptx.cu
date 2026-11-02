@@ -279,6 +279,7 @@ VISRTX_CALLABLE void __direct_callable__init(
   const vec4 color = getMaterialParameter(*fd, md->baseColor, *hit);
   const float opacity = getMaterialParameter(*fd, md->opacity, *hit).x;
   shadingState->baseColor = vec3(color);
+  shadingState->geometricNormal = hit->Ng;
 
   const vec3 N = sampleNormalMap(*fd, md->normalSampler, *hit, hit->Ns);
   shadingState->shadingNormal = N;
@@ -404,196 +405,298 @@ VISRTX_DEVICE vec3 evalFresnelWithIridescence(
   return F;
 }
 
+VISRTX_DEVICE float pbrCoatPick(
+    const PhysicallyBasedShadingState *s, const vec3 &v)
+{
+  const float c = fmaxf(dot(s->viewAdjustedClearcoatNormal, v), 0.f);
+  return glm::clamp(
+      s->clearcoat * (CLEARCOAT_F0 + (1.f - CLEARCOAT_F0) * pow5(1.f - c)),
+      0.f,
+      1.f);
+}
+VISRTX_DEVICE float pbrCoatExit(
+    const PhysicallyBasedShadingState *s, const vec3 &l)
+{
+  if (s->clearcoat == 0.f)
+    return 1.f;
+  const float c = fabsf(dot(s->viewAdjustedClearcoatNormal, l));
+  return glm::clamp(1.f
+          - s->clearcoat
+              * (CLEARCOAT_F0 + (1.f - CLEARCOAT_F0) * pow5(1.f - c)),
+      0.f,
+      1.f);
+}
+VISRTX_DEVICE bool pbrTransmissionFold(
+    const PhysicallyBasedShadingState *s, const vec3 &v, const vec3 &h)
+{
+  if (!(luminance(computeTransmissionFilter(s)) > 0.f))
+    return false;
+  const auto transmitted = glm::refract(-v, h, s->eta);
+  // Retained compatibility fold: true TIR OR refraction on the macro wrong
+  // side.
+  return glm::length(transmitted) < 1e-6f
+      || dot(transmitted, s->viewAdjustedNormal) >= 0.f;
+}
+
+// One regularized reflection target, shared by NEE and every reflected sample.
+// Floors below belong to the accepted target model, NEVER proposal
+// probabilities.
+VISRTX_DEVICE vec3 pbrReflectionKernel(
+    const PhysicallyBasedShadingState *s, const vec3 &v, const vec3 &l)
+{
+  if (!(dot(s->geometricNormal, v) > 0.f)
+      || !(dot(s->geometricNormal, l) > 0.f))
+    return vec3(0);
+  const auto n = s->viewAdjustedNormal, nc = s->viewAdjustedClearcoatNormal;
+  const float nv = dot(n, v), nl = dot(n, l), cv = dot(nc, v), cl = dot(nc, l);
+  const bool base = nv > 0.f && nl > 0.f,
+             coat = s->clearcoat > 0.f && cv > 0.f && cl > 0.f;
+  if (!base && !coat)
+    return vec3(0);
+  const auto h = normalize(v + l);
+  const float vh = fmaxf(dot(v, h), 0.f);
+  vec3 result(0);
+  if (base) {
+    const float vs = fmaxf(nv, 1e-6f), ls = fmaxf(nl, 1e-6f),
+                nh = fmaxf(dot(n, h), 0.f);
+    const auto f0 = computeF0(s), f90 = computeF90(s);
+    const auto fv = evalFresnelWithIridescence(s, f0, f90, vs);
+    const auto er = pbrTransmissionFold(s, v, h)
+        ? vec3(1.f)
+        : evalFresnelWithIridescence(s, f0, f90, vh);
+    const auto ed = glm::max(vec3(1.f) - fv, vec3(0)) * s->baseColor
+        * (1.f - s->metallic) * (1.f - s->transmission) * s->occlusion;
+    const float alpha = fmaxf(pow2(s->roughness), 1e-4f),
+                alpha2 = alpha * alpha;
+    result = ((ed * (nl * kInvPi))
+                 + er
+                     * (ggxD(nh, alpha2) * smithG2GGX(vs, ls, alpha2) * nl
+                         / (4.f * vs * ls)))
+        * ((1.f - pbrCoatPick(s, v)) * pbrCoatExit(s, l));
+    if (glm::any(glm::greaterThan(s->sheenColor, vec3(0)))) {
+      const float as = fmaxf(pow2(s->sheenRoughness), 1e-4f);
+      result += s->sheenColor * (charlieD(nh, as) * charlieV(vs, ls) * nl);
+    }
+  }
+  if (coat) {
+    const float vs = fmaxf(cv, 1e-6f), ls = fmaxf(cl, 1e-6f);
+    const float alpha = fmaxf(pow2(s->clearcoatRoughness), 1e-4f),
+                alpha2 = alpha * alpha;
+    const float fc = CLEARCOAT_F0 + (1.f - CLEARCOAT_F0) * pow5(1.f - vh);
+    result += vec3(s->clearcoat * fc * ggxD(fmaxf(dot(nc, h), 0.f), alpha2)
+        * smithG2GGX(vs, ls, alpha2) * cl / (4.f * vs * ls));
+  }
+  return result;
+}
 VISRTX_CALLABLE vec3 __direct_callable__evalBsdf(
     const PhysicallyBasedShadingState *state, const vec3 *wo, const vec3 *wi)
 {
-  const vec3 N = state->viewAdjustedNormal;
-  const vec3 V = *wo;
-  const vec3 L = *wi;
-
-  const float NdotL = dot(N, L);
-  // Negated form so a NaN NdotL takes this early-out — NaN compares false
-  // to everything, so `NdotL <= 0.0f` would let it pass through.
-  if (!(NdotL > 0.0f))
-    return vec3(0.0f);
-
-  const vec3 H = normalize(L + V);
-  const float NdotH = fmaxf(dot(N, H), 0.0f);
-  const float NdotV = fmaxf(dot(N, V), 1e-6f);
-  const float VdotH = fmaxf(dot(V, H), 0.0f);
-
-  // Base F0 / F90. Specular uses Fresnel at the microfacet (VdotH); the
-  // diffuse weight uses Fresnel at NdotV (Frostbite/Disney convention) so
-  // evalBsdf and nextRay's diffuse split agree regardless of light dir.
-  const vec3 F0 = computeF0(state);
-  const vec3 F90 = computeF90(state);
-  const vec3 F = evalFresnelWithIridescence(state, F0, F90, VdotH);
-  const vec3 Fdiff = evalFresnelWithIridescence(state, F0, F90, NdotV);
-
-  // Base GGX specular lobe.
-  const float alpha = fmaxf(pow2(state->roughness), 1e-4f);
-  const float alpha2 = alpha * alpha;
-  const float D = ggxD(NdotH, alpha2);
-  const float G2 = smithG2GGX(NdotV, fmaxf(NdotL, 1e-6f), alpha2);
-  const vec3 specularBRDF = (F * D * G2) / (4.0f * NdotV * fmaxf(NdotL, 1e-6f));
-
-  // Diffuse lobe (energy-balanced against specular, attenuated by occlusion
-  // and transmission; metals have no diffuse).
-  const vec3 diffuseColor =
-      glm::mix(state->baseColor, vec3(0.0f), state->metallic);
-  const vec3 diffuseBRDF = (vec3(1.0f) - Fdiff) * kInvPi * diffuseColor
-      * state->occlusion * (1.0f - state->transmission);
-
-  vec3 base = diffuseBRDF + specularBRDF;
-
-  // Clearcoat: a second GGX lobe with its own normal and roughness, Fresnel-
-  // attenuating the base layer at both view and light angles.
-  if (state->clearcoat > 0.0f) {
-    const vec3 Nc = state->viewAdjustedClearcoatNormal;
-    const float NcDotV = fmaxf(dot(Nc, V), 1e-6f);
-    const float NcDotL = fmaxf(dot(Nc, L), 0.0f);
-    const float NcDotH = fmaxf(dot(Nc, H), 0.0f);
-    const float FcV =
-        CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - NcDotV);
-    const float FcL =
-        CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - NcDotL);
-    const float alphaC = fmaxf(pow2(state->clearcoatRoughness), 1e-4f);
-    const float alphaC2 = alphaC * alphaC;
-    const float Dc = ggxD(NcDotH, alphaC2);
-    const float Gc = smithG2GGX(NcDotV, fmaxf(NcDotL, 1e-6f), alphaC2);
-    // The lobe's Fresnel belongs at the half-vector: H is the facet that
-    // actually mirrors V into L, so F(V.H) is what that facet reflects. H
-    // depends only on L and V, so the shared base-layer VdotH is the right
-    // angle here even though the coat tilts on its own normal Nc, which
-    // enters only through Dc(Nc.H) and Gc(Nc.V, Nc.L). The macro-normal
-    // FcV/FcL are the *layer* terms — right for attnV/attnL below and for
-    // the lobe-pick probability (ccProb in pbrBsdfPdf, clearcoatPick in
-    // __direct_callable__nextRay, both on F(Nc.V)), wrong here. This is also
-    // what MDL's custom_curve_layer evaluates, and what the sampled weight in
-    // __direct_callable__nextRay already used.
-    const float FcH = CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - VdotH);
-    const float clearcoatLobe =
-        (FcH * Dc * Gc) / (4.0f * NcDotV * fmaxf(NcDotL, 1e-6f));
-
-    const float attnV = 1.0f - state->clearcoat * FcV;
-    const float attnL = 1.0f - state->clearcoat * FcL;
-    base = base * attnV * attnL;
-    base +=
-        vec3(state->clearcoat * clearcoatLobe) * NcDotL / fmaxf(NdotL, 1e-6f);
-  }
-
-  // Sheen: Charlie distribution + Ashikhmin visibility, added on top of the
-  // base layer without energy compensation (simple but consistent with the
-  // glTF reference for basic setups).
-  if (glm::any(glm::greaterThan(state->sheenColor, vec3(0.0f)))) {
-    const float alphaS = fmaxf(pow2(state->sheenRoughness), 1e-4f);
-    const float Ds = charlieD(NdotH, alphaS);
-    const float Vs = charlieV(NdotV, fmaxf(NdotL, 1e-6f));
-    base += state->sheenColor * Ds * Vs;
-  }
-
-  return base * NdotL;
+  return pbrReflectionKernel(state, *wo, *wi);
 }
 
-//-----------------------------------------------------------------------------
-// BSDF sampling pdf (solid angle), for environment MIS. This is the closed-form
-// density of __direct_callable__nextRay's sampling strategy, evaluated for an
-// arbitrary reflection-side direction. The sampler fills NextRay.pdf by calling
-// this same function, so the NEE-side weight (materialEvalPdf) and the
-// escape-side weight (NextRay.pdf) are identical functions and the balance-
-// heuristic weights partition to 1 exactly (unbiased).
-//
-// Transmission (through-surface) directions return 0: NEE's evalBsdf
-// early-outs at NdotL<=0, so they are never combined — the escape estimator
-// owns them outright (NextRay.pdf = +inf at sample time).
-//-----------------------------------------------------------------------------
-
-VISRTX_DEVICE float pbrBsdfPdf(
-    const PhysicallyBasedShadingState *state, const vec3 &V, const vec3 &L)
+// Ideal visible-GGX reflection Jacobian, without the target Smith floor.
+VISRTX_DEVICE float pbrVndfReflectionPdf(
+    const vec3 &n, const vec3 &v, const vec3 &l, float alpha)
 {
-  const vec3 N = state->viewAdjustedNormal;
-  const float NdotV = dot(N, V);
-  const float NdotL = dot(N, L);
-  if (!(NdotV > 0.0f) || !(NdotL > 0.0f))
-    return 0.0f;
-
-  const vec3 F0 = computeF0(state);
-  const vec3 F90 = computeF90(state);
-  const vec3 Fv = evalFresnelWithIridescence(state, F0, F90, NdotV);
-  const vec3 transmissionFilter = computeTransmissionFilter(state);
-
-  // V-only base split (diffuse vs specular) — mirrors the sampler exactly.
-  const float specSelW = fmaxf(luminance(Fv), 0.0f)
-      + fmaxf(
-          luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
-          0.0f);
-  const float diffSelW =
-      fmaxf(luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * state->baseColor
-                * (1.0f - state->metallic) * (1.0f - state->transmission)
-                * state->occlusion),
-          0.0f);
-  const float baseSel = specSelW + diffSelW;
-
-  float pdf = 0.0f;
-  if (baseSel > 0.0f) {
-    const float pSpec = specSelW / baseSel;
-    const float pDiff = diffSelW / baseSel;
-
-    // Diffuse lobe: cosine-weighted around N.
-    pdf += pDiff * NdotL * kInvPi;
-
-    // Specular reflection lobe: VNDF reflection density × reflect-given-spec.
-    const float alpha = fmaxf(pow2(state->roughness), 1e-4f);
-    const float alpha2 = alpha * alpha;
-    const vec3 H = normalize(V + L);
-    const float NdotH = fmaxf(dot(N, H), 0.0f);
-    const float VdotH = fmaxf(dot(V, H), 0.0f);
-    const vec3 Fh = evalFresnelWithIridescence(state, F0, F90, VdotH);
-    const vec3 Ltrans = glm::refract(-V, H, state->eta);
-    const bool tir = luminance(transmissionFilter) > 0.0f
-        && (glm::length(Ltrans) < 1e-6f || dot(Ltrans, N) >= 0.0f);
-    const float reflW = tir ? 1.0f : fmaxf(luminance(Fh), 0.0f);
-    const float transW = tir
-        ? 0.0f
-        : fmaxf(luminance(
-                    glm::max(vec3(1.0f) - Fh, vec3(0.0f)) * transmissionFilter),
-              0.0f);
-    const float reflectGivenSpec =
-        (reflW + transW) > 0.0f ? reflW / (reflW + transW) : 1.0f;
-    const float pdfReflVndf =
-        ggxD(NdotH, alpha2) * smithG1GGX(NdotV, alpha2) / (4.0f * NdotV);
-    pdf += pSpec * reflectGivenSpec * pdfReflVndf;
+  const float nv = dot(n, v);
+  if (!(nv > 0.f) || !(dot(n, l) > 0.f))
+    return 0.f;
+  const auto h = normalize(v + l);
+  const float a2 = alpha * alpha;
+  return ggxD(fmaxf(dot(n, h), 0.f), a2)
+      / (2.f * (nv + sqrtf(a2 + (1.f - a2) * nv * nv)));
+}
+VISRTX_DEVICE float pbrOldReflectionPdf(
+    const PhysicallyBasedShadingState *s, const vec3 &v, const vec3 &l)
+{
+  const auto n = s->viewAdjustedNormal, nc = s->viewAdjustedClearcoatNormal;
+  const float nv = dot(n, v), nl = dot(n, l), pc = pbrCoatPick(s, v);
+  float density = pc
+      * pbrVndfReflectionPdf(
+          nc, v, l, fmaxf(pow2(s->clearcoatRoughness), 1e-4f));
+  if (nv > 0.f && nl > 0.f && pc < 1.f) {
+    const auto f0 = computeF0(s), f90 = computeF90(s);
+    const auto fv = evalFresnelWithIridescence(s, f0, f90, nv);
+    const auto tf = computeTransmissionFilter(s);
+    const auto complement = glm::max(vec3(1.f) - fv, vec3(0));
+    const float spec =
+        fmaxf(luminance(fv), 0.f) + fmaxf(luminance(complement * tf), 0.f);
+    const float diff =
+        fmaxf(luminance(complement * s->baseColor * (1.f - s->metallic)
+                  * (1.f - s->transmission) * s->occlusion),
+            0.f);
+    if (spec + diff > 0.f) {
+      const auto h = normalize(v + l);
+      const auto f =
+          evalFresnelWithIridescence(s, f0, f90, fmaxf(dot(v, h), 0.f));
+      const bool fold = pbrTransmissionFold(s, v, h);
+      const float r = fold ? 1.f : fmaxf(luminance(f), 0.f);
+      const float t = fold
+          ? 0.f
+          : fmaxf(luminance(glm::max(vec3(1.f) - f, vec3(0)) * tf), 0.f);
+      const float reflection = r + t > 0.f ? r / (r + t) : 1.f;
+      density += (1.f - pc)
+          * (diff / (spec + diff) * nl * kInvPi
+              + spec / (spec + diff) * reflection
+                  * pbrVndfReflectionPdf(
+                      n, v, l, fmaxf(pow2(s->roughness), 1e-4f)));
+    }
   }
+  return density;
+}
+VISRTX_DEVICE float pbrBsdfPdf(
+    const PhysicallyBasedShadingState *s, const vec3 &v, const vec3 &l)
+{
+  if (!(dot(s->geometricNormal, v) > 0.f)
+      || !(dot(s->geometricNormal, l) > 0.f))
+    return 0.f;
+  return .875f * pbrOldReflectionPdf(s, v, l) + .125f / (2.f * kPi);
+}
 
-  // Clearcoat is a top-level pick with probability ccProb; the base mixture
-  // above is reached with the complementary (1 - ccProb).
+// Retained O proposal: identical conditional draw order and transmitted
+// measure. Reflection results here are proposal records, not final K/q samples.
+VISRTX_DEVICE NextRay sampleNativeProposal(
+    const PhysicallyBasedShadingState *state,
+    const Ray *ray,
+    RandState *rs,
+    const NextRayQmc *qmc,
+    int &qmcCursor)
+{
+  const vec3 V = -ray->dir;
+  auto u = [&]() { return nextRayUniform(rs, qmc, qmcCursor); };
   const vec3 Nc = state->viewAdjustedClearcoatNormal;
-  const float NcDotV = fmaxf(dot(Nc, V), 0.0f);
-  const float FcV = CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - NcDotV);
-  const float ccProb = glm::clamp(state->clearcoat * FcV, 0.0f, 1.0f);
-  pdf *= (1.0f - ccProb);
-
-  if (ccProb > 0.0f && NcDotV > 0.0f && dot(Nc, L) > 0.0f) {
-    const vec3 Hc = normalize(V + L);
-    const float NcDotH = fmaxf(dot(Nc, Hc), 0.0f);
-    const float alphaC = fmaxf(pow2(state->clearcoatRoughness), 1e-4f);
-    const float alphaC2 = alphaC * alphaC;
-    pdf += ccProb * ggxD(NcDotH, alphaC2) * smithG1GGX(NcDotV, alphaC2)
-        / (4.0f * NcDotV);
+  const float clearcoatPick = pbrCoatPick(state, V);
+  if (clearcoatPick > 0.f && u() < clearcoatPick) {
+    const auto basis = computeOrthonormalBasis(Nc);
+    const auto local = glm::transpose(basis) * V;
+    if (local.z <= 0.f)
+      return deadNextRay();
+    const float alpha = fmaxf(pow2(state->clearcoatRoughness), 1e-4f);
+    const float a = u(), b = u();
+    const auto h = sampleGGXVNDF(local, alpha, a, b);
+    const auto l = glm::reflect(-local, h);
+    if (l.z <= 0.f)
+      return deadNextRay();
+    return {normalize(basis * l),
+        vec3(0),
+        0.f,
+        NEXT_RAY_NONE,
+        NextRayEvent::Continuous,
+        0,
+        NextRayComponent::NativeReflection};
   }
-
-  return pdf;
+  const vec3 N = state->viewAdjustedNormal;
+  const auto basis = computeOrthonormalBasis(N);
+  const auto local = glm::transpose(basis) * V;
+  if (local.z <= 0.f)
+    return deadNextRay();
+  const float alpha = fmaxf(pow2(state->roughness), 1e-4f),
+              alpha2 = alpha * alpha;
+  const auto f0 = computeF0(state), f90 = computeF90(state);
+  const auto fv = evalFresnelWithIridescence(state, f0, f90, local.z);
+  const auto tf = computeTransmissionFilter(state);
+  const auto diff = glm::max(vec3(1.f) - fv, vec3(0)) * state->baseColor
+      * (1.f - state->metallic) * (1.f - state->transmission)
+      * state->occlusion;
+  const float sw = fmaxf(luminance(fv), 0.f)
+      + fmaxf(luminance(glm::max(vec3(1.f) - fv, vec3(0)) * tf), 0.f);
+  const float dw = fmaxf(luminance(diff), 0.f);
+  if (sw + dw <= 0.f)
+    return deadNextRay();
+  const float ps = sw / (sw + dw);
+  if (u() >= ps) {
+    const float a = u(), b = u();
+    return {sampleHemisphere(a, b, N),
+        vec3(0),
+        0.f,
+        NEXT_RAY_NONE,
+        NextRayEvent::Continuous,
+        0,
+        NextRayComponent::NativeReflection};
+  }
+  const float a = u(), b = u();
+  const auto h = sampleGGXVNDF(local, alpha, a, b);
+  const auto f =
+      evalFresnelWithIridescence(state, f0, f90, fmaxf(dot(local, h), 0.f));
+  const auto reflected = glm::reflect(-local, h);
+  const auto transmitted = glm::refract(-local, h, state->eta);
+  const bool fold = luminance(tf) > 0.f
+      && (glm::length(transmitted) < 1e-6f || transmitted.z >= 0.f);
+  const auto er = fold ? vec3(1.f) : f;
+  const auto et = fold ? vec3(0) : glm::max(vec3(1.f) - f, vec3(0)) * tf;
+  const float rw = fmaxf(luminance(er), 0.f), tw = fmaxf(luminance(et), 0.f);
+  const float r = rw + tw > 0.f ? rw / (rw + tw) : 1.f;
+  if (u() < r) {
+    if (reflected.z <= 0.f)
+      return deadNextRay();
+    return {normalize(basis * reflected),
+        vec3(0),
+        0.f,
+        NEXT_RAY_NONE,
+        NextRayEvent::Continuous,
+        0,
+        NextRayComponent::NativeReflection};
+  }
+  const auto direction =
+      state->eta == 1.f ? -V : normalize(basis * transmitted);
+  // Keep the old transmitted compensation floors and target approximation.
+  const auto weight = et
+      * (smithG2GGX(local.z, -transmitted.z, alpha2)
+          / fmaxf(smithG1GGX(local.z, alpha2), 1e-8f))
+      * pbrCoatExit(state, direction) / fmaxf(ps * (1.f - r), 1e-8f);
+  return {direction,
+      weight,
+      INFINITY,
+      NEXT_RAY_CONTINUES_THROUGH_SURFACE,
+      state->eta == 1.f ? NextRayEvent::Singular : NextRayEvent::Continuous,
+      0,
+      NextRayComponent::NativeTransmission};
+}
+VISRTX_DEVICE NextRay sampleNativeReflection(
+    const PhysicallyBasedShadingState *state,
+    const Ray *ray,
+    RandState *rs,
+    const NextRayQmc *qmc,
+    float outerChoice)
+{
+  const vec3 v = -ray->dir;
+  if (!(dot(state->geometricNormal, v) > 0.f))
+    return deadNextRay();
+  int cursor = 0;
+  NextRay result;
+  if (outerChoice < .125f) {
+    const float a = nextRayUniform(rs, qmc, cursor),
+                b = nextRayUniform(rs, qmc, cursor);
+    const float z = 1.f - a, r = sqrtf(1.f - z * z), phi = kTwoPi * b;
+    result.direction = normalize(computeOrthonormalBasis(state->geometricNormal)
+        * vec3(r * cosf(phi), r * sinf(phi), z));
+    result.component = NextRayComponent::NativeReflection;
+  } else {
+    result = sampleNativeProposal(state, ray, rs, qmc, cursor);
+    if (isDead(result))
+      return result;
+    if (result.component == NextRayComponent::NativeTransmission) {
+      result.contributionWeight /= .875f;
+      return result;
+    }
+  }
+  const auto kernel = pbrReflectionKernel(state, v, result.direction);
+  if (kernel == vec3(0))
+    return deadNextRay();
+  const float pdf = pbrBsdfPdf(state, v, result.direction);
+  return {result.direction,
+      kernel / pdf,
+      pdf,
+      NEXT_RAY_NONE,
+      NextRayEvent::Continuous,
+      0,
+      NextRayComponent::NativeReflection};
 }
 
 //-----------------------------------------------------------------------------
-// Next-ray importance sampling: stochastic alpha, Fresnel-aware lobe pick,
-// GGX VNDF reflection/refraction, plus a clearcoat lobe sampled with
-// probability equal to its view-angle Fresnel weight. Sheen is NEE-only.
-//
-// Lobe selection is V-only at the diffuse/specular split (so the sampling
-// density is the closed form pbrBsdfPdf evaluates); the reflect/transmit split
-// within the specular lobe uses the microfacet Fresnel F(VdotH), which TIR
-// folds entirely into reflection. NextRay.pdf is filled from pbrBsdfPdf.
+// BSDF sampling pdf at (wo, wi) for environment MIS — the same closed-form
+// density nextRay reports in NextRay.pdf, so NEE-side and escape-side weights
+// agree. Both directions are world space.
 //-----------------------------------------------------------------------------
 
 VISRTX_CALLABLE NextRay __direct_callable__nextRay(
@@ -602,162 +705,15 @@ VISRTX_CALLABLE NextRay __direct_callable__nextRay(
     RandState *rs,
     const NextRayQmc *qmc)
 {
-  const vec3 V = -ray->dir;
-  int qmcCursor = 0;
-  auto u = [&]() { return nextRayUniform(rs, qmc, qmcCursor); };
-
-  // Clearcoat lobe: pick it with probability `clearcoat·FcV(NcDotV)`. This
-  // exact weight makes the entry-side attenuation `1 - clearcoat·FcV` cancel
-  // the `1/(1-pick)` lobe-pick divisor in the base path below, so the base
-  // returns only need the exit-side `1 - clearcoat·FcL` multiplier.
-  const vec3 Nc = state->viewAdjustedClearcoatNormal;
-  const float NcDotV_world = fmaxf(dot(Nc, V), 0.0f);
-  const float FcV_world =
-      CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - NcDotV_world);
-  const float clearcoatPick =
-      glm::clamp(state->clearcoat * FcV_world, 0.0f, 1.0f);
-
-  if (clearcoatPick > 0.0f && u() < clearcoatPick) {
-    const mat3 toWorldC = computeOrthonormalBasis(Nc);
-    const vec3 VlocalC = glm::transpose(toWorldC) * V;
-    if (VlocalC.z <= 0.0f)
-      return NextRay{Nc, vec3(0.0f), 0.0f};
-    const float alphaC = fmaxf(pow2(state->clearcoatRoughness), 1e-4f);
-    const float alphaC2 = alphaC * alphaC;
-    const float coatU = u();
-    const float coatV = u();
-    const vec3 HlocalC = sampleGGXVNDF(VlocalC, alphaC, coatU, coatV);
-    const vec3 LlocalC = glm::reflect(-VlocalC, HlocalC);
-    if (LlocalC.z <= 0.0f)
-      return NextRay{Nc, vec3(0.0f), 0.0f};
-    const float VdotHc = fmaxf(dot(VlocalC, HlocalC), 0.0f);
-    const float Fc = CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - VdotHc);
-    const float G1c = smithG1GGX(VlocalC.z, alphaC2);
-    const float G2c = smithG2GGX(VlocalC.z, LlocalC.z, alphaC2);
-    // VNDF gives BRDF·cos/pdf = clearcoat·Fc·G2/G1; the clearcoat factor
-    // cancels against the matching factor in clearcoatPick.
-    const vec3 weight = vec3(state->clearcoat * Fc * G2c / fmaxf(G1c, 1e-8f))
-        / fmaxf(clearcoatPick, 1e-8f);
-    const vec3 Lworld = normalize(toWorldC * LlocalC);
-    return NextRay{Lworld, weight, pbrBsdfPdf(state, V, Lworld)};
-  }
-
-  // Exit-side clearcoat attenuation, applied to every base-path return.
-  // `fabsf` handles the transmission case where L points through the surface.
-  auto clearcoatExitAttn = [&](const vec3 &Lworld) -> float {
-    if (state->clearcoat <= 0.0f)
-      return 1.0f;
-    const float NcDotL = fabsf(dot(Nc, Lworld));
-    const float FcL =
-        CLEARCOAT_F0 + (1.0f - CLEARCOAT_F0) * pow5(1.0f - NcDotL);
-    return glm::clamp(1.0f - state->clearcoat * FcL, 0.0f, 1.0f);
-  };
-
-  const vec3 N = state->viewAdjustedNormal;
-  const mat3 toWorld = computeOrthonormalBasis(N);
-  const mat3 toLocal = glm::transpose(toWorld);
-  const vec3 Vlocal = toLocal * V;
-  if (Vlocal.z <= 0.0f)
-    return NextRay{N, vec3(0.0f), 0.0f};
-
-  const float alpha = fmaxf(pow2(state->roughness), 1e-4f);
-  const float alpha2 = alpha * alpha;
-  const float NdotV = Vlocal.z;
-
-  // V-only base split (diffuse vs specular), deterministic in V so the sampling
-  // density is the closed form pbrBsdfPdf evaluates. Fresnel at NdotV (Fv) sets
-  // the split; the per-lobe throughput below uses the microfacet Fresnel.
-  const vec3 F0 = computeF0(state);
-  const vec3 F90 = computeF90(state);
-  const vec3 Fv = evalFresnelWithIridescence(state, F0, F90, NdotV);
-  const vec3 transmissionFilter = computeTransmissionFilter(state);
-  const bool hasTransmission = luminance(transmissionFilter) > 0.0f;
-
-  const float specSelW = fmaxf(luminance(Fv), 0.0f)
-      + fmaxf(
-          luminance(glm::max(vec3(1.0f) - Fv, vec3(0.0f)) * transmissionFilter),
-          0.0f);
-  // Lambertian throughput collapses to this energy when sampled cosine-weighted
-  // (cos / pdf cancels with 1/pi); mirrors evalBsdf's diffuseBRDF factors.
-  const vec3 diffuseEnergy = glm::max(vec3(1.0f) - Fv, vec3(0.0f))
-      * state->baseColor * (1.0f - state->metallic)
-      * (1.0f - state->transmission) * state->occlusion;
-  const float diffSelW = fmaxf(luminance(diffuseEnergy), 0.0f);
-  const float baseSel = specSelW + diffSelW;
-  if (baseSel <= 0.0f)
-    return NextRay{N, vec3(0.0f), 0.0f};
-  const float pSpec = specSelW / baseSel;
-  const float pDiff = diffSelW / baseSel;
-
-  // Diffuse lobe: sample around the shading normal so pdf=cos/pi matches the
-  // BRDF's NdotL (same axis as evalBsdf's diffuse term).
-  if (u() >= pSpec) {
-    const float diffuseU = u();
-    const float diffuseV = u();
-    const vec3 wi = sampleHemisphere(diffuseU, diffuseV, N);
-    const vec3 weight =
-        diffuseEnergy * clearcoatExitAttn(wi) / fmaxf(pDiff, 1e-8f);
-    return NextRay{wi, weight, pbrBsdfPdf(state, V, wi)};
-  }
-
-  // Specular lobe: VNDF-sample the microfacet, then split reflect/transmit by
-  // the microfacet Fresnel F(VdotH). TIR (no valid refraction at this H) folds
-  // all energy into reflection, so reflect/transmit stays a clean binary split.
-  const float specularU = u();
-  const float specularV = u();
-  const vec3 Hlocal = sampleGGXVNDF(Vlocal, alpha, specularU, specularV);
-  const float VdotH = fmaxf(dot(Vlocal, Hlocal), 0.0f);
-  const vec3 Fh = evalFresnelWithIridescence(state, F0, F90, VdotH);
-
-  const vec3 Lrefl = glm::reflect(-Vlocal, Hlocal);
-  const vec3 Ltrans = glm::refract(-Vlocal, Hlocal, state->eta);
-  const bool totalInternalReflection =
-      hasTransmission && (glm::length(Ltrans) < 1e-6f || Ltrans.z >= 0.0f);
-
-  const vec3 reflectEnergy = totalInternalReflection ? vec3(1.0f) : Fh;
-  const vec3 transmitEnergy = totalInternalReflection
-      ? vec3(0.0f)
-      : glm::max(vec3(1.0f) - Fh, vec3(0.0f)) * transmissionFilter;
-  const float reflW = fmaxf(luminance(reflectEnergy), 0.0f);
-  const float transW = fmaxf(luminance(transmitEnergy), 0.0f);
-  const float specTotal = reflW + transW;
-  const float reflectGivenSpec = specTotal > 0.0f ? reflW / specTotal : 1.0f;
-
-  if (u() < reflectGivenSpec) {
-    if (Lrefl.z <= 0.0f)
-      return NextRay{N, vec3(0.0f), 0.0f};
-    const float NdotL = Lrefl.z;
-    const float G1 = smithG1GGX(NdotV, alpha2);
-    const float G2 = smithG2GGX(NdotV, NdotL, alpha2);
-    const vec3 Lworld = normalize(toWorld * Lrefl);
-    // VNDF: BRDF·cos/pdf = energy·G2/G1. Divide by the full reflect selection
-    // prob pSpec·reflectGivenSpec; the (1-clearcoatPick) factor cancels against
-    // the clearcoat entry attenuation, leaving only the exit attenuation.
-    const vec3 weight = reflectEnergy * (G2 / fmaxf(G1, 1e-8f))
-        * clearcoatExitAttn(Lworld) / fmaxf(pSpec * reflectGivenSpec, 1e-8f);
-    return NextRay{Lworld, weight, pbrBsdfPdf(state, V, Lworld)};
-  }
-
-  // Transmission lobe (through the surface).
-  const float NdotLt = -Ltrans.z;
-  const float G1t = smithG1GGX(NdotV, alpha2);
-  const float G2t = smithG2GGX(NdotV, NdotLt, alpha2);
-  const vec3 Ltworld = normalize(toWorld * Ltrans);
-  const vec3 weightT = transmitEnergy * (G2t / fmaxf(G1t, 1e-8f))
-      * clearcoatExitAttn(Ltworld)
-      / fmaxf(pSpec * (1.0f - reflectGivenSpec), 1e-8f);
-  // Through-surface escape: NEE's evalBsdf early-outs at NdotL<=0, so the
-  // env behind glass can only be reached by this continuation. Report +inf so
-  // env MIS gives it w_bsdf=1 (the escape owns it), matching the pre-MIS flag.
-  return NextRay{
-      Ltworld, weightT, INFINITY, NEXT_RAY_CONTINUES_THROUGH_SURFACE};
+  if (!(dot(state->geometricNormal, -ray->dir) > 0.f))
+    return deadNextRay();
+  // This categorical choice must be conditional-independent across bounces.
+  // Re-scrambling the SAME Sobol dimension at each bounce correlates its 1/8
+  // prefix intervals (e.g. multiple glass interfaces). Keep the old proposal's
+  // overlay order and use the path's PCG stream for the outer coin only.
+  const float choice = pcg_uniform(rs);
+  return sampleNativeReflection(state, ray, rs, qmc, choice);
 }
-
-//-----------------------------------------------------------------------------
-// BSDF sampling pdf at (wo, wi) for environment MIS — the same closed-form
-// density nextRay reports in NextRay.pdf, so NEE-side and escape-side weights
-// agree. Both directions are world space.
-//-----------------------------------------------------------------------------
 
 VISRTX_CALLABLE float __direct_callable__evaluatePdf(
     const PhysicallyBasedShadingState *state, const vec3 *wo, const vec3 *wi)

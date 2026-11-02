@@ -58,25 +58,58 @@ enum NextRayFlags : uint32_t
   NEXT_RAY_CONTINUES_THROUGH_SURFACE = 1u << 0
 };
 
+// Unclassified is an internal/default sentinel, not permission for source
+// replacement. Built-in live producers supply explicit measure tags. Never
+// infer singularity from the legacy +inf environment-ownership sentinel.
+enum class NextRayEvent : uint32_t
+{
+  Unclassified,
+  Dead,
+  Continuous,
+  Singular
+};
+
+enum class NextRayComponent : uint32_t
+{
+  None,
+  NativeReflection,
+  NativeTransmission,
+  MDL
+};
+
 // Describes the next ray to be traced, as a result of the EvaluateNextRay call.
 struct NextRay
 {
-  vec3 direction;
-  vec3 contributionWeight;
+  vec3 direction{0.f};
+  vec3 contributionWeight{0.f};
   // Solid-angle pdf of `direction`, used for balance-heuristic environment MIS.
   // +inf marks a lobe whose env contribution the escape estimator owns outright
-  // (primary ray, transmission); 0 marks a dead ray. Must equal the value the
-  // material's EvaluatePdf callable returns for the same direction on the
+  // (primary ray, transmission). Explicit event==Dead is authoritative; do not
+  // use a raw SDK pdf of zero to kill a live delta event. Must equal the value
+  // the material's EvaluatePdf callable returns for the same direction on the
   // reflection side, so NEE-side and escape-side MIS weights partition to 1.
   float pdf{INFINITY};
   uint32_t flags{NEXT_RAY_NONE};
+  NextRayEvent event{NextRayEvent::Unclassified};
+  uint32_t mdlEventMask{0}; // raw SDK output bits; zero for non-MDL producers
+  NextRayComponent component{NextRayComponent::None};
 };
+
+VISRTX_HOST_DEVICE NextRay deadNextRay()
+{
+  return {vec3(0.f), vec3(0.f), 0.f, NEXT_RAY_NONE, NextRayEvent::Dead, 0};
+}
+VISRTX_HOST_DEVICE bool isDead(const NextRay &ray)
+{
+  return ray.event == NextRayEvent::Dead;
+}
 
 // Optional Sobol overlay for EvaluateNextRay. First `n` uniforms come from
 // u[0..n); the rest fall back to PCG. n==0 means all PCG; Interactive uses
 // nullptr by default. Quality fills n=4 from Sobol dims 8–11 per surface
-// vertex, with bounce/transparency reseeding. Categorical material decisions
-// consume this same branch-dependent sequence, not a separate PCG stream.
+// vertex, with bounce/transparency reseeding. The retained native proposal and
+// MDL xi consume this branch-dependent sequence. Native's independent outer
+// support-mixture coin uses PCG, not a reused Sobol prefix across bounces.
 // Initialize cursor=0. Non-null overlays require 0<=n<=4, 0<=cursor<=n;
 // exhausted cursors saturate at n. Null overlays require cursor=0 and leave it
 // unchanged. Invalid states abort/trap even with NDEBUG. PCG must be valid
@@ -112,6 +145,7 @@ struct MatteShadingState
 struct PhysicallyBasedShadingState
 {
   vec3 baseColor;
+  vec3 geometricNormal;
   // The BSDF uses the view-adjusted normal (adjustNormalForView.h). The normal
   // AOV reports shadingNormal, before the view-dependent adjustment.
   vec3 viewAdjustedNormal;

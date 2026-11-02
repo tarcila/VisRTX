@@ -50,7 +50,7 @@ text = mdl.read_text()
 start = text.index("  int qmcCursor = 0;", text.index("NextRay __direct_callable__nextRay("))
 end = text.index("\n\n  mdlBsdf_sample", start)
 content += '#include <vector_functions.h>\n'
-content += 'float4 mdlXi(RandState *rs, const NextRayQmc *qmc) {\nstruct { float4 xi; } sample_data;\n'
+content += 'VISRTX_DEVICE float4 mdlXi(RandState *rs, const NextRayQmc *qmc) {\nstruct { float4 xi; } sample_data;\n'
 content += f'#line {text.count(chr(10), 0, start) + 1} "{mdl}"\n'
 content += text[start:end] + '\nreturn sample_data.xi;\n}\n'
 # Rectangle coordinate expression is also compiled by the host, whose C++
@@ -60,14 +60,14 @@ text = light.read_text()
 start = text.index("  auto u =", text.index("VISRTX_DEVICE LightSample sampleRectLight("))
 end = text.index("\n\n  // Uniform sampling on rectangle", start)
 content += '#include "gpu/owenSobol.h"\n'
-content += 'vec2 rectCoordinates(RandState &rs, bool useQmc = false, uint32_t sampleIndex = 0, uint32_t pixelSeed = 0) {\n'
+content += 'VISRTX_DEVICE vec2 rectCoordinates(RandState &rs, bool useQmc = false, uint32_t sampleIndex = 0, uint32_t pixelSeed = 0) {\n'
 content += f'#line {text.count(chr(10), 0, start) + 1} "{light}"\n'
 content += text[start:end] + '\nreturn uv;\n}\n'
 content += '#include <cub/thread/thread_search.cuh>\n'
 content += 'template <typename T>\n' + functions(light, lambda s: 'int inverseSampleCDF(' in s)
 start = text.index("  auto u =", text.index("VISRTX_DEVICE LightSample sampleHDRILight(const LightGPUData &ld,\n    const mat4 &xfm,\n    RandState &rs,"))
 end = text.index("\n\n  // Convert UV coordinates", start)
-content += 'vec2 hdriCoordinates(const LightGPUData &ld, RandState &rs, bool useQmc = false, uint32_t sampleIndex = 0, uint32_t pixelSeed = 0) {\n'
+content += 'VISRTX_DEVICE vec2 hdriCoordinates(const LightGPUData &ld, RandState &rs, bool useQmc = false, uint32_t sampleIndex = 0, uint32_t pixelSeed = 0) {\n'
 content += f'#line {text.count(chr(10), 0, start) + 1} "{light}"\n'
 content += text[start:end] + '\nreturn uv;\n}\n'
 output.write_text(content)

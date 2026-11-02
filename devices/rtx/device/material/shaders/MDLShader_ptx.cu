@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "MDLSample.h"
 #include "gpu/adjustNormalForView.h"
 #include "gpu/evalMaterialParameters.h"
 #include "gpu/gpu_decl.h"
@@ -243,29 +244,8 @@ NextRay __direct_callable__nextRay(const MDLShadingState *shadingState,
       &shadingState->resData,
       shadingState->argBlock);
 
-  const vec3 direction(sample_data.k2.x, sample_data.k2.y, sample_data.k2.z);
-  const vec3 N = normalize(make_vec3(shadingState->state.normal));
-  const uint32_t flags = dot(ray->dir, N) * dot(direction, N) > 0.0f
-      ? NEXT_RAY_CONTINUES_THROUGH_SURFACE
-      : NEXT_RAY_NONE;
-
-  // Env-MIS solid-angle pdf for the sampled direction, matching
-  // __direct_callable__evaluatePdf so the balance heuristic partitions to 1.
-  // A specular (delta) lobe can't be evaluated by NEE, and a through-surface
-  // continuation is past the NEE hemisphere gate — both report +inf so the BSDF
-  // escape owns the environment (w_bsdf = 1). Glossy/diffuse reflections report
-  // the finite sampling pdf and are MIS-combined with NEE.
-  const bool isSpecular =
-      (sample_data.event_type & mi::neuraylib::BSDF_EVENT_SPECULAR) != 0;
-  const float pdf = (isSpecular || (flags & NEXT_RAY_CONTINUES_THROUGH_SURFACE))
-      ? INFINITY
-      : sample_data.pdf;
-  return NextRay{direction,
-      vec3(sample_data.bsdf_over_pdf.x,
-          sample_data.bsdf_over_pdf.y,
-          sample_data.bsdf_over_pdf.z),
-      pdf,
-      flags};
+  return consumeMdlSample(sample_data, ray->dir,
+      make_vec3(shadingState->state.normal));
 }
 
 // Signature must match the call inside shaderMDLSurface in MDLShader.cuh.

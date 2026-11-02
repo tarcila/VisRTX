@@ -1,0 +1,20 @@
+// Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: BSD-3-Clause
+mdl 1.7;
+import ::df::*;
+export material black() = material(surface: material_surface(
+    scattering: df::diffuse_reflection_bsdf(tint: color(0))));
+export material diffuse() = material(surface: material_surface(
+    scattering: df::diffuse_reflection_bsdf(tint: color(0.6,0.4,0.2))));
+export material mirror() = material(surface: material_surface(
+    scattering: df::specular_bsdf(tint: color(0.6,0.4,0.2),mode: df::scatter_reflect)));
+export material transmit() = material(thin_walled: true,ior: color(1.5),
+    surface: material_surface(scattering: df::specular_bsdf(
+        tint: color(0.6,0.4,0.2),mode: df::scatter_transmit)));
+export material mixed() = material(surface: material_surface(
+    scattering: df::normalized_mix(df::bsdf_component[](
+        df::bsdf_component(0.5,df::diffuse_reflection_bsdf(tint: color(0.6,0.4,0.2))),
+        df::bsdf_component(0.5,df::specular_bsdf(tint: color(0.6,0.4,0.2),mode: df::scatter_reflect))))));
+export material glossy() = material(surface: material_surface(
+    scattering: df::microfacet_ggx_smith_bsdf(roughness_u: 0.4,roughness_v: 0.2,
+        tint: color(0.6,0.4,0.2),mode: df::scatter_reflect)));

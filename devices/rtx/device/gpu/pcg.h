@@ -54,7 +54,7 @@ struct PCGState
 
 namespace detail {
 
-VISRTX_DEVICE uint64_t pcg_mix64(uint64_t v)
+VISRTX_HOST_DEVICE uint64_t pcg_mix64(uint64_t v)
 {
   v += 0x9E3779B97F4A7C15ULL;
   v = (v ^ (v >> 30u)) * 0xBF58476D1CE4E5B9ULL;
@@ -64,7 +64,7 @@ VISRTX_DEVICE uint64_t pcg_mix64(uint64_t v)
 
 // One step of the PCG-XSH-RR-32 permutation. Internal helper; callers want
 // pcg_uniform / pcg_uniform4 below.
-VISRTX_DEVICE uint32_t pcg_advance(PCGState *s)
+VISRTX_HOST_DEVICE uint32_t pcg_advance(PCGState *s)
 {
   // LCG multiplier constants from PCG canonical implementation.
   constexpr uint64_t LCG_MULT = 6364136223846793005ULL;
@@ -83,7 +83,7 @@ VISRTX_DEVICE uint32_t pcg_advance(PCGState *s)
 // `| 1u` ensures this). Callers should hash structured keys before passing
 // them here; adjacent stream IDs with tiny seeds can show visible structure
 // when a pixel consumes only the first few outputs.
-VISRTX_DEVICE void pcg_init(PCGState *s, uint64_t seed, uint64_t streamId)
+VISRTX_HOST_DEVICE void pcg_init(PCGState *s, uint64_t seed, uint64_t streamId)
 {
   s->state = 0u;
   s->inc = (streamId << 1u) | 1u;

@@ -131,6 +131,27 @@ target_compile_definitions(rtx_test_DrawOrder PRIVATE GLM_ENABLE_EXPERIMENTAL)
 target_compile_features(rtx_test_DrawOrder PRIVATE cxx_std_17)
 add_test(NAME rtx::DrawOrder COMMAND rtx_test_DrawOrder)
 
+# Native reflection against independent double algebra and angular-bin integrals.
+add_executable(rtx_test_NativeReflection test_NativeReflection.cpp ${draw_order_header})
+add_executable(rtx_test_NativeReflectionCUDA test_NativeReflection.cpp test_NativeReflection.cu ${draw_order_header})
+add_executable(rtx_test_NativeReflectionCUDAFastMath test_NativeReflection.cpp test_NativeReflection.cu ${draw_order_header})
+target_compile_definitions(rtx_test_NativeReflectionCUDA PRIVATE NATIVE_CUDA)
+target_compile_definitions(rtx_test_NativeReflectionCUDAFastMath PRIVATE NATIVE_CUDA)
+foreach(target rtx_test_NativeReflection rtx_test_NativeReflectionCUDA rtx_test_NativeReflectionCUDAFastMath)
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device
+    ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+  target_link_libraries(${target} PRIVATE visrtx::glm anari::anari_headers OptiX::OptiX CUDA::cudart)
+  target_compile_definitions(${target} PRIVATE GLM_ENABLE_EXPERIMENTAL)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  set_target_properties(${target} PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+  add_test(NAME ${test_name} COMMAND ${target})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 180)
+endforeach()
+target_compile_options(rtx_test_NativeReflectionCUDAFastMath PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+
 add_executable(rtx_test_LightDrawOrder test_LightDrawOrder.cu)
 target_include_directories(rtx_test_LightDrawOrder PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/../../../device
@@ -503,3 +524,61 @@ if (VISRTX_ENABLE_MDL_SUPPORT)
   target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
   add_test(NAME rtx::MdlSceneDataInstance COMMAND ${PROJECT_NAME})
 endif()
+
+# Actual MDL sample consumer, including rejected samples with stale outputs.
+if(VISRTX_ENABLE_MDL_SUPPORT)
+  add_executable(rtx_test_MDLSample test_MDLSample.cpp)
+  add_executable(rtx_test_MDLSampleCUDA test_MDLSample.cu)
+  add_executable(rtx_test_MDLSampleCUDAFastMath test_MDLSample.cu)
+  foreach(target rtx_test_MDLSample rtx_test_MDLSampleCUDA rtx_test_MDLSampleCUDAFastMath)
+    target_include_directories(${target} PRIVATE
+      ${CMAKE_CURRENT_LIST_DIR}/../../../device
+      ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+    target_link_libraries(${target} PRIVATE libmdl visrtx::glm anari::anari_headers OptiX::OptiX CUDA::cudart)
+    target_compile_definitions(${target} PRIVATE USE_MDL GLM_ENABLE_EXPERIMENTAL)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    set_target_properties(${target} PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+      target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-fast-math;-ffp-contract=off>)
+    endif()
+    string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+    add_test(NAME ${test_name} COMMAND ${target})
+    set_tests_properties(${test_name} PROPERTIES TIMEOUT 60)
+  endforeach()
+  target_compile_options(rtx_test_MDLSampleCUDAFastMath PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+endif()
+
+# Real Core-generated MDL targets + production resource/wrapper PTX in OptiX.
+if(VISRTX_ENABLE_MDL_SUPPORT AND UNIX)
+  add_library(rtx_MdlTargetProbePTX OBJECT mdlTargets/probe_ptx.cu)
+  target_include_directories(rtx_MdlTargetProbePTX PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device
+    ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+  target_link_libraries(rtx_MdlTargetProbePTX PRIVATE libmdl visrtx::glm anari::anari_headers OptiX::OptiX CUDA::cudart)
+  target_compile_definitions(rtx_MdlTargetProbePTX PRIVATE USE_MDL GLM_ENABLE_EXPERIMENTAL)
+  set_target_properties(rtx_MdlTargetProbePTX PROPERTIES CUDA_PTX_COMPILATION ON
+    CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON CUDA_ARCHITECTURES ${VISRTX_MIN_ARCH})
+  target_compile_options(rtx_MdlTargetProbePTX PRIVATE --use_fast_math --expt-relaxed-constexpr)
+  add_executable(rtx_test_MdlGeneratedTargets test_MdlGeneratedTargets.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device/utility/MemoryAllocation.cpp)
+  add_dependencies(rtx_test_MdlGeneratedTargets rtx_MdlTargetProbePTX MDLTexture_ptx MDLShader_ptx)
+  target_include_directories(rtx_test_MdlGeneratedTargets PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../../device
+    ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
+  target_link_libraries(rtx_test_MdlGeneratedTargets PRIVATE anari_library_visrtx
+    anari::anari_static anari::helium libmdl fmt::fmt visrtx::glm OptiX::OptiX CUDA::cudart ${CMAKE_DL_LIBS})
+  target_compile_features(rtx_test_MdlGeneratedTargets PRIVATE cxx_std_17)
+  target_compile_definitions(rtx_test_MdlGeneratedTargets PRIVATE
+    $<TARGET_PROPERTY:anari_library_visrtx,COMPILE_DEFINITIONS>
+    GLM_ENABLE_EXPERIMENTAL
+    MDL_TARGET_FIXTURES="${CMAKE_CURRENT_LIST_DIR}/mdlTargets/fixtures.mdl"
+    MDL_TARGET_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/mdl-target-qualification/$<CONFIG>"
+    MDL_TARGET_PROBE_PTX="$<TARGET_OBJECTS:rtx_MdlTargetProbePTX>"
+    MDL_TEXTURE_PTX="$<TARGET_OBJECTS:MDLTexture_ptx>"
+    MDL_SHADER_PTX="$<TARGET_OBJECTS:MDLShader_ptx>")
+  add_test(NAME rtx::MdlGeneratedTargets COMMAND rtx_test_MdlGeneratedTargets)
+  set_tests_properties(rtx::MdlGeneratedTargets PROPERTIES TIMEOUT 180
+    ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+endif()
+

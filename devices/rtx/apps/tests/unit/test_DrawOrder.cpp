@@ -18,10 +18,19 @@ void direction(const vec3 &actual, const vec3 &expected, const char *what)
 {
   check(glm::length(actual - expected) < 1e-6f, what);
 }
+NextRay oldProposal(const PhysicallyBasedShadingState *s,
+    const Ray *ray,
+    RandState *rng,
+    const NextRayQmc *q)
+{
+  int cursor = 0;
+  return sampleNativeProposal(s, ray, rng, q, cursor);
+}
 PhysicallyBasedShadingState material()
 {
   PhysicallyBasedShadingState s{};
   s.baseColor = vec3(1.f);
+  s.geometricNormal = vec3(0, 0, 1);
   s.viewAdjustedNormal = s.viewAdjustedClearcoatNormal = vec3(0, 0, 1);
   s.roughness = s.clearcoatRoughness = .3f;
   s.eta = 1.f / 1.5f;
@@ -39,10 +48,37 @@ int main()
   RandState rng;
   pcg_init(&rng, 42, 7);
   const auto before = rng;
+  {
+    NextRayQmc safe{{.25f, .125f, 0.f, 0.f}, 2};
+    const auto result = sampleNativeReflection(&s, &ray, &rng, &safe, .01f);
+    const float radius = std::sqrt(1.f - .75f * .75f);
+    direction(result.direction,
+        vec3(radius * std::cos(kPi / 4), radius * std::sin(kPi / 4), .75f),
+        "safe proposal consumes polar/azimuth in order");
+    check(rng.state == before.state,
+        "forced safe proposal consumes exactly two overlay draws");
+    NextRayQmc old{{.9f, .25f, .125f, 0.f}, 3};
+    const auto reflected = sampleNativeReflection(&s, &ray, &rng, &old, .5f);
+    direction(reflected.direction,
+        vec3(.5f * std::cos(kPi / 4), .5f * std::sin(kPi / 4), std::sqrt(.75f)),
+        "old proposal retains overlay draw order");
+    check(rng.state == before.state,
+        "forced old diffuse path consumes three overlay draws");
+    auto expected = before;
+    const float choice = pcg_uniform(&expected);
+    const auto manual =
+        sampleNativeReflection(&s, &ray, &expected, &old, choice);
+    const auto sampled = __direct_callable__nextRay(&s, &ray, &rng, &old);
+    direction(
+        sampled.direction, manual.direction, "production outer coin is PCG");
+    check(rng.state == expected.state,
+        "production outer coin advances PCG independently of overlay");
+    rng = before;
+  }
   // No coat: base pick, then hemisphere u before v. Tagged values deliberately
   // differ, so swapping the arguments changes the observed outgoing direction.
   NextRayQmc q{{.9f, .25f, .125f, .75f}, 3};
-  auto result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  auto result = oldProposal(&s, &ray, &rng, &q);
   const float r = .5f;
   direction(result.direction,
       vec3(r * std::cos(kPi / 4), r * std::sin(kPi / 4), std::sqrt(.75f)),
@@ -51,7 +87,7 @@ int main()
   // Coat selected: selection, VNDF radius, then VNDF azimuth; no base draw.
   s.clearcoat = 1.f;
   q = {{.01f, .25f, .125f, .99f}, 3};
-  result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  result = oldProposal(&s, &ray, &rng, &q);
   const vec3 h = glm::normalize(vec3(.09f * .5f * std::cos(kPi / 4),
       .09f * .5f * std::sin(kPi / 4),
       std::sqrt(.75f)));
@@ -62,7 +98,7 @@ int main()
       rng.state == before.state, "selected coat does not request a fifth draw");
   // Rejected coat + diffuse consumes exactly four supplied values.
   q = {{.99f, .9f, .25f, .125f}, 4};
-  result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  result = oldProposal(&s, &ray, &rng, &q);
   direction(result.direction,
       vec3(r * std::cos(kPi / 4), r * std::sin(kPi / 4), std::sqrt(.75f)),
       "coat rejected diffuse keeps sequential roles");
@@ -73,7 +109,7 @@ int main()
   q = {{.99f, 0.f, .25f, .125f}, 4};
   auto expectedRng = before;
   (void)pcg_uniform(&expectedRng);
-  result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  result = oldProposal(&s, &ray, &rng, &q);
   direction(result.direction, reflection, "base VNDF assigns u before v");
   check(rng.state == expectedRng.state && rng.inc == expectedRng.inc,
       "fifth request takes exactly one PCG draw");
@@ -122,7 +158,7 @@ int main()
   s = material();
   rng = before;
   q = {{0.f, .25f, .125f, .5f}, 4};
-  result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  result = oldProposal(&s, &ray, &rng, &q);
   direction(
       result.direction, reflection, "no-coat specular uses draws 1/2 for VNDF");
   check(rng.state == before.state,
@@ -136,7 +172,7 @@ int main()
   const float reflectPick = pcg_uniform(&expectedRng);
   check(reflectPick > .1f,
       "controlled PCG selects transmission for this fixture");
-  result = __direct_callable__nextRay(&s, &ray, &rng, &q);
+  result = oldProposal(&s, &ray, &rng, &q);
   const float eta = s.eta;
   const float cosT = std::sqrt(1.f - eta * eta * (1.f - h.z * h.z));
   const vec3 refracted = glm::normalize(vec3((eta * h.z - cosT) * h.x,
@@ -152,9 +188,10 @@ int main()
   auto dead = [&](const char *label, int count) {
     rng = before;
     q.n = count;
-    const auto next = __direct_callable__nextRay(&s, &ray, &rng, &q);
-    check(
-        next.pdf == 0.f && glm::length(next.contributionWeight) == 0.f, label);
+    const auto next = oldProposal(&s, &ray, &rng, &q);
+    check(isDead(next) && next.pdf == 0.f
+            && glm::length(next.contributionWeight) == 0.f,
+        label);
     check(rng.state == before.state,
         "early exit consumes no draws past its prefix");
   };

@@ -925,11 +925,13 @@ VISRTX_GLOBAL void __raygen__()
         // probability keeps NEE unbiased; an epsilon floor would drop it and
         // render it black in bright+dim scenes.
         if (lightSample.pdf > 0.0f && lightSample.dist > 0.0f) {
-          // Gate on the shading normal so the terminator follows the smooth
-          // surface; gating on Ng would carve the per-triangle facet shape
-          // into the lit/unlit boundary at grazing light angles.
+          // Native's common kernel owns geometric/base/coat support. Do not
+          // discard its independent coat merely because the proposal Ns is
+          // back-facing. Retain the existing gate for non-native materials.
           const float lightDotNs = dot(lightSample.dir, surfaceHit.Ns);
-          if (lightDotNs > 0.0f) {
+          if (shadingState.callableBaseIndex
+                  == uint32_t(SbtCallableEntryPoints::PBR)
+              || lightDotNs > 0.0f) {
             // The material returns f*cos; this integrator owns the light, its
             // pdf and the MIS weight.
             const vec3 fCos =
@@ -1057,6 +1059,12 @@ VISRTX_GLOBAL void __raygen__()
           nextQmc.u[d] =
               owenSobol(sampleIdx, kSobolDimNextRay0 + uint32_t(d), qmcSeed);
         auto nextRay = materialNextRay(shadingState, ray, ss.rs, &nextQmc);
+        if (isDead(nextRay)) {
+          // The accepted surface still covers the backdrop when it has no
+          // continuation. Do not consume direction/PDF/weight on dead events.
+          accumulateValue(sample.opacity, 1.0f, sample.opacity);
+          break;
+        }
         sampleContribution *= nextRay.contributionWeight;
 
         // Carry the bounce's solid-angle pdf for the env-MIS weight at a miss.

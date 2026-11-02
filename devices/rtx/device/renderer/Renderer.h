@@ -31,6 +31,8 @@
 
 #pragma once
 
+#include "gpu/gpu_decl.h"
+
 #include "Object.h"
 #include "array/Array2D.h"
 #include "gpu/gpu_objects.h"
@@ -163,7 +165,22 @@ struct Renderer : public Object
 #endif // defined(USE_MDL)
 };
 
-OptixPipelineCompileOptions makeVisRTXOptixPipelineCompileOptions();
+inline OptixPipelineCompileOptions makeVisRTXOptixPipelineCompileOptions()
+{
+  OptixPipelineCompileOptions pipelineCompileOptions = {};
+  pipelineCompileOptions.usesPrimitiveTypeFlags =
+      OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE | OPTIX_PRIMITIVE_TYPE_FLAGS_CUSTOM
+      | OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR;
+  pipelineCompileOptions.traversableGraphFlags =
+      OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+  pipelineCompileOptions.usesMotionBlur = false;
+  pipelineCompileOptions.numPayloadValues = PAYLOAD_VALUES;
+  pipelineCompileOptions.numAttributeValues = ATTRIBUTE_VALUES;
+  pipelineCompileOptions.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
+  pipelineCompileOptions.pipelineLaunchParamsVariableName = "frameData";
+
+  return pipelineCompileOptions;
+}
 
 } // namespace visrtx
 
