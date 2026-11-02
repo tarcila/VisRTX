@@ -184,7 +184,12 @@ VISRTX_HOST_DEVICE FlightResult trace(const AggregateVolumeSceneGPUData &scene,
   assert(sourceProposal > 0.);
   RadianceVisitor<RNG, Blackbody> visitor{random, blackbody, path, {}};
   visitor.result.distance = ray.upper;
-  candidates(scene, ray, sourceProposal, random, visitor);
+  // A true vertex with explicit source ownership has no continuation source
+  // term left to estimate. Its flight needs only the certified optical rate;
+  // a positive vacuum-source floor would generate pure no-op null events.
+  // Camera, transmission/delta and unqualified closures retain the full floor.
+  candidates(
+      scene, ray, path.sourceOwned ? sourceProposal : 0., random, visitor);
   return visitor.result;
 }
 

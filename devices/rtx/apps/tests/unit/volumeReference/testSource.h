@@ -79,6 +79,38 @@ struct Result
   double value[3]{};
   double distance{0.};
 };
+struct CountingRandom
+{
+  int draws{0};
+  VISRTX_HOST_DEVICE double next();
+};
+VISRTX_HOST_DEVICE double CountingRandom::next()
+{
+  ++draws;
+  return .5;
+}
+VISRTX_HOST_DEVICE bool unownedVacuumFlight()
+{
+  Fixture f(1);
+  const auto ray = aggregate_volume::worldDistanceRay(
+      {vec3(0, 0, -1), vec3(0, 0, 1), {0, 2}});
+  CountingRandom random;
+  Blackbody blackbody;
+  volume_tracking::PathState path;
+  path.sourceOwned = false;
+  const auto flight =
+      volume_tracking::trace(f.scene, ray, 100., random, blackbody, path);
+  if (flight.endpoint != volume_tracking::Endpoint::Boundary
+      || random.draws != 1)
+    return false;
+  for (int c = 0; c < 3; ++c)
+    if (path.throughput[c] != 1. || path.radiance[c] != 0.)
+      return false;
+  path.sourceOwned = true;
+  random.draws = 0;
+  volume_tracking::trace(f.scene, ray, 100., random, blackbody, path);
+  return random.draws > 100 && path.radiance[0] > 0.;
+}
 VISRTX_HOST_DEVICE Result trial(int id, int index)
 {
   Fixture f(id);
@@ -98,6 +130,8 @@ VISRTX_HOST_DEVICE Result trial(int id, int index)
         result.value[c] =
             .7 * cosine * sample.weight[c] / 3.14159265358979323846;
   }
+  if (index == 0 && !unownedVacuumFlight())
+    result.value[0] = NAN;
   return result;
 }
 inline void require(bool ok, const char *message)

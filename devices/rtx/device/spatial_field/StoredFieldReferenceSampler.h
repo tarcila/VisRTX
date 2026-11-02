@@ -147,7 +147,7 @@ ReferenceNanoValue<BuildT>::get(
 template <typename BuildT>
 struct NanoReferenceFetch
 {
-  const nanovdb::NanoGrid<BuildT> &grid;
+  typename nanovdb::NanoGrid<BuildT>::AccessorType accessor;
   VISRTX_HOST_DEVICE auto operator()(int x, int y, int z) const;
 };
 
@@ -156,7 +156,7 @@ VISRTX_HOST_DEVICE auto NanoReferenceFetch<BuildT>::operator()(
     int x, int y, int z) const
 {
   const nanovdb::Coord ijk(x, y, z);
-  return grid.tree().root().template get<ReferenceNanoValue<BuildT>>(ijk);
+  return accessor.template get<ReferenceNanoValue<BuildT>>(ijk);
 }
 
 template <typename Fetch>
@@ -249,7 +249,10 @@ VISRTX_HOST_DEVICE auto sampleNanoReference(
     if (field.cellCentered)
       x[c] = subtract(x[c], .5);
   }
-  return filterReference(field, x, NanoReferenceFetch<BuildT>{grid});
+  // Cache hierarchy traversal across the interpolation footprint, while
+  // retaining the exact represented endpoint decoder and filtering graph.
+  return filterReference(
+      field, x, NanoReferenceFetch<BuildT>{grid.getAccessor()});
 }
 
 } // namespace optical_reference

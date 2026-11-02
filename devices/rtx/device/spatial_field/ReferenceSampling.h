@@ -28,8 +28,15 @@ VISRTX_DEVICE T OptixReferenceFieldSampler<Preview>::sample(
   if constexpr (Preview) {
     // Share the FP32 sampler as a regular noinline device function, avoiding
     // an OptiX callable transition for every camera sample.
-    if (!fields[index].customProvider)
+    if (!fields[index].customProvider) {
+      // Keep the common float NanoVDB path local to the caller instead of
+      // crossing the all-format noinline sampler for every quadrature point.
+      if constexpr (std::is_same_v<T, float>)
+        if (fields[index].sparse
+            && fields[index].gridType == nanovdb::GridType::Float)
+          return preview_math::sparse<float>(fields[index], p);
       return StoredFieldPreviewSampler{fields}.sample<T>(index, p);
+    }
   }
   constexpr auto slot = std::is_same_v<T, float>
       ? SbtCallableEntryPoints::ReferenceFieldScalar
