@@ -2,7 +2,9 @@
 from pathlib import Path
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
+# Use the versioned, attributed datasets rather than local calibration downloads.
+ROOT = (Path(__file__).resolve().parents[2]
+        / 'devices/rtx/device/gpu/blackbody/data')
 XYZ_TO_RGB = np.array([[3.2404542, -1.5371385, -.4985314],
                        [-.969266, 1.8760108, .041556],
                        [.0556434, -.2040259, 1.0572252]])
