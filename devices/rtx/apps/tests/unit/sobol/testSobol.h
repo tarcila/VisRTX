@@ -99,7 +99,7 @@ struct Output
   float sample, converted;
   ::float2 hemi;
   uint32_t haltonKey;
-  ::float4 camera, rawCamera;
+  ::float4 camera, rawCamera, seededCamera;
 };
 
 // Both executables call exactly these production seams. The independent
@@ -123,7 +123,8 @@ VISRTX_HOST_DEVICE Output evaluate(Input in)
       visrtx::owenSobolHemi(in.index, vertexKey),
       visrtx::haltonPixelHash(in.x, in.y),
       visrtx::halton4D(in.index + visrtx::haltonPixelHash(in.x, in.y)),
-      visrtx::halton4D(in.index)};
+      visrtx::halton4D(in.index),
+      visrtx::haltonCamera(in.index, in.x, in.y, in.seed)};
 }
 
 // Halton is float arithmetic, not an integer Sobol grid: allow 4 float ulps
@@ -247,7 +248,11 @@ static void checkDevice(const std::vector<Input> &inputs)
             && a.raw == b.raw && a.reversed == b.reversed
             && a.scrambled == b.scrambled && sameFloat(a.sample, b.sample)
             && sameFloat(a.converted, b.converted)
-            && sameFloat(a.hemi.x, b.hemi.x) && sameFloat(a.hemi.y, b.hemi.y),
+            && sameFloat(a.hemi.x, b.hemi.x) && sameFloat(a.hemi.y, b.hemi.y)
+            && sameFloat(a.seededCamera.x, b.seededCamera.x)
+            && sameFloat(a.seededCamera.y, b.seededCamera.y)
+            && sameFloat(a.seededCamera.z, b.seededCamera.z)
+            && sameFloat(a.seededCamera.w, b.seededCamera.w),
         "host/device mismatch at vector " + std::to_string(i));
   }
   std::cout << inputs.size() << " exact host/CUDA vector comparisons\n";

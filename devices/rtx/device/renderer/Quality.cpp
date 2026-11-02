@@ -39,14 +39,16 @@ namespace visrtx {
 
 // Shadow rays name no light-proxy CH: they never set a proxy visibility bit, so
 // a light can neither shadow the scene nor shadow itself (ADR 0009).
-static const std::array<HitgroupFunctionNames, 2> g_qualityHitNames = {
+static const std::array<HitgroupFunctionNames, 3> g_qualityHitNames = {
     HitgroupFunctionNames{"__closesthit__shading",
         "__anyhit__shading",
         "__closesthit__lightProxy"},
-    HitgroupFunctionNames{"__closesthit__shadow", "__anyhit__shadow"}};
+    HitgroupFunctionNames{"__closesthit__shadow", "__anyhit__shadow"},
+    HitgroupFunctionNames{
+        "__closesthit__volumeSource", "__anyhit__volumeSource"}};
 
-static const auto g_qualityMissNames =
-    std::array<std::string, 2>{"__miss__shading", "__miss__shadow"};
+static const auto g_qualityMissNames = std::array<std::string, 3>{
+    "__miss__shading", "__miss__shadow", "__miss__volumeSource"};
 
 Quality::Quality(DeviceGlobalState *s) : Renderer(s) {}
 
@@ -54,15 +56,28 @@ void Quality::commitParameters()
 {
   Renderer::commitParameters();
   m_fog = parseFogParameters().value_or(FogGPUData{});
+  m_randomSeed = getParam<uint32_t>("randomSeed", 0u);
   m_maxRayDepth = std::max(getParam<int>("maxRayDepth", 12), 1);
-  m_maxTransparencyDepth = std::max(getParam<int>("maxTransparencyDepth", 32), 0);
+  m_maxTransparencyDepth =
+      std::max(getParam<int>("maxTransparencyDepth", 32), 0);
 }
 
 void Quality::populateFrameData(FrameGPUData &fd) const
 {
   Renderer::populateFrameData(fd);
   fd.renderer.params.quality.maxRayDepth = m_maxRayDepth;
+  fd.renderer.params.quality.randomSeed = m_randomSeed;
   fd.renderer.params.quality.maxTransparencyDepth = m_maxTransparencyDepth;
+}
+
+bool Quality::usesReferenceVolumes() const
+{
+  return true;
+}
+
+bool Quality::usesVolumeTrackingCallables() const
+{
+  return true;
 }
 
 OptixModule Quality::optixModule() const

@@ -761,9 +761,19 @@ int testQualityVolume(Scene &scene, bool scattering)
   configureObliqueRayBuffer(scene);
   anari::setParameter(
       d, scene.renderer, "ambientRadiance", scattering ? 1.f : 0.f);
-  auto volume =
-      slab(d, 2.f, scattering ? Vec3{0.4f, 0.3f, 0.2f} : Vec3{}, 20.f);
+  // TF is now emission-absorption in Quality. Use a principled slab for the
+  // actual scattering/fog interaction instead of silently testing TF emission.
+  auto volume = scattering
+      ? anari::newObject<anari::Volume>(d, "principledVolume")
+      : slab(d, 2.f, Vec3{}, 20.f);
   const ObjectOwner volumeOwner(d, volume);
+  if (scattering) {
+    const float bounds[6]{-20, -20, 3, 20, 20, 5};
+    anariSetParameter(d, volume, "bounds", ANARI_FLOAT32_BOX3, bounds);
+    anari::setParameter(d, volume, "transmissionColor", Vec3{.5f, .5f, .5f});
+    anari::setParameter(d, volume, "scatteringColor", Vec3{.4f, .3f, .2f});
+    anari::commitParameters(d, volume);
+  }
   scene.attach({}, {}, volume);
   scene.fog("none");
   const std::string medium = scattering ? "scattering" : "absorbing";
@@ -781,8 +791,18 @@ int testQualityVolume(Scene &scene, bool scattering)
       continue;
     }
     volumeRadiance += (only.color[p][0] - survival * BACKDROP[0]) / 240.;
-    metadata &= only.object[p] == 77u && only.primitive[p] == 77u
-        && std::isfinite(only.depth[p]) && only.depth[p] > 0.f;
+    if (!scattering)
+      metadata &= only.object[p] == 77u && only.primitive[p] == 77u
+          && std::isfinite(only.depth[p]) && only.depth[p] > 0.f;
+    else {
+      // Principled picking is deferred; its public optical-event normal is
+      // zero and albedo is an unconditioned first-event average.
+      metadata &= only.normal[p] == Vec3{};
+      const Vec3 albedo{.4f, .3f, .2f};
+      for (unsigned c = 0; c < 3; ++c)
+        metadata &=
+            only.albedo[p][c] >= 0.f && only.albedo[p][c] <= albedo[c] + 1e-6f;
+    }
     for (unsigned c = 0; c < 3; ++c)
       if (!scattering)
         expected[p][c] = survival * BACKDROP[c];

@@ -2,9 +2,10 @@
 
 `device/gpu/volumeOpticsReference.h` is an isolated CPU/CUDA seam in
 `visrtx::optical_reference`. This record describes its initial numerical
-qualification. Experimental Interactive/default now call it through the
-[aggregate layer](aggregate-volume-reference.md) and
-[preview transport](interactive-volume-preview.md); other renderers retain legacy
+qualification. Experimental Interactive/default retain it as the oracle and
+wide fallback through the [aggregate layer](aggregate-volume-reference.md).
+Ordinary preview execution now uses a separate [FP32 quadrature path](interactive-volume-fp32.md),
+which does not consume these bounds as majorants. Other renderers retain legacy
 transport. Optical-core tests alone do not qualify complete renderer behavior.
 
 ## Interface and preconditions
@@ -30,7 +31,8 @@ transport. Optical-core tests alone do not qualify complete renderer behavior.
 - `evaluateTransfer` takes committed **unit distance**, not its float reciprocal.
   It retains the legacy TF opacity ceiling `1-2^-24` and epsilon `1e-7`; nonpositive
   distance returns zero. `buildTransferBounds` requires a positive finite distance
-  range. No existing TF caller has migrated to this path yet.
+  range. Interactive/default use this conversion in the wide fallback and its
+  matching TF policy in FP32 preview; other renderers retain legacy TF transport.
 
 Host execution requires IEEE binary32/binary64, round-to-nearest, gradual
 underflow, and no unsafe reassociation/fast-math. Host RN operations use volatile

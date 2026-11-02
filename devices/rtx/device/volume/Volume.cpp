@@ -57,6 +57,7 @@ void Volume::commitParameters()
 void Volume::markFinalized()
 {
   Object::markFinalized();
+  m_sourceImportance.reset();
   // No BLAS bump — most volume finalizations are TF tweaks; AABB stays put.
 }
 
@@ -73,6 +74,12 @@ VolumeType Volume::volumeType() const
 ReferenceVolumeGPUData Volume::referenceVolume()
 {
   return {};
+}
+
+ReferenceVolumeGPUData Volume::withSourceImportance(ReferenceVolumeGPUData view)
+{
+  view.sourceImportance = m_sourceImportance.prepare(view);
+  return view;
 }
 
 OptixBuildInput Volume::buildInput() const

@@ -17,7 +17,7 @@ static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559
 static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559
     && std::numeric_limits<double>::digits == 53);
 
-// This seam is not used by renderer dispatch yet. Inputs are valid effective
+// Controlled reference and wide-fallback arithmetic. Inputs are valid effective
 // float32 properties, not raw field ranges. Host callers require IEEE binary64,
 // round-to-nearest, gradual underflow and no unsafe-math/reassociation flags.
 // CUDA operations explicitly retain their rounding under --use_fast_math.
@@ -283,7 +283,11 @@ struct EffectiveRanges
 
 // Extinction/partition and explicit source only. Use the provider overload for
 // temperature-dependent source; the phase parameters remain unchanged in v.
-VISRTX_HOST_DEVICE Coefficients evaluate(const PrincipledVolumeValues &v)
+// A supplied log must be the reference negativeLog() of each effective color.
+// Only this invariant is cached; density multiplication and distance division
+// retain their original rounding/order. Null keeps the uncached reference path.
+VISRTX_HOST_DEVICE Coefficients evaluateOptical(
+    const PrincipledVolumeValues &v, const double *transmissionLog)
 {
   Coefficients result;
   const double density = promote(v.density);
@@ -292,8 +296,10 @@ VISRTX_HOST_DEVICE Coefficients evaluate(const PrincipledVolumeValues &v)
     result.emission[c] = promote(v.emission[c]);
     if (density == 0. || floatBits(v.transmissionColor[c]) == 0x3f800000u)
       continue;
-    const double e = divide(
-        multiply(negativeLog(v.transmissionColor[c]), density), distance);
+    const double logValue = transmissionLog
+        ? transmissionLog[c]
+        : negativeLog(v.transmissionColor[c]);
+    const double e = divide(multiply(logValue, density), distance);
     const double albedo = promote(v.scatteringColor[c]);
     result.scattering[c] = multiply(e, albedo);
     result.absorption[c] = multiply(e, subtract(1., albedo));
@@ -301,13 +307,19 @@ VISRTX_HOST_DEVICE Coefficients evaluate(const PrincipledVolumeValues &v)
   return result;
 }
 
+VISRTX_HOST_DEVICE Coefficients evaluate(const PrincipledVolumeValues &v)
+{
+  return evaluateOptical(v, nullptr);
+}
+
 // Provider returns calibrated RGB, as in the existing optical seam. Thermal
 // coupling retains double A; no narrowing before multiplication by blackbody.
 template <typename Blackbody>
-VISRTX_HOST_DEVICE Coefficients evaluate(
-    const PrincipledVolumeValues &v, Blackbody &blackbody)
+VISRTX_HOST_DEVICE Coefficients evaluate(const PrincipledVolumeValues &v,
+    Blackbody &blackbody,
+    const double *transmissionLog = nullptr)
 {
-  Coefficients result = evaluate(v);
+  Coefficients result = evaluateOptical(v, transmissionLog);
   double weights[3];
   bool hasThermal = false;
   for (int c = 0; c < 3; ++c) {
@@ -336,8 +348,9 @@ VISRTX_HOST_DEVICE bool validRange(
       && hi <= maximum;
 }
 
-VISRTX_HOST_DEVICE bool buildBounds(
-    const EffectiveRanges &ranges, Bounds &output)
+VISRTX_HOST_DEVICE bool buildBounds(const EffectiveRanges &ranges,
+    Bounds &output,
+    const vec3 *constantAlbedo = nullptr)
 {
   const double maxFloat = promote(std::numeric_limits<float>::max());
   if (!validRange(ranges.density, 0., maxFloat, false)
@@ -348,14 +361,25 @@ VISRTX_HOST_DEVICE bool buildBounds(
       return false;
   Bounds result;
   for (int c = 0; c < 3; ++c) {
+    if (constantAlbedo
+        && !validRange(
+            {(*constantAlbedo)[c], (*constantAlbedo)[c]}, 0., 1., false))
+      return false;
     const double e =
         divideUpper(multiplyUpper(negativeLogUpper(ranges.transmission[c]),
                         promote(ranges.density.upper)),
             promote(ranges.distance.lower));
-    // Effective albedo is in [0,1]. Each rounded partition is <= E. This
-    // intentionally loose bound needs no albedo-range provider capability.
-    result.absorption[c] = e;
-    result.scattering[c] = e;
+    // An unbound albedo is known without a provider range. Monotone upward
+    // products enclose the same rounded constant partition used by evaluate.
+    // Keep the loose E/E fallback for field-driven albedo: no new capability.
+    if (constantAlbedo) {
+      const double a = promote((*constantAlbedo)[c]);
+      result.absorption[c] = multiplyUpper(e, subtract(1., a));
+      result.scattering[c] = multiplyUpper(e, a);
+    } else {
+      result.absorption[c] = e;
+      result.scattering[c] = e;
+    }
   }
   output = result;
   return true;

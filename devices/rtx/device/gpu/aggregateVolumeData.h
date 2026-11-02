@@ -5,6 +5,7 @@
 
 #include "gpu_objects.h"
 #include "principledVolumeData.h"
+#include "sourceImportanceData.h"
 
 namespace visrtx {
 
@@ -28,7 +29,12 @@ struct ReferenceVolumeGPUData
   const PrincipledVolumeGPUData *principled{nullptr};
   const TransferFunctionReferenceGPUData *transfer{nullptr};
   double stepSize{0.}; // object-space resolution hint; not an optical length
-  DeviceObjectIndex registryIndex{-1}; // for frame-local legacy picking eligibility
+  DeviceObjectIndex registryIndex{
+      -1}; // for frame-local legacy picking eligibility
+  bool previewFloatEligible{false};
+  bool mightEmit{
+      true}; // conservative metadata; never inferred from density occupancy
+  SourceImportanceGPUData sourceImportance;
 };
 
 struct VolumeOccurrenceGPUData
@@ -39,6 +45,11 @@ struct VolumeOccurrenceGPUData
   ReferenceVolumeGPUData volume;
   size_t placement{0};
   size_t groupSlot{0};
+  glm::dvec3 sourceCenter{0.};
+  double sourceRadius{0.};
+  double sourceObjectToWorld[3][4]{};
+  double sourceWorldVolume{
+      0.}; // absolute affine Jacobian * object domain volume
 };
 
 struct AggregateVolumeSceneGPUData
@@ -47,6 +58,11 @@ struct AggregateVolumeSceneGPUData
   size_t count{0};
   bool complete{false};
   uint64_t generation{0}; // identity for this publication, not a lifetime lease
+  bool previewFloatEligible{false};
+  float previewOriginLimit{0.f};
+  size_t sourceCount{0};
+  bool sourceSamplingReady{false}; // complete proposal or continuation-only,
+                                   // never a partial source set
 };
 
 static_assert(std::is_trivially_copyable_v<TransferFunctionReferenceGPUData>);

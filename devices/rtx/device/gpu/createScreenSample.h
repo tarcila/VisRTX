@@ -45,9 +45,11 @@ VISRTX_DEVICE int computePixelY(int idy, int checkerboardID)
   return checkerboardID < 0 ? idy : idy * 2 + ((checkerboardID >> 1) & 0x1);
 }
 
-VISRTX_DEVICE ScreenSample createScreenSample(const FrameGPUData &frameData)
+VISRTX_DEVICE ScreenSample createScreenSample(
+    const FrameGPUData &frameData, uint32_t randomSeed = 0)
 {
   ScreenSample ss;
+  ss.randomSeed = randomSeed;
 
   // random state //
 
@@ -58,10 +60,11 @@ VISRTX_DEVICE ScreenSample createScreenSample(const FrameGPUData &frameData)
   // Hash the pixel/frame keys before PCG seeding. Adjacent PCG streams with
   // tiny seeds expose visible structure when AO consumes only a few samples.
   const uint64_t pixelLinear = uint64_t(y) * uint64_t(w) + uint64_t(x);
-  const uint64_t streamId = detail::pcg_mix64(pixelLinear);
+  const uint64_t salt = uint64_t(randomSeed) * 0x9E3779B97F4A7C15ULL;
+  const uint64_t streamId = detail::pcg_mix64(pixelLinear ^ salt);
   const uint64_t frameSeed =
       detail::pcg_mix64((uint64_t(frameData.fb.frameID) << 32u) ^ pixelLinear
-          ^ 0xD1B54A32D192ED03ULL);
+          ^ 0xD1B54A32D192ED03ULL ^ salt);
   pcg_init(&ss.rs, frameSeed, streamId);
 
   ss.pixel.x = x;

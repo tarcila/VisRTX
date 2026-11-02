@@ -33,6 +33,10 @@
 #include VISRTX_CUSTOM_SAMPLERS_HEADER
 #endif
 
+#ifdef VISRTX_TYPED_CUSTOM_TEST_PROVIDERS
+#include "typedCustom/FixtureLegacy.h"
+#endif
+
 using namespace visrtx;
 
 //=============================================================================
@@ -56,6 +60,10 @@ VISRTX_CALLABLE void __direct_callable__initCustomSampler(
 namespace visrtx {
 VISRTX_DEVICE float sampleCustomImpl(const CustomFieldData &data, const vec3 &P)
 {
+#ifdef VISRTX_TYPED_CUSTOM_TEST_PROVIDERS
+  if (typed_custom_test::legacyFixture(data.subType))
+    return typed_custom_test::legacyValue(data, P);
+#endif
 #ifdef VISRTX_CUSTOM_SAMPLE_DISPATCH
   VISRTX_CUSTOM_SAMPLE_DISPATCH(data, P)
 #else

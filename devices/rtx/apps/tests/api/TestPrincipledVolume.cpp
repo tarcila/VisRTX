@@ -382,7 +382,9 @@ void renderSafety(Scene &s)
   };
   const auto empty = world({}), only = world({v}), legacy = world({tf}),
              mixed = world({tf, v});
-  for (const char *renderer : {"quality", "fast", "debug", "test"}) {
+  require(image(s, empty, "quality") != image(s, only, "quality"),
+      "Quality principled activation missing");
+  for (const char *renderer : {"fast", "debug", "test"}) {
     require(image(s, empty, renderer) == image(s, only, renderer),
         "unsupported principled contribution was not safely omitted");
     require(image(s, legacy, renderer) == image(s, mixed, renderer),

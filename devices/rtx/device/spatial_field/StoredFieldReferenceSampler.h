@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include <stdexcept>
 #include "StoredFieldReference.h"
+#include "TypedCustomFieldDispatch.h"
 
 namespace visrtx {
 namespace optical_reference {
@@ -256,7 +258,8 @@ struct StoredFieldReferenceSampler
 {
   const StoredFieldReferenceGPUData *fields;
   template <typename T>
-  VISRTX_HOST_DEVICE VISRTX_NOINLINE T sample(int32_t index, const vec3 &p) const;
+  VISRTX_HOST_DEVICE VISRTX_NOINLINE T sample(
+      int32_t index, const vec3 &p) const;
 };
 
 template <typename T>
@@ -264,6 +267,14 @@ VISRTX_HOST_DEVICE VISRTX_NOINLINE T StoredFieldReferenceSampler::sample(
     int32_t index, const vec3 &p) const
 {
   const auto &field = fields[index];
+  if (field.customProvider) {
+#if defined(__CUDA_ARCH__)
+    return sampleTypedCustom<T>(field.customProvider, field.data, p);
+#else
+    throw std::logic_error(
+        "typed custom sampling requires a declared GPU execution context");
+#endif
+  }
   if (!field.sparse)
     return optical_reference::sampleDenseReference<T>(field, p);
   if constexpr (std::is_same_v<T, vec3>) {

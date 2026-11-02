@@ -47,6 +47,7 @@ enum class RayType
 {
   PRIMARY = 0, // Primary/shading rays
   SHADOW = 1, // Shadow/occlusion rays (used for light visibility, AO, etc.)
+  VOLUME_SOURCE = 2, // Quality only: surface coverage holes, never tinted transmission
 };
 
 } // namespace visrtx

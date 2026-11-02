@@ -100,6 +100,28 @@ endfunction()
 
 project_add_library(SHARED)
 
+# One source-built provider manifest for host metadata, OptiX and optional CUDA
+# sampling. No runtime PTX loader or factory-registration inference.
+set(VISRTX_TYPED_CUSTOM_PROVIDER_HEADER "" CACHE FILEPATH
+  "Absolute path to a typed custom provider manifest header")
+add_library(visrtx_typed_custom_config INTERFACE)
+if(VISRTX_TYPED_CUSTOM_PROVIDER_HEADER)
+  if(NOT IS_ABSOLUTE "${VISRTX_TYPED_CUSTOM_PROVIDER_HEADER}")
+    message(FATAL_ERROR "VISRTX_TYPED_CUSTOM_PROVIDER_HEADER must be absolute")
+  endif()
+  target_compile_definitions(visrtx_typed_custom_config INTERFACE
+    VISRTX_TYPED_CUSTOM_PROVIDER_HEADER="${VISRTX_TYPED_CUSTOM_PROVIDER_HEADER}")
+endif()
+if(VISRTX_BUILD_TESTS)
+  target_compile_definitions(visrtx_typed_custom_config INTERFACE
+    VISRTX_TYPED_CUSTOM_TEST_PROVIDERS=1)
+  target_include_directories(visrtx_typed_custom_config INTERFACE
+    ${CMAKE_CURRENT_LIST_DIR}/../apps/tests/unit)
+  target_sources(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../apps/tests/unit/typedCustom/FixtureFields.cpp)
+endif()
+target_link_libraries(${PROJECT_NAME} PRIVATE visrtx_typed_custom_config)
+
 if(VISRTX_ENABLE_MDL_SUPPORT)
   embed_resource(
       ${CMAKE_CURRENT_BINARY_DIR}/../shaders/visrtx/default.mdl
@@ -135,6 +157,7 @@ set(SOURCES
 
   frame/Denoiser.cu
   frame/Frame.cu
+  frame/PreviewShadowCache.cu
 
   geometry/ComputeTangent.cu
   geometry/Cone.cpp
@@ -190,6 +213,7 @@ set(SOURCES
   spatial_field/SpatialField.cpp
   spatial_field/StoredFieldReference.cpp
   spatial_field/FieldTexture.cu
+  spatial_field/PreviewFieldTexture.cu
   spatial_field/NvdbRectilinearField.cpp
   spatial_field/NvdbRegularField.cpp
   spatial_field/StructuredRectilinearField.cpp
@@ -204,6 +228,7 @@ set(SOURCES
   spatial_field/CustomFieldSampler.cpp
   spatial_field/CustomField.cpp
   spatial_field/RegisterCustomFields.cpp
+  spatial_field/TypedCustomField.cpp
 
   surface/Surface.cpp
 
@@ -217,6 +242,7 @@ set(SOURCES
   volume/TransferFunction1D.cpp
   volume/UnknownVolume.cpp
   volume/Volume.cpp
+  volume/SourceImportance.cu
 
   world/Group.cpp
   world/Instance.cpp
@@ -377,6 +403,7 @@ function(GenerateEmbeddedPTX DIR BASE_NAME)
   # NOTE(jda): Order also matters here for the same reason as above.
   target_link_libraries(${INPUT_TARGET}
   PRIVATE
+    visrtx_typed_custom_config
     visrtx::glm
     visrtx::nanovdb
     OptiX::OptiX

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "gpu/aggregateVolume.h"
+#include "gpu/aggregateVolumeTracking.h"
 #include "world/World.h"
 
 #include <anari/ext/visrtx/makeVisRTXDevice.h>
@@ -13,6 +14,11 @@
 #include <set>
 #include <stdexcept>
 #include <vector>
+
+#ifdef WORLD_TRACKING_OPTIX
+#include "qualityTracking/OptixProbe.h"
+static quality_probe::OptixProbe *trackingProbe = nullptr;
+#endif
 
 using namespace visrtx;
 namespace av = aggregate_volume;
@@ -85,8 +91,10 @@ static void volumes(
   anariUnmapArray(o.d, array);
   anariSetParameter(o.d, parent, "volume", ANARI_ARRAY1D, &array);
 }
-static AggregateVolumeSceneGPUData prepare(
-    Objects &o, ANARIWorld world, bool omitUnavailable = false)
+static AggregateVolumeSceneGPUData prepare(Objects &o,
+    ANARIWorld world,
+    bool omitUnavailable = false,
+    bool withImportance = false)
 {
   box3 bounds;
   require(anariGetProperty(o.d,
@@ -98,7 +106,8 @@ static AggregateVolumeSceneGPUData prepare(
               ANARI_WAIT),
       "world prepare");
   // Private prepared-view seam after public commits/WAIT, not a new test API.
-  return reinterpret_cast<World *>(world)->referenceVolumes(omitUnavailable);
+  return reinterpret_cast<World *>(world)->referenceVolumes(
+      omitUnavailable, withImportance);
 }
 struct Blackbody
 {
@@ -151,6 +160,80 @@ static Result consume(AggregateVolumeSceneGPUData scene)
       &result, output.ptr(), sizeof(result), cudaMemcpyDeviceToHost));
   require(result.bounded, "aggregate exceeds matching bound");
   return result;
+}
+struct TrackingResult
+{
+  double value[9]{};
+};
+constexpr int TRACKING_PATHS = 16384;
+VISRTX_GLOBAL void consumeWorldTracking(
+    AggregateVolumeSceneGPUData scene, TrackingResult *output)
+{
+  const int index = int(blockIdx.x * blockDim.x + threadIdx.x);
+  if (index >= TRACKING_PATHS)
+    return;
+  namespace tr = volume_tracking;
+  PCGState primary, connection;
+  pcg_init(&primary, detail::pcg_mix64(uint64_t(index) + 37), 91);
+  pcg_init(&connection, detail::pcg_mix64(uint64_t(index) + 93), 47);
+  tr::Random random{&primary}, shadowRandom{&connection};
+  const auto ray =
+      av::worldDistanceRay({vec3(.5f, .5f, -1.f), vec3(0, 0, 1), {0, 4}});
+  Blackbody blackbody;
+  tr::PathState path;
+  const auto hit = tr::trace(scene, ray, 1., random, blackbody, path);
+  double transmission[3]{1., 1., 1.};
+  tr::shadow(scene, ray, shadowRandom, transmission);
+  TrackingResult out;
+  for (int c = 0; c < 3; ++c) {
+    out.value[c] = path.radiance[c];
+    out.value[c + 3] =
+        hit.endpoint == tr::Endpoint::Boundary ? path.throughput[c] : 0.;
+    out.value[c + 6] = transmission[c];
+  }
+  output[index] = out;
+}
+static void consumeTracking(
+    AggregateVolumeSceneGPUData scene, const av::SegmentIntegral &analytic)
+{
+  require(scene.complete, "cannot track incomplete scene");
+  DeviceBuffer buffer;
+  buffer.reserve(TRACKING_PATHS * sizeof(TrackingResult));
+#ifdef WORLD_TRACKING_OPTIX
+  trackingProbe->launch(scene, buffer.ptr(), TRACKING_PATHS);
+#else
+  consumeWorldTracking<<<TRACKING_PATHS / 128, 128>>>(
+      scene, buffer.ptrAs<TrackingResult>());
+  checked(cudaGetLastError());
+  checked(cudaDeviceSynchronize());
+#endif
+  std::vector<TrackingResult> values(TRACKING_PATHS);
+  buffer.download(values.data(), values.size());
+  for (int c = 0; c < 9; ++c) {
+    long double sum = 0., squares = 0.;
+    for (const auto &v : values) {
+      require(std::isfinite(v.value[c]), "nonfinite committed-world tracking");
+      sum += v.value[c];
+      squares += v.value[c] * v.value[c];
+    }
+    const double mean = double(sum / TRACKING_PATHS);
+    const double variance = std::max(0.,
+        double((squares - sum * sum / TRACKING_PATHS) / (TRACKING_PATHS - 1)));
+    const double target =
+        c < 3 ? analytic.radiance[c] : analytic.transmittance[c % 3];
+    const double tolerance = 6. * sqrt(variance / TRACKING_PATHS) + 5e-5;
+    if (std::abs(mean - target) > tolerance) {
+      std::fprintf(stderr,
+          "tracking generation %llu count %zu channel %d: %.12g expected %.12g tolerance %.12g\n",
+          static_cast<unsigned long long>(scene.generation),
+          scene.count,
+          c,
+          mean,
+          target,
+          tolerance);
+      throw std::runtime_error("committed-world stochastic analytic control");
+    }
+  }
 }
 static void close(double a, double b)
 {
@@ -240,8 +323,16 @@ try {
   anariSetParameter(o.d, world, "instance", ANARI_ARRAY1D, &instances);
   anariCommitParameters(o.d, world);
   auto scene = prepare(o, world);
+#ifdef WORLD_TRACKING_OPTIX
+  quality_probe::OptixProbe probe(*static_cast<DeviceGlobalState *>(
+      reinterpret_cast<World *>(world)->helium::BaseObject::deviceState()));
+  probe.initialize();
+  trackingProbe = &probe;
+#endif
   require(scene.complete && scene.count == 13,
       "authored occurrences omitted/deduplicated");
+  require(scene.sourceSamplingReady && scene.sourceCount == 13,
+      "source occurrence publication omitted a labeled emitter");
   const auto unchanged = prepare(o, world);
   require(unchanged.complete && unchanged.generation == scene.generation
           && unchanged.occurrences == scene.occurrences,
@@ -260,6 +351,7 @@ try {
   auto result = consume(scene);
   require(result.peak == 13, "overlap lost");
   expect(result, a, b, 9, 4, 4, 2);
+  consumeTracking(scene, result.integral);
   const auto generation = scene.generation;
   opacity = .25f;
   anariSetParameter(o.d, tf, "opacity", ANARI_FLOAT32, &opacity);
@@ -268,7 +360,9 @@ try {
   require(scene.complete && scene.generation != generation,
       "new publication identity");
   b = -std::log(.75) / 2.;
-  expect(consume(scene), a, b, 9, 4, 4, 2);
+  result = consume(scene);
+  expect(result, a, b, 9, 4, 4, 2);
+  consumeTracking(scene, result.integral);
   const bool hidden = false, visible = true;
   anariSetParameter(o.d, pv, "visible", ANARI_BOOL, &hidden);
   anariCommitParameters(o.d, pv);
@@ -352,6 +446,7 @@ try {
   close(result.integral.radiance[0], 0);
   close(result.integral.radiance[1], 2 * b * factor);
   close(result.integral.radiance[2], 3 * otherT * factor);
+  consumeTracking(scene, result.integral);
   // A nonconstant classification must follow field edits, not just cached
   // optical bounds. The existing 256-bin TF interpolation is an approximation
   // to this linear ramp; use a declared float classification tolerance.
@@ -378,14 +473,164 @@ try {
   result = consume(scene);
   require(std::abs(result.integral.radiance[1] - 2 * (-std::expm1(-b))) < 2e-6,
       "TF field update lost without volume recommit");
+  // Track actual committed density snapshots before and after an array edit,
+  // with no volume recommit. The shared field must publish matching bounds.
+  auto densityVolume = o.keep(anariNewVolume(o.d, "principledVolume"));
+  anariSetParameter(o.d, densityVolume, "bounds", ANARI_FLOAT32_BOX3, &domain);
+  anariSetParameter(
+      o.d, densityVolume, "scatteringColor", ANARI_FLOAT32_VEC3, &black);
+  anariSetParameter(o.d, densityVolume, "emission", ANARI_FLOAT32_VEC3, &red);
+  anariSetParameter(
+      o.d, densityVolume, "density.field", ANARI_SPATIAL_FIELD, &field);
+  anariCommitParameters(o.d, densityVolume);
+  auto densityWorld = o.keep(anariNewWorld(o.d));
+  volumes(o, densityWorld, {densityVolume});
+  anariCommitParameters(o.d, densityWorld);
+  scene = prepare(o, densityWorld);
+  result = consume(scene);
+  expect(result, a, b, 1, 0);
+  consumeTracking(scene, result.integral);
+  values = static_cast<float *>(anariMapArray(o.d, array));
+  std::fill(values, values + 8, .25f);
+  anariUnmapArray(o.d, array);
+  scene = prepare(o, densityWorld);
+  result = consume(scene);
+  expect(result, .25 * a, b, 1, 0);
+  consumeTracking(scene, result.integral);
+
+  // Exercise the RGB field callable alongside the density scalar callable.
+  auto rgbArray = o.keep(anariNewArray3D(
+      o.d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, 2, 2, 2));
+  auto *rgbValues = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  std::fill(rgbValues, rgbValues + 8, red);
+  anariUnmapArray(o.d, rgbArray);
+  auto rgbField = o.keep(anariNewSpatialField(o.d, "structuredRegular"));
+  anariSetParameter(o.d, rgbField, "data", ANARI_ARRAY3D, &rgbArray);
+  anariCommitParameters(o.d, rgbField);
+  const vec3 one(1.f);
+  anariSetParameter(o.d, densityVolume, "emission", ANARI_FLOAT32_VEC3, &one);
+  anariSetParameter(
+      o.d, densityVolume, "emission.field", ANARI_SPATIAL_FIELD, &rgbField);
+  anariCommitParameters(o.d, densityVolume);
+  scene = prepare(o, densityWorld);
+  result = consume(scene);
+  expect(result, .25 * a, b, 1, 0);
+  consumeTracking(scene, result.integral);
+
+  const vec3 noSource(0.f);
+  anariSetParameter(
+      o.d, densityVolume, "emission", ANARI_FLOAT32_VEC3, &noSource);
+  anariCommitParameters(o.d, densityVolume);
+  scene = prepare(o, densityWorld);
+  require(scene.sourceSamplingReady && scene.sourceCount == 0,
+      "source-zero recommit stale");
+  anariSetParameter(o.d, densityVolume, "emission", ANARI_FLOAT32_VEC3, &one);
+  anariCommitParameters(o.d, densityVolume);
+  scene = prepare(o, densityWorld);
+  require(scene.sourceSamplingReady && scene.sourceCount == 1,
+      "source restoration stale");
+
+  auto readGuide = [&](AggregateVolumeSceneGPUData view) {
+    VolumeOccurrenceGPUData record;
+    checked(cudaMemcpy(
+        &record, view.occurrences, sizeof(record), cudaMemcpyDeviceToHost));
+    return record.volume.sourceImportance;
+  };
+  scene = prepare(o, densityWorld, false, true);
+  const auto guide = readGuide(scene);
+  require(
+      guide.cdf && guide.resolution == 64, "source importance not prepared");
+  const auto same = prepare(o, densityWorld, false, true);
+  require(
+      same.generation == scene.generation && readGuide(same).cdf == guide.cdf,
+      "unchanged source guide not reused");
+  require(!readGuide(prepare(o, densityWorld)).cdf,
+      "reference-only request reused guided view");
+  rgbValues = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  for (int i = 0; i < 8; ++i)
+    rgbValues[i] = vec3(i % 2 ? 4.f : 0.f, 0, 0);
+  anariUnmapArray(o.d, rgbArray);
+  auto gradient = readGuide(prepare(o, densityWorld, false, true));
+  double before[2];
+  checked(
+      cudaMemcpy(before, gradient.cdf, sizeof(before), cudaMemcpyDeviceToHost));
+  rgbValues = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  for (int i = 0; i < 8; ++i)
+    rgbValues[i] = vec3(i % 2 ? 0.f : 4.f, 0, 0);
+  anariUnmapArray(o.d, rgbArray);
+  gradient = readGuide(prepare(o, densityWorld, false, true));
+  double after[2];
+  checked(
+      cudaMemcpy(after, gradient.cdf, sizeof(after), cudaMemcpyDeviceToHost));
+  require(before[0] == 0. && after[0] == 0. && after[1] > 8. * before[1],
+      "source field edit left stale importance");
+  rgbValues = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  std::fill(rgbValues, rgbValues + 8, vec3(0));
+  anariUnmapArray(o.d, rgbArray);
+  scene = prepare(o, densityWorld, false, true);
+  require(scene.sourceCount == 1 && scene.sourceSamplingReady
+          && !readGuide(scene).cdf,
+      "zero pilot removed source support instead of falling back");
+  rgbValues = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  std::fill(rgbValues, rgbValues + 8, red);
+  anariUnmapArray(o.d, rgbArray);
+  require(readGuide(prepare(o, densityWorld, false, true)).cdf != nullptr,
+      "source guide recovery failed");
+
   auto empty = o.keep(anariNewWorld(o.d));
   anariCommitParameters(o.d, empty);
   scene = prepare(o, empty);
   require(scene.complete && scene.count == 0, "empty scene not complete");
+  require(scene.sourceSamplingReady && scene.sourceCount == 0,
+      "empty source publication");
   result = consume(scene);
   require(result.spans == 0 && result.integral.transmittance[0] == 1.
           && result.integral.radiance[0] == 0.,
       "empty scene transport");
+  consumeTracking(scene, result.integral);
+  auto precisionVolume = o.keep(anariNewVolume(o.d, "principledVolume"));
+  anariSetParameter(
+      o.d, precisionVolume, "bounds", ANARI_FLOAT32_BOX3, &domain);
+  anariCommitParameters(o.d, precisionVolume);
+  auto precisionGroup = o.keep(anariNewGroup(o.d));
+  volumes(o, precisionGroup, {precisionVolume});
+  anariCommitParameters(o.d, precisionGroup);
+  auto precisionInstance = o.keep(anariNewInstance(o.d, "transform"));
+  anariSetParameter(
+      o.d, precisionInstance, "group", ANARI_GROUP, &precisionGroup);
+  mat4 precisionTransform(1.f);
+  precisionTransform[1][0] = 1e-8f;
+  anariSetParameter(o.d,
+      precisionInstance,
+      "transform",
+      ANARI_FLOAT32_MAT4,
+      &precisionTransform);
+  anariCommitParameters(o.d, precisionInstance);
+  auto precisionInstances = o.keep(
+      anariNewArray1D(o.d, nullptr, nullptr, nullptr, ANARI_INSTANCE, 1));
+  *static_cast<ANARIInstance *>(anariMapArray(o.d, precisionInstances)) =
+      precisionInstance;
+  anariUnmapArray(o.d, precisionInstances);
+  auto precisionWorld = o.keep(anariNewWorld(o.d));
+  anariSetParameter(
+      o.d, precisionWorld, "instance", ANARI_ARRAY1D, &precisionInstances);
+  anariCommitParameters(o.d, precisionWorld);
+  const auto scatteringScene = prepare(o, precisionWorld);
+  require(scatteringScene.previewFloatEligible,
+      "tiny shear unnecessarily selected FP64");
+  consumeTracking(scatteringScene, consume(scatteringScene).integral);
+  precisionTransform = mat4(1.f);
+  precisionTransform[0][0] = 10000.f;
+  anariSetParameter(o.d,
+      precisionInstance,
+      "transform",
+      ANARI_FLOAT32_MAT4,
+      &precisionTransform);
+  anariCommitParameters(o.d, precisionInstance);
+  const auto illConditioned = prepare(o, precisionWorld);
+  require(illConditioned.complete && illConditioned.count == 1
+          && !illConditioned.previewFloatEligible,
+      "ill-conditioned instance must retain wide rendering, not be omitted");
   require(errors == 0, "unexpected ANARI errors");
   std::puts(
       "World volume references: complete occurrences, instances, mixed optics and recovery pass");

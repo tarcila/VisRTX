@@ -63,7 +63,8 @@ struct World : public Object
   // renderers do not request/consume this view yet. Borrowed until the next
   // relevant scene update; unchanged requests reuse the publication. Incomplete
   // views must not be rendered.
-  virtual AggregateVolumeSceneGPUData referenceVolumes(bool omitUnavailable = false);
+  virtual AggregateVolumeSceneGPUData referenceVolumes(bool omitUnavailable = false,
+      bool withSourceImportance = false);
   bool hasPrincipledVolumes() const;
   helium::TimeStamp volumePublicationStamp() const;
 
@@ -148,6 +149,7 @@ struct World : public Object
   helium::TimeStamp m_referenceTLASBuild{0};
   bool m_referenceBuilt{false};
   bool m_referenceOmissions{false};
+  bool m_referenceSourceImportance{false};
 
   // Lights //
 

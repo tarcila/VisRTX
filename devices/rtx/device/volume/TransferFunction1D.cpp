@@ -135,8 +135,12 @@ ReferenceVolumeGPUData TransferFunction1D::referenceVolume()
           < optical_reference::promote(m_valueRange.upper)))
     return unavailable();
   optical_reference::RawRange<float> alpha;
-  for (const auto &color : m_tf)
+  double maxColor = 0.;
+  for (const auto &color : m_tf) {
     alpha = optical_reference::extendRange(alpha, color.w);
+    for (int c = 0; c < 3; ++c)
+      maxColor = std::max(maxColor, std::abs(double(color[c])));
+  }
   TransferFunctionReferenceGPUData data;
   if (!optical_reference::buildTransferBounds({alpha.lower, alpha.upper},
           {m_unitDistance, m_unitDistance},
@@ -171,7 +175,16 @@ ReferenceVolumeGPUData TransferFunction1D::referenceVolume()
   m_reference = {VolumeType::TF1D,
       field->descriptor().domain,
       nullptr,
-      m_referencePayload.ptrAs<TransferFunctionReferenceGPUData>(), step, index()};
+      m_referencePayload.ptrAs<TransferFunctionReferenceGPUData>(),
+      step,
+      index()};
+  bool preview = field->supportsFloatPreview() && m_unitDistance >= 0x1p-20f
+      && double(m_valueRange.upper) - double(m_valueRange.lower) >= 0x1p-20
+      && std::abs(double(m_valueRange.lower)) < 0x1p20
+      && std::abs(double(m_valueRange.upper)) < 0x1p20
+      && optical_reference::majorant(data.opticalBounds) < 0x1p40;
+  m_reference.previewFloatEligible = preview && maxColor < 0x1p20;
+  m_reference.mightEmit = maxColor > 0. && alpha.upper > 0.f;
   m_referenceAttempted = true;
   return m_reference;
 }

@@ -66,6 +66,25 @@ make_test(TestIsosurfaceRamp)
 make_test(TestSpatialFieldRGB)
 make_test(TestPrincipledVolume)
 make_test(TestPrincipledInteractive)
+make_test(TestPrincipledQuality)
+make_test(TestVolumeSourceLighting)
+make_test(TestQualityVolumeUpdates)
+make_test(TestTypedCustomFields)
+set_tests_properties(TestTypedCustomFields PROPERTIES TIMEOUT 300
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+add_test(NAME TestQualityVolumeUpdatesSeparateDevices
+  COMMAND TestQualityVolumeUpdates --separate-devices)
+set_tests_properties(TestQualityVolumeUpdates TestQualityVolumeUpdatesSeparateDevices PROPERTIES TIMEOUT 300
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+target_compile_definitions(TestVolumeSourceLighting PRIVATE
+  $<$<NOT:$<BOOL:${VISRTX_USE_MDL_FOR_PHYSICALLY_BASED}>>:VISRTX_NATIVE_PBR>)
+set_tests_properties(TestVolumeSourceLighting PROPERTIES TIMEOUT 300
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
+target_compile_definitions(TestPrincipledQuality PRIVATE
+  $<$<NOT:$<BOOL:${VISRTX_USE_MDL_FOR_PHYSICALLY_BASED}>>:VISRTX_NATIVE_PBR>
+  BLACKBODY_ORACLE="${CMAKE_CURRENT_LIST_DIR}/../../../device/gpu/blackbody/data/reference.txt")
+set_tests_properties(TestPrincipledQuality PROPERTIES TIMEOUT 300
+  ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:anari_library_visrtx>:$ENV{LD_LIBRARY_PATH}")
 target_include_directories(TestPrincipledInteractive PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include)
 make_test(TestInteractiveVolumePolicy)

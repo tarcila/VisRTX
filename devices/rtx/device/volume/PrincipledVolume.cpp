@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "PrincipledVolume.h"
+#include "PreviewColdPreparation.h"
+#include "PreviewEligibility.h"
+#include "QualityColdPreparation.h"
+#include "utility/ScopedReferenceRounding.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -23,7 +27,7 @@ const char *preparationReason(ref::PreparationError error)
 {
   switch (error) {
   case ref::PreparationError::FieldUnavailable:
-    return "field is invalid or lacks a typed reference provider (stored fields supported; custom opt-in not integrated yet)";
+    return "field is invalid or lacks a matching typed snapshot (custom fields require compiled opt-in, conservative ranges and immutable resources)";
   case ref::PreparationError::TypeMismatch:
     return "field scalar/RGB arity does not match the property";
   case ref::PreparationError::InvalidFieldMetadata:
@@ -179,6 +183,7 @@ void PrincipledVolume::finalize()
   m_valid = false;
   m_prepared = {};
   m_committed = {};
+  m_previewTexturePrepared = false;
   m_payload.reset();
   m_fieldViews.reset();
   upload();
@@ -212,16 +217,65 @@ void PrincipledVolume::finalize()
   data.opticalBounds = candidate.bounds;
   data.fields = m_fieldViews.ptrAs<StoredFieldReferenceGPUData>();
   data.fieldCount = uint32_t(views.size());
+  {
+    const ScopedReferenceRounding rounding;
+    data.previewFloatEligible = preview_preparation::eligible(
+        candidate.bindings, candidate.bounds, provider);
+  }
+  const auto &densityBinding = data.bindings.density;
+  if (densityBinding.field >= 0)
+    data.densityRevision = references[densityBinding.field]->descriptor().key;
+  if (data.previewFloatEligible && densityBinding.field >= 0
+      && densityBinding.scale != 0.f
+      && data.bindings.transmissionColor.field < 0
+      && data.bindings.transmissionDistance.field < 0
+      && ref::domainContains(densityBinding.domain, data.bindings.bounds)) {
+    ref::RawRangeCertificate<float> raw;
+    const auto &field = views[densityBinding.field];
+    const auto dims = field.indexMax - field.indexMin + ivec3(1);
+    data.previewShadowCacheEligible = field.linear
+        && std::max(dims.x, std::max(dims.y, dims.z)) >= 32
+        && provider.range(densityBinding.field, raw)
+        && raw.range.lower < raw.range.upper;
+  }
+  if (data.bindings.transmissionColor.field == -1) {
+    const ScopedReferenceRounding rounding;
+    for (int c = 0; c < 3; ++c)
+      data.constantTransmissionLog[c] =
+          ref::negativeLog(data.bindings.transmissionColor.scale[c]);
+    data.hasConstantTransmissionLog = true;
+    if (data.previewFloatEligible
+        && data.bindings.transmissionDistance.field < 0) {
+      for (int c = 0; c < 3; ++c)
+        data.previewExtinctionPerDensity[c] =
+            float(data.constantTransmissionLog[c])
+            / data.bindings.transmissionDistance.scale;
+      data.hasPreviewExtinction = true;
+    }
+  }
+  if (data.previewFloatEligible
+      && data.bindings.blackbodyIntensity.scale != 0.f) {
+    const auto &cold = previewColdTable();
+    copyPayload(m_previewCold, cold.data(), sizeof(cold));
+    data.previewCold = m_previewCold.ptrAs<PreviewColdKnot>();
+    const auto &quality = qualityColdTable();
+    copyPayload(m_qualityCold, quality.data(), sizeof(quality));
+    data.qualityCold = m_qualityCold.ptrAs<PreviewColdKnot>();
+  }
   copyPayload(m_payload, &data, sizeof(data));
   const auto error = cudaStreamSynchronize(nullptr);
   if (error != cudaSuccess)
     throw std::runtime_error(cudaGetErrorString(error));
   m_referenceStep = std::numeric_limits<double>::max();
-  for (int c=0;c<3;++c)
-    m_referenceStep=std::min(m_referenceStep, .5*(ref::promote(m_bindings.bounds.upper[c])-ref::promote(m_bindings.bounds.lower[c])));
+  for (int c = 0; c < 3; ++c)
+    m_referenceStep = std::min(m_referenceStep,
+        .5
+            * (ref::promote(m_bindings.bounds.upper[c])
+                - ref::promote(m_bindings.bounds.lower[c])));
   for (auto *field : m_fields) {
-    const double hint=ref::promote(field->stepSize());
-    if (hint>0. && std::isfinite(hint)) m_referenceStep=std::min(m_referenceStep,hint);
+    const double hint = ref::promote(field->stepSize());
+    if (hint > 0. && std::isfinite(hint))
+      m_referenceStep = std::min(m_referenceStep, hint);
   }
   m_prepared = candidate;
   m_committed = data;
@@ -252,10 +306,33 @@ ReferenceVolumeGPUData PrincipledVolume::referenceVolume()
 {
   if (!m_valid)
     return {};
+  const auto &b = m_committed.bindings;
+  if (!m_previewTexturePrepared && m_committed.previewFloatEligible
+      && b.density.field >= 0 && b.transmissionColor.field < 0
+      && b.transmissionDistance.field < 0) {
+    const auto *field = m_fields[b.density.field]->referenceField();
+    if (field) {
+      const auto view = field->previewGpuData();
+      const auto error = cudaMemcpy(
+          m_fieldViews.ptrAs<StoredFieldReferenceGPUData>() + b.density.field,
+          &view,
+          sizeof(view),
+          cudaMemcpyHostToDevice);
+      if (error != cudaSuccess)
+        throw std::runtime_error(cudaGetErrorString(error));
+    }
+    m_previewTexturePrepared = true;
+  }
   return {VolumeType::PRINCIPLED,
       m_committed.bindings.bounds,
       m_payload.ptrAs<PrincipledVolumeGPUData>(),
-      nullptr, m_referenceStep, index()};
+      nullptr,
+      m_referenceStep,
+      index(),
+      m_committed.previewFloatEligible,
+      b.emission.scale != vec3(0.f)
+          || (b.blackbodyIntensity.scale != 0.f && b.temperature.scale != 0.f
+              && b.blackbodyTint.scale != vec3(0.f))};
 }
 
 bool PrincipledVolume::getProperty(const std::string_view &name,

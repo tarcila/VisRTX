@@ -48,6 +48,12 @@ leases or a device-wide asynchronous retirement redesign.
 snapshots to the host preparation bridge. Missing entries return unavailable, not
 zero data. `StoredFieldReferenceSampler` uses the corresponding GPU-view table.
 The contract ID must change if decoding, layout or mapping semantics change.
+The stored-view ABI is now version 2: an optional preview texture handle was
+added without changing canonical reference decoding or bounds. An eligible
+scalar snapshot can lazily own a bounded dense CUDA texture for FP32 shadow
+integration; its canonical sparse grid is retained and reference sampling never
+uses that hardware-filtered view. See the [cache follow-up](interactive-volume-cache-followup.md)
+for eligibility, ownership, memory cost and quality evidence.
 
 ## Backend coverage
 

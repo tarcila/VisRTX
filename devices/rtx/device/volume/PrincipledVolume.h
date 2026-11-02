@@ -46,6 +46,7 @@ struct PrincipledVolume : public Volume
 
   bool m_parametersValid{false};
   bool m_valid{false};
+  bool m_previewTexturePrepared{false};
   double m_referenceStep{0.};
   PrincipledVolumeBindingsGPUData m_bindings;
   PrincipledVolumeGPUData m_committed;
@@ -58,6 +59,8 @@ struct PrincipledVolume : public Volume
       m_observers;
   DeviceBuffer m_fieldViews;
   DeviceBuffer m_payload;
+  DeviceBuffer m_previewCold;
+  DeviceBuffer m_qualityCold;
 };
 
 // Inlined definitions ////////////////////////////////////////////////////////

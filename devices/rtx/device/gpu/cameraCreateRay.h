@@ -113,7 +113,8 @@ VISRTX_DEVICE Ray rayBufferCreateRay(const CameraGPUData &c, uvec2 pixel)
 // advancing once per camera sample, not frame-counter times spp.
 // Halton bases 2/3 = pixel jitter, 5/7 = aperture. The first sample overrides
 // pixel jitter with the center, but still samples the aperture at ordinal zero.
-// Ray-buffer cameras bypass both. Pixel seeds are independent of batching.
+// Nonzero randomSeed rotates all four Halton coordinates; zero preserves the
+// baseline. Ray-buffer cameras bypass both. Seeds are independent of batching.
 VISRTX_DEVICE Ray makePrimaryRay(
     ScreenSample &ss, uint32_t sampleIdx, bool centerPixel = false)
 {
@@ -122,9 +123,8 @@ VISRTX_DEVICE Ray makePrimaryRay(
     return rayBufferCreateRay(ss.frameData->camera, ss.pixel);
   }
 
-  const uint32_t haltonIdx =
-      sampleIdx + haltonPixelHash(ss.pixel.x, ss.pixel.y);
-  const ::float4 r = halton4D(haltonIdx);
+  const ::float4 r =
+      haltonCamera(sampleIdx, ss.pixel.x, ss.pixel.y, ss.randomSeed);
   ss.screen = (centerPixel ? vec2(ss.pixel.x + 0.5f, ss.pixel.y + 0.5f)
                            : vec2(ss.pixel.x + r.x, ss.pixel.y + r.y))
       * ss.frameData->fb.invSize;

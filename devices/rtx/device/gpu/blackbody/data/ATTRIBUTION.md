@@ -50,6 +50,19 @@ multiplication to avoid intermediate underflow. These changes do not modify the
 original CIE CSVs or the production table entries. The generated reference data
 is also distributed under CC BY-SA 4.0.
 
+The FP32 preview additionally derives a 64-knot log-XYZ/Hermite lookup over
+100–300 K at runtime from the spectral coefficients in `tables.h`. Its generated
+numeric values are treated under the same CC BY-SA 4.0 adaptation policy. The
+runtime construction does not change the original CSVs or the entries in
+`tables.h`; the construction and interpolation code remain separately authored
+software.
+
+Quality additionally derives a 256-knot log-XYZ/Hermite lookup over25–300 K
+using log-sum spectral integration. Its generated values follow the same
+CC BY-SA 4.0 adaptation policy. The source evaluator reconstructs XYZ in
+binary64 and retains spectral fallback outside its prepared lookup envelope.
+No original CIE data or entries in `tables.h` are changed.
+
 These adaptations were generated for the VisRTX principled-volume experiment.
 They are not original CIE publications. No endorsement by CIE is implied.
 The generation algorithm and tests are separately authored software; this notice

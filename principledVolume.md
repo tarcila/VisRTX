@@ -11,15 +11,26 @@ required bounds, stored-field reference snapshots and component-wise optical bou
 Public creation/commit/update, GPU payload evaluation and shared aggregate
 traversal are tested. **Experimental Interactive/default transport is integrated**,
 including additive emission–absorption, direct single scattering and calibrated
-thermal emission, with bounded analytic controls. Quality/Fast/Debug/Test still
-diagnose and omit principled contributions without invalidating the objects.
-Custom-provider opt-in and non-preview transport remain pending; the
+thermal emission, with bounded analytic controls. **Experimental Quality transport
+is now active too**, including RGB stochastic multiple scattering, source on
+continuation segments and independent coverage/background handling; see the
+[Quality activation record](devices/rtx/docs/quality-volume-activation.md).
+Fast/Debug/Test still diagnose and omit principled contributions without invalidating
+the objects. [Initial direct volume-source sampling and ownership](devices/rtx/docs/quality-volume-source.md)
+now support native reflection, Matte and medium vertices.
+[Source importance](devices/rtx/docs/quality-source-importance.md),
+[dynamic-scene checks](devices/rtx/docs/quality-volume-dynamic.md),
+[randomized convergence/error-cost work](devices/rtx/docs/quality-volume-convergence.md)
+and [source-built typed custom opt-in](devices/rtx/docs/typed-custom-fields.md) are
+implemented with bounded qualification. Broader material/closure and deployment
+qualification remain pending; the
 [thermal provider checks](devices/rtx/docs/blackbody-qualification.md) cover sampled
 CPU/CUDA accuracy and installed attribution, not complete renderer qualification; subtype/extension discovery is deliberately not advertised.
 See the [preview implementation record](devices/rtx/docs/interactive-volume-preview.md)
 and [readiness/compatibility record](devices/rtx/docs/interactive-volume-readiness.md)
 for the tested scope and remaining work, including the
-[preview precision limits](devices/rtx/docs/preview-lattice-precision.md).
+[preview precision limits](devices/rtx/docs/preview-lattice-precision.md) and the
+[FP32 execution/performance qualification](devices/rtx/docs/interactive-volume-fp32.md).
 
 The volume will be exposed by an RTX-device vendor extension. The proposed
 extension identifier is `VISRTX_VOLUME_PRINCIPLED`; that identifier and its discovery
@@ -293,9 +304,11 @@ emission–absorption model.
 | `interactive` / `default` | Single-scattering preview using the same optical properties. May omit illumination originating from emissive volumes. |
 | Other renderer subtypes | Unsupported initially; must diagnose unsupported use rather than reinterpret the inputs. |
 
-The table describes the target renderer support. Interactive/default currently
-provide experimental preview transport; Quality/Fast/Debug/Test omit
-`principledVolume` with a preparation diagnostic. Object validity and intrinsic
+The table describes the target renderer support. Interactive/default provide
+experimental preview transport; Quality now provides experimental stored-provider
+stochastic transport, but full source-lighting/material qualification remains
+pending. Fast/Debug/Test omit `principledVolume` with a preparation diagnostic.
+Object validity and intrinsic
 bounds are independent of renderer eligibility. The extension will not be
 advertised until the promised rendering support is integrated and qualified.
 
@@ -343,8 +356,8 @@ sigma_s = 0
 j = sigma_t * transferFunctionColor
 ```
 
-The current numerical saturation policy handles opacity one. The intended quality
-behavior change removes its interpretation of TF RGB as scattering albedo; there
+The current numerical saturation policy handles opacity one. The experimental
+Quality path now removes its interpretation of TF RGB as scattering albedo; there
 is no legacy scattering switch. Applications wanting lit scattering should author
 a `principledVolume` instead. Migrating a TF into density/albedo fields is not always
 lossless because classification and spatial interpolation do not generally commute.

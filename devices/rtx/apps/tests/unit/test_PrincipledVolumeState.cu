@@ -95,6 +95,7 @@ VISRTX_HOST_DEVICE vec3 Blackbody::operator()(float) const
 struct Result
 {
   ref::Coefficients coefficients;
+  ref::Coefficients uncached;
   VolumePhaseFunction phase;
 };
 VISRTX_GLOBAL void samplePrincipledState(
@@ -102,8 +103,13 @@ VISRTX_GLOBAL void samplePrincipledState(
 {
   StoredFieldReferenceSampler sampler{data->fields};
   Blackbody blackbody;
-  out->coefficients =
-      ref::evaluateBindings(data->bindings, p, sampler, blackbody);
+  out->coefficients = ref::evaluateBindings(data->bindings,
+      p,
+      sampler,
+      blackbody,
+      data->hasConstantTransmissionLog ? data->constantTransmissionLog
+                                       : nullptr);
+  out->uncached = ref::evaluateBindings(data->bindings, p, sampler, blackbody);
   out->phase = {ref::evaluateBinding(data->bindings.anisotropy, p, sampler),
       ref::evaluateBinding(data->bindings.secondaryAnisotropy, p, sampler),
       ref::evaluateBinding(data->bindings.secondaryWeight, p, sampler)};
@@ -118,6 +124,17 @@ static Result sample(ANARIVolume v, vec3 p)
   require(copied.fieldCount == state(v).fieldCount
           && copied.fields == state(v).fields,
       "host/device publication mismatch");
+  require(copied.hasConstantTransmissionLog
+          == (copied.bindings.transmissionColor.field == -1),
+      "constant log eligibility mismatch");
+  if (copied.hasConstantTransmissionLog)
+    for (int c = 0; c < 3; ++c)
+      require(copied.constantTransmissionLog[c]
+                  == ref::negativeLog(
+                      copied.bindings.transmissionColor.scale[c])
+              && copied.constantTransmissionLog[c]
+                  == state(v).constantTransmissionLog[c],
+          "stale or incorrectly rounded transmission log");
   DeviceBuffer output;
   output.reserve(sizeof(Result));
   samplePrincipledState<<<1, 1>>>(pointer, p, output.ptrAs<Result>());
@@ -126,6 +143,11 @@ static Result sample(ANARIVolume v, vec3 p)
   Result result;
   checked(cudaMemcpy(
       &result, output.ptr(), sizeof(result), cudaMemcpyDeviceToHost));
+  require(
+      std::memcmp(
+          &result.coefficients, &result.uncached, sizeof(result.coefficients))
+          == 0,
+      "cached state differs from uncached GPU evaluation");
   for (int c = 0; c < 3; ++c)
     require(ref::extinction(result.coefficients, c)
             <= ref::majorant(copied.opticalBounds),
@@ -141,6 +163,8 @@ static void near(double a, double b)
 static void defaultsAndParameters(Objects &o)
 {
   auto v = volume(o, {vec3(0), vec3(1)});
+  require(state(v).previewFloatEligible,
+      "ordinary constants did not select FP32 preview");
   const auto &b = state(v).bindings;
   require(state(v).fieldCount == 0 && state(v).fields == nullptr,
       "constants require dummy fields");
@@ -277,6 +301,24 @@ static void defaultsAndParameters(Objects &o)
   }
 }
 
+static void wideThermalCoupling(Objects &o)
+{
+  auto v = volume(o, {vec3(0), vec3(1)});
+  const float density = 1e-37f, intensity = 1e12f, temperature = 100000.f;
+  const vec3 tint(1e12f), albedo(.9f);
+  anariSetParameter(o.d, v, "density", ANARI_FLOAT32, &density);
+  anariSetParameter(o.d, v, "blackbodyIntensity", ANARI_FLOAT32, &intensity);
+  anariSetParameter(o.d, v, "temperature", ANARI_FLOAT32, &temperature);
+  anariSetParameter(o.d, v, "blackbodyTint", ANARI_FLOAT32_VEC3, &tint);
+  anariSetParameter(o.d, v, "scatteringColor", ANARI_FLOAT32_VEC3, &albedo);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v) && !state(v).previewFloatEligible,
+      "large thermal gain with tiny absorption requires wide coupling");
+  const auto result = sample(v, vec3(.5f));
+  require(result.coefficients.emission[0] > 0.,
+      "wide thermal coupling lost source");
+}
+
 static void fieldsAndRecovery(Objects &o)
 {
   auto scalarArray = o.keep(
@@ -313,6 +355,8 @@ static void fieldsAndRecovery(Objects &o)
   anariSetParameter(o.d, v, "emission.outside", ANARI_FLOAT32_VEC3, &outside);
   anariCommitParameters(o.d, v);
   require(valid(o, v), "field-backed preparation");
+  require(state(v).previewFloatEligible,
+      "ordinary fields did not select FP32 preview");
   require(state(v).fieldCount == 2
           && state(v).bindings.density.field
               == state(v).bindings.temperature.field
@@ -334,8 +378,11 @@ static void fieldsAndRecovery(Objects &o)
   anariCommitParameters(o.d, v);
   require(valid(o, v), "remove shared field role");
   const double prior = ref::majorant(state(v).opticalBounds);
+  const auto densityRevision = state(v).densityRevision;
   fill(5.f);
   require(valid(o, v), "observer update without volume commit");
+  require(!(state(v).densityRevision == densityRevision),
+      "density cache identity did not follow field update");
   require(ref::majorant(state(v).opticalBounds) > prior,
       "bound did not follow field update");
   result = sample(v, vec3(.5f));
@@ -380,6 +427,65 @@ static void fieldsAndRecovery(Objects &o)
   result = sample(v, vec3(.5f));
   for (int c = 0; c < 3; ++c)
     near(result.coefficients.scattering[c], std::log(2.) * (c + 1));
+
+  // Field -> constant -> field -> constant must never reuse the other path's
+  // cache, including observer-only array updates and rejected constants.
+  anariUnsetParameter(o.d, v, "transmissionColor.field");
+  anariCommitParameters(o.d, v);
+  require(valid(o, v), "unbind transmission color");
+  result = sample(v, vec3(.5f));
+  require(ref::extinction(result.coefficients, 0) == 0.,
+      "unbound white transmission retained field log");
+  const vec3 constant(.4f, .6f, .8f);
+  anariSetParameter(o.d, v, "transmissionColor", ANARI_FLOAT32_VEC3, &constant);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v), "constant transmission update");
+  sample(v, vec3(.5f));
+  anariSetParameter(
+      o.d, v, "transmissionColor.field", ANARI_SPATIAL_FIELD, &color);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v), "rebind transmission color");
+  sample(v, vec3(.5f));
+  rgb = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  std::fill(rgb, rgb + 8, vec3(.25f));
+  anariUnmapArray(o.d, rgbArray);
+  require(valid(o, v), "transmission field observer update");
+  sample(v, vec3(.5f));
+  anariUnsetParameter(o.d, v, "transmissionColor.field");
+  const vec3 invalid(0.f);
+  anariSetParameter(o.d, v, "transmissionColor", ANARI_FLOAT32_VEC3, &invalid);
+  anariCommitParameters(o.d, v);
+  require(!valid(o, v)
+          && reinterpret_cast<PrincipledVolume *>(v)->committedData()
+              == nullptr,
+      "invalid constant retained cache");
+  anariSetParameter(o.d, v, "transmissionColor", ANARI_FLOAT32_VEC3, &constant);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v), "constant transmission recovery");
+  sample(v, vec3(.5f));
+  const float extremeDensity = 1e30f;
+  anariSetParameter(o.d, v, "density", ANARI_FLOAT32, &extremeDensity);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v) && !state(v).previewFloatEligible,
+      "wide optical fallback selection");
+  sample(v, vec3(.5f));
+  anariSetParameter(o.d, v, "density", ANARI_FLOAT32, &density);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v) && state(v).previewFloatEligible,
+      "FP32 eligibility recovery");
+  const vec3 tiny(1e-40f), large(1e36f);
+  rgb = static_cast<vec3 *>(anariMapArray(o.d, rgbArray));
+  std::fill(rgb, rgb + 8, tiny);
+  anariUnmapArray(o.d, rgbArray);
+  anariSetParameter(
+      o.d, v, "transmissionColor.field", ANARI_SPATIAL_FIELD, &color);
+  anariSetParameter(o.d, v, "transmissionColor", ANARI_FLOAT32_VEC3, &large);
+  anariSetParameter(
+      o.d, v, "transmissionColor.outside", ANARI_FLOAT32_VEC3, &tiny);
+  anariCommitParameters(o.d, v);
+  require(valid(o, v) && !state(v).previewFloatEligible,
+      "subnormal operands must retain wide binding evaluation");
+  sample(v, vec3(.5f));
 }
 
 int main()
@@ -388,6 +494,7 @@ try {
   objects.d = makeVisRTXDevice(status);
   anariCommitParameters(objects.d, objects.d);
   defaultsAndParameters(objects);
+  wideThermalCoupling(objects);
   fieldsAndRecovery(objects);
   require(errors == 0, "unexpected status errors");
   std::puts(

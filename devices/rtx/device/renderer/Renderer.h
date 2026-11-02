@@ -74,6 +74,7 @@ struct Renderer : public Object
 
   virtual void populateFrameData(FrameGPUData &fd) const;
   virtual bool usesReferenceVolumes() const;
+  virtual bool usesVolumeTrackingCallables() const;
   const std::string &subtypeName() const;
 
   OptixPipeline pipeline();

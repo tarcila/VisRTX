@@ -32,6 +32,7 @@
 #pragma once
 
 #include "Denoiser.h"
+#include "PreviewShadowCache.h"
 #include "camera/Camera.h"
 #include "gpu/gpu_objects.h"
 #include "renderer/Renderer.h"
@@ -137,6 +138,7 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   DeviceBuffer m_guideNormal;
   DeviceBuffer m_backdropWeight; // vec3, unfiltered RGB boundary weight
   DeviceBuffer m_volumeReference; // AggregateVolumeSceneGPUData
+  PreviewShadowCache m_previewShadowCache;
   DeviceBuffer m_lumStats; // PixelLumStats: per-channel Welford + count
   DeviceBuffer m_trimTopK; // TRIM mode: trim*vec4 brightest samples per pixel
 

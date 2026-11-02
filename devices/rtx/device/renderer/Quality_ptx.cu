@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define VISRTX_REFERENCE_OPTIX_CALLS 1
 #include <optix_device.h>
 #include "gpu/createScreenSample.h"
 #include "gpu/evalShading.h"
@@ -42,6 +43,8 @@
 #include "gpu/populateHit.h"
 #include "gpu/renderer/common.h"
 #include "gpu/renderer/fog.h"
+#include "gpu/renderer/qualityVolumeProgram.h"
+#include "gpu/renderer/qualityVolumeRaygen.h"
 #include "gpu/renderer/shadowTransmittance.h"
 #include "gpu/sampleLight.h"
 #include "gpu/sampleOrdinal.h"
@@ -55,8 +58,8 @@ namespace visrtx {
 constexpr float PATH_CONTRIBUTION_EPSILON = 1.0e-8f;
 constexpr float ATTENUATION_EPSILON = std::numeric_limits<float>::epsilon();
 constexpr float INV_4PI = 1.0f / (4.0f * kPi);
-// Pre-shadow skip: a contribution below SHADOW_SKIP_EPSILON can't survive RGB
-// quantisation even unattenuated, so skipping the trace entirely costs nothing.
+// Legacy-only pre-shadow approximation. Reference-volume transport bypasses
+// this threshold: small throughput can still produce significant HDR radiance.
 constexpr float SHADOW_SKIP_EPSILON = 1.0e-5f;
 // RR start depth. Volume scatter engages earlier — throughput shrinks by
 // medium albedo each scatter, so dense regions need RR sooner. Surface
@@ -533,6 +536,64 @@ VISRTX_DEVICE LightSample sampleLightsVolume(
   return ls;
 }
 
+VISRTX_DEVICE float referenceVolumeEnvPdf(
+    const FrameGPUData &fd, const vec3 &direction)
+{
+  const auto &world = fd.world;
+  const float ambient = ambientPickPower(fd),
+              total = world.totalLightPower + ambient;
+  const size_t count = world.numLightInstances + (ambient > 0.f ? 1 : 0);
+  float pdf = 0.f;
+  for (size_t i = 0; i < world.numLightInstances; ++i) {
+    const auto &instance = world.lightInstances[i];
+    const auto &light = fd.registry.lights[instance.lightIndex];
+    if (light.type != LightType::HDRI)
+      continue;
+    const float pick = total > 0.f ? instancePickProbability(world, i, total)
+                                   : (count ? 1.f / float(count) : 0.f);
+    pdf += pick * hdriCdfPdf(light, instance.xfm, direction);
+  }
+  return pdf;
+}
+VISRTX_DEVICE SurfaceLightSample sampleReferenceVolumeLight(
+    ScreenSample &ss, const FrameGPUData &fd, const vec3 &point)
+{
+  const auto pick = pickCandidate(ss, fd);
+  if (!pick.valid)
+    return {};
+  if (pick.isAmbient)
+    return {LightSample{fd.renderer.ambientColor * fd.renderer.ambientIntensity,
+                randomDir(ss.rs),
+                std::numeric_limits<float>::max(),
+                pick.pickPdf * INV_4PI},
+        false,
+        false,
+        false};
+  const auto &instance = fd.world.lightInstances[pick.instance];
+  auto light = sampleLight(ss,
+      point,
+      instance.lightIndex,
+      instance.xfm,
+      instance.surfaceInstanceIndex);
+  light.pdf *= pick.pickPdf;
+  const auto type = fd.registry.lights[instance.lightIndex].type;
+  if (type == LightType::HDRI) {
+    getEnvironmentLight(fd, light.dir, light.radiance);
+    light.pdf = referenceVolumeEnvPdf(fd, light.dir);
+  }
+  return {light,
+      type == LightType::HDRI,
+      type == LightType::GEOMETRY,
+      instance.hasAreaProxy};
+}
+VISRTX_DEVICE vec3 qualityMediumShadow(
+    ScreenSample &ss, const Ray &ray, PCGState &random)
+{
+  return frameData.referenceVolumes
+      ? vec3(quality_volume::mediumShadow(frameData, ray, random))
+      : volumeShadowTransmittance(ss, ray);
+}
+
 VISRTX_DEVICE
 VolumeDistanceSample sampleVolumeDistance(
     ScreenSample &ss, Ray ray, bool needNormal)
@@ -607,7 +668,9 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
     attenuation *= (1.0f - blocking);
 
-    if (glm::all(glm::lessThanEqual(attenuation, vec3(ATTENUATION_EPSILON))))
+    if (frameData.referenceVolumes ? attenuation == vec3(0.f)
+                                   : glm::all(glm::lessThanEqual(attenuation,
+                                         vec3(ATTENUATION_EPSILON))))
       optixTerminateRay();
     else
       optixIgnoreIntersection();
@@ -628,9 +691,34 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
 VISRTX_GLOBAL void __miss__shadow() {}
 
+VISRTX_GLOBAL void __closesthit__volumeSource() {}
+VISRTX_GLOBAL void __miss__volumeSource() {}
+VISRTX_GLOBAL void __anyhit__volumeSource()
+{
+  auto &visibility = ray::rayData<double>();
+  ray::cullCutPlane();
+  SurfaceHit hit;
+  ray::populateSurfaceHit(hit);
+  if (hit.material->isFullyOpaque) {
+    visibility = 0.;
+    optixTerminateRay();
+    return;
+  }
+  MaterialShadingState shading;
+  materialInitShading(&shading, frameData, *hit.material, hit);
+  const double hole = optical_reference::subtract(
+      1., optical_reference::promote(materialEvaluateOpacity(shading)));
+  visibility = optical_reference::multiply(visibility, hole);
+  if (visibility == 0.)
+    optixTerminateRay();
+  else
+    optixIgnoreIntersection();
+}
+
 VISRTX_GLOBAL void __raygen__()
 {
-  auto ss = createScreenSample(frameData);
+  auto ss = createScreenSample(
+      frameData, frameData.renderer.params.quality.randomSeed);
   if (pixelOutOfFrame(ss.pixel, frameData.fb))
     return;
 
@@ -650,10 +738,11 @@ VISRTX_GLOBAL void __raygen__()
     // into transport throughput: sampling, shadow work, RR and AOVs must still
     // run when the shaded RGB is completely replaced by fog.
     double appearanceWeight = 1.0;
-    // Surface Sobol dimensions 0–11 use this default-zero-scramble pixel
-    // key, reseeded per bounce/transparency layer below. Camera Halton uses
-    // its own additive index hash; no joint independence guarantee is implied.
-    const uint32_t pixelSeed = owenPixelSeed(ss.pixel.x, ss.pixel.y);
+    // Surface transport uses its own pixel key, separate from seeded Halton
+    // camera rotations. Dimensions 0–11 are reseeded per bounce/transparency;
+    // dimension allocation does not guarantee statistical independence.
+    const uint32_t pixelSeed =
+        owenPixelSeed(ss.pixel.x, ss.pixel.y, ss.randomSeed);
 
     // A Miss reports the camera's Far Limit, not where a cutting plane ends
     // the ray (ADR 0011).
@@ -663,6 +752,19 @@ VISRTX_GLOBAL void __raygen__()
     SampleDetails sample = {vec3(0.0f), 0.0f, vec3(0.0f), farLimit, vec3(0.0f)};
 
     auto sampleContribution = vec3(1.0f);
+    quality_volume::Request mediumRequest;
+    mediumRequest.scene = frameData.referenceVolumes;
+    PCGState mediumShadowRandom, volumeSourceRandom, volumeSourceShadowRandom;
+    const bool sourceAvailable = frameData.referenceVolumes
+        && volume_source::available(*frameData.referenceVolumes);
+    quality_volume::seed(mediumRequest.random, ss, sampleIdx, 0x9279c7a331ULL);
+    quality_volume::seed(mediumShadowRandom, ss, sampleIdx, 0x884ae291f3ULL);
+    quality_volume::seed(volumeSourceRandom, ss, sampleIdx, 0x392b981f52ULL);
+    quality_volume::seed(
+        volumeSourceShadowRandom, ss, sampleIdx, 0x81ace719b3ULL);
+    quality_volume::Coverage outputCoverage;
+    if (frameData.referenceVolumes)
+      outputCoverage = quality_volume::coverage(ss, ray, sampleIdx);
 
     // The environment is sampled by env-CDF NEE, cosine-hemisphere NEE, and a
     // BSDF ray that escapes to it. Balance-heuristic MIS combines all three:
@@ -675,6 +777,7 @@ VISRTX_GLOBAL void __raygen__()
     float bsdfPdf = INFINITY;
     vec3 lastScatterNs(0.0f);
     bool lastScatterWasSurface = false;
+    bool lastScatterWasReferenceVolume = false;
     // The vertex that spawned the current segment. Hit-side NEE densities are
     // measured from HERE, not from ray.org: a coverage pass-through moves
     // ray.org to the cutout while bsdfPdf still belongs to this vertex.
@@ -711,7 +814,87 @@ VISRTX_GLOBAL void __raygen__()
       float volumeUpperBound = surfaceHit.foundHit ? surfaceHit.t : ray.t.upper;
       auto volumeRay = Ray{ray.org, ray.dir, {ray.t.lower, volumeUpperBound}};
 
-      auto volumeSample = sampleVolumeDistance(ss, volumeRay, isFirstBounce);
+      VolumeDistanceSample volumeSample{};
+      if (frameData.referenceVolumes) {
+        namespace qv = quality_volume;
+        namespace tr = volume_tracking;
+        namespace ref = optical_reference;
+        auto &q = mediumRequest;
+        q.operation = qv::Operation::Flight;
+        q.ray = aggregate_volume::worldDistanceRay(volumeRay);
+        for (int c = 0; c < 3; ++c)
+          q.path.radiance[c] = 0.;
+        if (q.scene->count > 0)
+          qv::execute(q);
+        else
+          q.flight.endpoint = tr::Endpoint::Boundary;
+        sample.color += vec3(ref::narrow(q.path.radiance[0] * appearanceWeight),
+            ref::narrow(q.path.radiance[1] * appearanceWeight),
+            ref::narrow(q.path.radiance[2] * appearanceWeight));
+        sampleContribution = qv::throughput(q.path);
+        if (q.flight.endpoint == tr::Endpoint::Absorbed)
+          break;
+        if (q.flight.endpoint == tr::Endpoint::Scattered) {
+          vec3 point;
+          for (int c = 0; c < 3; ++c)
+            point[c] = ref::narrow(ref::add(q.ray.origin[c],
+                ref::multiply(q.ray.direction[c], q.flight.distance)));
+          if (sourceAvailable)
+            sample.color += qv::mediumSource(ss,
+                q,
+                point,
+                appearanceWeight,
+                volumeSourceRandom,
+                volumeSourceShadowRandom);
+          // Incoming source was handled before this true event. The outcome of
+          // the explicit source draw never changes this ownership decision.
+          q.path.sourceOwned = !sourceAvailable;
+          const auto pick = sampleReferenceVolumeLight(ss, frameData, point);
+          const auto &light = pick.ls;
+          if (light.pdf > 0.f && light.dist > 0.f) {
+            const glm::dvec3 incoming(
+                q.ray.direction[0], q.ray.direction[1], q.ray.direction[2]);
+            const auto outgoing = glm::normalize(glm::dvec3(light.dir));
+            q.cosine = glm::clamp(glm::dot(incoming, outgoing), -1., 1.);
+            q.operation = qv::Operation::Phase;
+            qv::execute(q);
+            const double mis =
+                (pick.isEnv || pick.isGeometry || pick.isHittableArea)
+                ? double(light.pdf) / (double(light.pdf) + q.phase.pdf)
+                : 1.;
+            const Ray connection{point, light.dir, {0.f, light.dist}};
+            Ray surfaceConnection = connection;
+            if (pick.isGeometry)
+              surfaceConnection.t.upper *= 1.f - GEOMETRY_LIGHT_SHADOW_EPSILON;
+            const auto visibility =
+                glm::dvec3(surfaceShadowTransmittance(ss, surfaceConnection))
+                * qv::mediumShadow(frameData, connection, mediumShadowRandom);
+            vec3 contribution(0.f);
+            for (int c = 0; c < 3; ++c) {
+              const double scattering = q.flight.coefficients.scattering[c];
+              if (scattering > 0.)
+                contribution[c] = ref::narrow(q.path.throughput[c]
+                    * (q.phase.kernel[c] / scattering)
+                    * double(light.radiance[c]) * visibility[c] * mis
+                    * appearanceWeight / double(light.pdf));
+            }
+            sample.color += contribution;
+          }
+          q.operation = qv::Operation::Direction;
+          qv::execute(q);
+          if (qv::roulette(q.path, q.random, bounceDepth))
+            break;
+          sampleContribution = qv::throughput(q.path);
+          ray = Ray{point, normalize(vec3(q.direction.direction))};
+          lastScatterOrigin = point;
+          bsdfPdf = ref::narrow(q.direction.mixture.pdf);
+          lastScatterWasSurface = false;
+          lastScatterWasReferenceVolume = true;
+          ++bounceDepth;
+          continue;
+        }
+      } else
+        volumeSample = sampleVolumeDistance(ss, volumeRay, isFirstBounce);
 
       if (volumeSample.didScatter) {
         const vec3 scatterPos = ray.org + ray.dir * volumeSample.depth;
@@ -730,7 +913,8 @@ VISRTX_GLOBAL void __raygen__()
             const vec3 contribUpper = sampleContribution * directLight;
             const float maxContrib = glm::max(
                 contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-            if (maxContrib >= SHADOW_SKIP_EPSILON) {
+            if (frameData.referenceVolumes
+                || maxContrib >= SHADOW_SKIP_EPSILON) {
               const float eps = VOLUME_SCATTER_EPSILON;
               const Ray shadowRay = {
                   scatterPos + lightSample.dir * eps,
@@ -743,7 +927,7 @@ VISRTX_GLOBAL void __raygen__()
               // amplification.
               ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
               const auto attenuation = surfaceShadowTransmittance(ss, shadowRay)
-                  * volumeShadowTransmittance(ss, shadowRay);
+                  * qualityMediumShadow(ss, shadowRay, mediumShadowRandom);
               ss.shadowContribWeight = 1.0f;
               sample.color += applyFogVisibility(
                   contribUpper * attenuation, appearanceWeight);
@@ -760,7 +944,7 @@ VISRTX_GLOBAL void __raygen__()
         // would break out before these AOVs were written, leaving the object-id
         // / depth / normal buffers unset for opaque-black regions. The AOVs are
         // first-hit metadata, independent of the path's radiance contribution.
-        if (isFirstBounce) {
+        if (isFirstBounce && !frameData.referenceVolumes) {
           setPixelIds(frameData.fb,
               ss.pixel,
               volumeSample.depth,
@@ -800,7 +984,7 @@ VISRTX_GLOBAL void __raygen__()
       // continuation off a reflective surface. Handled before any material
       // work: a proxy has no Material to initialize shading from.
       if (surfaceHit.foundHit && surfaceHit.isLightProxy()) {
-        if (isFirstBounce) {
+        if (isFirstBounce && !frameData.referenceVolumes) {
           // Depth so compositing stays sane, but deliberately NOT the ID
           // channels: a light is not a scene object and must not be pickable as
           // one. setPixelIds is skipped entirely.
@@ -838,8 +1022,13 @@ VISRTX_GLOBAL void __raygen__()
                                                        radiance,
                                                        cameraFogColor)
                                                  : radiance;
-        sample.color += applyFogVisibility(
-            wEmission * sampleContribution * visibleRadiance, appearanceWeight);
+        sample.color += frameData.referenceVolumes
+            ? quality_volume::weighted(mediumRequest.path,
+                  visibleRadiance,
+                  double(wEmission) * appearanceWeight)
+            : applyFogVisibility(
+                  wEmission * sampleContribution * visibleRadiance,
+                  appearanceWeight);
         // A visible light COVERS the pixel. Without this the alpha channel
         // reports the pixel as empty while carrying the light's radiance, and
         // the background gets composited in behind it -- a visibly wrong,
@@ -860,6 +1049,8 @@ VISRTX_GLOBAL void __raygen__()
             materialEvaluateEmission(shadingState, -ray.dir);
         const vec3 materialTint = materialEvaluateTint(shadingState);
         const float opacity = materialEvaluateOpacity(shadingState);
+        const auto sourcePlan = volume_source::surfacePlan(
+            sourceAvailable, shadingState.callableBaseIndex);
 
         double surfaceAppearanceWeight = appearanceWeight;
         if (isCameraRay) {
@@ -869,11 +1060,26 @@ VISRTX_GLOBAL void __raygen__()
           // Like local emission/NEE, the additive term uses analytic opacity.
           // A coverage rejection below leaves the camera appearance weight
           // unchanged, so the next directly visible layer uses its own depth.
-          sample.color += sampleContribution * opacity
-              * fogInscatter(appearance, cameraFogColor);
+          sample.color += frameData.referenceVolumes
+              ? quality_volume::weighted(mediumRequest.path,
+                    fogInscatter(appearance, cameraFogColor),
+                    opacity)
+              : sampleContribution * opacity
+                  * fogInscatter(appearance, cameraFogColor);
         }
 
-        if (isFirstBounce) {
+        if (sourcePlan != volume_source::SurfacePlan::ContinuationOnly)
+          sample.color += quality_volume::surfaceSource(ss,
+              shadingState,
+              ray,
+              surfaceHit,
+              mediumRequest.path,
+              opacity,
+              surfaceAppearanceWeight,
+              volumeSourceRandom,
+              volumeSourceShadowRandom);
+
+        if (isFirstBounce && !frameData.referenceVolumes) {
           setPixelIds(frameData.fb,
               ss.pixel,
               surfaceHit.t,
@@ -898,9 +1104,13 @@ VISRTX_GLOBAL void __raygen__()
           if (pNee > 0.0f)
             wEmission = bsdfPdf / (bsdfPdf + pNee);
         }
-        sample.color += applyFogVisibility(
-            wEmission * sampleContribution * opacity * materialEmission,
-            surfaceAppearanceWeight);
+        sample.color += frameData.referenceVolumes
+            ? quality_volume::weighted(mediumRequest.path,
+                  materialEmission,
+                  double(wEmission) * double(opacity) * surfaceAppearanceWeight)
+            : applyFogVisibility(
+                  wEmission * sampleContribution * opacity * materialEmission,
+                  surfaceAppearanceWeight);
         // Sample around the shading normal so the cosine-weighted hemisphere's
         // pdf matches the BRDF's NdotL (which uses Ns). Sampling around Ng
         // would bias the Lambertian estimator by cos_Ns/cos_Ng on smooth or
@@ -968,7 +1178,8 @@ VISRTX_GLOBAL void __raygen__()
                   wNee * sampleContribution * opacity * directLight;
               const float maxContrib = glm::max(
                   contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-              if (maxContrib >= SHADOW_SKIP_EPSILON) {
+              if (frameData.referenceVolumes
+                  || maxContrib >= SHADOW_SKIP_EPSILON) {
                 // A Geometry Light's sampled point lies on real, opaque
                 // geometry, so stop the shadow ray just short of it or it
                 // self-occludes on the emissive surface itself (~15% energy
@@ -982,13 +1193,24 @@ VISRTX_GLOBAL void __raygen__()
                     lightSample.dir,
                     {surfaceHit.epsilon, shadowDist},
                 };
-                ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
-                const auto attenuation =
-                    surfaceShadowTransmittance(ss, shadowRay)
-                    * volumeShadowTransmittance(ss, shadowRay);
-                ss.shadowContribWeight = 1.0f;
-                sample.color += applyFogVisibility(
-                    contribUpper * attenuation, surfaceAppearanceWeight);
+                if (frameData.referenceVolumes)
+                  sample.color += quality_volume::connection(ss,
+                      shadowRay,
+                      mediumShadowRandom,
+                      mediumRequest.path,
+                      fCos,
+                      lightSample.radiance,
+                      double(wNee) * double(opacity) * surfaceAppearanceWeight
+                          / double(lightPdf));
+                else {
+                  ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
+                  const auto attenuation =
+                      surfaceShadowTransmittance(ss, shadowRay)
+                      * qualityMediumShadow(ss, shadowRay, mediumShadowRandom);
+                  ss.shadowContribWeight = 1.0f;
+                  sample.color += applyFogVisibility(
+                      contribUpper * attenuation, surfaceAppearanceWeight);
+                }
               }
             }
           }
@@ -1020,19 +1242,31 @@ VISRTX_GLOBAL void __raygen__()
                   * envRadiance / pCosine;
               const float maxContrib = glm::max(
                   contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-              if (maxContrib >= SHADOW_SKIP_EPSILON) {
+              if (frameData.referenceVolumes
+                  || maxContrib >= SHADOW_SKIP_EPSILON) {
                 const Ray shadowRay = {
                     shadowOrigin,
                     dirC,
                     {surfaceHit.epsilon, std::numeric_limits<float>::max()},
                 };
-                ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
-                const auto attenuation =
-                    surfaceShadowTransmittance(ss, shadowRay)
-                    * volumeShadowTransmittance(ss, shadowRay);
-                ss.shadowContribWeight = 1.0f;
-                sample.color += applyFogVisibility(
-                    contribUpper * attenuation, surfaceAppearanceWeight);
+                if (frameData.referenceVolumes)
+                  sample.color += quality_volume::connection(ss,
+                      shadowRay,
+                      mediumShadowRandom,
+                      mediumRequest.path,
+                      fCos,
+                      envRadiance,
+                      double(wC) * double(opacity) * surfaceAppearanceWeight
+                          / double(pCosine));
+                else {
+                  ss.shadowContribWeight = glm::min(1.0f, maxContrib * 2.0f);
+                  const auto attenuation =
+                      surfaceShadowTransmittance(ss, shadowRay)
+                      * qualityMediumShadow(ss, shadowRay, mediumShadowRandom);
+                  ss.shadowContribWeight = 1.0f;
+                  sample.color += applyFogVisibility(
+                      contribUpper * attenuation, surfaceAppearanceWeight);
+                }
               }
             }
           }
@@ -1065,7 +1299,18 @@ VISRTX_GLOBAL void __raygen__()
           accumulateValue(sample.opacity, 1.0f, sample.opacity);
           break;
         }
-        sampleContribution *= nextRay.contributionWeight;
+        if (frameData.referenceVolumes) {
+          // Coverage holes above preserve the old owner; a true event replaces
+          // it.
+          mediumRequest.path.sourceOwned =
+              volume_source::outgoingOwner(sourcePlan, nextRay);
+          for (int c = 0; c < 3; ++c)
+            mediumRequest.path.throughput[c] =
+                optical_reference::multiply(mediumRequest.path.throughput[c],
+                    optical_reference::promote(nextRay.contributionWeight[c]));
+          sampleContribution = quality_volume::throughput(mediumRequest.path);
+        } else
+          sampleContribution *= nextRay.contributionWeight;
 
         // Carry the bounce's solid-angle pdf for the env-MIS weight at a miss.
         // Reflection/diffuse lobes report a finite pdf (MIS-combined with NEE);
@@ -1076,11 +1321,18 @@ VISRTX_GLOBAL void __raygen__()
         if (!continuesThroughSurface(nextRay))
           accumulateValue(sample.opacity, 1.0f, sample.opacity);
 
-        if (shouldTerminatePath(ss, bounceDepth, sampleContribution, true))
+        if (frameData.referenceVolumes) {
+          if (quality_volume::roulette(
+                  mediumRequest.path, mediumRequest.random, bounceDepth))
+            break;
+          sampleContribution = quality_volume::throughput(mediumRequest.path);
+        } else if (shouldTerminatePath(
+                       ss, bounceDepth, sampleContribution, true))
           break;
 
         lastScatterNs = surfaceHit.Ns;
         lastScatterWasSurface = true;
+        lastScatterWasReferenceVolume = false;
 
         const float side = continuesThroughSurface(nextRay) ? -1.0f : 1.0f;
         ray =
@@ -1097,6 +1349,8 @@ VISRTX_GLOBAL void __raygen__()
             getEnvironmentLight(frameData, ray.dir, hdri, bounceDepth == 0)) {
           const float pLight = lastScatterWasSurface
               ? envHemiPdf(frameData, ray.dir, lastScatterNs)
+              : lastScatterWasReferenceVolume
+              ? referenceVolumeEnvPdf(frameData, ray.dir)
               : 0.0f;
           const float pCosine = (lastScatterWasSurface && !isinf(bsdfPdf))
               ? fmaxf(0.0f, dot(ray.dir, lastScatterNs)) * kInvPi
@@ -1106,12 +1360,15 @@ VISRTX_GLOBAL void __raygen__()
           const float wBsdf = isinf(bsdfPdf) ? 1.0f
               : bsdfPdf > 0.0f ? bsdfPdf / (bsdfPdf + pLight + pCosine)
                                : 0.0f;
-          sample.color += applyFogVisibility(
-              wBsdf * sampleContribution * hdri, appearanceWeight);
+          sample.color += frameData.referenceVolumes
+              ? quality_volume::weighted(
+                    mediumRequest.path, hdri, double(wBsdf) * appearanceWeight)
+              : applyFogVisibility(
+                    wBsdf * sampleContribution * hdri, appearanceWeight);
           accumulateValue(sample.opacity, 1.f, sample.opacity);
         }
 
-        if (isFirstBounce)
+        if (isFirstBounce && !frameData.referenceVolumes)
           setPixelIds(frameData.fb, ss.pixel, farLimit, ~0u, ~0u, ~0u);
 
         break;
@@ -1122,6 +1379,21 @@ VISRTX_GLOBAL void __raygen__()
       ++bounceDepth;
     }
 
+    if (frameData.referenceVolumes) {
+      if (sampleIdx == 0)
+        setPixelIds(frameData.fb,
+            ss.pixel,
+            outputCoverage.depth,
+            outputCoverage.primitive,
+            outputCoverage.object,
+            outputCoverage.instance);
+      sample.opacity = 1.f - luminance(outputCoverage.uncovered);
+      sample.albedo = outputCoverage.albedo;
+      sample.normal = outputCoverage.normal;
+      detail::accumValue(frameData.fb.buffers.backdropWeight,
+          detail::pixelIndex(frameData.fb, ss.pixel),
+          outputCoverage.uncovered);
+    }
     accumPixelSample(frameData, ss.pixel, sample);
   }
 }

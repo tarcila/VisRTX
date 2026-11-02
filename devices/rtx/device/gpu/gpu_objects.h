@@ -34,6 +34,7 @@
 #include "gpu/fieldBinding.h"
 #include "gpu/gpu_math.h"
 #include "gpu/materialAttributes.h"
+#include "gpu/previewShadowCacheData.h"
 #include "gpu/sbt.h"
 
 // optix
@@ -945,6 +946,7 @@ struct QualityRendererGPUData
 {
   int maxRayDepth;
   int maxTransparencyDepth;
+  uint32_t randomSeed;
 };
 
 struct InteractiveRendererGPUData
@@ -1108,6 +1110,7 @@ struct FrameGPUData
   const AggregateVolumeSceneGPUData *referenceVolumes;
   double referenceVolumeRate;
   double referenceShadowRate;
+  PreviewShadowCacheGPUData previewShadowCache;
 
   // Objects //
 
@@ -1139,6 +1142,7 @@ struct ScreenSample
   // applyShadowRussianRoulette so dim-contribution shadow rays terminate
   // sooner. Default 1.0 = full-precision RR (current behaviour).
   float shadowContribWeight;
+  uint32_t randomSeed{0};
 };
 
 } // namespace visrtx

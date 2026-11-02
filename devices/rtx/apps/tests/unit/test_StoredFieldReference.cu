@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "spatial_field/SpatialField.h"
+#include "spatial_field/StoredFieldPreviewSampler.h"
 #include "spatial_field/StoredFieldReferenceSampler.h"
 #include "utility/DeviceBuffer.h"
 
@@ -119,6 +120,68 @@ VISRTX_GLOBAL void referenceOpticsFetch(StoredFieldReferenceGPUData field,
   *out = ref::evaluateBindings(bindings, p, sampler, blackbody);
 }
 
+struct UniformDensitySample
+{
+  const StoredFieldReferenceGPUData &field;
+  VISRTX_HOST_DEVICE float operator()(vec3 p);
+};
+VISRTX_HOST_DEVICE float UniformDensitySample::operator()(vec3 p)
+{
+  return StoredFieldPreviewSampler{&field}.sample<float>(0, p);
+}
+VISRTX_GLOBAL void compareDensity(
+    StoredFieldReferenceGPUData field, PreviewDensityIntegral query, vec3 *out)
+{
+  UniformDensitySample sample{field};
+  out->x = preview_math::densityIntegral(field, query);
+  out->y = integratePreviewDensity(query, sample);
+  out->z = 0.f;
+}
+static void checkDensityIntegral(const StoredFieldReference &reference)
+{
+  ref::RawRangeCertificate<float> range;
+  if (!reference.range(range) || std::abs(double(range.range.lower)) > 0x1p40
+      || std::abs(double(range.range.upper)) > 0x1p40)
+    return;
+  const auto domain = reference.descriptor().domain;
+  const vec3 extent = domain.upper - domain.lower;
+  for (int c = 0; c < 3; ++c)
+    if (!(extent[c] >= 0x1p-20f && extent[c] <= 0x1p20f))
+      return;
+  DeviceBuffer result;
+  result.reserve(sizeof(vec3));
+  for (int variant = 0; variant < 3; ++variant) {
+    PreviewDensityIntegral q;
+    q.volumeDomain = q.fieldDomain = domain;
+    q.scale = .75f;
+    q.outside = .125f;
+    q.lower = .13f * extent.x;
+    q.upper = .89f * extent.x;
+    q.anchor = 0.f;
+    q.step = extent.x / 129.f;
+    for (int c = 0; c < 3; ++c) {
+      q.origin[c] = (domain.lower[c] + domain.upper[c]) * .5f;
+      q.direction[c] = 0.f;
+    }
+    q.origin[0] = variant == 1 ? domain.upper.x : domain.lower.x;
+    q.direction[0] = variant == 1 ? -1.f : 1.f;
+    if (variant == 2) {
+      q.direction[0] = .8f;
+      q.origin[1] = domain.lower.y + .1f * extent.y;
+      q.direction[1] = .6f * extent.y / extent.x;
+    }
+    compareDensity<<<1, 1>>>(
+        reference.previewGpuData(), q, result.ptrAs<vec3>());
+    checkedCuda(cudaGetLastError());
+    checkedCuda(cudaDeviceSynchronize());
+    vec3 got;
+    result.download(&got);
+    require(std::isfinite(got.x)
+            && std::abs(double(got.x) - got.y)
+                <= 2e-5 + 2e-4 * std::abs(double(got.y)),
+        "optimized density integral differs from uniform quadrature");
+  }
+}
 static vec3 sample(const StoredFieldReference &reference, vec3 p)
 {
   DeviceBuffer result;
@@ -148,6 +211,8 @@ static vec3 sample(const StoredFieldReference &reference, vec3 p)
             && ref::promote(value.x) <= ref::promote(range.range.upper),
         "scalar sample outside hull");
   }
+  if (!rgb)
+    checkDensityIntegral(reference);
   ++samples;
   return value;
 }

@@ -11,6 +11,7 @@
 #include <vector>
 #include "gpu/blackbody/blackbody.h"
 #include "gpu/volumeOpticsReference.h"
+#include "gpu/volumePreviewMath.h"
 #ifdef BLACKBODY_CUDA
 #include <cuda_runtime.h>
 #endif
@@ -23,7 +24,7 @@ struct Reference
 };
 struct Result
 {
-  double rgb[3], coupled[3], vacuum[3];
+  double rgb[3], coupled[3], vacuum[3], preview[3], previewCoupled[3];
 };
 VISRTX_HOST_DEVICE Result evaluate(float temperature)
 {
@@ -37,6 +38,12 @@ VISRTX_HOST_DEVICE Result evaluate(float temperature)
   v.blackbodyIntensity = temperature == 100.f ? 1e30f : 1.f;
   v.blackbodyTint = visrtx::vec3(v.blackbodyIntensity);
   const auto coupled = visrtx::optical_reference::evaluate(v, blackbody);
+  const bool lut = temperature >= 300.f && temperature <= 100000.f;
+  const auto preview =
+      lut ? glm::dvec3(visrtx::preview_math::blackbodyLUT(temperature)) : rgb;
+  auto previewCoupled = visrtx::preview_math::evaluateOptical(v, nullptr);
+  if (lut)
+    visrtx::preview_math::addThermal(previewCoupled, v);
   v.density = 0.f;
   v.emission = visrtx::vec3(2.f, 4.f, 8.f);
   const auto vacuum = visrtx::optical_reference::evaluate(v, blackbody);
@@ -45,6 +52,9 @@ VISRTX_HOST_DEVICE Result evaluate(float temperature)
     result.rgb[c] = rgb[c];
     result.coupled[c] = coupled.emission[c];
     result.vacuum[c] = vacuum.emission[c];
+    result.preview[c] = preview[c];
+    result.previewCoupled[c] =
+        lut ? double(previewCoupled.emission[c]) : coupled.emission[c];
   }
   return result;
 }
@@ -126,6 +136,7 @@ inline int run(const char *path)
     double coupledScale = 0.;
     for (int c = 0; c < 3; ++c) {
       error = std::max(error, std::abs(got.rgb[c] - r.rgb[c]));
+      error = std::max(error, std::abs(got.preview[c] - r.rgb[c]));
       y += weights[c] * got.rgb[c];
       expectedCoupled[c] = r.rgb[c] * 2. * (-std::log(std::ldexp(1., -c - 1)))
           * (1. - .5 * c) * scale;
@@ -138,6 +149,9 @@ inline int run(const char *path)
       ok &= std::abs(got.coupled[c] - expectedCoupled[c])
           <= tolerance * coupledScale;
       ok &= got.vacuum[c] == std::ldexp(2., c);
+      ok &= std::isfinite(got.previewCoupled[c])
+          && std::abs(got.previewCoupled[c] - expectedCoupled[c])
+              <= tolerance * coupledScale;
     }
     // Exact zero for underflow-to-zero references; otherwise use relative
     // tolerances even for cold tails far below the earlier float test floor.

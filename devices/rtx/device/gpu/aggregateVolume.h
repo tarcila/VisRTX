@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aggregateVolumeData.h"
+#include "blackbody/volumeBlackbody.h"
 #include "spatial_field/ReferenceSampling.h"
 
 namespace visrtx {
@@ -298,8 +299,13 @@ VISRTX_HOST_DEVICE Sample evaluate(const AggregateVolumeSceneGPUData &scene,
     if (occurrence.volume.type == VolumeType::PRINCIPLED) {
       const auto &volume = *occurrence.volume.principled;
       ReferenceFieldSampler sampler{volume.fields};
-      coefficients =
-          ref::evaluateBindings(volume.bindings, p, sampler, blackbody);
+      auto &&thermal = bindVolumeBlackbody(blackbody, volume.qualityCold);
+      coefficients = ref::evaluateBindings(volume.bindings,
+          p,
+          sampler,
+          thermal,
+          volume.hasConstantTransmissionLog ? volume.constantTransmissionLog
+                                            : nullptr);
       bounds = volume.opticalBounds;
       const VolumePhaseFunction phase{
           ref::evaluateBinding(volume.bindings.anisotropy, p, sampler),

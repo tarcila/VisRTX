@@ -208,12 +208,17 @@ This is preparatory support, not an advertised `principledVolume` extension.
 RGB fields do not build the scalar TF/isosurface acceleration grid. The factory now
 creates `principledVolume` objects with committed bindings, stored reference
 snapshots and optical bounds. Interactive/default have experimental preview
-transport; Quality/Fast/Debug/Test still diagnose and omit principled contributions.
+transport; [Quality now has experimental stochastic transport](docs/quality-volume-activation.md).
+Fast/Debug/Test still diagnose and omit principled contributions.
 See [the preview implementation record](docs/interactive-volume-preview.md),
 [object integration record](docs/principled-volume-object.md), and
 [API contract](../../principledVolume.md). Full qualification and discovery
-remain pending. Existing custom scalar callable signatures are unchanged; custom
-fields are not implicitly supported by the new stored-field sampling adapter.
+remain pending. [Typed custom fields](docs/typed-custom-fields.md) now have an
+explicit source-build opt-in, immutable snapshots and conservative raw-range
+contract. Existing custom scalar callable signatures are unchanged; legacy
+registration alone does not grant typed capability. See also the bounded
+[dynamic](docs/quality-volume-dynamic.md) and
+[convergence/error-cost](docs/quality-volume-convergence.md) qualification.
 
 #### VISRTX_MATERIAL_MDL
 

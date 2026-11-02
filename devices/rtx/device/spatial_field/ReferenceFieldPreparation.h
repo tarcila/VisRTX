@@ -260,7 +260,9 @@ inline PreparationResult prepareVolumeBindings(
       return {PreparationError::OpticalRangeUnavailable,
           "transmissionColor",
           b.transmissionColor.field};
-  if (!buildBounds(ranges, candidate.bounds))
+  if (!buildBounds(ranges,
+          candidate.bounds,
+          b.scatteringColor.field < 0 ? &b.scatteringColor.scale : nullptr))
     return {PreparationError::OpticalRangeUnavailable, nullptr, -1};
   if (!matchesPreparedFields(candidate, provider))
     return {PreparationError::RevisionMismatch, nullptr, -1};

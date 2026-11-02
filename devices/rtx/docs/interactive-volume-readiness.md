@@ -17,12 +17,23 @@ The implementation and evidence are described in:
 - [Lattice assessment and remaining precision limits](preview-lattice-precision.md)
 - [Aggregate preparation and eligibility](aggregate-volume-reference.md)
 
+A subsequent user-approved FP32/performance iteration is qualified separately in
+[FP32 preview execution](interactive-volume-fp32.md): the selected static plume
+reaches the 16.7 ms warmed-launch target at 640x640 and rates 1/1, with bounded HDR
+error controls. The [cache/uncached follow-up](interactive-volume-cache-followup.md)
+also meets the selected uncached 33.3 ms target and reduces animated-light update
+cost. This does not change the unadvertised/experimental feature scope.
+
+The subsequent [Quality activation](quality-volume-activation.md) is qualified
+separately; it does not broaden the preview's performance claims or complete the
+whole feature.
+
 ## Current compatibility boundary
 
 | Area | Interactive / default | Other renderers / qualification boundary |
 |---|---|---|
-| `principledVolume` | Stored-provider aggregate transport, additive overlap, explicit/thermal source, direct single scattering | Quality/Fast/Debug/Test diagnose and omit it; intrinsic object validity is not renderer support |
-| TF1D | Reference classification, `A=extinction`, `S=0`, `j=extinction*color`; additive with principled occurrences | Quality/Fast/Debug/Test retain their legacy TF integration in this incremental state |
+| `principledVolume` | Stored-provider aggregate transport, additive overlap, explicit/thermal source, direct single scattering | Quality now has experimental stochastic transport; Fast/Debug/Test diagnose and omit it |
+| TF1D | Reference classification, `A=extinction`, `S=0`, `j=extinction*color`; additive with principled occurrences | Quality now also uses emission–absorption; Fast/Debug/Test retain legacy TF integration |
 | Providers | Dense regular/rectilinear scalar/RGB and supported NanoVDB regular/rectilinear formats | Custom typed opt-in remains unfinished, not retired from intended scope |
 | Unavailable typed reference | Warn and omit from this renderer's eligible set; no silent legacy-optics fallback | Strict aggregate preparation still returns incomplete, not a prefix; legacy intrinsic validity remains independent |
 | Coverage/backdrop | Separate uncovered RGB and tinted straight-through backdrop; zero-alpha source survives | No assertion that all legacy renderers already implement this transport policy |
@@ -74,13 +85,16 @@ recorded in their respective implementation notes.
 
 ## Explicit exclusions and remaining work
 
-- Quality multiple scattering, volume-emitter lighting/source ownership, approved
-  native BSDF repairs and actual MDL closure/generator qualification remain separate
-  work. Passing existing material compatibility tests does not complete those tasks.
+- Quality multiple scattering has a separate experimental activation. Practical
+  volume-emitter sampling/source ownership, approved native BSDF repairs and actual
+  MDL closure/generator qualification remain separate work. Passing existing
+  material compatibility tests does not complete those tasks.
 - Custom-provider typed opt-in remains pending. Existing custom scalar signatures
   were not silently reinterpreted or removed.
-- No rendered plume/cloud convergence campaign, throughput study, final deployment
-  rate selection, or full-render independent-replicate qualification was performed.
+- The activation pass did not perform a rendered plume/cloud convergence campaign,
+  throughput study, deployment-rate selection, or independent-replicate
+  qualification. The later FP32 iteration adds bounded plume performance and
+  plume/cloud HDR comparisons, not universal convergence or deployment optima.
 - Extreme coordinate failures remain possible: intersection endpoints can collapse
   before stepping; unresolvable lattice boundaries coarsen represented spans;
   float sample positions have their own limits. The documented tests characterize

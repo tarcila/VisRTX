@@ -9,12 +9,14 @@ in the control flow. No draw is hoisted across a branch or early return.
 The four-element `NextRayQmc` layout, signed cursor, saturation and callable
 fourth-argument types are unchanged. Interactive retains the nullptr default.
 
-Dimensions 12–15 are the **first four sequential material requests**, including
-categorical decisions; the fifth request uses the existing PCG stream. This is
+Dimensions 8–11 are the **first four sequential material requests** of the
+retained proposal/MDL xi, including its categorical decisions; the fifth request
+uses the existing PCG stream. Native's independent outer support-mixture coin
+uses PCG rather than this Sobol prefix. This is
 branch-dependent consumption, not fixed semantic roles across materials.
 Quality reseeds surface dimensions per bounce/transparency layer. Ambient and
-HDRI cosine sampling intentionally share dimensions 4–5. Analytic coordinates
-remain 6–7, HDRI row/column 6–7 and jitter 8–9. Geometry lights and volume draws
+HDRI cosine sampling intentionally share dimensions 0–1. Analytic coordinates
+use 2–3, HDRI row/column 2–3 and jitter 4–5. Geometry lights and volume draws
 remain PCG; no transport equation, CDF tie, non-positive-spp, seed-control or
 BSDF-physics change is included.
 

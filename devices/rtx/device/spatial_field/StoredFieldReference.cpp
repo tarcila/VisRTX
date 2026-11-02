@@ -117,6 +117,78 @@ bool validKeyDomain(ref::FieldRevision key, const box3 &domain)
 
 } // namespace
 
+std::unique_ptr<StoredFieldReference> StoredFieldReference::customRaw(
+    const TypedCustomDescriptor &request,
+    const void *payload,
+    size_t bytes,
+    size_t alignment,
+    FieldValueType type,
+    const optical_reference::RawRange<float> *scalar,
+    const optical_reference::RawRange<vec3> *rgb,
+    box3 domain,
+    optical_reference::FieldRevision key,
+    cudaStream_t stream,
+    std::shared_ptr<const void> resources,
+    TypedCustomError *error)
+{
+  auto fail = [&](TypedCustomError e) -> std::unique_ptr<StoredFieldReference> {
+    if (error)
+      *error = e;
+    return {};
+  };
+  if (request.structSize < sizeof(TypedCustomDescriptor))
+    return fail(TypedCustomError::DescriptorSize);
+  if (request.version != TYPED_CUSTOM_CONTRACT)
+    return fail(TypedCustomError::Version);
+  const auto *compiled = compiledTypedCustomProvider(request.provider);
+  const auto status = validateTypedCustom(request,
+      compiled,
+      bytes,
+      alignment,
+      type,
+      scalar || rgb,
+      bool(resources));
+  if (status != TypedCustomError::None)
+    return fail(status);
+  if (!payload)
+    return fail(TypedCustomError::MissingPayload);
+  for (int c = 0; c < 3; ++c)
+    if (!std::isfinite(domain.lower[c]) || !std::isfinite(domain.upper[c]))
+      return fail(TypedCustomError::InvalidDomain);
+  const bool empty = scalar ? scalar->empty : rgb->empty;
+  if (empty && optical_reference::nonemptyDomain(domain))
+    return fail(TypedCustomError::InvalidRange);
+  if (!empty)
+    for (int c = 0; c < (scalar ? 1 : 3); ++c) {
+      const float lo = scalar ? scalar->lower : rgb->lower[c];
+      const float hi = scalar ? scalar->upper : rgb->upper[c];
+      if (!std::isfinite(lo) || !std::isfinite(hi) || hi < lo)
+        return fail(TypedCustomError::InvalidRange);
+    }
+  // Providers publish ready resources or enqueue their uploads on this stream.
+  // Join before CUDA guide preparation can consume them on the default stream.
+  const auto ready = cudaStreamSynchronize(stream);
+  if (ready != cudaSuccess)
+    throw std::runtime_error(cudaGetErrorString(ready));
+  auto result = std::make_unique<StoredFieldReference>();
+  copyChecked(result->m_values, payload, bytes);
+  finishUploads();
+  result->m_gpu.data = result->m_values.ptr();
+  result->m_gpu.customProvider = compiled->provider;
+  result->m_gpu.cudaSampling = (compiled->capabilities & TypedCustomCuda) != 0;
+  result->m_descriptor = {key, type, domain};
+  if (scalar)
+    result->m_scalarRange = *scalar;
+  else
+    result->m_rgbRange = *rgb;
+  result->m_previewMap = false;
+  result->m_customStream = stream;
+  result->m_customResources = std::move(resources);
+  if (error)
+    *error = TypedCustomError::None;
+  return result;
+}
+
 std::unique_ptr<StoredFieldReference> StoredFieldReference::dense(
     const void *data,
     ANARIDataType type,
@@ -254,6 +326,27 @@ std::unique_ptr<StoredFieldReference> StoredFieldReference::sparse(
   auto result = std::make_unique<StoredFieldReference>();
   auto &view = result->m_gpu;
   view.sparse = true;
+  // Metadata-only selection, not a scan or a new validity requirement.
+  for (int i = 0; i < 9; ++i) {
+    const double x = std::abs(data->mMap.mInvMatD[i]);
+    result->m_previewMap &=
+        x <= 0x1p20 && (x == 0. || x >= std::numeric_limits<float>::min());
+    result->m_previewMap &= std::isfinite(data->mMap.mInvMatF[i]);
+  }
+  double inverseNorm = 0., forwardNorm = 0.;
+  for (int row = 0; row < 3; ++row) {
+    double a = 0., b = 0.;
+    for (int col = 0; col < 3; ++col) {
+      a += std::abs(data->mMap.mInvMatD[3 * row + col]);
+      b += std::abs(data->mMap.mMatD[3 * row + col]);
+    }
+    inverseNorm = std::max(inverseNorm, a);
+    forwardNorm = std::max(forwardNorm, b);
+  }
+  result->m_previewMap &=
+      inverseNorm >= 0x1p-20 && inverseNorm * forwardNorm <= 64.;
+  for (int c = 0; c < 3; ++c)
+    result->m_previewMap &= std::abs(data->mMap.mVecD[c]) <= 0x1p16;
   view.rectilinear = axes != nullptr;
   view.gridType = metadata.gridType();
   view.cellCentered = cellCentered;
@@ -298,6 +391,35 @@ std::unique_ptr<StoredFieldReference> StoredFieldReference::sparse(
     return {};
   finishUploads();
   return result;
+}
+
+bool StoredFieldReference::supportsFloatPreview() const
+{
+  if (!m_previewMap)
+    return false;
+  for (int c = 0; c < 3; ++c) {
+    if (std::abs(double(m_gpu.indexMin[c])) > 0x1p18
+        || std::abs(double(m_gpu.indexMax[c])) > 0x1p18)
+      return false;
+    const double extent = double(m_descriptor.domain.upper[c])
+        - double(m_descriptor.domain.lower[c]);
+    const double magnitude =
+        std::max(std::abs(double(m_descriptor.domain.lower[c])),
+            std::abs(double(m_descriptor.domain.upper[c])));
+    if (!(extent >= 0x1p-20 && extent <= 0x1p20) || magnitude > extent * 0x1p10)
+      return false;
+    if (!m_gpu.sparse && !m_gpu.rectilinear
+        && !(double(m_gpu.spacing[c]) >= 0x1p-20
+            && double(m_gpu.spacing[c]) <= 0x1p20))
+      return false;
+    if (m_gpu.rectilinear) {
+      const double span =
+          double(m_gpu.axisUpper[c]) - double(m_gpu.axisLower[c]);
+      if (!(span >= 0x1p-20 && span <= 0x1p20))
+        return false;
+    }
+  }
+  return true;
 }
 
 } // namespace visrtx

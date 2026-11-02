@@ -34,7 +34,9 @@ VISRTX_DEVICE ref::Coefficients opticalOnly(
     *phase = {ref::evaluateBinding(b.anisotropy, p, sampler),
         ref::evaluateBinding(b.secondaryAnisotropy, p, sampler),
         ref::evaluateBinding(b.secondaryWeight, p, sampler)};
-  return ref::evaluate(v);
+  return ref::evaluateOptical(v,
+      volume.hasConstantTransmissionLog ? volume.constantTransmissionLog
+                                        : nullptr);
 }
 
 VISRTX_DEVICE ref::Coefficients extinctionAt(
@@ -259,20 +261,6 @@ VISRTX_DEVICE void integrateCameraSegment(ScreenSample &ss,
       t = next;
     }
   }
-}
-VISRTX_DEVICE void cameraSegment(ScreenSample &ss,
-    const av::Ray &ray,
-    double begin,
-    double end,
-    CameraIntegral &integral)
-{
-  optixContinuationCall<void>(
-      uint32_t(SbtCallableEntryPoints::ReferenceCameraSegment),
-      &ss,
-      &ray,
-      begin,
-      end,
-      &integral);
 }
 } // namespace volume_preview
 } // namespace visrtx

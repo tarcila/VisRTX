@@ -111,7 +111,8 @@ enum class SbtCallableEntryPoints : uint32_t
   ReferenceFieldRGB = ReferenceFieldScalar + 1,
   ReferenceAttenuation = ReferenceFieldRGB + 1,
   ReferenceCameraSegment = ReferenceAttenuation + 1,
-  Last = ReferenceCameraSegment + 1,
+  QualityVolume = ReferenceCameraSegment + 1,
+  Last = QualityVolume + 1,
 };
 
 } // namespace visrtx

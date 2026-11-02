@@ -17,6 +17,13 @@
       "name": "quality",
       "parameters": [
         {
+          "name": "randomSeed",
+          "types": ["ANARI_UINT32"],
+          "tags": [],
+          "default": 0,
+          "description": "reproducible randomization key for camera, surface and volume sampling; zero preserves the default sample sequence"
+        },
+        {
           "name": "sampleLimit",
           "types": [
             "ANARI_INT32"
@@ -50,13 +57,13 @@
             "ANARI_STRING"
           ],
           "tags": [],
-          "default": "colorAlbedoNormal",
+          "default": "color",
           "values": [
             "colorAlbedoNormal",
             "colorAlbedo",
             "color"
           ],
-          "description": "mode controlling buffers given to the denoiser"
+          "description": "mode controlling buffers given to the denoiser; frames with reference media use color-only with a diagnostic for requested guides"
         },
         {
           "name": "fireflyFilterMode",

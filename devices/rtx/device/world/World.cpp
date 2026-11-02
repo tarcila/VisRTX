@@ -30,6 +30,7 @@
  */
 
 #include "World.h"
+#include "VolumeSourcePreparation.h"
 
 #include <helium/utility/IntrusivePtr.h>
 #include <helium/utility/TimeStamp.h>
@@ -332,12 +333,14 @@ helium::TimeStamp World::volumePublicationStamp() const
   return m_objectUpdates.lastTLASBuild;
 }
 
-AggregateVolumeSceneGPUData World::referenceVolumes(bool omitUnavailable)
+AggregateVolumeSceneGPUData World::referenceVolumes(
+    bool omitUnavailable, bool withSourceImportance)
 {
   // Explicit consumer request after commit flushing; legacy renderers do not
   // allocate this list or force TF reference construction.
   rebuildWorld();
-  if (m_referenceBuilt && m_referenceOmissions==omitUnavailable
+  if (m_referenceBuilt && m_referenceOmissions == omitUnavailable
+      && m_referenceSourceImportance == withSourceImportance
       && m_referenceTLASBuild == m_objectUpdates.lastTLASBuild) {
     bool current = true;
     for (const auto &dependency : m_referenceDependencies)
@@ -351,6 +354,8 @@ AggregateVolumeSceneGPUData World::referenceVolumes(bool omitUnavailable)
   m_referenceDependencies.clear();
   const ScopedReferenceRounding rounding;
   std::vector<VolumeOccurrenceGPUData> occurrences;
+  size_t sourceCount = 0;
+  bool sourceReady = true;
   std::set<Volume *> retained;
   size_t placement = 0;
   for (auto *instance : m_instances) {
@@ -401,6 +406,13 @@ AggregateVolumeSceneGPUData World::referenceVolumes(bool omitUnavailable)
               "aggregate optical reference unavailable for this volume; no partial scene view published");
           return {};
         }
+        if (occurrence.volume.mightEmit
+            && optical_reference::nonemptyDomain(occurrence.volume.domain)) {
+          sourceReady &= prepareVolumeSource(occurrence, objectToWorld);
+          if (withSourceImportance)
+            occurrence.volume = volume->withSourceImportance(occurrence.volume);
+          ++sourceCount;
+        }
         occurrences.push_back(occurrence);
       }
     }
@@ -422,9 +434,62 @@ AggregateVolumeSceneGPUData World::referenceVolumes(bool omitUnavailable)
       occurrences.size(),
       true,
       helium::newTimeStamp()};
+  m_referenceView.sourceCount = sourceCount;
+  m_referenceView.sourceSamplingReady = sourceReady;
+  m_referenceView.previewFloatEligible = true;
+  double originLimit = 0x1p16;
+  for (const auto &occurrence : occurrences) {
+    m_referenceView.previewFloatEligible &=
+        occurrence.volume.previewFloatEligible;
+    double scale = 0.;
+    glm::dmat4 inverse(1.);
+    for (int row = 0; row < 3; ++row)
+      for (int col = 0; col < 4; ++col) {
+        const double x = std::abs(occurrence.worldToObject[row][col]);
+        inverse[col][row] = occurrence.worldToObject[row][col];
+        m_referenceView.previewFloatEligible &=
+            x <= 0x1p16 && (x == 0. || x >= std::numeric_limits<float>::min());
+        if (col < 3)
+          scale = std::max(scale, x);
+      }
+    // Tiny individual off-diagonal terms are harmless (e.g. near-identity
+    // rotations). Select wide arithmetic by scale/conditioning, not by each
+    // coefficient's magnitude.
+    if (m_referenceView.previewFloatEligible && scale >= 0x1p-16) {
+      const auto forward = glm::affineInverse(inverse);
+      double inverseNorm = 0., forwardNorm = 0.;
+      for (int row = 0; row < 3; ++row) {
+        double a = 0., b = 0.;
+        for (int col = 0; col < 3; ++col) {
+          m_referenceView.previewFloatEligible &=
+              std::isfinite(forward[col][row]);
+          a += std::abs(inverse[col][row]);
+          b += std::abs(forward[col][row]);
+        }
+        inverseNorm = std::max(inverseNorm, a);
+        forwardNorm = std::max(forwardNorm, b);
+      }
+      m_referenceView.previewFloatEligible &= inverseNorm * forwardNorm <= 64.;
+    } else
+      m_referenceView.previewFloatEligible = false;
+    const double step = occurrence.volume.stepSize;
+    originLimit = std::min(originLimit, step / (3. * scale) * 0x1p14);
+    for (int c = 0; c < 3; ++c) {
+      const double lo = occurrence.volume.domain.lower[c];
+      const double hi = occurrence.volume.domain.upper[c];
+      m_referenceView.previewFloatEligible &= hi - lo >= 0x1p-20
+          && hi - lo <= 0x1p20
+          && std::max(std::abs(lo), std::abs(hi)) <= step * 0x1p14;
+    }
+  }
+  // Extremely large sums keep the existing wide path, never omit occurrences.
+  m_referenceView.previewFloatEligible &=
+      double(occurrences.size()) * 0x1p80 < 0x1p100;
+  m_referenceView.previewOriginLimit = float(originLimit);
   m_referenceTLASBuild = m_objectUpdates.lastTLASBuild;
   m_referenceBuilt = true;
   m_referenceOmissions = omitUnavailable;
+  m_referenceSourceImportance=withSourceImportance;
   return m_referenceView;
 }
 

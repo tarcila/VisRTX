@@ -3,6 +3,7 @@
 #pragma once
 #include <cmath>
 #include <cstdio>
+#include "gpu/renderer/previewFloatLattice.h"
 #include "gpu/renderer/volumePreviewLattice.h"
 #ifdef PREVIEW_LATTICE_CUDA
 #include <cuda_runtime.h>
@@ -15,6 +16,7 @@ struct Result
   double cursor, next, expected, upper, source;
   bool partition;
   bool endpointCollapse;
+  bool preparedFloat;
 };
 VISRTX_HOST_DEVICE Result execute(int id)
 {
@@ -140,6 +142,27 @@ VISRTX_HOST_DEVICE Result execute(int id)
   result.source = integral.radiance[0];
   result.partition = true;
   result.endpointCollapse = true;
+  result.preparedFloat = true;
+  if (id <= 6 || id == 16 || id == 17) {
+    preview_volume::Ray r;
+    for (int c = 0; c < 3; ++c) {
+      r.origin[c] = float(ray.origin[c]);
+      r.direction[c] = float(ray.direction[c]);
+    }
+    r.lower = float(ray.lower);
+    r.upper = float(ray.upper);
+    const preview_volume::Interval s{float(span.lower), float(span.upper)};
+    const auto prepared = practical_preview::prepareRay(scene, r, float(rate));
+    if (scene.count == 1) {
+      const float a =
+          practical_preview::nextPreparedCell(prepared, s, float(cursor));
+      const float b =
+          practical_preview::nextCell(scene, r, s, float(cursor), float(rate));
+      result.preparedFloat =
+          prepared.single && prepared.hit && fabsf(a - b) <= 1e-6f;
+    } else
+      result.preparedFloat = !prepared.single;
+  }
   if (id == 15) {
     // Characterize a limit BEFORE nextCell: the exact unit interval at a
     // distance of 2^54 collapses to equal double endpoints. There is no
@@ -204,7 +227,7 @@ inline int run()
     const auto &r = host[i];
     if (!std::isfinite(r.next) || !(r.next > r.cursor) || r.next > r.upper
         || r.next != r.expected || r.source != 2. * (r.next - r.cursor)
-        || !r.partition || !r.endpointCollapse) {
+        || !r.partition || !r.endpointCollapse || !r.preparedFloat) {
       std::fprintf(stderr,
           "lattice case %d: next=%a expected=%a cursor=%a upper=%a\n",
           i,

@@ -203,7 +203,8 @@ VISRTX_HOST_DEVICE Coefficients evaluateBindings(
     const PrincipledVolumeBindingsGPUData &b,
     const vec3 &p,
     Sampler &sampler,
-    Blackbody &blackbody)
+    Blackbody &blackbody,
+    const double *transmissionLog = nullptr)
 {
   if (!contains(b.bounds, p))
     return {};
@@ -218,7 +219,7 @@ VISRTX_HOST_DEVICE Coefficients evaluateBindings(
   v.blackbodyTint = evaluateBinding(b.blackbodyTint, p, sampler);
   // Phase is evaluated separately by consumers using evaluateBinding; no source
   // or extinction term depends on it, so don't sample it just for coefficients.
-  return evaluate(v, blackbody);
+  return evaluate(v, blackbody, transmissionLog);
 }
 
 VISRTX_HOST_DEVICE bool validDomainMetadata(const box3 &domain)

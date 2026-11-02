@@ -40,6 +40,8 @@ struct Quality : public Renderer
   Quality(DeviceGlobalState *s);
   void commitParameters() override;
   void populateFrameData(FrameGPUData &fd) const override;
+  bool usesVolumeTrackingCallables() const override;
+  bool usesReferenceVolumes() const override;
   OptixModule optixModule() const override;
   Span<HitgroupFunctionNames> hitgroupSbtNames() const override;
   Span<std::string> missSbtNames() const override;
@@ -48,6 +50,7 @@ struct Quality : public Renderer
 
   int m_maxRayDepth{12};
   int m_maxTransparencyDepth{32};
+  uint32_t m_randomSeed{0};
 };
 
 } // namespace visrtx

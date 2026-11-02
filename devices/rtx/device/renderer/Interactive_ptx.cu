@@ -472,7 +472,10 @@ VISRTX_GLOBAL void __miss__shading()
 VISRTX_CALLABLE void __direct_callable__referenceAttenuation(
     const FrameGPUData *fd, const Ray *ray, glm::dvec3 *result)
 {
-  *result = volume_preview::integrateAttenuation(*fd, *ray);
+  if (practical_preview::eligibleInput(*fd, *ray))
+    *result = glm::dvec3(practical_preview::integrateAttenuation(*fd, *ray));
+  else
+    *result = volume_preview::integrateAttenuation(*fd, *ray);
 }
 
 VISRTX_CALLABLE void __continuation_callable__referenceCameraSegment(
@@ -480,9 +483,21 @@ VISRTX_CALLABLE void __continuation_callable__referenceCameraSegment(
     const aggregate_volume::Ray *ray,
     double begin,
     double end,
-    volume_preview::CameraIntegral *integral)
+    practical_preview::CameraIntegral *integral)
 {
-  volume_preview::integrateCameraSegment(*ss, *ray, begin, end, *integral);
+  if (practical_preview::eligible(*ss->frameData, *ray)
+      && fabs(begin) <= ss->frameData->referenceVolumes->previewOriginLimit) {
+    practical_preview::integrateCameraSegment(*ss,
+        practical_preview::floatRay(*ray),
+        float(begin),
+        float(end),
+        *integral);
+  } else {
+    volume_preview::CameraIntegral wide;
+    practical_preview::copyIntegral(wide, *integral);
+    volume_preview::integrateCameraSegment(*ss, *ray, begin, end, wide);
+    practical_preview::copyIntegral(*integral, wide);
+  }
 }
 
 VISRTX_GLOBAL void __raygen__()

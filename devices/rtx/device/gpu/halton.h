@@ -75,7 +75,8 @@ VISRTX_HOST_DEVICE float radicalInverse(uint32_t i)
   float scale = 1.0f;
   while (i > 0u) {
     scale *= invBase;
-    result += float(i % Base) * scale;
+    // Match CUDA's fused accumulation explicitly on the host as well.
+    result = fmaf(float(i % Base), scale, result);
     i /= Base;
   }
   // FP rounding can push the sum to exactly 1.0f; callers need [0, 1).
@@ -92,6 +93,33 @@ VISRTX_HOST_DEVICE ::float4 halton4D(uint32_t sampleIdx)
       radicalInverse<5>(sampleIdx),
       radicalInverse<7>(sampleIdx),
   };
+}
+
+// Rotate on the exact half-open 24-bit grid used by transport uniforms.
+// Integer addition avoids rounding a wrapped coordinate to 1 on host/CUDA.
+VISRTX_HOST_DEVICE float haltonRotate(float value, uint32_t key)
+{
+  const uint32_t coordinate = uint32_t(value * 0x1p24f);
+  return float((coordinate + (key >> 8)) & 0xffffffu) * 0x1p-24f;
+}
+
+// Nonzero seeds apply a fixed per-pixel, per-coordinate torus rotation to the
+// entire sequence, not a new index offset per sample. Quantization is <2^-24.
+// Zero bypasses rotation/quantization and preserves the original Halton values.
+// Hash-derived rotations are reproducible randomization, not ideal independent
+// permutations or a joint Halton/Sobol discrepancy guarantee.
+VISRTX_HOST_DEVICE ::float4 haltonCamera(
+    uint32_t sampleIdx, uint32_t x, uint32_t y, uint32_t randomSeed = 0)
+{
+  const uint32_t pixel = haltonPixelHash(x, y);
+  const auto h = halton4D(sampleIdx + pixel); // uint32 wrapping is intentional
+  if (randomSeed == 0)
+    return h;
+  return ::float4{
+      haltonRotate(h.x, haltonPixelHash(pixel ^ 0x9e3779b9u, randomSeed)),
+      haltonRotate(h.y, haltonPixelHash(pixel ^ 0x3c6ef372u, randomSeed)),
+      haltonRotate(h.z, haltonPixelHash(pixel ^ 0xdaa66d2bu, randomSeed)),
+      haltonRotate(h.w, haltonPixelHash(pixel ^ 0x78dde6e4u, randomSeed))};
 }
 
 } // namespace visrtx

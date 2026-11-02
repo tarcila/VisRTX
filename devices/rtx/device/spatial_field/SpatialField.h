@@ -84,9 +84,17 @@ inline const StoredFieldReference *SpatialField::referenceField()
   if (!isValid())
     return nullptr;
   if (!m_referenceAttempted) {
-    auto snapshot = createReferenceField({m_referenceIdentity,
+    const optical_reference::FieldRevision key{m_referenceIdentity,
         m_referenceRevision,
-        STORED_FIELD_REFERENCE_CONTRACT});
+        STORED_FIELD_REFERENCE_CONTRACT};
+    auto snapshot = createReferenceField(key);
+    if (snapshot
+        && (!(snapshot->descriptor().key == key)
+            || snapshot->descriptor().valueType != gpuData().valueType)) {
+      reportMessage(ANARI_SEVERITY_WARNING,
+          "typed field snapshot revision/arity does not match finalized field");
+      snapshot.reset();
+    }
     m_reference = std::move(snapshot);
     m_referenceAttempted = true;
   }

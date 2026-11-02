@@ -8,7 +8,13 @@ The input contract remains [`principledVolume.md`](../../../principledVolume.md)
 
 ## Transport and output
 
-`gpu/renderer/volumePreview.h` integrates additive RGB extinction and source on
+Ordinary scenes use `gpu/renderer/volumePreviewFloat.h`;
+`gpu/renderer/volumePreview.h` remains the wide fallback. The
+[FP32 execution/qualification record](interactive-volume-fp32.md) describes the
+precision selection, cold thermal lookup, optional directional-shadow cache, and
+measured performance. The [cache follow-up](interactive-volume-cache-followup.md)
+adds precise invalidation, light-aligned column construction and an optimized
+uncached density path. Both paths integrate additive RGB extinction and source on
 anchored, metadata-guided cells, split at occurrence and field-domain endpoints.
 It includes direct single scattering, both phase lobes, and calibrated thermal
 emission. TF1D records in this path use emission–absorption semantics. Variable
@@ -24,9 +30,11 @@ first-event coverage weights and arithmetic sample averages. Legacy approximate
 TF picking stays separate from optical integration; surface IDs retain per-hit
 depth arbitration. Principled picking improvements remain deferred.
 
-The shared renderer helpers are bounded by OptiX callable programs to avoid
+The reference renderer helpers are bounded by OptiX callable programs to avoid
 pathological compiler expansion: scalar/RGB stored-reference sampling and medium
-attenuation use direct calls; camera integration uses a continuation call because
+attenuation use direct calls. The smaller FP32 point sampler uses ordinary
+noinline device functions; density-integral requests retain a direct callable.
+Camera integration uses a continuation call because
 it issues shadow traces. Pipeline stack calculation permits two nested direct
 calls and one continuation call for reference-volume renderers. Legacy renderers
 reserve the SBT indices but do not link preview transport through those slots.
@@ -130,9 +138,10 @@ values, and coordinate mappings; the public controls do not exhaust all such cas
 - The bounded lattice assessment and provider matrix are not exhaustive
   heterogeneous-scene or transformed-coordinate guarantees; the documented
   extreme-coordinate limitations remain.
-- Quality multiple scattering and volume-source lighting, approved BSDF work,
-  and custom-provider opt-in. Quality/Fast/Debug/Test still diagnose and omit
-  principled contributions; object validity is independent of that eligibility.
+- Quality now has a separate [experimental activation](quality-volume-activation.md).
+  Practical volume-source sampling, approved BSDF work and custom-provider opt-in
+  remain pending. Fast/Debug/Test still diagnose and omit principled contributions;
+  object validity is independent of that eligibility.
 - Final advertised extension/subtype metadata after promised paths are qualified.
 
 CIE inputs and derived numeric tables under `gpu/blackbody/data/` remain separately

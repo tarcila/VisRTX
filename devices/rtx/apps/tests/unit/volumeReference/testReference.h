@@ -29,6 +29,7 @@ struct Input
   ref::EffectiveRanges ranges;
   float alpha;
   float distance;
+  double transmissionLog[3]; // Prepared on host, consumed on CPU/CUDA.
 };
 
 struct Result
@@ -38,6 +39,8 @@ struct Result
   double logSingleton;
   ref::Coefficients coefficients;
   ref::Coefficients thermal;
+  ref::Coefficients cached;
+  ref::Coefficients cachedThermal;
   ref::Coefficients tf;
   ref::Bounds bounds;
   ref::Bounds singleton;
@@ -69,6 +72,8 @@ VISRTX_HOST_DEVICE Result evaluate(const Input &in)
   r.coefficients = ref::evaluate(v);
   Blackbody blackbody;
   r.thermal = ref::evaluate(v, blackbody);
+  r.cached = ref::evaluateOptical(v, in.transmissionLog);
+  r.cachedThermal = ref::evaluate(v, blackbody, in.transmissionLog);
   r.metadataChecks = ref::buildBounds(in.ranges, r.bounds) ? 1 : 0;
   ref::EffectiveRanges singleton{{v.density, v.density},
       {{v.transmissionColor.x, v.transmissionColor.x},
@@ -132,6 +137,9 @@ inline bool close(double actual, long double expected)
 inline void check(const Input &in, const Result &r, double oracle)
 {
   require(r.metadataChecks == 3, "valid construction failed");
+  require(std::memcmp(&r.cached, &r.coefficients, sizeof(r.cached)) == 0
+          && std::memcmp(&r.cachedThermal, &r.thermal, sizeof(r.thermal)) == 0,
+      "host-prepared transmission logs changed optical bits");
   require(close(r.logarithm, oracle), "log vs Decimal90");
   require(r.logUpper >= r.logarithm, "range log underbound");
   require(r.logSingleton >= r.logarithm, "singleton log underbound");
@@ -235,6 +243,8 @@ try {
     v.density = densities[index % 4];
     v.transmissionColor =
         visrtx::vec3(fromBits(bits), 1.f, fromBits(0x3f7fffff));
+    for (int c = 0; c < 3; ++c)
+      in.transmissionLog[c] = ref::negativeLog(v.transmissionColor[c]);
     v.transmissionDistance = distances[(index / 4) % 3];
     for (int c = 0; c < 3; ++c)
       v.scatteringColor[c] = albedos[(index + c) % 4];

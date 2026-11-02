@@ -121,6 +121,45 @@ int main()
       "center override is independently observable");
   check(jittered.org == centered.org && centered.org != frame.camera.pos,
       "center override preserves sampled aperture");
+  // Seed-zero compatibility and nonzero camera quadrature randomization.
+  check(visrtx::haltonRotate(0.75f, 0x80000000u) == 0.25f
+          && visrtx::haltonRotate(0.f, 0xffffffffu) == 0x1.fffffep-1f,
+      "camera rotation wraps on the exact half-open grid");
+  for (uint32_t ordinal : {0u, 1u, 17u, 0xffffffffu}) {
+    const auto legacy =
+        visrtx::halton4D(ordinal + visrtx::haltonPixelHash(3, 5));
+    const auto unseeded = visrtx::haltonCamera(ordinal, 3, 5, 0);
+    check(unseeded.x == legacy.x && unseeded.y == legacy.y
+            && unseeded.z == legacy.z && unseeded.w == legacy.w,
+        "seed zero preserves Halton including index wrapping");
+    for (uint32_t seed : {1u, 0x91c375adu, 0xffffffffu}) {
+      const auto h = visrtx::haltonCamera(ordinal, 3, 5, seed);
+      check(h.x >= 0.f && h.x < 1.f && h.y >= 0.f && h.y < 1.f && h.z >= 0.f
+              && h.z < 1.f && h.w >= 0.f && h.w < 1.f,
+          "seeded camera coordinates remain half-open");
+      ss.randomSeed = 0;
+      const auto original = visrtx::makePrimaryRay(ss, ordinal, false);
+      const auto originalScreen = ss.screen;
+      ss.randomSeed = seed;
+      const auto seeded = visrtx::makePrimaryRay(ss, ordinal, false);
+      check(ss.screen != originalScreen && seeded.org != original.org,
+          "nonzero seed changes both pixel quadrature and aperture");
+      const auto seededScreen = ss.screen;
+      const auto repeated = visrtx::makePrimaryRay(ss, ordinal, false);
+      check(ss.screen == seededScreen && repeated.org == seeded.org
+              && repeated.dir == seeded.dir,
+          "seeded camera repeats independently of call history");
+      const auto seededCentered = visrtx::makePrimaryRay(ss, ordinal, true);
+      check(ss.screen == visrtx::vec2(3.5f / 16.f, 5.5f / 16.f)
+              && seededCentered.org == seeded.org,
+          "seeded first-sample centering still samples the aperture");
+      ss.randomSeed = 0;
+      const auto restored = visrtx::makePrimaryRay(ss, ordinal, false);
+      check(restored.org == original.org && restored.dir == original.dir
+              && ss.screen == originalScreen,
+          "restoring seed zero restores camera rays");
+    }
+  }
   frame.camera.type = visrtx::CameraType::RAY_BUFFER;
   frame.camera.rayBuffer = {}; // switch the active camera union member
   const visrtx::vec3 rayDirection(0.f, 0.f, -2.f);
@@ -128,6 +167,7 @@ int main()
   frame.camera.rayBuffer.size = visrtx::uvec2(1);
   frame.camera.rayBuffer.dir = &rayDirection;
   ss.pixel = visrtx::uvec2(0);
+  ss.randomSeed = 0xffffffffu;
   const auto buffered = visrtx::makePrimaryRay(ss, 19, false);
   check(buffered.org == frame.camera.pos
           && buffered.dir == visrtx::vec3(0.f, 0.f, -1.f)

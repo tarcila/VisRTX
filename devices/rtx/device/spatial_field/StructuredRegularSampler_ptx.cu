@@ -34,6 +34,8 @@
 // sampling stays inline (StructuredRegularSamplerInline.h) since the bodies
 // below resolve sampleValue/sampleNormal by ADL on the concrete state type.
 
+#define VISRTX_TYPED_CUSTOM_OPTIX 1
+#include "StoredFieldPreviewSampler.h"
 #include "StoredFieldReferenceSampler.h"
 #include "StructuredRegularSamplerInline.h"
 #include "gpu/volumeIntegrationDetail.h"
@@ -43,15 +45,33 @@ using namespace visrtx;
 // Reference sampling is isolated from the renderer module to keep multi-backend
 // traversal/decoding from being duplicated at every optical-property callsite.
 VISRTX_CALLABLE float __direct_callable__sampleReferenceScalar(
-    const StoredFieldReferenceGPUData *field, const vec3 *p)
+    const StoredFieldReferenceGPUData *field,
+    const vec3 *p,
+    bool preview,
+    const PreviewDensityIntegral *integral)
 {
+  if (field->customProvider)
+    return sampleTypedCustom<float, true>(
+        field->customProvider, field->data, *p);
+  if (integral)
+    return preview_math::densityIntegral(*field, *integral);
+  if (preview)
+    return StoredFieldPreviewSampler{field}.sample<float>(0, *p);
   StoredFieldReferenceSampler sampler{field};
   return sampler.sample<float>(0, *p);
 }
 
 VISRTX_CALLABLE vec3 __direct_callable__sampleReferenceRGB(
-    const StoredFieldReferenceGPUData *field, const vec3 *p)
+    const StoredFieldReferenceGPUData *field,
+    const vec3 *p,
+    bool preview,
+    const PreviewDensityIntegral *)
 {
+  if (field->customProvider)
+    return sampleTypedCustom<vec3, true>(
+        field->customProvider, field->data, *p);
+  if (preview)
+    return StoredFieldPreviewSampler{field}.sample<vec3>(0, *p);
   StoredFieldReferenceSampler sampler{field};
   return sampler.sample<vec3>(0, *p);
 }

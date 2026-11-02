@@ -5,6 +5,7 @@
 #include "gpu/lightProxyRadiance.h"
 #include "gpu/renderer/fog.h"
 #include "gpu/renderer/volumePreview.h"
+#include "gpu/renderer/volumePreviewFloat.h"
 #include "gpu/sampleOrdinal.h"
 #include "gpu/volumeIntegration.h"
 
@@ -13,7 +14,7 @@ namespace visrtx {
 template <typename ShadingPolicy>
 VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
 {
-  namespace vp = volume_preview;
+  namespace vp = practical_preview;
   for (int iteration = 0; iteration < fd.renderer.numIterations; ++iteration) {
     const bool first = iteration == 0 && fd.fb.frameID == 0;
     const uint32_t ordinal = sampleOrdinal(fd.fb.frameID, iteration);
@@ -27,7 +28,7 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
         + double(ray.dir.y) * ray.dir.y + double(ray.dir.z) * ray.dir.z);
     double opticalCursor = opticalRay.lower;
     vp::CameraIntegral integral;
-    double normal[3]{};
+    float normal[3]{};
     vec3 guideAlbedo(0), guideNormal(0);
     float depth = std::numeric_limits<float>::max();
     uint32_t primitive = ~0u, object = ~0u, instance = ~0u;
@@ -81,18 +82,18 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
       if (!hit.foundHit)
         break;
       const auto appearance = fogAppearance(fd, hit.hitpoint, cameraOrigin);
-      const double coverage = vp::luminance(integral.uncovered);
+      const float coverage = vp::luminance(integral.uncovered);
       if (hit.isLightProxy()) {
         const vec3 radiance = lightProxyRadiance(fd, hit, ray.org);
         for (int c = 0; c < 3; ++c) {
           integral.color[c] +=
               (integral.fogOwned[c]
                   + integral.fogFree[c] * appearance.visibility)
-                  * double(radiance[c])
+                  * float(radiance[c])
               + integral.fogFree[c] * appearance.fogFraction
-                  * double(cameraFog[c]);
+                  * float(cameraFog[c]);
           integral.fogFree[c] = integral.fogOwned[c] = integral.uncovered[c] =
-              0.;
+              0.f;
         }
         guideNormal += float(coverage) * (-ray.dir);
         if (!pickedVolume)
@@ -103,7 +104,7 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
       }
       MaterialShadingState shading;
       materialInitShading(&shading, fd, *hit.material, hit);
-      const double alpha = materialEvaluateOpacity(shading);
+      const float alpha = materialEvaluateOpacity(shading);
       const vec3 tau = materialEvaluateTransmission(shading);
       const vec3 radiance = ShadingPolicy::shadeSurface(shading, ss, ray, hit);
       const vec3 tint = materialEvaluateTint(shading);
@@ -111,17 +112,17 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
       const float length = glm::length(n);
       n = length > 0.f ? n / length : vec3(0);
       for (int c = 0; c < 3; ++c) {
-        const double free = integral.fogFree[c], owned = integral.fogOwned[c];
+        const float free = integral.fogFree[c], owned = integral.fogOwned[c];
         integral.color[c] += alpha
-            * ((owned + free * appearance.visibility) * double(radiance[c])
-                + free * appearance.fogFraction * double(cameraFog[c]));
-        integral.albedo[c] += alpha * coverage * double(tint[c]);
-        normal[c] += alpha * coverage * double(n[c]);
-        const double transmission = (1. - alpha) + alpha * double(tau[c]);
+            * ((owned + free * appearance.visibility) * float(radiance[c])
+                + free * appearance.fogFraction * float(cameraFog[c]));
+        integral.albedo[c] += alpha * coverage * float(tint[c]);
+        normal[c] += alpha * coverage * float(n[c]);
+        const float transmission = (1.f - alpha) + alpha * float(tau[c]);
         integral.fogOwned[c] = owned * transmission
-            + free * alpha * double(tau[c]) * appearance.visibility;
-        integral.fogFree[c] = free * (1. - alpha);
-        integral.uncovered[c] *= 1. - alpha;
+            + free * alpha * float(tau[c]) * appearance.visibility;
+        integral.fogFree[c] = free * (1.f - alpha);
+        integral.uncovered[c] *= 1.f - alpha;
       }
       guideAlbedo += float(alpha * coverage) * tint;
       guideNormal += float(coverage)
@@ -136,7 +137,7 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
       // requested), rather than publishing only the final transparent layer.
       if (first)
         setPixelIds(fd.fb, ss.pixel, depth, primitive, object, instance);
-      if (alpha == 1. && tau == vec3(0))
+      if (alpha == 1.f && tau == vec3(0))
         break; // physically opaque surface, not an opacity threshold
       ray.t.lower = hit.t + hit.epsilon;
     }
@@ -149,8 +150,8 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
     if (getBackgroundLight(fd, ray.dir, hdri)) {
       for (int c = 0; c < 3; ++c) {
         integral.color[c] +=
-            (integral.fogFree[c] + integral.fogOwned[c]) * double(hdri[c]);
-        integral.uncovered[c] = 0.;
+            (integral.fogFree[c] + integral.fogOwned[c]) * float(hdri[c]);
+        integral.uncovered[c] = 0.f;
       }
       backdrop = vec3(0);
     }
@@ -167,7 +168,7 @@ VISRTX_DEVICE void renderInteractivePixel(FrameGPUData &fd, ScreenSample ss)
         float(normal[0]), float(normal[1]), float(normal[2])};
     accumPixelSample(fd,
         ss.pixel,
-        vec4(color, float(1. - vp::luminance(integral.uncovered))),
+        vec4(color, float(1.f - vp::luminance(integral.uncovered))),
         albedo,
         publicNormal,
         &guideAlbedo,

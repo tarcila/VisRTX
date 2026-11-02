@@ -32,6 +32,7 @@
 #pragma once
 
 #include "RegisteredObject.h"
+#include "SourceImportance.h"
 #include "gpu/aggregateVolumeData.h"
 
 namespace visrtx {
@@ -51,6 +52,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   // Internal preparation seam; callers flush commits before requesting a view.
   // UNKNOWN means unavailable, not a zero-contribution substitute.
   virtual ReferenceVolumeGPUData referenceVolume();
+  ReferenceVolumeGPUData withSourceImportance(ReferenceVolumeGPUData view);
 
   OptixBuildInput buildInput() const;
 
@@ -60,6 +62,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   VolumeGPUData gpuData() const override;
 
  private:
+  SourceImportance m_sourceImportance;
   mutable DeviceBuffer m_aabbsBuffer;
   mutable CUdeviceptr m_aabbsBufferPtr{};
   uint32_t m_id{~0u};

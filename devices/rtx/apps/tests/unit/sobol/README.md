@@ -6,8 +6,15 @@ The Halton-camera follow-up restores `gpu/halton.h` for both pixel jitter
 (bases 2/3) and aperture (bases 5/7). Camera indices are completed sample
 ordinals plus the legacy per-pixel hash, with uint32 wrapping. The first
 accumulated sample still centers pixel jitter without centering the aperture;
-ray-buffer cameras bypass both. This is progressive per-pixel sampling, not
-frame-wide reconstruction jitter or a temporal-upscaler integration.
+ray-buffer cameras bypass both. Quality's nonzero `randomSeed` rotates each
+camera coordinate on a half-open 24-bit torus grid, with hash-derived rotations
+fixed per pixel, coordinate and seed across all ordinals. Seed zero bypasses
+rotation and quantization, preserving the Halton baseline exactly. Nonzero
+rotation quantizes Halton coordinates by less than 2^-24; it is reproducible
+pseudo-random replication, not ideal independent scrambling. The centered first
+pixel sample remains fixed, but its aperture is seeded. This is progressive
+per-pixel sampling, not frame-wide reconstruction jitter or a temporal-upscaler
+integration.
 
 Sobol transport roles are packed with no camera reservations:
 
@@ -30,6 +37,49 @@ implementation (camera 0–3, transport 4–15). Their recorded results are
 historical, not qualification of the new split. The comparison implementation
 remains available in the `sobol-ref` workspace; this follow-up is a new child
 commit rather than a rewrite of that history.
+
+### Branch integration qualification
+
+The principled-volume branch preserves `randomSeed` for camera, surface and
+separate medium/shadow/source/coverage streams. The camera uses the seeded
+Halton rotations above; surface Sobol roles move down four dimensions. Medium
+PCG seed recipes, coefficients, proposal weights and optical arithmetic are not
+changed by this sampling integration, but changed camera/surface paths change
+images and can change cost in every renderer using the shared camera helper.
+
+Historical image equality, convergence, error-cost and timing results in this
+branch's volume qualification documents do not qualify this split. Re-run the
+frozen replicate study and representative Interactive/Quality timing workloads
+before carrying those claims forward. Do not retune statistical tolerances or
+select seeds from the resulting images. Native/MDL sampling and volume API,
+coverage/depth, reset and seed-update gates also need fresh execution. Pure
+optical/unit qualifications do not become invalid merely because sampling moved.
+
+#### Integration checks (2026-11-09)
+
+Fresh Release RTX build passed in `_out/_cmake` (MDL enabled, native PBR).
+On the RTX 5880 Ada, 26/27 selected checks passed: SampleOrdinal, Sobol table,
+host/CUDA Sobol plus seeded Halton bit parity, draw order, light draw order,
+native reflection CPU/CUDA/fast-math, MDL sample CPU/CUDA/fast-math and generated
+targets; public sample addressing, ray buffer, material sampling, light picking,
+principled volume/Interactive/Quality, volume source lighting, seed updates,
+Interactive policy, fog coverage and fog transport. No tolerances were changed.
+The parity gate initially exposed host-versus-CUDA radical-inverse contraction;
+explicit `fmaf` now matches CUDA's fused accumulation on both paths.
+
+`TestCameraNearFar` still fails finite miss-depth checks for Interactive/default
+and the Quality cutting-plane miss. The preview/coverage helper implementations
+are unchanged from the pre-rebase branch (`1f377e71`); these failures are an open
+branch integration limitation, not waived qualification. Fixing those AOV paths
+is separate from the Halton/Sobol seed adaptation.
+
+API test execution must put `$PWD/_out/_cmake/Release` first in
+`LD_LIBRARY_PATH`; otherwise some tests load the stale `_out/lib` installation.
+The final selected run used that override and took 242.17 seconds; fog coverage
+alone took 175.73 seconds, so a 120-second external test cap is insufficient.
+Clangd header diagnostics are blocked by its inferred nvcc flags/translation
+units; the real C++/CUDA build and tests above are the verification evidence.
+Full replicate convergence, sanitizer and timing qualification were not rerun.
 
 For the subsequent dimension/QMC misuse policy, isolated abort/trap tests,
 callsite audit and ticket-02 verification, see [contracts.md](contracts.md).

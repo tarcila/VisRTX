@@ -431,6 +431,7 @@ Frame::Frame(DeviceGlobalState *d) : helium::BaseFrame(d), m_denoiser(d)
 {
   data().mdlAnimationTime = 0.f;
   data().referenceVolumes = nullptr;
+  data().previewShadowCache = {};
   data().referenceVolumeRate = data().referenceShadowRate = 1.;
   data().fb.buffers.guideAlbedo = data().fb.buffers.guideNormal = nullptr;
   data().fb.buffers.backdropWeight = nullptr;
@@ -720,23 +721,29 @@ void Frame::renderFrame()
   m_referenceOutput = m_renderer->usesReferenceVolumes();
   AggregateVolumeSceneGPUData volumeScene;
   if (m_referenceOutput) {
-    volumeScene = m_world->referenceVolumes(true);
+    volumeScene =
+        m_world->referenceVolumes(!m_renderer->usesVolumeTrackingCallables(),
+            m_renderer->usesVolumeTrackingCallables());
     if (!volumeScene.complete) {
       reportMessage(
-          ANARI_SEVERITY_ERROR, "unable to prepare Interactive optical scene");
+          ANARI_SEVERITY_ERROR, "unable to prepare renderer optical scene");
       return;
     }
     m_volumeReference.reserve(sizeof(volumeScene));
-    auto error=cudaMemcpy(m_volumeReference.ptr(), &volumeScene,
-        sizeof(volumeScene), cudaMemcpyHostToDevice);
-    if(error!=cudaSuccess)throw std::runtime_error(cudaGetErrorString(error));
-    error=cudaStreamSynchronize(nullptr);
-    if(error!=cudaSuccess)throw std::runtime_error(cudaGetErrorString(error));
+    auto error = cudaMemcpy(m_volumeReference.ptr(),
+        &volumeScene,
+        sizeof(volumeScene),
+        cudaMemcpyHostToDevice);
+    if (error != cudaSuccess)
+      throw std::runtime_error(cudaGetErrorString(error));
+    error = cudaStreamSynchronize(nullptr);
+    if (error != cudaSuccess)
+      throw std::runtime_error(cudaGetErrorString(error));
   } else if (m_world->hasPrincipledVolumes()
       && (m_volumeWarningStamp != m_world->volumePublicationStamp()
           || m_volumeWarningRenderer != m_renderer->lastFinalized())) {
     reportMessage(ANARI_SEVERITY_WARNING,
-        "principledVolume unsupported by renderer '%s'; omitted; use interactive/default",
+        "principledVolume unsupported by renderer '%s'; omitted; use interactive/default or quality",
         m_renderer->subtypeName().c_str());
     m_volumeWarningStamp = m_world->volumePublicationStamp();
     m_volumeWarningRenderer = m_renderer->lastFinalized();
@@ -807,6 +814,12 @@ void Frame::renderFrame()
   hd.registry.lights = state.registry.lights.devicePtr();
   hd.registry.fields = state.registry.fields.devicePtr();
   hd.registry.volumes = state.registry.volumes.devicePtr();
+  hd.previewShadowCache = m_previewShadowCache.prepare(
+      m_renderer->usesVolumeTrackingCallables() ? AggregateVolumeSceneGPUData{}
+                                                : volumeScene,
+      hd,
+      state.objectUpdates.lastLightSetChange,
+      state.stream);
 
   instrument::rangePop(); // frame setup
   instrument::rangePush("render all frames");

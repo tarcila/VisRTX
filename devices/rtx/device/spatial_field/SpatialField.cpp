@@ -68,6 +68,22 @@ bool SpatialField::getProperty(const std::string_view &name,
     helium::writeToVoidP(ptr, value);
     return true;
   }
+  if ((name == "visrtx.typedSampling" || name == "visrtx.conservativeRanges"
+          || name == "visrtx.principledVolumeCompatible")
+      && type == ANARI_BOOL) {
+    helium::writeToVoidP(ptr, referenceField() != nullptr);
+    return true;
+  }
+  if (name == "visrtx.typedCudaSampling" && type == ANARI_BOOL) {
+    const auto *snapshot = referenceField();
+    helium::writeToVoidP(ptr, snapshot && snapshot->gpuData().cudaSampling);
+    return true;
+  }
+  if (name == "visrtx.typedContractVersion" && type == ANARI_UINT32) {
+    helium::writeToVoidP(
+        ptr, referenceField() ? TYPED_CUSTOM_CONTRACT : uint32_t(0));
+    return true;
+  }
   return Object::getProperty(name, type, ptr, size, flags);
 }
 
