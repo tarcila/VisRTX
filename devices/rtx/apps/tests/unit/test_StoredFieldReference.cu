@@ -458,6 +458,95 @@ static void nonuniformAxes(Objects &objects)
   near(sample(second, vec3(.25f, .5f, .5f)), vec3(0.f));
 }
 
+VISRTX_GLOBAL void comparePointTexture(
+    StoredFieldReferenceGPUData view, box3 domain, vec3 *out)
+{
+  const int i = int(blockIdx.x * blockDim.x + threadIdx.x);
+  if (i >= 4096)
+    return;
+  const vec3 fraction(
+      float(i % 16) / 15.f, float((i / 16) % 16) / 15.f, float(i / 256) / 15.f);
+  const vec3 p = domain.lower + (domain.upper - domain.lower) * fraction;
+  auto raw = view;
+  raw.previewPointTexture = 0;
+  const float a = StoredFieldPreviewSampler{&view}.sample<float>(0, p);
+  const float b = StoredFieldPreviewSampler{&raw}.sample<float>(0, p);
+  const float r = StoredFieldReferenceSampler{&view}.sample<float>(0, p);
+  const float s = StoredFieldReferenceSampler{&raw}.sample<float>(0, p);
+  out[i] = vec3(a, b, r - s);
+}
+static void checkPointTexture(const StoredFieldReference &reference)
+{
+  const auto view = reference.previewGpuData();
+  require(
+      view.previewPointTexture != 0, "point texture fixture did not activate");
+  DeviceBuffer output;
+  output.reserve(4096 * sizeof(vec3));
+  comparePointTexture<<<32, 128>>>(
+      view, reference.descriptor().domain, output.ptrAs<vec3>());
+  checkedCuda(cudaGetLastError());
+  checkedCuda(cudaDeviceSynchronize());
+  std::vector<vec3> values(4096);
+  output.download(values.data(), values.size());
+  for (const auto &v : values)
+    require(v.x == v.y && v.z == 0.f,
+        "point texture changed software interpolation or reference sampler");
+}
+template <typename BuildT>
+static void sparsePointTexture(Objects &objects)
+{
+  nanovdb::tools::build::Grid<float> source(.75f);
+  auto access = source.getAccessor();
+  for (int z = -16; z < 16; ++z)
+    for (int y = -16; y < 16; ++y)
+      for (int x = -16; x < 16; ++x)
+        if ((x + y + z) % 5 != 0)
+          access.setValue(nanovdb::Coord(x, y, z),
+              float((x + 16) + 32 * (y + 16) + 1024 * (z + 16)) / 32767.f);
+  auto grid = nanovdb::tools::createNanoGrid<decltype(source), BuildT>(source);
+  auto data = objects.keep(anariNewArray1D(objects.device,
+      nullptr,
+      nullptr,
+      nullptr,
+      ANARI_UINT8,
+      grid.bufferSize()));
+  std::memcpy(
+      anariMapArray(objects.device, data), grid.data(), grid.bufferSize());
+  anariUnmapArray(objects.device, data);
+  auto field = objects.keep(anariNewSpatialField(objects.device, "nanovdb"));
+  anariSetParameter(objects.device, field, "data", ANARI_ARRAY1D, &data);
+  for (const char *centering : {"cell", "vertex"}) {
+    anariSetParameter(
+        objects.device, field, "dataCentering", ANARI_STRING, centering);
+    anariCommitParameters(objects.device, field);
+    checkPointTexture(snapshot(objects.device, field));
+  }
+}
+static void pointTextures(Objects &objects)
+{
+  sparsePointTexture<float>(objects);
+  sparsePointTexture<nanovdb::Fp4>(objects);
+  sparsePointTexture<nanovdb::Fp8>(objects);
+  sparsePointTexture<nanovdb::Fp16>(objects);
+  sparsePointTexture<nanovdb::FpN>(objects);
+  auto data = objects.keep(anariNewArray3D(
+      objects.device, nullptr, nullptr, nullptr, ANARI_FLOAT32, 32, 32, 32));
+  auto *p = static_cast<float *>(anariMapArray(objects.device, data));
+  for (int i = 0; i < 32768; ++i)
+    p[i] = float(i % 1023) / 1023.f;
+  anariUnmapArray(objects.device, data);
+  auto field =
+      objects.keep(anariNewSpatialField(objects.device, "structuredRegular"));
+  anariSetParameter(objects.device, field, "data", ANARI_ARRAY3D, &data);
+  anariCommitParameters(objects.device, field);
+  checkPointTexture(snapshot(objects.device, field));
+  p = static_cast<float *>(anariMapArray(objects.device, data));
+  for (int i = 0; i < 32768; ++i)
+    p[i] = .25f + float(i % 31) / 31.f;
+  anariUnmapArray(objects.device, data);
+  checkPointTexture(snapshot(objects.device, field));
+}
+
 static void doubleRounding(Objects &objects)
 {
   const auto d = objects.device;
@@ -689,6 +778,7 @@ try {
   nonuniformAxes(objects);
   deviceSourceAndSubnormal(objects.device);
   doubleRounding(objects);
+  pointTextures(objects);
   require(errors == 0, "unexpected ANARI errors");
   std::printf(
       "Stored reference: %d samples across four backends, all stored formats and revisions pass\n",

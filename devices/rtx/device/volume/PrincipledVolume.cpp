@@ -307,17 +307,17 @@ ReferenceVolumeGPUData PrincipledVolume::referenceVolume()
   if (!m_valid)
     return {};
   const auto &b = m_committed.bindings;
-  if (!m_previewTexturePrepared && m_committed.previewFloatEligible
-      && b.density.field >= 0 && b.transmissionColor.field < 0
-      && b.transmissionDistance.field < 0) {
-    const auto *field = m_fields[b.density.field]->referenceField();
-    if (field) {
+  if (!m_previewTexturePrepared && m_committed.previewFloatEligible) {
+    for (size_t i = 0; i < m_fields.size(); ++i) {
+      const auto *field = m_fields[i]->referenceField();
+      if (!field)
+        continue;
       const auto view = field->previewGpuData();
-      const auto error = cudaMemcpy(
-          m_fieldViews.ptrAs<StoredFieldReferenceGPUData>() + b.density.field,
-          &view,
-          sizeof(view),
-          cudaMemcpyHostToDevice);
+      const auto error =
+          cudaMemcpy(m_fieldViews.ptrAs<StoredFieldReferenceGPUData>() + i,
+              &view,
+              sizeof(view),
+              cudaMemcpyHostToDevice);
       if (error != cudaSuccess)
         throw std::runtime_error(cudaGetErrorString(error));
     }

@@ -14,18 +14,20 @@ struct QualityCoverageVisitor
       const aggregate_volume::Ray &ray,
       aggregate_volume::Interval span,
       double distance,
-      double rate);
+      double rate,
+      const aggregate_volume::ObjectRay *single);
 };
 VISRTX_DEVICE bool QualityCoverageVisitor::operator()(
     const AggregateVolumeSceneGPUData &scene,
     const aggregate_volume::Ray &ray,
     aggregate_volume::Interval span,
     double distance,
-    double rate)
+    double rate,
+    const aggregate_volume::ObjectRay *single)
 {
   namespace ref = optical_reference;
   const auto coefficients =
-      volume_tracking::extinctionAt(scene, ray, span, distance);
+      volume_tracking::extinctionAt(scene, ray, span, distance, single);
   const double luminance[3]{.2126, .7152, .0722};
   double weight = 0.;
   for (int c = 0; c < 3; ++c)

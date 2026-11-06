@@ -55,10 +55,22 @@ VISRTX_HOST_DEVICE void candidates(const AggregateVolumeSceneGPUData &scene,
   av::Interval span;
   if (!av::nextSpan(scene, ray, cursor, span))
     return;
+  // nextSpan established membership; reuse the invariant single-occurrence
+  // transform and global bound without changing candidates or random draws.
+  av::ObjectRay singleRay;
+  const av::ObjectRay *single = nullptr;
+  double singleRate = 0.;
+  if (scene.count == 1) {
+    singleRay = av::objectRay(scene.occurrences[0], ray);
+    single = &singleRay;
+    singleRate =
+        radianceRate(av::boundsForSpan(scene, ray, span), sourceProposal);
+  }
   double tau = opticalDepth(random.next());
   do {
-    const double rate =
-        radianceRate(av::boundsForSpan(scene, ray, span), sourceProposal);
+    const double rate = single
+        ? singleRate
+        : radianceRate(av::boundsForSpan(scene, ray, span), sourceProposal);
     const double length = ref::subtract(span.upper, span.lower);
     double offset = 0.;
     while (offset < length) {
@@ -67,7 +79,7 @@ VISRTX_HOST_DEVICE void candidates(const AggregateVolumeSceneGPUData &scene,
         break;
       offset = ref::add(offset, step.distance);
       const double distance = ref::add(span.lower, offset);
-      if (!visitor(scene, ray, span, distance, rate))
+      if (!visitor(scene, ray, span, distance, rate, single))
         return;
       tau = opticalDepth(random.next());
     }
@@ -96,16 +108,21 @@ VISRTX_HOST_DEVICE ref::Coefficients sourceCoefficientsAt(
     const av::Ray &ray,
     av::Interval span,
     double distance,
-    Blackbody &blackbody)
+    Blackbody &blackbody,
+    const av::ObjectRay *single = nullptr)
 {
   ref::Coefficients result;
   for (size_t i = 0; i < scene.count; ++i) {
     const auto &o = scene.occurrences[i];
-    av::Interval interval;
-    if (!av::intersect(o, ray, interval)
-        || !(interval.lower <= span.lower && span.lower < interval.upper))
-      continue;
-    const vec3 p = av::objectPosition(av::objectRay(o, ray), distance);
+    const auto local = single ? *single : av::objectRay(o, ray);
+    if (!single) {
+      av::Interval interval;
+      if (!av::intersectDomain(
+              o.volume.domain, local, ray.lower, ray.upper, interval)
+          || !(interval.lower <= span.lower && span.lower < interval.upper))
+        continue;
+    }
+    const vec3 p = av::objectPosition(local, distance);
     ref::Coefficients value;
     if (o.volume.type == VolumeType::PRINCIPLED) {
       const auto &v = *o.volume.principled;
@@ -131,7 +148,8 @@ VISRTX_HOST_DEVICE ref::Coefficients extinctionAt(
     const AggregateVolumeSceneGPUData &scene,
     const av::Ray &ray,
     av::Interval span,
-    double distance);
+    double distance,
+    const av::ObjectRay *single = nullptr);
 
 template <typename RNG, typename Blackbody>
 struct RadianceVisitor
@@ -144,7 +162,8 @@ struct RadianceVisitor
       const av::Ray &ray,
       av::Interval span,
       double distance,
-      double rate);
+      double rate,
+      const av::ObjectRay *single);
 };
 
 template <typename RNG, typename Blackbody>
@@ -153,11 +172,12 @@ VISRTX_HOST_DEVICE bool RadianceVisitor<RNG, Blackbody>::operator()(
     const av::Ray &ray,
     av::Interval span,
     double distance,
-    double rate)
+    double rate,
+    const av::ObjectRay *single)
 {
   const auto coefficients = path.sourceOwned
-      ? sourceCoefficientsAt(scene, ray, span, distance, blackbody)
-      : extinctionAt(scene, ray, span, distance);
+      ? sourceCoefficientsAt(scene, ray, span, distance, blackbody, single)
+      : extinctionAt(scene, ray, span, distance, single);
   const auto event = collide(coefficients, rate, random.next(), path);
   if (event.event == Event::Null)
     return true;
@@ -199,16 +219,21 @@ VISRTX_HOST_DEVICE ref::Coefficients extinctionAt(
     const AggregateVolumeSceneGPUData &scene,
     const av::Ray &ray,
     av::Interval span,
-    double distance)
+    double distance,
+    const av::ObjectRay *single)
 {
   ref::Coefficients result;
   for (size_t i = 0; i < scene.count; ++i) {
     const auto &occurrence = scene.occurrences[i];
-    av::Interval interval;
-    if (!av::intersect(occurrence, ray, interval)
-        || !(interval.lower <= span.lower && span.lower < interval.upper))
-      continue;
-    const vec3 p = av::objectPosition(av::objectRay(occurrence, ray), distance);
+    const auto local = single ? *single : av::objectRay(occurrence, ray);
+    if (!single) {
+      av::Interval interval;
+      if (!av::intersectDomain(
+              occurrence.volume.domain, local, ray.lower, ray.upper, interval)
+          || !(interval.lower <= span.lower && span.lower < interval.upper))
+        continue;
+    }
+    const vec3 p = av::objectPosition(local, distance);
     ref::Coefficients value;
     if (occurrence.volume.type == VolumeType::PRINCIPLED) {
       const auto &volume = *occurrence.volume.principled;
@@ -245,16 +270,19 @@ struct ShadowVisitor
       const av::Ray &ray,
       av::Interval span,
       double distance,
-      double rate);
+      double rate,
+      const av::ObjectRay *single);
 };
 VISRTX_HOST_DEVICE bool ShadowVisitor::operator()(
     const AggregateVolumeSceneGPUData &scene,
     const av::Ray &ray,
     av::Interval span,
     double distance,
-    double rate)
+    double rate,
+    const av::ObjectRay *single)
 {
-  shadowCandidate(extinctionAt(scene, ray, span, distance), rate, transmission);
+  shadowCandidate(
+      extinctionAt(scene, ray, span, distance, single), rate, transmission);
   return transmission[0] != 0. || transmission[1] != 0.
       || transmission[2] != 0.;
 }

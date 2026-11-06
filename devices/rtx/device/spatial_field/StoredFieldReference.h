@@ -17,7 +17,7 @@ namespace visrtx {
 
 // Bump when the canonical decoding, sampling layout or mapping contract
 // changes.
-inline constexpr uint64_t STORED_FIELD_REFERENCE_CONTRACT = 3;
+inline constexpr uint64_t STORED_FIELD_REFERENCE_CONTRACT = 4;
 static_assert(
     sizeof(vec3) == 3 * sizeof(float), "packed float3 storage required");
 
@@ -46,7 +46,9 @@ struct StoredFieldReferenceGPUData
   bool rectilinear{false};
   bool cellCentered{false};
   bool linear{true};
-  cudaTextureObject_t previewTexture{0}; // optional shadow-only sampling view
+  cudaTextureObject_t previewTexture{0}; // optional shadow-only linear view
+  cudaTextureObject_t previewPointTexture{
+      0}; // exact endpoints, preview software filtering only
 };
 
 // One field-owned finalized generation. Dense values are canonical float/vec3;
@@ -210,8 +212,10 @@ inline StoredFieldReferenceGPUData StoredFieldReference::previewGpuData() const
 {
   auto view = m_gpu;
   if (!view.customProvider && m_descriptor.valueType == FieldValueType::Scalar
-      && m_previewTexture.prepare(view))
+      && m_previewTexture.prepare(view)) {
     view.previewTexture = m_previewTexture.texture();
+    view.previewPointTexture = m_previewTexture.pointTexture();
+  }
   return view;
 }
 

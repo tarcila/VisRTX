@@ -34,7 +34,7 @@ VISRTX_DEVICE T OptixReferenceFieldSampler<Preview>::sample(
       if constexpr (std::is_same_v<T, float>)
         if (fields[index].sparse
             && fields[index].gridType == nanovdb::GridType::Float)
-          return preview_math::sparse<float>(fields[index], p);
+          return preview_math::sparseMaybePoint<float>(fields[index], p);
       return StoredFieldPreviewSampler{fields}.sample<T>(index, p);
     }
   }

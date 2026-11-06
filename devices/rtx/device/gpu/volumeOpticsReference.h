@@ -292,8 +292,21 @@ VISRTX_HOST_DEVICE Coefficients evaluateOptical(
   Coefficients result;
   const double density = promote(v.density);
   const double distance = promote(v.transmissionDistance);
+  const bool uniform =
+      floatBits(v.transmissionColor[0]) == floatBits(v.transmissionColor[1])
+      && floatBits(v.transmissionColor[0]) == floatBits(v.transmissionColor[2])
+      && floatBits(v.scatteringColor[0]) == floatBits(v.scatteringColor[1])
+      && floatBits(v.scatteringColor[0]) == floatBits(v.scatteringColor[2])
+      && (!transmissionLog
+          || (transmissionLog[0] == transmissionLog[1]
+              && transmissionLog[0] == transmissionLog[2]));
   for (int c = 0; c < 3; ++c) {
     result.emission[c] = promote(v.emission[c]);
+    if (c > 0 && uniform) {
+      result.absorption[c] = result.absorption[0];
+      result.scattering[c] = result.scattering[0];
+      continue;
+    }
     if (density == 0. || floatBits(v.transmissionColor[c]) == 0x3f800000u)
       continue;
     const double logValue = transmissionLog

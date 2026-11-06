@@ -24,6 +24,13 @@ A `StoredFieldReference` owns:
 - global scalar/RGB raw hulls and the same finalized sample/range descriptor;
 - a non-owning packed `StoredFieldReferenceGPUData` view for sampling.
 
+The optional preview representation may separately expand a bounded scalar grid
+into a CUDA array. Its linear texture is shadow-only; its point texture supplies
+exact endpoints to the existing software preview interpolation. Canonical Quality
+sampling and raw hulls still use the original representation, not either texture.
+See [the clock-leased qualification](principled-volume-leased-optimizations.md).
+The internal stored-view layout contract is4.
+
 Construction publishes only a complete snapshot. CUDA copies are checked and the
 producer default stream is explicitly joined before returning; consumption need
 not rely on implicit ordering with a nonblocking renderer stream. CPU decoding and

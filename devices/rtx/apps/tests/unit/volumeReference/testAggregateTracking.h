@@ -99,12 +99,40 @@ VISRTX_HOST_DEVICE Result trial(int id, int index)
     out.value[11] = direction.mixture.pdf > 0. ? 0. : 1.;
     return out;
   }
+  const auto cameraBefore = camera, shadowBefore = connection;
   const auto hit = tr::trace(f.scene, ray, 1., random, blackbody, path);
   if (hit.endpoint != tr::Endpoint::Boundary
       && !(hit.distance >= hit.span.lower && hit.distance < hit.span.upper))
     out.failure = 2;
   double transmission[3]{1., 1., 1.};
   tr::shadow(f.scene, ray, shadowRandom, transmission);
+  if (f.scene.count == 1) {
+    // An empty second occurrence forces the uncached, uncapped traversal with
+    // the identical active set. Compare actual event paths and RNG consumption.
+    VolumeOccurrenceGPUData occurrences[2]{
+        f.scene.occurrences[0], f.scene.occurrences[0]};
+    occurrences[1].volume.domain = {vec3(0), vec3(0)};
+    auto generic = f.scene;
+    generic.occurrences = occurrences;
+    generic.count = 2;
+    auto referenceCamera = cameraBefore, referenceShadow = shadowBefore;
+    tr::Random cr{&referenceCamera}, sr{&referenceShadow};
+    tr::PathState referencePath;
+    const auto expectedHit =
+        tr::trace(generic, ray, 1., cr, blackbody, referencePath);
+    double expectedTransmission[3]{1., 1., 1.};
+    tr::shadow(generic, ray, sr, expectedTransmission);
+    if (expectedHit.endpoint != hit.endpoint
+        || expectedHit.distance != hit.distance
+        || referenceCamera.state != camera.state
+        || referenceShadow.state != connection.state)
+      out.failure = 3;
+    for (int c = 0; c < 3; ++c)
+      if (referencePath.throughput[c] != path.throughput[c]
+          || referencePath.radiance[c] != path.radiance[c]
+          || expectedTransmission[c] != transmission[c])
+        out.failure = 4;
+  }
   for (int c = 0; c < 3; ++c) {
     out.value[c] = path.radiance[c];
     out.value[c + 3] =

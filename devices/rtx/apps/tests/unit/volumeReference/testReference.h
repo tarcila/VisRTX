@@ -38,6 +38,7 @@ struct Result
   double logUpper;
   double logSingleton;
   ref::Coefficients coefficients;
+  ref::Coefficients independentChannels;
   ref::Coefficients thermal;
   ref::Coefficients cached;
   ref::Coefficients cachedThermal;
@@ -70,6 +71,22 @@ VISRTX_HOST_DEVICE Result evaluate(const Input &in)
   r.logSingleton =
       ref::negativeLogUpper({v.transmissionColor.x, v.transmissionColor.x});
   r.coefficients = ref::evaluate(v);
+  // Frozen pre-reuse graph: evaluate all channels independently, including
+  // subnormal/endpoint controls, rather than sharing achromatic intermediates.
+  for (int c = 0; c < 3; ++c) {
+    r.independentChannels.emission[c] = ref::promote(v.emission[c]);
+    if (ref::promote(v.density) == 0.
+        || ref::floatBits(v.transmissionColor[c]) == 0x3f800000u)
+      continue;
+    const double e =
+        ref::divide(ref::multiply(ref::negativeLog(v.transmissionColor[c]),
+                        ref::promote(v.density)),
+            ref::promote(v.transmissionDistance));
+    r.independentChannels.scattering[c] =
+        ref::multiply(e, ref::promote(v.scatteringColor[c]));
+    r.independentChannels.absorption[c] =
+        ref::multiply(e, ref::subtract(1., ref::promote(v.scatteringColor[c])));
+  }
   Blackbody blackbody;
   r.thermal = ref::evaluate(v, blackbody);
   r.cached = ref::evaluateOptical(v, in.transmissionLog);
@@ -137,6 +154,10 @@ inline bool close(double actual, long double expected)
 inline void check(const Input &in, const Result &r, double oracle)
 {
   require(r.metadataChecks == 3, "valid construction failed");
+  require(std::memcmp(
+              &r.independentChannels, &r.coefficients, sizeof(r.coefficients))
+          == 0,
+      "achromatic reuse changed independent channel graph");
   require(std::memcmp(&r.cached, &r.coefficients, sizeof(r.cached)) == 0
           && std::memcmp(&r.cachedThermal, &r.thermal, sizeof(r.thermal)) == 0,
       "host-prepared transmission logs changed optical bits");

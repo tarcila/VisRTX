@@ -180,17 +180,18 @@ VISRTX_HOST_DEVICE bool nextSpan(const AggregateVolumeSceneGPUData &scene,
     double next = ray.upper;
     bool active = false;
     for (size_t i = 0; i < scene.count; ++i) {
+      const auto &occurrence = scene.occurrences[i];
+      const auto local = objectRay(occurrence, ray);
       Interval interval;
-      if (!intersect(scene.occurrences[i], ray, interval))
+      if (!intersectDomain(
+              occurrence.volume.domain, local, ray.lower, ray.upper, interval))
         continue;
       if (interval.lower > cursor && interval.lower < next)
         next = interval.lower;
       if (interval.upper > cursor && interval.upper < next)
         next = interval.upper;
       active |= interval.lower <= cursor && cursor < interval.upper;
-      const auto &occurrence = scene.occurrences[i];
       if (occurrence.volume.type == VolumeType::PRINCIPLED) {
-        const auto local = objectRay(occurrence, ray);
         const auto &b = occurrence.volume.principled->bindings;
         // Keep a single slab-intersection body instead of eleven expanded
         // copies in every preview/shadow traversal.
@@ -199,7 +200,11 @@ VISRTX_HOST_DEVICE bool nextSpan(const AggregateVolumeSceneGPUData &scene,
 #endif
         for (int role = 0; role < 11; ++role) {
           const box3 *domain = bindingDomain(b, role);
-          if (domain)
+          // A field covering the whole medium cannot introduce an interior
+          // endpoint. Preserve the same medium endpoints without another slab.
+          if (domain
+              && !optical_reference::domainContains(
+                  *domain, occurrence.volume.domain))
             bindingCuts(*domain, local, interval, cursor, next);
         }
       }

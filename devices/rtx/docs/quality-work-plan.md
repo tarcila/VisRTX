@@ -45,6 +45,17 @@ library, so an every-frame latency claim remains unqualified. Do not interpret
 the static sample-speed target as completion of all
 promised rendering/provider/qualification work.
 
+## Latest clock-leased follow-up
+
+[Leased volume optimization rounds](principled-volume-leased-optimizations.md)
+retain Quality ray/achromatic reuse and Interactive point-texture endpoint
+sampling with the original software interpolation. Subway fixed-work medians
+improve from34.4–34.7 to23.8–23.9 ms Interactive and96.4–96.6 to83.9–84.0 ms
+Quality at2400 MHz. Quality HDR remains byte-identical; Interactive retains the
+frozen gates.169 tests and ten sanitizer workloads pass after stale CUDA test
+dependency records were repaired. The Quality subway target remains below30 FPS;
+no surface-shader, source-support or majorant approximation is included.
+
 ## Execution order and controls
 
 1. Close source-guide evidence and lifecycle/zero-pilot/transform tests.

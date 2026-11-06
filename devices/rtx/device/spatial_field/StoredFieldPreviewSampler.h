@@ -18,6 +18,22 @@ VISRTX_HOST_DEVICE float axisLUT(const float *lut, float normalized)
   const int lo = int(x), hi = lo < 8191 ? lo + 1 : lo;
   return lerp(lut[lo], lut[hi], x - float(lo));
 }
+#ifdef __CUDA_ARCH__
+struct PointTextureFetch
+{
+  cudaTextureObject_t texture;
+  ivec3 indexMin;
+  VISRTX_DEVICE float operator()(int x, int y, int z) const;
+};
+VISRTX_DEVICE float PointTextureFetch::operator()(int x, int y, int z) const
+{
+  return tex3D<float>(texture,
+      float(x - indexMin.x) + .5f,
+      float(y - indexMin.y) + .5f,
+      float(z - indexMin.z) + .5f);
+}
+#endif
+
 template <typename Fetch>
 VISRTX_HOST_DEVICE auto filter(const StoredFieldReferenceGPUData &field,
     const float (&coordinates)[3],
@@ -60,6 +76,13 @@ VISRTX_HOST_DEVICE T dense(const StoredFieldReferenceGPUData &field, vec3 p)
     if (field.cellCentered)
       x[c] -= .5f;
   }
+#ifdef __CUDA_ARCH__
+  if constexpr (std::is_same_v<T, float>)
+    if (field.previewPointTexture)
+      return filter(field,
+          x,
+          PointTextureFetch{field.previewPointTexture, field.indexMin});
+#endif
   return filter(field, x, optical_reference::DenseReferenceFetch<T>{field});
 }
 template <typename BuildT>
@@ -76,14 +99,14 @@ VISRTX_HOST_DEVICE auto CachedNanoFetch<BuildT>::operator()(
       nanovdb::Coord(x, y, z));
 }
 
-template <typename BuildT, typename Fetch>
-VISRTX_HOST_DEVICE auto sparseWithCache(
-    const StoredFieldReferenceGPUData &field, vec3 p, Fetch &fetch)
+template <typename BuildT>
+VISRTX_HOST_DEVICE void sparseIndexCoordinates(
+    const StoredFieldReferenceGPUData &field, vec3 p, float (&x)[3])
 {
   const auto &grid =
       *static_cast<const nanovdb::NanoGrid<BuildT> *>(field.data);
+
   const auto index = grid.worldToIndexF(nanovdb::Vec3f(p.x, p.y, p.z));
-  float x[3];
   for (int c = 0; c < 3; ++c) {
     const float first = float(field.indexMin[c]);
     const float dims = float(field.indexMax[c]) - first + 1.f;
@@ -100,6 +123,13 @@ VISRTX_HOST_DEVICE auto sparseWithCache(
     if (field.cellCentered)
       x[c] -= .5f;
   }
+}
+template <typename BuildT, typename Fetch>
+VISRTX_HOST_DEVICE auto sparseWithCache(
+    const StoredFieldReferenceGPUData &field, vec3 p, Fetch &fetch)
+{
+  float x[3];
+  sparseIndexCoordinates<BuildT>(field, p, x);
   // Preserve packed storage decoding; only its tiny decoder retains FP64.
   return filter(field, x, fetch);
 }
@@ -111,6 +141,26 @@ VISRTX_HOST_DEVICE auto sparse(const StoredFieldReferenceGPUData &field, vec3 p)
   CachedNanoFetch<BuildT> fetch{grid.getAccessor()};
   return sparseWithCache<BuildT>(field, p, fetch);
 }
+#ifdef __CUDA_ARCH__
+template <typename BuildT>
+VISRTX_DEVICE VISRTX_NOINLINE float pointSparse(
+    const StoredFieldReferenceGPUData &field, vec3 p)
+{
+  PointTextureFetch fetch{field.previewPointTexture, field.indexMin};
+  return sparseWithCache<BuildT>(field, p, fetch);
+}
+#endif
+template <typename BuildT>
+VISRTX_HOST_DEVICE auto sparseMaybePoint(
+    const StoredFieldReferenceGPUData &field, vec3 p)
+{
+#ifdef __CUDA_ARCH__
+  if (field.previewPointTexture)
+    return pointSparse<BuildT>(field, p);
+#endif
+  return sparse<BuildT>(field, p);
+}
+
 template <typename BuildT>
 struct DensitySample
 {
@@ -440,15 +490,15 @@ VISRTX_HOST_DEVICE VISRTX_NOINLINE T StoredFieldPreviewSampler::sample(
   else {
     switch (field.gridType) {
     case nanovdb::GridType::Float:
-      return preview_math::sparse<float>(field, p);
+      return preview_math::sparseMaybePoint<float>(field, p);
     case nanovdb::GridType::Fp4:
-      return preview_math::sparse<nanovdb::Fp4>(field, p);
+      return preview_math::sparseMaybePoint<nanovdb::Fp4>(field, p);
     case nanovdb::GridType::Fp8:
-      return preview_math::sparse<nanovdb::Fp8>(field, p);
+      return preview_math::sparseMaybePoint<nanovdb::Fp8>(field, p);
     case nanovdb::GridType::Fp16:
-      return preview_math::sparse<nanovdb::Fp16>(field, p);
+      return preview_math::sparseMaybePoint<nanovdb::Fp16>(field, p);
     case nanovdb::GridType::FpN:
-      return preview_math::sparse<nanovdb::FpN>(field, p);
+      return preview_math::sparseMaybePoint<nanovdb::FpN>(field, p);
     default:
       return T(0.f);
     }

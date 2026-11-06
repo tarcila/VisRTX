@@ -36,6 +36,8 @@ __global__ void expand(
 } // namespace
 PreviewFieldTexture::~PreviewFieldTexture()
 {
+  if (m_pointTexture)
+    cudaDestroyTextureObject(m_pointTexture);
   if (m_texture)
     cudaDestroyTextureObject(m_texture);
   if (m_array)
@@ -44,6 +46,10 @@ PreviewFieldTexture::~PreviewFieldTexture()
 cudaTextureObject_t PreviewFieldTexture::texture() const
 {
   return m_texture;
+}
+cudaTextureObject_t PreviewFieldTexture::pointTexture() const
+{
+  return m_pointTexture;
 }
 bool PreviewFieldTexture::prepare(const StoredFieldReferenceGPUData &field)
 {
@@ -133,6 +139,16 @@ bool PreviewFieldTexture::prepare(const StoredFieldReferenceGPUData &field)
   for (int c = 0; c < 3; ++c)
     texture.addressMode[c] = cudaAddressModeClamp;
   checked(cudaCreateTextureObject(&m_texture, &resource, &texture, nullptr));
+  // The second object shares the immutable array. Point fetches retain full
+  // scalar endpoints; optical interpolation still uses software FP32 weights.
+  texture.filterMode = cudaFilterModePoint;
+  error =
+      cudaCreateTextureObject(&m_pointTexture, &resource, &texture, nullptr);
+  if (error == cudaErrorMemoryAllocation) {
+    cudaGetLastError();
+    m_pointTexture = 0; // optional optimization; ordinary sampler remains
+  } else
+    checked(error);
   return true;
 }
 } // namespace visrtx

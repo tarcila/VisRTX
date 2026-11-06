@@ -132,7 +132,8 @@ Field properties (with normal `ANARI_WAIT` preparation behavior):
 | `visrtx.typedContractVersion` | `ANARI_UINT32` | Semantic interface version1 when available, otherwise0 |
 
 These queries can prepare a lazy snapshot. Internal stored-view layout/revision
-contract3 is distinct from the public semantic interface version1. Legacy-only
+contract4 (including the optional preview point-texture handle) is distinct
+from the public semantic interface version1. Legacy-only
 fields report no typed capability; required capability failures use existing
 binding diagnostics and whole-volume omission, not a new frame-result interface.
 
