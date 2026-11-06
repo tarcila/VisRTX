@@ -397,8 +397,71 @@ verification logs and binaries. Measurement drivers expose `reference|fast` as
 an optional final argument; existing invocations retain reference sampling.
 No install, push or principled-volume extension advertisement is performed.
 
+## 6. Baked source coefficients — rejected at tested resolutions
+
+Tested the useful nonlinear part of coefficient baking on the thermal plume:
+precompute its RGB emission coefficient, including absorption coupling, at
+128^3 or 256^3 cell centers. A CUDA probe uses the actual committed volume state,
+canonical stored-field sampler and Quality blackbody evaluator. The resulting
+float3 grid is supplied through ordinary `emission.field`; thermal emission is
+then disabled. Density/extinction, albedo, bounds and tracking are unchanged.
+With constant optical multipliers, extinction is already a cheap linear function
+of density, so baking that part would not address this fixture's expensive source.
+This tests source-coefficient baking, not a new generic packed nine-channel
+transport cache.
+
+Both camera and shadow quadrature steps in Interactive are held fixed at the
+original 128-grid physical step (rates 128/bakeResolution). Quality uses unchanged
+tracking rates. An earlier pass compensated camera but not shadow rate; it is
+preserved under `initial-*-shadow-rate1` and is not the matched-work timing result.
+
+### Results
+
+640-square, one full sample, two reversed-order runs, 12 launches with two
+warmups discarded, active graphics 2400 MHz:
+
+| Mode | Original ms | 128^3 bake ms | 256^3 bake ms |
+| --- | ---: | ---: | ---: |
+| Interactive | 16.84–16.97 | 25.30–25.60 | 28.72–28.83 |
+| Quality reference sampling | 23.21–23.85 | 16.77–16.79 | 16.87–16.90 |
+| Quality fast sampling | 19.76–20.08 | 13.30–13.35 | 13.24–13.37 |
+
+Quality benefits from eliminating repeated thermal evaluation. Interactive gets
+slower: an independent RGB emission field must be sampled even where density is
+zero, whereas the original thermal source is known to vanish there. A specialized
+packed representation could have different costs; that performance is not
+measured here.
+
+The deterministic Interactive HDR comparison fails the unchanged gates:
+
+| Bake | Relative L1 | NRMS | Alpha error |
+| --- | ---: | ---: | ---: |
+| 128^3 | 0.04947 | 0.04766 | 0 |
+| 256^3 | 0.01093 | 0.01405 | 0 |
+
+Thus even 256^3 exceeds both the 0.005 L1 and 0.01 NRMS limits. Interpolating
+precomputed `density * B(temperature)` does not reproduce evaluating that product
+after interpolating density and temperature. Merely packing the same node values
+more efficiently cannot remove this bias. The single-seed Quality screening
+comparisons also differ (about 0.0218 L1 at 256^3), but include changed source
+importance sampling and stochastic error; they are not an independent converged
+bias estimate or a completed Quality statistical qualification.
+
+The node arrays alone cost 24/192 MiB. Observed GPU-wide usage increases about
+50/442 MiB, including retained authoring inputs and device-owned representations.
+CUDA bake kernels take about 3.8–4.0/13.5–13.9 ms, but complete bake/publication
+wall time is about 82–84/485–502 ms. Preparation is not hidden in steady-state
+sample timings and would matter for animated fields.
+
+No production renderer or API changes are retained. The temporary driver hook is
+removed; the probe source, frozen executable/library, patch, captures, timings
+and bake costs are under `_out/principled_volume/baked-optics/`. Both matched-work
+leases completed successfully; timing telemetry records 2400 MHz under load,
+while the HDR campaign includes idle-clock transition observations. Higher
+resolution/adaptive/sparse baking remains a separate possibility, not a result
+established by this rejected uniform-grid candidate.
+
 ## Remaining sequence
 
-6. Baked optical representation: pending.
 7. Improved Quality proposals/control variates: pending.
 8. Approximate multiple-scattering tail: pending.
