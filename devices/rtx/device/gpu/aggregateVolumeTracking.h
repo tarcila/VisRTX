@@ -35,6 +35,19 @@ VISRTX_HOST_DEVICE double Random::next()
   return openUnit(high, low);
 }
 
+// Generic RNGs retain log1p for arbitrary open-unit values.
+template <typename RNG>
+VISRTX_HOST_DEVICE double drawOpticalDepth(RNG &random)
+{
+  return opticalDepth(random.next());
+}
+VISRTX_HOST_DEVICE double drawOpticalDepth(Random &random)
+{
+  // openUnit yields odd multiples of 2^-53. Their complements are exactly
+  // representable, so subtraction loses no information even near zero.
+  return -log(1. - random.next());
+}
+
 // A strict World reference publication and matching finite reference bounds
 // are preparation preconditions. Do not pass Interactive's permissive eligible
 // subset merely because its scene.complete flag is true.
@@ -66,7 +79,7 @@ VISRTX_HOST_DEVICE void candidates(const AggregateVolumeSceneGPUData &scene,
     singleRate =
         radianceRate(av::boundsForSpan(scene, ray, span), sourceProposal);
   }
-  double tau = opticalDepth(random.next());
+  double tau = drawOpticalDepth(random);
   do {
     const double rate = single
         ? singleRate
@@ -81,7 +94,7 @@ VISRTX_HOST_DEVICE void candidates(const AggregateVolumeSceneGPUData &scene,
       const double distance = ref::add(span.lower, offset);
       if (!visitor(scene, ray, span, distance, rate, single))
         return;
-      tau = opticalDepth(random.next());
+      tau = drawOpticalDepth(random);
     }
   } while (av::nextSpan(scene, ray, cursor, span));
 }

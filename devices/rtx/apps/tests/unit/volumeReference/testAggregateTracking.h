@@ -18,6 +18,23 @@ struct Result
   int failure{0};
 };
 
+struct TinyRandom
+{
+  VISRTX_HOST_DEVICE double next();
+};
+VISRTX_HOST_DEVICE double TinyRandom::next()
+{
+  return 0x1p-60;
+}
+VISRTX_HOST_DEVICE bool opticalDepthControl(uint32_t high, uint32_t low)
+{
+  const double u = tr::openUnit(high, low);
+  const double complement = tr::openUnit(~high, ~low);
+  const double reference = tr::opticalDepth(u);
+  const double candidate = -log(1. - u);
+  return 1. - u == complement && candidate > 0.
+      && std::abs(candidate - reference) <= 4. * 0x1p-52 * reference;
+}
 VISRTX_HOST_DEVICE Result trial(int id, int index)
 {
   aggregate_test::Fixture f(id >= 200 ? 12 : id == 100 ? 10 : id);
@@ -32,6 +49,28 @@ VISRTX_HOST_DEVICE Result trial(int id, int index)
         {{1, 1}, {{c, c}, {c, c}, {c, c}}, {1, 1}}, f.pv[0].opticalBounds);
   }
   Result out;
+  if (!opticalDepthControl(uint32_t(detail::pcg_mix64(uint64_t(index) + 123)),
+          uint32_t(detail::pcg_mix64(uint64_t(id) + uint64_t(index) * 13)))) {
+    out.failure = 5;
+    return out;
+  }
+  if (index == 0) {
+    TinyRandom tiny;
+    if (!(tr::drawOpticalDepth(tiny) > 0.)) {
+      out.failure = 7;
+      return out;
+    }
+    for (int k = 0; k <= 52; ++k) {
+      const uint64_t bits = (uint64_t(1) << k) - 1;
+      const uint32_t high = uint32_t(bits >> 26) << 6,
+                     low = uint32_t(bits & ((1u << 26) - 1)) << 6;
+      if (!opticalDepthControl(high, low)
+          || !opticalDepthControl(~high, ~low)) {
+        out.failure = 6;
+        return out;
+      }
+    }
+  }
   if (!f.valid) {
     out.failure = 1;
     return out;
@@ -44,6 +83,15 @@ VISRTX_HOST_DEVICE Result trial(int id, int index)
       detail::pcg_mix64(uint64_t(index) + 973),
       detail::pcg_mix64(uint64_t(id) + 837));
   tr::Random random{&camera}, shadowRandom{&connection};
+  auto firstState = camera, secondState = camera;
+  tr::Random firstRandom{&firstState}, secondRandom{&secondState};
+  const double before = tr::opticalDepth(firstRandom.next());
+  const double after = tr::drawOpticalDepth(secondRandom);
+  if (firstState.state != secondState.state || firstState.inc != secondState.inc
+      || !(after > 0.) || std::abs(after - before) > 4. * 0x1p-52 * before) {
+    out.failure = 8;
+    return out;
+  }
   const auto ray = av::worldDistanceRay(f.input);
   CalibratedBlackbody blackbody;
   tr::PathState path;

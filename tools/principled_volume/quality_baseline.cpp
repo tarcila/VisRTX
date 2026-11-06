@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -60,7 +61,8 @@ void Scene::status(const void *ptr,
   auto &s = *static_cast<Scene *>(const_cast<void *>(ptr));
   if (severity <= ANARI_SEVERITY_ERROR)
     ++s.errors;
-  if (severity <= ANARI_SEVERITY_WARNING)
+  if (severity <= ANARI_SEVERITY_WARNING
+      || std::getenv("VISRTX_CAPTURE_VERBOSE"))
     std::cerr << message << '\n';
 }
 Scene::Scene(const char *library)

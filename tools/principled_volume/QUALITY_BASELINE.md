@@ -75,6 +75,17 @@ bash tools/principled_volume/run_quality_baseline.sh \
   perf _out/_cmake/Release
 ```
 
+For compiler diagnostics only, set `VISRTX_CAPTURE_VERBOSE=1` to forward all
+ANARI status messages, including OptiX compiler output. Leave it unset for timing
+runs. An optimized RelWithDebInfo device build supplies `-lineinfo` without using
+the unoptimized Debug path.
+
+`analyze_fp64.py ROOT` analyzes `compile-*/run.log` and `profile-*/` directories
+containing Nsight Compute `details.csv`, SASS `source.csv`, and optional combined
+CUDA/SASS `correlated.csv` exports. It distinguishes static warnings from executed
+instructions and records the attribution/counter caveats. See the
+[FP64 investigation](../../devices/rtx/docs/principled-volume-fp64-attribution.md).
+
 Run the `convergence`, `depth` and `support` phases the same way. Optional `profile`
 collects Nsight Compute counters/source sampling. `perf` needs Nsight Systems for
 its two selected captures. No profiling command changes clock settings; coordinate
