@@ -161,9 +161,69 @@ Evidence, including runner, captures, metrics and telemetry:
 `_out/principled_volume/camera-rates/`. The 0.75 setting and measurement tooling are
 retained; adaptive integration remains a distinct unimplemented extension.
 
+## 3. Reduced-frequency lighting — rejected in this implementation
+
+Keep every optical/emission sample, but refresh lighting every two camera cells.
+Cache the scattered-source/scattering ratio, multiply by the new scattering
+coefficient on the intervening cell, and reset at span boundaries and zero-medium
+cells. Newly nonzero scattering channels force a refresh. Independent emission
+and transmittance integration do not use this cache.
+
+A forced single-volume prototype showed substantial gains, but was not a
+production-ready policy. A subsequent opt-in implementation restricted reuse to
+one principled occurrence, constant phase bindings, one directional light and no
+ambient term. Overlaps and other configurations retained ordinary lighting.
+Wide cached factors avoided division overflow for very small scattering. Both
+variants retained software optical interpolation and camera/shadow rates 1/1.
+
+### Results
+
+Same 640-square, 2400 MHz, reversed-order, full-sample protocol as experiments 1/2.
+The final opt-in candidate used a boolean switch and isolated the cached loop
+from the inlined default loop.
+
+| Scene | Baseline ms | Opt-in disabled ms | Opt-in enabled ms |
+| --- | ---: | ---: | ---: |
+| Subway | 23.84–23.96 | 23.98–24.10 | 23.86–23.93 |
+| Cloud | 28.77–28.90 | 28.80–28.91 | 27.36–27.39 |
+| Plume | 17.08–17.14 | 17.19–17.22 | 15.26–15.29 |
+| Separate support | 6.65–6.66 | 7.37–7.39 | 7.35–7.39 |
+| Overlap | 0.77–0.82 | 0.79–0.81 | 0.87–0.88 |
+
+The approximately 5% cloud and 11% plume savings do not justify an approximately
+11% separate-support regression even with the feature disabled. An intermediate
+integer-policy/noinline-default implementation also regressed separate support.
+The original forced prototype reached 18.60–18.63 ms subway, 22.22–22.38 ms cloud,
+and 14.98–15.09 ms plume, but used a broader, less-qualified approximation and
+also regressed separate support (7.67–7.82 ms versus 6.73 ms).
+
+Instrumentation explains the constrained candidate's lack of subway benefit:
+the actual GPU registry reports `enabled=1`, one principled occurrence, one light,
+zero ambient, and light type **GEOMETRY**, not DIRECTIONAL. The archived authored
+light name alone does not establish what the renderer samples. Reusing a sampled
+geometry-light connection at a displaced point requires a different proposal/
+visibility treatment; the forced prototype's small image error does not qualify
+that algorithm. This runtime observation differs from earlier directional-light
+attribution in the historical notes; do not assume those scopes are equivalent.
+The inspected extracted scene SHA-256 is
+`07183001103a05400764171d6fb41e179f053f02f3559a162a9241e59bf1dbee`.
+
+All three candidates pass the unchanged static HDR gates on 42 retained frames
+across seven scenes. The final candidate has worst relative L1 0.000375 and NRMS
+0.001074 (cloud), with zero alpha error; its disabled frames match baseline
+exactly. It was rejected before motion, sharp-occluder, and broad sanitizer
+qualification. These are not claims of general radiance-cache correctness.
+
+All production code, metadata and temporary driver switches are reverted;
+experiment 2's independent camera/shadow rates remain. Restored Release builds
+and four focused renderer/stored-field CTests pass. Six measurement leases
+complete successfully at 2400 MHz active graphics clocks. Evidence:
+`_out/principled_volume/lighting-stride/`, including raw timing/HDR, telemetry,
+registry diagnostics and the frozen final candidate library/patch. The rebuilt
+frozen final candidate matches its measured library SHA-256 exactly.
+
 ## Remaining sequence
 
-3. Reduced-frequency lighting evaluation: pending.
 4. Reduced-resolution volume rendering: pending.
 5. Mixed-precision Quality sampling: pending.
 6. Baked optical representation: pending.
