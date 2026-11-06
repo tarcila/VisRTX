@@ -948,6 +948,7 @@ struct QualityRendererGPUData
   int maxTransparencyDepth;
   uint32_t randomSeed;
   bool volumeFastSampling;
+  bool volumeSourceResampling;
 };
 
 struct InteractiveRendererGPUData

@@ -34,7 +34,8 @@ struct Sample
   bool valid{false};
   size_t occurrence{0};
   av::Ray ray; // receiver -> selected source point; unit WORLD direction
-  double weight[3]{}; // j_i / (p_i * q_omega * q_distance), no extra r^2
+  double weight[3]{}; // j_i / (p_i * q_omega * q_distance), plus any
+                      // resampling correction; never add another r^2
 };
 
 VISRTX_HOST_DEVICE glm::dvec3 direction(
@@ -52,7 +53,7 @@ VISRTX_HOST_DEVICE glm::dvec3 direction(
 // Very narrow numerically unresolved cones use the full sphere instead, not a
 // clipped/omitted source. Misses and zero-source samples are never redrawn.
 template <typename Blackbody>
-VISRTX_HOST_DEVICE Sample sample(const AggregateVolumeSceneGPUData &scene,
+VISRTX_HOST_DEVICE Sample sampleOne(const AggregateVolumeSceneGPUData &scene,
     const glm::dvec3 &receiver,
     PCGState &state,
     Blackbody &blackbody)
@@ -181,6 +182,48 @@ VISRTX_HOST_DEVICE Sample sample(const AggregateVolumeSceneGPUData &scene,
   result.ray.upper = t;
   result.valid = true;
   return result;
+}
+// Two independent candidates, one visibility query. Conditional expectation
+// of the selected weight is exactly (a.weight + b.weight)/2. The selection
+// floor protects support even when normalized scores underflow.
+template <typename Blackbody>
+VISRTX_HOST_DEVICE VISRTX_NOINLINE Sample sampleResampled(
+    const AggregateVolumeSceneGPUData &scene,
+    const glm::dvec3 &receiver,
+    PCGState &state,
+    Blackbody &blackbody)
+{
+  const auto a = sampleOne(scene, receiver, state, blackbody);
+  const auto b = sampleOne(scene, receiver, state, blackbody);
+  double sa = 0., sb = 0.;
+  for (int c = 0; c < 3; ++c) {
+    if (a.valid)
+      sa = sa > std::abs(a.weight[c]) ? sa : std::abs(a.weight[c]);
+    if (b.valid)
+      sb = sb > std::abs(b.weight[c]) ? sb : std::abs(b.weight[c]);
+  }
+  const double scale = sa > sb ? sa : sb;
+  if (scale == 0.)
+    return {};
+  const double ma = sa / scale, mb = sb / scale;
+  const double probability = .125 + .75 * ma / (ma + mb);
+  volume_tracking::Random random{&state};
+  const bool chooseA = random.next() < probability;
+  auto result = chooseA ? a : b;
+  const double correction = 2. * (chooseA ? probability : 1. - probability);
+  for (int c = 0; c < 3; ++c)
+    result.weight[c] /= correction;
+  return result;
+}
+template <typename Blackbody>
+VISRTX_HOST_DEVICE Sample sample(const AggregateVolumeSceneGPUData &scene,
+    const glm::dvec3 &receiver,
+    PCGState &state,
+    Blackbody &blackbody,
+    bool resampleCandidates = false)
+{
+  return resampleCandidates ? sampleResampled(scene, receiver, state, blackbody)
+                            : sampleOne(scene, receiver, state, blackbody);
 }
 } // namespace volume_source
 } // namespace visrtx

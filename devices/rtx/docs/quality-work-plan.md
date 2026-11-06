@@ -65,6 +65,15 @@ records the speed/error campaign, including default-path equivalence, paired
 randomizations, finite-reference error-cost diagnostics and field-update checks.
 This is a numerical approximation, not completion of whole-subtype qualification.
 
+## Opt-in source-resampling follow-up
+
+[Two-candidate source resampling](quality-volume-source-resampling.md) preserves
+the existing source estimator mean and ownership, but trades higher sample cost
+for lower variance. It is default-off and independent of fast-field sampling.
+[Experiment 7](principled-volume-approximation-experiments.md) records the rejected
+near-field mixture, retained resampling strategy, finite-reference error-cost
+checks and remaining qualification limits.
+
 ## Execution order and controls
 
 1. Close source-guide evidence and lifecycle/zero-pilot/transform tests.

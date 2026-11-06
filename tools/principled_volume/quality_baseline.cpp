@@ -162,9 +162,9 @@ static double seconds(std::chrono::steady_clock::time_point start)
 }
 int main(int argc, char **argv)
 try {
-  if (argc < 11 || argc > 15)
+  if (argc < 11 || argc > 16)
     throw std::runtime_error(
-        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed] [shadowRate] [reference|fast]");
+        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed] [shadowRate] [reference|fast] [standard|resample]");
   const std::string renderer = argv[2], name = argv[3];
   const std::string motion = argc >= 12 ? argv[11] : "static";
   const auto seedValue = argc >= 13 ? std::stoull(argv[12]) : 0ull;
@@ -186,6 +186,11 @@ try {
   const float rate = std::stof(argv[10]);
   const float shadowRate = argc >= 14 ? std::stof(argv[13]) : rate;
   const std::string fieldSampling = argc >= 15 ? argv[14] : "reference";
+  const std::string guiding = argc >= 16 ? argv[15] : "standard";
+  if (guiding != "standard" && guiding != "resample")
+    throw std::runtime_error("invalid source guiding");
+  if (guiding == "resample" && renderer != "quality")
+    throw std::runtime_error("source guiding requires Quality");
   if (fieldSampling != "reference" && fieldSampling != "fast")
     throw std::runtime_error("invalid Quality field sampling");
   if (fieldSampling == "fast" && renderer != "quality")
@@ -200,7 +205,8 @@ try {
   std::vector<ANARIVolume> volumes;
   std::vector<ANARISurface> surfaces;
   std::vector<ANARILight> lights;
-  const bool receiver = name == "receiver-matte" || name == "receiver-native",
+  const bool receiver = name == "receiver-matte" || name == "receiver-native"
+      || name == "receiver-near",
              overlap = name == "overlap";
   const Box domain{-1, -1, 0, 1, 1, 2};
   const F3 unit{1, 1, 1}, zero{0, 0, 0},
@@ -248,8 +254,37 @@ try {
         zero,
         F3{.3f, .05f, .2f}));
   } else if (receiver) {
-    volumes.push_back(
-        s.volume(Box{.75f, -.25f, .75f, 1.25f, .25f, 1.25f}, unit, zero, unit));
+    const Box emitter = name == "receiver-near"
+        ? Box{.51f, -1.f, .01f, 1.01f, 1.f, 2.01f}
+        : Box{.75f, -.25f, .75f, 1.25f, .25f, 1.25f};
+    auto volume = s.volume(emitter, unit, zero, unit);
+    if (name == "receiver-near") {
+      constexpr int n = 32;
+      auto data = s.keep(anariNewArray3D(
+          s.d, nullptr, nullptr, nullptr, ANARI_FLOAT32_VEC3, n, n, n));
+      auto *p = static_cast<F3 *>(anariMapArray(s.d, data));
+      for (int z = 0; z < n; ++z)
+        for (int y = 0; y < n; ++y)
+          for (int x = 0; x < n; ++x) {
+            const float xx = (.51f + .5f * (x + .5f) / n - .52f) / .1f;
+            const float yy = (-1.f + 2.f * (y + .5f) / n) / .2f;
+            const float zz = (.01f + 2.f * (z + .5f) / n - .1f) / .1f;
+            const float j =
+                .01f + 100.f * std::exp(-xx * xx - yy * yy - zz * zz);
+            p[x + n * (y + n * z)] = {j, j, j};
+          }
+      anariUnmapArray(s.d, data);
+      auto field = s.keep(anariNewSpatialField(s.d, "structuredRegular"));
+      s.set(field, "data", ANARI_ARRAY3D, data);
+      s.set(field, "origin", ANARI_FLOAT32_VEC3, F3{.51f, -1.f, .01f});
+      s.set(
+          field, "spacing", ANARI_FLOAT32_VEC3, F3{.5f / n, 2.f / n, 2.f / n});
+      s.str(field, "dataCentering", "cell");
+      s.commit(field);
+      s.set(volume, "emission.field", ANARI_SPATIAL_FIELD, field);
+      s.commit(volume);
+    }
+    volumes.push_back(volume);
     // The emitter is outside the entire primary-camera footprint.
     surfaces.push_back(
         s.mesh({F3{-2, -2, 0}, F3{2, -2, 0}, F3{2, 2, 0}, F3{-2, 2, 0}},
@@ -315,6 +350,8 @@ try {
   s.str(r, "fireflyFilterMode", "none");
   if (fieldSampling == "fast")
     s.set(r, "volumeFastSampling", ANARI_BOOL, true);
+  if (guiding == "resample")
+    s.set(r, "volumeSourceResampling", ANARI_BOOL, true);
   if (renderer == "quality")
     s.set(r, "randomSeed", ANARI_UINT32, randomSeed);
   else if (randomSeed != 0)
@@ -343,7 +380,7 @@ try {
   std::cout << "setup_seconds " << seconds(start) << " motion " << motion
             << " random_seed " << randomSeed << " volume_rate " << rate
             << " shadow_rate " << shadowRate << " field_sampling "
-            << fieldSampling << '\n';
+            << fieldSampling << " source_sampling " << guiding << '\n';
   std::ofstream timings(output / "timings.csv");
   timings << "frame,samples,gpu_ms,wall_ms,map_ms,gpu_used_bytes\n";
   for (int i = 0; i < launches; ++i) {

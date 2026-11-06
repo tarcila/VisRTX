@@ -22,7 +22,8 @@ enum class Operation
   Direction,
   Phase,
   Coverage,
-  Source
+  Source,
+  SourceResampled
 };
 struct Request
 {

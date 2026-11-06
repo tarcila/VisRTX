@@ -113,14 +113,14 @@ VISRTX_HOST_DEVICE bool unownedVacuumFlight()
 }
 VISRTX_HOST_DEVICE Result trial(int id, int index)
 {
-  Fixture f(id);
+  Fixture f(id % 9);
   PCGState state;
   pcg_init(&state,
       detail::pcg_mix64(uint64_t(index) + 915),
       detail::pcg_mix64(uint64_t(id) + 42));
   Blackbody blackbody;
   const auto sample =
-      volume_source::sample(f.scene, glm::dvec3(0), state, blackbody);
+      volume_source::sample(f.scene, glm::dvec3(0), state, blackbody, id >= 9);
   Result result;
   if (sample.valid) {
     const double cosine = sample.ray.direction[2];
@@ -194,6 +194,10 @@ inline void controls()
 }
 inline void check(int id, const std::vector<Result> &results)
 {
+  // Selection probability is at least 1/8, so the two-candidate correction
+  // is at most 1/(2/8)=4. The old per-sample (not mean) bound must include it.
+  const double resamplingBound = id >= 9 ? 4. : 1.;
+  id %= 9;
   // Far references: independent order16/24 Gauss volume integral agree to
   // <1e-17. Inside: analytic rectangular potential difference, no r clamp.
   const double expected[9]{.009849702122354463,
@@ -211,7 +215,8 @@ inline void check(int id, const std::vector<Result> &results)
       require(std::isfinite(r.value[c]) && r.value[c] >= 0.,
           "invalid source sample");
       if (id == 1 || id == 6)
-        require(r.value[c] <= (id == 6 ? 14. : 1.4) * (c + 1) + 1e-12,
+        require(r.value[c]
+                <= resamplingBound * (id == 6 ? 14. : 1.4) * (c + 1) + 1e-12,
             "near-source mixture weight unbounded");
       sum += r.value[c];
       squares += r.value[c] * r.value[c];
@@ -253,7 +258,7 @@ inline int run()
   Result *device = nullptr;
   checked(cudaMalloc(&device, out.size() * sizeof(Result)));
 #endif
-  for (int id = 0; id < 9; ++id) {
+  for (int id = 0; id < 18; ++id) {
 #ifdef SOURCE_CUDA
     samples<<<(SAMPLES + 127) / 128, 128>>>(id, device);
     checked(cudaGetLastError());

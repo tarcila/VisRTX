@@ -39,7 +39,9 @@ VISRTX_DEVICE volume_source::Sample sourceSample(
     const FrameGPUData &fd, const vec3 &point, PCGState &random)
 {
   Request q;
-  q.operation = Operation::Source;
+  q.operation = fd.renderer.params.quality.volumeSourceResampling
+      ? Operation::SourceResampled
+      : Operation::Source;
   q.scene = fd.referenceVolumes;
   q.random = random;
   for (int c = 0; c < 3; ++c)

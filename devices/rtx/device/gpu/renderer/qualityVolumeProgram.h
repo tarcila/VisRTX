@@ -64,6 +64,14 @@ VISRTX_CALLABLE void __direct_callable__qualityVolume(
         blackbody);
     break;
   }
+  case qv::Operation::SourceResampled: {
+    QualityBlackbody blackbody;
+    q.source = volume_source::sampleResampled(*q.scene,
+        glm::dvec3(q.ray.origin[0], q.ray.origin[1], q.ray.origin[2]),
+        q.random,
+        blackbody);
+    break;
+  }
   case qv::Operation::Flight: {
     QualityBlackbody blackbody;
     q.flight =

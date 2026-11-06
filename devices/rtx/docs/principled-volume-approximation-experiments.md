@@ -461,7 +461,103 @@ while the HDR campaign includes idle-clock transition observations. Higher
 resolution/adaptive/sparse baking remains a separate possibility, not a result
 established by this rejected uniform-grid candidate.
 
+## 7. Volume-source proposals — two-candidate resampling retained
+
+### Rejected near-field mixture
+
+First increased the angular/distance proposal weight from 10% to 50% for
+receivers inside the source bounding sphere, retaining full support and evaluating
+the entire mixture PDF. Analytic CPU/CUDA/fast-math source controls pass, as do
+paired mean checks, but the intended near-emitter receiver gets worse:
+variance-times-GPU-time ratios are 1.022 subway, 0.889 plume, **1.833 near receiver**,
+and approximately 1 for the far receiver. A sphere-based near classification and
+more angular samples are not a generally better guide. This policy was removed.
+Evidence is preserved under `_out/principled_volume/source-guiding/`.
+
+### Retained two-candidate estimator
+
+`volumeSourceResampling` (`ANARI_BOOL`, default false) draws two candidates from
+the existing complete source proposal, selects one using the maximum absolute
+RGB source weight, and evaluates at most one visibility query. Selection mixes
+75% score-proportional probability with 25% uniform probability. Dividing the
+selected weight by twice its selection probability preserves the average of the
+two estimators in real arithmetic. Invalid/zero draws are not retried. Source
+ownership, optical properties, bounds and phase functions are unchanged; no
+history or neighboring-pixel reuse is introduced.
+
+See [the estimator contract](quality-volume-source-resampling.md). Unlike the
+fast-field option, this changes the estimator, not its physical target. Both
+options can be enabled together.
+
+### Timings and error-cost
+
+Final 640-square, one-sample, depth-32 timings at 2400 MHz, two reversed-order
+runs, 24 subway launches or 12 other launches, two warmups excluded:
+
+| Scene | Baseline ms | New default ms | Resampling ms |
+| --- | ---: | ---: | ---: |
+| Subway | 84.18–84.28 | 84.20–85.20 | 87.51–88.05 |
+| Plume | 24.66–24.80 | 24.50–24.55 | 24.99–25.21 |
+| Near emitter receiver | 4.92–4.93 | 4.80–4.84 | 5.25–5.28 |
+| Far Matte receiver | 4.26–4.31 | 4.26–4.35 | 4.61–4.70 |
+| Non-emitting cloud | 22.13–22.29 | 22.22–22.23 | 22.44–22.50 |
+
+Samples generally cost more. The benefit is lower variance. Eight predeclared
+randomizations, 512 retained spp at 128-square, give these final error-cost
+ratios (lower is better):
+
+| Scene | Variance ratio | Variance x GPU-time ratio | Finite-reference MSE x GPU-time ratio |
+| --- | ---: | ---: | ---: |
+| Subway | 0.926 | 0.951 | Not available |
+| Plume | 0.904 | 0.923 | 0.922 |
+| Near emitter receiver | 0.597 | 0.731 | 0.722 |
+| Far Matte receiver | 0.589 | 0.669 | 0.669 |
+
+The near receiver is a new synthetic control: a nonuniform RGB emitter lies
+just outside the primary-camera footprint, lighting a Matte plane. It isolates
+source sampling instead of letting directly visible emission dominate the metric.
+Eight independent 4096-spp baseline references were rendered for it. Plume and
+far-receiver references use the existing independent reference campaign.
+Reference-noise estimates are retained, not treated as converged goldens.
+Both estimators pass mean-consistency checks at 32/64/128/256/512 spp. Paired mean
+checks use six estimated replicate standard errors plus 5e-5 absolute per RGB
+channel, fixed before rendering. No seed/tolerance tuning is used.
+
+A separate fast-field-plus-resampling campaign passes paired means on subway and
+plume; its variance-time ratios are recorded separately and do not replace the
+reference-field table. These are bounded convergence diagnostics, not confidence
+intervals or universal guarantees for highly directional/occluded scenes.
+
+### Verification
+
+- 48 retained default-mode frames match baseline exactly; 512 paired coverage
+  frames are unchanged when resampling is enabled.
+- Original and resampled source samplers pass 18 analytic measure fixtures on
+  CPU, CUDA and CUDA fast-math. Mean gates are unchanged. The new per-sample
+  bound includes the derived factor-four maximum selection correction; the
+  original sampler's per-sample bound cannot be reused unchanged.
+- Public tests cover metadata, toggling/default restoration, Matte/native
+  receivers, duplicates, holes, covered transmission, blockers, absorbing
+  media, source-intensity edits, disappearance and restoration.
+- Release build and 169/169 selected CTests pass in 652.87 s, excluding the MDL
+  compile benchmark as before. Five memcheck/full-leak workloads report zero
+  device errors/leaks: source CUDA fast-math, public source lighting, and actual
+  resampled plume, near receiver and subway captures (with fast fields enabled
+  for the latter three). The attempted LSP diagnostic call did not return a
+  usable report; build/test results, not LSP, provide verification for this pass.
+
+Final timing/default/replicate and combined-mode leases complete successfully with
+2400 MHz active graphics telemetry. The independent near-reference campaign also
+contains idle-clock transition observations; it supplies reference images, not
+timing claims. Source dispatch was separated into two operation codes to avoid
+carrying selection state through the default path; final results use that version.
+
+Evidence: `_out/principled_volume/source-resampling/`, including intermediate and
+final captures, fixed plans, the independent near reference, corrected error-cost
+analysis, binaries and verification logs. Driver arguments now include optional
+`standard|resample`; existing invocations preserve standard sampling. No install,
+push or principled-volume extension advertisement is performed.
+
 ## Remaining sequence
 
-7. Improved Quality proposals/control variates: pending.
 8. Approximate multiple-scattering tail: pending.

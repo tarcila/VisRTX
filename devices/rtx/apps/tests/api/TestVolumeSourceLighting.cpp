@@ -17,6 +17,7 @@ struct Scene
   ANARIWorld world{};
   ANARICamera camera{};
   ANARIRenderer renderer{};
+  ANARIVolume lastEmitter{};
   std::vector<ANARIObject> objects;
   int errors = 0;
   Scene();
@@ -141,6 +142,7 @@ ANARIVolume Scene::emitter()
   set(v, "transmissionColor", ANARI_FLOAT32_VEC3, V3{1, 1, 1});
   set(v, "emission", ANARI_FLOAT32_VEC3, V3{1, 1, 1});
   commit(v);
+  lastEmitter = v;
   return v;
 }
 void Scene::setup(bool native,
@@ -284,25 +286,59 @@ int main()
 try {
   Scene scene;
   const auto reference = oracle();
+  const auto *defaultMode =
+      static_cast<const int *>(anariGetParameterInfo(scene.d,
+          ANARI_RENDERER,
+          "quality",
+          "volumeSourceResampling",
+          ANARI_BOOL,
+          "default",
+          ANARI_BOOL));
+  require(defaultMode && *defaultMode == 0, "source resampling must be opt-in");
   scene.setup(false, 1);
-  check("matte direct source", scene.render(), reference, 1.);
+  const auto original = scene.render();
+  scene.set(scene.renderer, "volumeSourceResampling", ANARI_BOOL, 1);
+  scene.commit(scene.renderer);
+  check("resampled source", scene.render(), reference, 1.);
+  scene.set(scene.renderer, "volumeSourceResampling", ANARI_BOOL, 0);
+  scene.commit(scene.renderer);
+  require(
+      scene.render() == original, "source resampling altered default state");
+  for (int resample : {0, 1}) {
+    scene.set(scene.renderer, "volumeSourceResampling", ANARI_BOOL, resample);
+    scene.commit(scene.renderer);
+    scene.setup(false, 1);
+    check("matte direct source", scene.render(), reference, 1.);
 #ifdef VISRTX_NATIVE_PBR
-  scene.setup(true, 1);
-  check("native replacement", scene.render(), reference, 1.);
-  scene.setup(true, 2);
-  check("duplicate labeled emitters", scene.render(), reference, 2.);
-  scene.setup(true, 1, .5f, .8f);
-  check("half holes plus covered transmission", scene.render(), reference, .9);
-  scene.setup(true, 1, 1.f, 1.f);
-  check("covered delta restores owner", scene.render(), reference, 1.);
+    scene.setup(true, 1);
+    check("native replacement", scene.render(), reference, 1.);
+    scene.setup(true, 2);
+    check("duplicate labeled emitters", scene.render(), reference, 2.);
+    scene.setup(true, 1, .5f, .8f);
+    check(
+        "half holes plus covered transmission", scene.render(), reference, .9);
+    scene.setup(true, 1, 1.f, 1.f);
+    check("covered delta restores owner", scene.render(), reference, 1.);
 #endif
-  scene.setup(false, 1, .5f, .8f);
-  check("matte direct holes only", scene.render(), reference, .5);
-  scene.setup(false, 1, 1.f, 0.f);
-  check("opaque source connection", scene.render(), reference, 0.);
-  scene.setup(false, 1, -1.f, 0.f, 4.f);
-  check(
-      "non-emitting medium attenuates source", scene.render(), oracle(4.f), 1.);
+    scene.setup(false, 1, .5f, .8f);
+    check("matte direct holes only", scene.render(), reference, .5);
+    scene.setup(false, 1, 1.f, 0.f);
+    check("opaque source connection", scene.render(), reference, 0.);
+    scene.setup(false, 1, -1.f, 0.f, 4.f);
+    check("non-emitting medium attenuates source",
+        scene.render(),
+        oracle(4.f),
+        1.);
+  }
+  scene.set(scene.lastEmitter, "emission", ANARI_FLOAT32_VEC3, V3{2, 2, 2});
+  scene.commit(scene.lastEmitter);
+  check("resampled source update", scene.render(), oracle(4.f), 2.);
+  scene.set(scene.lastEmitter, "visible", ANARI_BOOL, 0);
+  scene.commit(scene.lastEmitter);
+  check("resampled empty source set", scene.render(), reference, 0.);
+  scene.set(scene.lastEmitter, "visible", ANARI_BOOL, 1);
+  scene.commit(scene.lastEmitter);
+  check("resampled source restoration", scene.render(), oracle(4.f), 2.);
   return 0;
 } catch (const std::exception &e) {
   std::fprintf(stderr, "FAIL: %s\n", e.what());

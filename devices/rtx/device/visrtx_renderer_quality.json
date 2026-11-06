@@ -31,6 +31,13 @@
           "description": "experimental bounded FP32 interpolation for eligible scalar principled fields; preserves reference optical arithmetic and global bounds, but changes the sampled field; unsupported scenes/fields retain reference sampling"
         },
         {
+          "name": "volumeSourceResampling",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "experimental two-candidate volume-source resampling with at most one visibility query; preserves the source estimator mean but may trade sample speed for lower variance; no temporal reuse"
+        },
+        {
           "name": "sampleLimit",
           "types": [
             "ANARI_INT32"

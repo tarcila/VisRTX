@@ -22,11 +22,14 @@ cmake --build _out/quality-baseline-build --target quality_baseline --parallel
 Runner arguments:
 
 ```text
-quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED] [SHADOW_RATE] [FIELD_SAMPLING]
+quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED] [SHADOW_RATE] [FIELD_SAMPLING] [SOURCE_SAMPLING]
 ```
 
 `SCENE` is `cloud`, `plume`, `support`, `overlap`, `receiver-matte` or
-`receiver-native`. `ASSETS` is the canonical cell-v2 `datasets` directory. `LIBRARY`
+`receiver-native`, or `receiver-near`. The near fixture places a nonuniform
+RGB emitter just outside the camera footprint above a Matte receiver, isolating
+source-sampling variance without visible primary emission. It is a synthetic
+benchmark, not an analytic golden. `ASSETS` is the canonical cell-v2 `datasets` directory. `LIBRARY`
 is the ANARI library name (for this workspace, `visrtx_principle_volume`). The
 runner writes every image at sizes <=128; larger runs write only their final image.
 `MOTION` defaults to `static`; other modes are `camera`, `light`, `instance`,
@@ -47,6 +50,11 @@ Quality's opt-in `volumeFastSampling` parameter. The archive driver accepts the
 same final argument after both rates. See
 [the sampling contract](../../devices/rtx/docs/quality-volume-fast-sampling.md)
 for eligibility, fallback, and the approximate-field semantics.
+
+`SOURCE_SAMPLING` is `standard` (default) or `resample` (Quality only), selecting
+`volumeSourceResampling`. The archive driver accepts the same final argument.
+This is two-candidate source resampling with a corrected selection weight, not
+temporal reuse. See [the estimator contract](../../devices/rtx/docs/quality-volume-source-resampling.md).
 
 See [the approximation experiments](../../devices/rtx/docs/principled-volume-approximation-experiments.md)
 for bounded speed/error results; the renderer default is unchanged.

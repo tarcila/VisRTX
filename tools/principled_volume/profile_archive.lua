@@ -1,7 +1,7 @@
 -- Read-only scene measurement. Use an extracted scene archive for viewer-state
 -- files; never save the input. CameraSetup uses degrees, ANARI camera uses radians.
 -- vsrLua profile_archive.lua scene.vsr output renderer size launches spp [mode]
---   [seed] [controlled|viewer] [volumeRate] [shadowRate] [reference|fast]
+--   [seed] [controlled|viewer] [volumeRate] [shadowRate] [reference|fast] [standard|resample]
 local archive,out,subtype=assert(arg[1]),assert(arg[2]),assert(arg[3])
 local size=math.tointeger(tonumber(arg[4] or '640'))
 local launches=math.tointeger(tonumber(arg[5] or '20'))
@@ -41,7 +41,13 @@ if fieldSampling=='fast' then
  assert(subtype=='quality', 'fast field sampling requires Quality')
  params.volumeFastSampling=true
 end
-print('PROFILE',profile,'VOLUME_RATES',volumeRate,shadowRate,'FIELD_SAMPLING',fieldSampling)
+local guiding=arg[13] or 'standard'
+assert(guiding=='standard' or guiding=='resample')
+if guiding=='resample' then
+ assert(subtype=='quality')
+ params.volumeSourceResampling=true
+end
+print('PROFILE',profile,'VOLUME_RATES',volumeRate,shadowRate,'FIELD_SAMPLING',fieldSampling,'GUIDING',guiding)
 local renderer=vsr.render.createRenderer(size,size,device,index,camera,params)
 local volumes={};s:forEachVolume(function(v)table.insert(volumes,{object=v,density=v:getParameter('density'),temperature=v:getParameter('temperature')})end)
 if mode=='volume-off' then
