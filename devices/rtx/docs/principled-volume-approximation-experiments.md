@@ -222,9 +222,92 @@ complete successfully at 2400 MHz active graphics clocks. Evidence:
 registry diagnostics and the frozen final candidate library/patch. The rebuilt
 frozen final candidate matches its measured library SHA-256 exactly.
 
+## 4. Reduced-resolution volume rendering — not retained
+
+Built a throwaway split-pass renderer probe, not whole-image downsampling:
+
+- Full-resolution surface shading retains medium shadow queries.
+- A separate volume pass stops at the first opaque surface and exports volume
+  radiance V, RGB transmittance T, and the geometric endpoint depth.
+- Reconstruction composites `V + T * surfaceRGB`, with scalar coverage derived
+  from RGB T and surface coverage. It does not substitute alpha for colored T.
+- Four-tap bilinear and depth-aware (2% relative endpoint-depth tolerance)
+  reconstruction are compared. Missing compatible taps are counted; an
+  oracle-repair diagnostic is explicitly not part of the measured work.
+
+The probe deliberately rejects transparent first layers. Fog, layered transparent
+surfaces, full AOV semantics and an integrated multi-launch Frame lifecycle are
+not implemented. Temporary renderer hooks and AOV repurposing are not public API.
+Cloud, plume, separate-support and a new colored-extinction/thin-opaque-strip
+control are evaluated. At equal resolution the split composition agrees with
+reference to NRMS below 2.6e-8, establishing the decomposition for these fixtures.
+
+### First variant: reduce both V and T
+
+640-square surfaces are combined with 480-square or 320-square volume buffers.
+All four scenes fail the original alpha gate at both reductions. Even cloud has
+maximum alpha error 0.00338 at 480-square and 0.00651 at 320-square. Separate
+support reaches 0.0687/0.1082. Depth guidance helps surface discontinuities but
+cannot detect density/ROI discontinuities in an otherwise surface-free ray.
+The 320-square plume also fails radiance gates (L1 0.0117, NRMS 0.0144).
+
+### Second variant: full-resolution T, reduced-resolution V
+
+Fuse full-resolution camera extinction with surface shading using the existing
+attenuation query, while retaining reduced-resolution volume radiance. No
+full-resolution reference buffers are used by this reconstruction. The 480-square
+radiance variant passes the static gates on all four scenes. Maximum alpha error
+is <=0.000323; plume has L1 0.004949 and NRMS 0.006449, close to the L1 limit.
+320-square still fails the plume and thin-strip radiance gates.
+
+Exploratory GPU pass timings (two reversed-order medians, milliseconds):
+
+| Scene | Reference 640 | Surface + T 640 | Volume V 480 | Sum of two passes |
+| --- | ---: | ---: | ---: | ---: |
+| Cloud | 29.11–29.33 | 0.927–0.931 | 21.86–21.86 | about 22.79 |
+| Plume | 15.33–15.51 | 1.143–1.145 | 12.97–12.98 | about 14.12 |
+| Separate support | 6.89–7.00 | 0.873–0.920 | 4.54–4.56 | about 5.45 |
+| Thin strips | 5.35–5.36 | 1.325–1.345 | 3.08–3.10 | about 4.43 |
+
+The sum excludes reconstruction, buffer handoff and integrated-frame overhead;
+it is **not** a measured end-to-end speedup. Reconstruction here is offline CPU
+code. One centered primary sample is reset each launch so V/T/surface
+factorization can be checked without covariance from averaging jittered samples;
+these timings are not directly interchangeable with earlier accumulating runs.
+
+### Motion gate and verdict
+
+At 480-square, six retained 640-square comparisons per motion case give:
+
+| Case | Maximum relative L1 | Maximum NRMS | Gate |
+| --- | ---: | ---: | --- |
+| Cloud camera | 0.0000533 | 0.000193 | Pass |
+| Plume camera | **0.005312** | 0.007841 | **Fail** |
+| Plume density multiplier | 0.004980 | 0.006488 | Pass |
+| Plume temperature multiplier | 0.004754 | 0.006168 | Pass |
+
+Do not relax the 0.005 L1 gate after observing the camera failure. Full-resolution
+T plus reduced-resolution V remains an interesting design, particularly for
+smooth clouds, but these implementations do not support a generally qualified
+preview mode. They are not retained, and no production pipeline/parameter change
+is committed. More robust reconstruction or selective full-resolution radiance
+repair would be a new experiment, not a hidden assumption in these results.
+
+Three bounded clock-lease commands completed successfully. Telemetry shows
+2400 MHz during load and several 210/405 MHz transition observations in the two
+static campaigns; raw telemetry is preserved rather than describing every
+nonzero-utilization observation as clock-locked. Motion telemetry records 2400 MHz
+for active samples. The exploratory timings are not used to accept the failed
+candidate. Restored Release builds and four focused renderer/stored-field CTests
+pass after removing the probe.
+
+Evidence: `_out/principled_volume/resolution-probe/`, including both variants,
+all motion captures, reconstruction code, prototype patch, frozen library and
+probe executable. No complete sanitizer, transparent-layer or deployment
+qualification is claimed.
+
 ## Remaining sequence
 
-4. Reduced-resolution volume rendering: pending.
 5. Mixed-precision Quality sampling: pending.
 6. Baked optical representation: pending.
 7. Improved Quality proposals/control variates: pending.
