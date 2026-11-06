@@ -1,0 +1,261 @@
+{
+  "info": {
+    "name": "VISRTX_VOLUME_PRINCIPLED",
+    "type": "extension",
+    "dependencies": []
+  },
+  "objects": [
+    {
+      "type": "ANARI_VOLUME",
+      "name": "principledVolume",
+      "description": "directly parameterized participating medium whose optical properties are driven by spatial fields or constant values",
+      "parameters": [
+        {
+          "name": "name",
+          "types": ["ANARI_STRING"],
+          "tags": [],
+          "description": "optional object name"
+        },
+        {
+          "name": "bounds",
+          "types": ["ANARI_FLOAT32_BOX3"],
+          "tags": ["required"],
+          "description": "object-space medium domain; must have finite coordinates and strictly positive extents"
+        },
+        {
+          "name": "id",
+          "types": ["ANARI_UINT32"],
+          "tags": [],
+          "description": "optional auxiliary output ID"
+        },
+        {
+          "name": "visible",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": true,
+          "description": "whether this volume is visible"
+        },
+        {
+          "name": "density",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "scale on total extinction: sigma_t = density * -log(transmissionColor) / transmissionDistance; 0 disables extinction and thermal emission; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'density.outside' outside the field's domain"
+        },
+        {
+          "name": "density.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "multiplier applied to 'density' outside the density field's domain"
+        },
+        {
+          "name": "density.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'density'"
+        },
+        {
+          "name": "scatteringColor",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [1.0, 1.0, 1.0],
+          "description": "linear-RGB single-scattering albedo in [0, 1]: sigma_s = sigma_t * scatteringColor, sigma_a = sigma_t * (1 - scatteringColor); when a field is bound, the effective value is this constant multiplied by the field sample, or by 'scatteringColor.outside' outside the field's domain"
+        },
+        {
+          "name": "scatteringColor.outside",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [1.0, 1.0, 1.0],
+          "description": "multiplier applied to 'scatteringColor' outside the scatteringColor field's domain"
+        },
+        {
+          "name": "scatteringColor.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "linear-RGB field multiplied by 'scatteringColor'"
+        },
+        {
+          "name": "transmissionColor",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [0.36787944, 0.36787944, 0.36787944],
+          "description": "linear-RGB transmittance in (0, 1] over transmissionDistance at density 1; sets total extinction sigma_t, which scatteringColor splits into scattering and absorption; a channel of exactly 1 has zero extinction; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'transmissionColor.outside' outside the field's domain"
+        },
+        {
+          "name": "transmissionColor.outside",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [1.0, 1.0, 1.0],
+          "description": "multiplier applied to 'transmissionColor' outside the transmissionColor field's domain"
+        },
+        {
+          "name": "transmissionColor.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "linear-RGB field multiplied by 'transmissionColor'"
+        },
+        {
+          "name": "transmissionDistance",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "world-space distance over which transmissionColor is reached at density 1; must be positive wherever extinction is nonzero; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'transmissionDistance.outside' outside the field's domain"
+        },
+        {
+          "name": "transmissionDistance.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "multiplier applied to 'transmissionDistance' outside the transmissionDistance field's domain"
+        },
+        {
+          "name": "transmissionDistance.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'transmissionDistance'"
+        },
+        {
+          "name": "anisotropy",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "Henyey-Greenstein anisotropy of the primary phase lobe, in [-1, 1]; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'anisotropy.outside' outside the field's domain"
+        },
+        {
+          "name": "anisotropy.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "multiplier applied to 'anisotropy' outside the anisotropy field's domain"
+        },
+        {
+          "name": "anisotropy.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'anisotropy'"
+        },
+        {
+          "name": "secondaryAnisotropy",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "Henyey-Greenstein anisotropy of the secondary phase lobe, in [-1, 1]; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'secondaryAnisotropy.outside' outside the field's domain"
+        },
+        {
+          "name": "secondaryAnisotropy.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "multiplier applied to 'secondaryAnisotropy' outside the secondaryAnisotropy field's domain"
+        },
+        {
+          "name": "secondaryAnisotropy.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'secondaryAnisotropy'"
+        },
+        {
+          "name": "secondaryWeight",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "blend weight of the secondary phase lobe, in [0, 1]; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'secondaryWeight.outside' outside the field's domain"
+        },
+        {
+          "name": "secondaryWeight.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "multiplier applied to 'secondaryWeight' outside the secondaryWeight field's domain"
+        },
+        {
+          "name": "secondaryWeight.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'secondaryWeight'"
+        },
+        {
+          "name": "emission",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [0.0, 0.0, 0.0],
+          "description": "linear-RGB emitted radiance per unit world-space length; not scaled by density; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'emission.outside' outside the field's domain"
+        },
+        {
+          "name": "emission.outside",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [0.0, 0.0, 0.0],
+          "description": "multiplier applied to 'emission' outside the emission field's domain"
+        },
+        {
+          "name": "emission.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "linear-RGB field multiplied by 'emission'"
+        },
+        {
+          "name": "temperature",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "blackbody temperature in kelvin; thermal emission is sigma_a * blackbodyTint * blackbodyIntensity * B(temperature), where B is absolute Planck radiance (W m^-2 sr^-1, not luminance-normalized) integrated over 360-830 nm against the CIE 1931 2-degree observer, scaled by the fixed constant that gives a D65-shaped spectrum of unit 360-830 nm radiance Y = 1, converted to linear Rec.709/sRGB primaries without chromatic adaptation, and with out-of-gamut colors clamped to nonnegative RGB while preserving Y; B is 0 for temperature <= 0; the default of 1 lets a bound field supply kelvin directly; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'temperature.outside' outside the field's domain"
+        },
+        {
+          "name": "temperature.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "multiplier applied to 'temperature' outside the temperature field's domain"
+        },
+        {
+          "name": "temperature.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'temperature'"
+        },
+        {
+          "name": "blackbodyIntensity",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 0.0,
+          "description": "scale applied to blackbody emission; 0 disables thermal emission; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'blackbodyIntensity.outside' outside the field's domain"
+        },
+        {
+          "name": "blackbodyIntensity.outside",
+          "types": ["ANARI_FLOAT32"],
+          "tags": [],
+          "default": 1.0,
+          "description": "multiplier applied to 'blackbodyIntensity' outside the blackbodyIntensity field's domain"
+        },
+        {
+          "name": "blackbodyIntensity.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "scalar field multiplied by 'blackbodyIntensity'"
+        },
+        {
+          "name": "blackbodyTint",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [1.0, 1.0, 1.0],
+          "description": "linear-RGB tint applied to blackbody emission; when a field is bound, the effective value is this constant multiplied by the field sample, or by 'blackbodyTint.outside' outside the field's domain"
+        },
+        {
+          "name": "blackbodyTint.outside",
+          "types": ["ANARI_FLOAT32_VEC3"],
+          "tags": [],
+          "default": [1.0, 1.0, 1.0],
+          "description": "multiplier applied to 'blackbodyTint' outside the blackbodyTint field's domain"
+        },
+        {
+          "name": "blackbodyTint.field",
+          "types": ["ANARI_SPATIAL_FIELD"],
+          "tags": [],
+          "description": "linear-RGB field multiplied by 'blackbodyTint'"
+        }
+      ]
+    }
+  ]
+}
