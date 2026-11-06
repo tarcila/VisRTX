@@ -558,6 +558,95 @@ analysis, binaries and verification logs. Driver arguments now include optional
 `standard|resample`; existing invocations preserve standard sampling. No install,
 push or principled-volume extension advertisement is performed.
 
-## Remaining sequence
+## 8. Transport/diffusion tail — promising, not qualified or retained
 
-8. Approximate multiple-scattering tail: pending.
+Tested a depth-dependent transport approximation after 2, 4 or 8 real medium
+scatters. For one principled occurrence with constant nonnegative HG parameters,
+compute the phase first moment `g = (1-w)*g1 + w*g2`. Later transport uses
+`S' = (1-g)*S` and isotropic scattering, preserving absorption and emission.
+This is a moment-matching approximation, not a truncation of all remaining light.
+Overlaps, field-driven phase and negative anisotropy fall back to the original
+transport. Isotropic media have no reduction.
+
+The prototype scales conservative scattering bounds upward consistently with the
+sampled S'. Continuation and connection/shadow rays use the same reduced medium;
+the event that activates the tail retains its already sampled phase. Subsequent
+vertices use isotropic phase. Surface/source connections carry the tail state,
+so this does not silently combine old transmittance with new continuation MIS.
+Independent camera coverage remains on the original optical model.
+
+### Controls and speed potential
+
+A 65,536-path homogeneous CPU control checks absorption/scattering/escape
+probabilities, unchanged source integration and shadow transmission against the
+reduced-medium analytic solution. A public OptiX white-HDRI equilibrium control
+checks energy balance with the tail enabled. Those controls and seven selected
+tracking/Quality tests pass. The disabled prototype matches 48 retained baseline
+frames exactly.
+
+Successful short clock-leased 640-square, one-sample campaigns (depth limit 128,
+two reversed orders, 12 launches, two warmups excluded) measure:
+
+| Scene | Baseline ms | Tail after 2 ms | After 4 ms | After 8 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Cloud (albedo .9, g .65) | 22.10–22.46 | 14.58–14.59 | 17.00–17.02 | 20.15–20.36 |
+| Same cloud, density x8 | 167.41–167.83 | 76.82–77.02 | 90.16–90.40 | 110.99–113.71 |
+| Isotropic plume | 24.36–24.49 | 24.32–24.70 | 24.44–24.77 | 24.59–24.65 |
+
+Default-mode medians stay close to baseline. The isotropic plume has no useful
+gain, as expected. These timings establish potential, not acceptance of a changed
+physical model.
+
+### Image evidence and interruption
+
+The long eight-seed, 512-spp, 128-square campaign exceeded the 1200-second tool
+command limit. The lease client ended, but its Python child continued running.
+The agent explicitly terminated that job and its monitor/render child, verified
+those PIDs were gone, and discarded **all timing data from that campaign**.
+No unseen process was terminated. Complete finite image windows with checked
+sample counts remain usable for correctness analysis; partial plume outputs are
+not qualified results.
+
+The completed cloud and density-x8 sets show:
+
+- Activation after two scatters fails the frozen paired RGB-mean gate (six
+  replicate standard errors plus 5e-5 absolute). Relative mean shifts are about
+  -0.91% and -0.35%, respectively.
+- Activation after four or eight passes those global-mean checks. This alone does
+  not bound spatial bias. Eight-scatter ensemble differences are L1/NRMS
+  0.00186/0.00484 for the original cloud and 0.00264/0.00702 for density x8.
+- Coverage remains byte-identical across completed paired images.
+
+A separate, successfully completed bounded lease tests a more forward-scattering
+control (albedo .95, g .85, density x8), eight seeds, 128 spp at 64-square, tail
+after eight. Its global mean also passes, but ensemble L1/NRMS differences are
+0.0287/0.0888. Most RMS difference is sampling noise: subtracting estimated paired
+noise gives a spatial-bias NRMS estimate of about 0.0210, with substantial
+uncertainty (squared-bias estimate 0.000440, jackknife SE 0.000395). This is **not**
+a demonstrated 2.1% bias, but it also does not establish fidelity within 1%.
+Global-mean cancellation must not be mistaken for image agreement.
+
+The follow-up runner has its own wall-time budget, per-child timeout and SIGTERM
+cleanup, rather than relying solely on the outer tool timeout. The short timing,
+default-image and forward-control leases completed normally at 2400 MHz active
+graphics clocks. After cleanup/verification, the GPU returned to 2 MiB, 0%
+utilization and automatic idle 210/405 MHz clocks.
+
+### Decision
+
+Do not ship this approximation on the current evidence. Late activation is
+promising for some dense clouds, but robust spatial/temporal qualification,
+boundary handling and stronger forward scattering need a focused follow-up.
+No error gate is loosened, and no production tail parameter/path is retained.
+The probe, frozen library/runner, patch, analytic checks, complete image analyses
+and interrupted-run evidence are under `_out/principled_volume/transport-tail/`.
+Restored Release builds and 11 focused tests pass after removing the probe.
+
+## Campaign checkpoint
+
+The initial candidate sequence has been exercised, not exhaustively explored.
+Retained: the measured Interactive camera-rate 0.75 setting (default unchanged),
+opt-in Quality `volumeFastSampling`, and opt-in `volumeSourceResampling`.
+Hardware-filtered preview optics, lighting reuse, split-resolution rendering and
+uniform source-coefficient baking were not retained. The transport tail remains
+a promising but unqualified follow-up, not a completed rendering feature.
