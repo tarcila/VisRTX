@@ -22,7 +22,7 @@ cmake --build _out/quality-baseline-build --target quality_baseline --parallel
 Runner arguments:
 
 ```text
-quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED] [SHADOW_RATE]
+quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED] [SHADOW_RATE] [FIELD_SAMPLING]
 ```
 
 `SCENE` is `cloud`, `plume`, `support`, `overlap`, `receiver-matte` or
@@ -41,6 +41,12 @@ append `static 0 1` after `RATE=0.75` to use camera/shadow rates 0.75/1.
 The archive driver likewise accepts `[volumeRate] [shadowRate]` after its
 `controlled|viewer` argument; its defaults remain 1/1. It explicitly preserves
 floating-point ANARI parameter types even for integer-looking CLI values.
+
+`FIELD_SAMPLING` is `reference` (default) or `fast` (Quality only), selecting
+Quality's opt-in `volumeFastSampling` parameter. The archive driver accepts the
+same final argument after both rates. See
+[the sampling contract](../../devices/rtx/docs/quality-volume-fast-sampling.md)
+for eligibility, fallback, and the approximate-field semantics.
 
 See [the approximation experiments](../../devices/rtx/docs/principled-volume-approximation-experiments.md)
 for bounded speed/error results; the renderer default is unchanged.

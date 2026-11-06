@@ -4,6 +4,9 @@
 
 #include "StoredFieldPreviewSampler.h"
 #include "StoredFieldReferenceSampler.h"
+#ifdef VISRTX_QUALITY_FIELD_POLICY
+#include "QualityFieldSampling.h"
+#endif
 
 #if defined(VISRTX_REFERENCE_OPTIX_CALLS) && defined(__CUDA_ARCH__)
 #include <optix_device.h>
@@ -12,6 +15,9 @@
 
 namespace visrtx {
 #if defined(VISRTX_REFERENCE_OPTIX_CALLS) && defined(__CUDA_ARCH__)
+#ifdef VISRTX_QUALITY_FIELD_POLICY
+VISRTX_DEVICE bool useFastQualityFields();
+#endif
 template <bool Preview>
 struct OptixReferenceFieldSampler
 {
@@ -25,6 +31,11 @@ VISRTX_DEVICE T OptixReferenceFieldSampler<Preview>::sample(
     int32_t index, const vec3 &p) const
 {
   static_assert(std::is_same_v<T, float> || std::is_same_v<T, vec3>);
+#ifdef VISRTX_QUALITY_FIELD_POLICY
+  if constexpr (!Preview && std::is_same_v<T, float>)
+    if (useFastQualityFields() && quality_field::eligible(fields[index]))
+      return quality_field::sample(fields[index], p);
+#endif
   if constexpr (Preview) {
     // Share the FP32 sampler as a regular noinline device function, avoiding
     // an OptiX callable transition for every camera sample.

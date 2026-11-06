@@ -28,6 +28,9 @@ The optional preview representation may separately expand a bounded scalar grid
 into a CUDA array. Its linear texture is shadow-only; its point texture supplies
 exact endpoints to the existing software preview interpolation. Canonical Quality
 sampling and raw hulls still use the original representation, not either texture.
+The opt-in [Quality fast sampler](quality-volume-fast-sampling.md) may use point
+endpoints with a bounded software interpolant; it does not use linear filtering
+or replace raw range certificates.
 See [the clock-leased qualification](principled-volume-leased-optimizations.md).
 The internal stored-view layout contract is4.
 

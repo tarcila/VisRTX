@@ -24,6 +24,13 @@
           "description": "reproducible randomization key for camera, surface and volume sampling; zero preserves the default sample sequence"
         },
         {
+          "name": "volumeFastSampling",
+          "types": ["ANARI_BOOL"],
+          "tags": [],
+          "default": false,
+          "description": "experimental bounded FP32 interpolation for eligible scalar principled fields; preserves reference optical arithmetic and global bounds, but changes the sampled field; unsupported scenes/fields retain reference sampling"
+        },
+        {
           "name": "sampleLimit",
           "types": [
             "ANARI_INT32"

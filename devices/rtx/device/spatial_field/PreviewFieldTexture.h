@@ -5,7 +5,8 @@
 namespace visrtx {
 struct StoredFieldReferenceGPUData;
 // Optional immutable scalar-field representation, independent of lights.
-// Reference uses neither view; linear is shadow-only, point is preview optics.
+// Canonical reference uses neither view. Linear is shadow-only; point supports
+// preview optics and opt-in bounded Quality interpolation.
 class PreviewFieldTexture
 {
  public:

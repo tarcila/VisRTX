@@ -30,6 +30,7 @@
  */
 
 #define VISRTX_REFERENCE_OPTIX_CALLS 1
+#define VISRTX_QUALITY_FIELD_POLICY 1
 #include <optix_device.h>
 #include "gpu/createScreenSample.h"
 #include "gpu/evalShading.h"
@@ -70,6 +71,15 @@ constexpr int RUSSIAN_ROULETTE_START_DEPTH_VOLUME = 1;
 constexpr float VOLUME_SCATTER_EPSILON = 1.0e-4f;
 
 DECLARE_FRAME_DATA(frameData)
+
+VISRTX_DEVICE bool useFastQualityFields()
+{
+  // The ordinary raw-hull envelope is part of this interpolant's bound proof,
+  // not just a speed heuristic. Keep the reference fallback outside it.
+  return frameData.renderer.params.quality.volumeFastSampling
+      && frameData.referenceVolumes
+      && frameData.referenceVolumes->previewFloatEligible;
+}
 
 struct VolumeDistanceSample
 {

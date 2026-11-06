@@ -1,6 +1,7 @@
 // Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include "spatial_field/QualityFieldSampling.h"
 #include "spatial_field/SpatialField.h"
 #include "spatial_field/StoredFieldPreviewSampler.h"
 #include "spatial_field/StoredFieldReferenceSampler.h"
@@ -459,7 +460,7 @@ static void nonuniformAxes(Objects &objects)
 }
 
 VISRTX_GLOBAL void comparePointTexture(
-    StoredFieldReferenceGPUData view, box3 domain, vec3 *out)
+    StoredFieldReferenceGPUData view, box3 domain, vec4 *out)
 {
   const int i = int(blockIdx.x * blockDim.x + threadIdx.x);
   if (i >= 4096)
@@ -473,24 +474,57 @@ VISRTX_GLOBAL void comparePointTexture(
   const float b = StoredFieldPreviewSampler{&raw}.sample<float>(0, p);
   const float r = StoredFieldReferenceSampler{&view}.sample<float>(0, p);
   const float s = StoredFieldReferenceSampler{&raw}.sample<float>(0, p);
-  out[i] = vec3(a, b, r - s);
+  const float fast =
+      quality_field::eligible(view) ? quality_field::sample(view, p) : a;
+  out[i] = vec4(a, b, r - s, fast);
 }
 static void checkPointTexture(const StoredFieldReference &reference)
 {
   const auto view = reference.previewGpuData();
   require(
       view.previewPointTexture != 0, "point texture fixture did not activate");
+  require(quality_field::eligible(view)
+          == (!view.sparse || view.gridType == nanovdb::GridType::Float),
+      "fast sampling format eligibility");
   DeviceBuffer output;
-  output.reserve(4096 * sizeof(vec3));
+  output.reserve(4096 * sizeof(vec4));
   comparePointTexture<<<32, 128>>>(
-      view, reference.descriptor().domain, output.ptrAs<vec3>());
+      view, reference.descriptor().domain, output.ptrAs<vec4>());
   checkedCuda(cudaGetLastError());
   checkedCuda(cudaDeviceSynchronize());
-  std::vector<vec3> values(4096);
+  std::vector<vec4> values(4096);
   output.download(values.data(), values.size());
-  for (const auto &v : values)
+  optical_reference::RawRangeCertificate<float> certificate;
+  require(reference.range(certificate), "missing raw range");
+  for (const auto &v : values) {
     require(v.x == v.y && v.z == 0.f,
         "point texture changed software interpolation or reference sampler");
+    require(std::isfinite(v.w) && v.w >= certificate.range.lower
+            && v.w <= certificate.range.upper,
+        "fast interpolation escaped certified raw hull");
+    require(std::abs(double(v.w) - double(v.x)) <= 5e-5
+                * std::max(1.,
+                    double(certificate.range.upper)
+                        - double(certificate.range.lower)),
+        "fast interpolation error exceeds fixture tolerance");
+  }
+  auto ineligible = view;
+  ineligible.previewPointTexture = 0;
+  require(
+      !quality_field::eligible(ineligible), "missing texture must fall back");
+  ineligible = view;
+  ineligible.rectilinear = true;
+  require(!quality_field::eligible(ineligible), "rectilinear must fall back");
+  ineligible = view;
+  ineligible.linear = false;
+  require(!quality_field::eligible(ineligible), "nearest must fall back");
+  ineligible = view;
+  ineligible.customProvider = 1;
+  require(
+      !quality_field::eligible(ineligible), "custom provider must fall back");
+  ineligible = view;
+  ineligible.indexMax.x = 262145;
+  require(!quality_field::eligible(ineligible), "large indices must fall back");
 }
 template <typename BuildT>
 static void sparsePointTexture(Objects &objects)
@@ -522,8 +556,57 @@ static void sparsePointTexture(Objects &objects)
     checkPointTexture(snapshot(objects.device, field));
   }
 }
+VISRTX_GLOBAL void fastBlendKernel(const vec3 *inputs, float *output, int count)
+{
+  const int i = int(blockIdx.x * blockDim.x + threadIdx.x);
+  if (i < count)
+    output[i] = quality_field::blend(inputs[i].x, inputs[i].y, inputs[i].z);
+}
+static void fastBlendBounds()
+{
+  const float values[]{0.f,
+      0x1p-149f,
+      -0x1p-149f,
+      0x1p-126f,
+      -0x1p-126f,
+      .125f,
+      -.125f,
+      1.f,
+      -1.f,
+      0x1p40f,
+      -0x1p40f};
+  std::vector<vec3> inputs;
+  for (float a : values)
+    for (float b : values)
+      for (int i = 0; i <= 32; ++i)
+        inputs.emplace_back(a, b, float(i) / 32.f);
+  DeviceBuffer data, result;
+  data.upload(inputs.data(), inputs.size());
+  result.reserve(inputs.size() * sizeof(float));
+  fastBlendKernel<<<(inputs.size() + 127) / 128, 128>>>(
+      data.ptrAs<vec3>(), result.ptrAs<float>(), int(inputs.size()));
+  checkedCuda(cudaGetLastError());
+  checkedCuda(cudaDeviceSynchronize());
+  std::vector<float> output(inputs.size());
+  result.download(output.data(), output.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    const auto &v = inputs[i];
+    double lo = std::min(double(v.x), double(v.y));
+    double hi = std::max(double(v.x), double(v.y));
+    // A production raw hull cannot end at a subnormal and remain eligible.
+    if (lo != 0. && std::abs(lo) < 0x1p-126)
+      lo = lo > 0. ? 0. : -0x1p-126;
+    if (hi != 0. && std::abs(hi) < 0x1p-126)
+      hi = hi > 0. ? 0x1p-126 : 0.;
+    for (float value : {output[i], quality_field::blend(v.x, v.y, v.z)})
+      require(
+          std::isfinite(value) && double(value) >= lo && double(value) <= hi,
+          "fast blend escaped an eligible raw hull");
+  }
+}
 static void pointTextures(Objects &objects)
 {
+  fastBlendBounds();
   sparsePointTexture<float>(objects);
   sparsePointTexture<nanovdb::Fp4>(objects);
   sparsePointTexture<nanovdb::Fp8>(objects);
@@ -543,6 +626,14 @@ static void pointTextures(Objects &objects)
   p = static_cast<float *>(anariMapArray(objects.device, data));
   for (int i = 0; i < 32768; ++i)
     p[i] = .25f + float(i % 31) / 31.f;
+  anariUnmapArray(objects.device, data);
+  checkPointTexture(snapshot(objects.device, field));
+  // Subnormals inside an ordinary signed raw hull exercise fast-math flushing
+  // through actual point fetches and interpolation, not just scalar blends.
+  p = static_cast<float *>(anariMapArray(objects.device, data));
+  const float endpoints[]{0.f, 0x1p-126f, 0x1p-149f, -0x1p-149f, 1.f, -1.f};
+  for (int i = 0; i < 32768; ++i)
+    p[i] = endpoints[i % 6];
   anariUnmapArray(objects.device, data);
   checkPointTexture(snapshot(objects.device, field));
 }

@@ -56,6 +56,15 @@ frozen gates.169 tests and ten sanitizer workloads pass after stale CUDA test
 dependency records were repaired. The Quality subway target remains below30 FPS;
 no surface-shader, source-support or majorant approximation is included.
 
+## Opt-in field-sampling follow-up
+
+[Quality fast sampling](quality-volume-fast-sampling.md) adds a default-off,
+bounded FP32 scalar interpolant while retaining reference optical/tracking
+arithmetic and conservative global bounds. [Experiment 5](principled-volume-approximation-experiments.md)
+records the speed/error campaign, including default-path equivalence, paired
+randomizations, finite-reference error-cost diagnostics and field-update checks.
+This is a numerical approximation, not completion of whole-subtype qualification.
+
 ## Execution order and controls
 
 1. Close source-guide evidence and lifecycle/zero-pilot/transform tests.

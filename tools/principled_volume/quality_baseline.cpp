@@ -162,9 +162,9 @@ static double seconds(std::chrono::steady_clock::time_point start)
 }
 int main(int argc, char **argv)
 try {
-  if (argc < 11 || argc > 14)
+  if (argc < 11 || argc > 15)
     throw std::runtime_error(
-        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed] [shadowRate]");
+        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed] [shadowRate] [reference|fast]");
   const std::string renderer = argv[2], name = argv[3];
   const std::string motion = argc >= 12 ? argv[11] : "static";
   const auto seedValue = argc >= 13 ? std::stoull(argv[12]) : 0ull;
@@ -185,6 +185,11 @@ try {
             depth = std::stoi(argv[9]);
   const float rate = std::stof(argv[10]);
   const float shadowRate = argc >= 14 ? std::stof(argv[13]) : rate;
+  const std::string fieldSampling = argc >= 15 ? argv[14] : "reference";
+  if (fieldSampling != "reference" && fieldSampling != "fast")
+    throw std::runtime_error("invalid Quality field sampling");
+  if (fieldSampling == "fast" && renderer != "quality")
+    throw std::runtime_error("fast field sampling requires Quality");
   if (!std::isfinite(rate) || rate < 1e-3f || !std::isfinite(shadowRate)
       || shadowRate < 1e-4f)
     throw std::runtime_error(
@@ -308,6 +313,8 @@ try {
   s.commit(camera);
   auto r = s.keep(anariNewRenderer(s.d, renderer.c_str()));
   s.str(r, "fireflyFilterMode", "none");
+  if (fieldSampling == "fast")
+    s.set(r, "volumeFastSampling", ANARI_BOOL, true);
   if (renderer == "quality")
     s.set(r, "randomSeed", ANARI_UINT32, randomSeed);
   else if (randomSeed != 0)
@@ -335,7 +342,8 @@ try {
   s.commit(frame);
   std::cout << "setup_seconds " << seconds(start) << " motion " << motion
             << " random_seed " << randomSeed << " volume_rate " << rate
-            << " shadow_rate " << shadowRate << '\n';
+            << " shadow_rate " << shadowRate << " field_sampling "
+            << fieldSampling << '\n';
   std::ofstream timings(output / "timings.csv");
   timings << "frame,samples,gpu_ms,wall_ms,map_ms,gpu_used_bytes\n";
   for (int i = 0; i < launches; ++i) {

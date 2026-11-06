@@ -266,8 +266,83 @@ static void expect(const char *label,
     }
   }
 }
+static void fastFieldSampling()
+{
+  Scene s;
+  const auto *defaultValue = static_cast<const int *>(anariGetParameterInfo(s.d,
+      ANARI_RENDERER,
+      "quality",
+      "volumeFastSampling",
+      ANARI_BOOL,
+      "default",
+      ANARI_BOOL));
+  require(
+      defaultValue && *defaultValue == 0, "fast field sampling must be opt-in");
+  auto data = s.keep(anariNewArray3D(
+      s.d, nullptr, nullptr, nullptr, ANARI_FLOAT32, 32, 32, 32));
+  auto update = [&](float offset) {
+    auto *p = static_cast<float *>(anariMapArray(s.d, data));
+    for (int i = 0; i < 32768; ++i)
+      p[i] = offset + float(i % 31) / 40.f;
+    anariUnmapArray(s.d, data);
+  };
+  update(.1f);
+  auto field = s.keep(anariNewSpatialField(s.d, "structuredRegular"));
+  s.set(field, "data", ANARI_ARRAY3D, data);
+  s.set(field, "origin", ANARI_FLOAT32_VEC3, RGB{0, 0, 0});
+  s.set(
+      field, "spacing", ANARI_FLOAT32_VEC3, RGB{1.f / 31, 1.f / 31, 1.f / 31});
+  s.commit(field);
+  auto volume = s.volume({.7f, .8f, .9f}, {.2f, .3f, .4f}, {.1f, .2f, .3f});
+  s.set(volume, "density.field", ANARI_SPATIAL_FIELD, field);
+  s.commit(volume);
+  s.volumes({volume});
+  s.directional();
+  auto mode = [&](bool fast) {
+    s.set(s.renderer, "volumeFastSampling", ANARI_BOOL, int(fast));
+    s.commit(s.renderer);
+    return s.render();
+  };
+  const auto original = mode(false);
+  auto check = [&](bool exact) {
+    const auto reference = mode(false), fast = mode(true);
+    double error = 0., power = 0.;
+    for (size_t i = 0; i < fast.size(); ++i)
+      for (int c = 0; c < 10; ++c) {
+        require(
+            std::isfinite(fast[i][c]), "fast field produced nonfinite output");
+        const double d = fast[i][c] - reference[i][c];
+        error += d * d;
+        power += reference[i][c] * reference[i][c];
+      }
+    require(exact ? fast == reference : error <= 1e-6 * power,
+        "fast field or fallback image mismatch");
+    require(
+        mode(false) == reference, "fast renderer contaminated reference state");
+  };
+  check(false);
+  update(.3f);
+  require(mode(false) != original, "density array update was not observed");
+  check(false);
+  anariSetParameter(s.d, field, "filter", ANARI_STRING, "nearest");
+  s.commit(field);
+  check(true); // no texture acceleration; renderer flag must not alter sampling
+  anariSetParameter(s.d, field, "filter", ANARI_STRING, "linear");
+  s.commit(field);
+  check(false);
+  // An inactive thermal binding can still leave the approximation envelope;
+  // the scene-wide eligibility gate must restore canonical sampling.
+  s.set(volume, "temperature", ANARI_FLOAT32, 1e6f);
+  s.commit(volume);
+  check(true);
+  s.set(volume, "temperature", ANARI_FLOAT32, 1.f);
+  s.commit(volume);
+  check(false);
+}
+
 int main()
 try {
+  fastFieldSampling();
   Scene scene;
   auto v = scene.volume({1, 1, 1}, {0, 0, 0}, {2, 3, 5}, 0);
   scene.volumes({v});

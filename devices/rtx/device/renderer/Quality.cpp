@@ -57,6 +57,7 @@ void Quality::commitParameters()
   Renderer::commitParameters();
   m_fog = parseFogParameters().value_or(FogGPUData{});
   m_randomSeed = getParam<uint32_t>("randomSeed", 0u);
+  m_volumeFastSampling = getParam<bool>("volumeFastSampling", false);
   m_maxRayDepth = std::max(getParam<int>("maxRayDepth", 12), 1);
   m_maxTransparencyDepth =
       std::max(getParam<int>("maxTransparencyDepth", 32), 0);
@@ -67,6 +68,7 @@ void Quality::populateFrameData(FrameGPUData &fd) const
   Renderer::populateFrameData(fd);
   fd.renderer.params.quality.maxRayDepth = m_maxRayDepth;
   fd.renderer.params.quality.randomSeed = m_randomSeed;
+  fd.renderer.params.quality.volumeFastSampling = m_volumeFastSampling;
   fd.renderer.params.quality.maxTransparencyDepth = m_maxTransparencyDepth;
 }
 

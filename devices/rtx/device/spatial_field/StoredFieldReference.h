@@ -48,7 +48,7 @@ struct StoredFieldReferenceGPUData
   bool linear{true};
   cudaTextureObject_t previewTexture{0}; // optional shadow-only linear view
   cudaTextureObject_t previewPointTexture{
-      0}; // exact endpoints, preview software filtering only
+      0}; // exact endpoints for preview and opt-in Quality software filtering
 };
 
 // One field-owned finalized generation. Dense values are canonical float/vec3;

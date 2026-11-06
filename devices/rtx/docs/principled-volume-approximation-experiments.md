@@ -306,9 +306,99 @@ all motion captures, reconstruction code, prototype patch, frozen library and
 probe executable. No complete sanitizer, transparent-layer or deployment
 qualification is claimed.
 
+## 5. Mixed-precision Quality sampling — retained, opt-in
+
+Quality now accepts `volumeFastSampling` (`ANARI_BOOL`, default false). It uses
+bounded FP32 coordinate mapping/interpolation and canonical point-texture
+endpoints for eligible dense scalar and NanoVDB Float fields. Unsupported fields
+and scenes retain reference sampling. RGB, packed NanoVDB, rectilinear and custom
+fields are not accelerated by this initial path.
+
+Path state, optical arithmetic, thermal coupling, proposals and global bounds
+remain reference precision. The new interpolant stays in eligible certified raw
+hulls, so unchanged optical bounds remain conservative. This is an approximation
+of the sampled field, **not** a claim of unbiased convergence to the canonical
+interpolant. See [the numerical contract](quality-volume-fast-sampling.md),
+including the ordinary-hull/fast-math argument and exact fallback conditions.
+The gain combines FP32 interpolation, point-array access and avoidance of the
+per-sample field callable; it is not an isolated FP64-instruction ablation.
+
+### Clock-leased performance
+
+RTX 5880 Ada, active graphics 2400 MHz; 640x640, depth 32, one full sample,
+no denoising/checkerboarding/firefly reduction. Two reversed-order repetitions,
+two warmups discarded; 24 subway launches or 12 canonical launches.
+
+| Scene | Baseline ms | New default ms | Fast sampling ms |
+| --- | ---: | ---: | ---: |
+| Subway | 83.87–83.87 | 83.70–84.18 | **69.13–69.50** |
+| Cloud | 22.30–22.33 | 22.13–22.25 | **16.84–16.92** |
+| Plume | 24.43–24.83 | 24.31–24.46 | **20.52–20.76** |
+| Separate support | 8.96–8.99 | 8.96–8.98 | **7.98–8.04** |
+| Overlap | 9.33–9.42 | 9.36–9.39 | 9.36–9.36 |
+| Matte receiver | 4.36–4.36 | 4.27–4.40 | 4.31–4.40 |
+| Native receiver | 6.51–6.55 | 6.45–6.47 | 6.45–6.51 |
+
+Representative reductions are about 17% subway, 24% cloud, 16% plume and 11%
+separate support. Default-path differences stay within noise; no universal
+improvement is claimed. Subway GPU-wide memory increases about 6 MiB
+(2596.19 -> 2602.19 MiB) for both new modes, including module/stack/context memory.
+No new voxel array is allocated by this option; eligible point arrays already
+exist. These are sample timings, not converged-image FPS or a 30 FPS subway claim.
+
+### Statistical and dynamic checks
+
+- 112 retained default-mode cumulative HDR frames match the baseline byte-for-byte.
+- Eight predeclared paired randomizations per scene, seven scenes, 512 retained
+  spp at 128-square, pass the paired RGB-mean gate: six estimated replicate
+  standard errors plus 5e-5 absolute. Largest paired NRMS is about 0.000201
+  (plume); changed collision decisions can diverge individual paths.
+- Canonical fixtures also use the existing independent eight 4096-spp reference
+  replicates, after checking asset hashes. All mean-consistency checks pass at
+  32/64/128/256/512 spp. Finite reference noise is explicitly subtracted/reported,
+  not treated as a converged golden.
+- At 512 spp, noise-subtracted MSE times measured GPU time ratios are 0.741 cloud,
+  0.796 plume, 0.858 separate support, and approximately 1 for overlap/receivers.
+  Subway's replicate-variance times time ratio is 0.743; it has no independent
+  high-spp reference in this campaign. These are bounded error-cost diagnostics,
+  not an asymptotic bias bound.
+- Ten dynamic cases (cloud/plume camera, light, instance and density changes;
+  plume temperature/material changes) contribute 60 retained paired frames.
+  They pass the frozen L1 0.005 / NRMS 0.01 / alpha 0.002 gates. Worst L1 is
+  0.0000441, NRMS 0.005291 (a low-spp cloud-density comparison), alpha 2.99e-7.
+  These edits change parameters; actual density-array replacement is separately
+  exercised by the public API test.
+
+Four measurement leases exit successfully. Active graphics telemetry remains
+2400 MHz. Memory clocks contain 9501/10001 MHz; the dynamic image-only campaign
+also contains an 810 MHz transition observation. Dynamic timing is not used for
+the performance table or error-cost ratios.
+
+### Verification and artifacts
+
+Release build and **169/169** selected CTests pass in 668.08 s (MDL compile
+benchmark excluded as before). New tests exercise raw hulls on CPU/CUDA fast-math,
+actual sampled fields, renderer toggling/default restoration, array updates,
+nearest filtering and scene-envelope fallback. Five memcheck/full-leak workloads
+pass with zero device errors/leaks: stored reference, public Quality, public
+Interactive, and actual fast-mode plume/subway captures. Clangd reports no
+diagnostics in the checked host renderer/API-test files. Python tooling runs
+23 tests with two optional OpenVDB-dependent checks skipped.
+
+The final source-built library differs in host binary hash after header/comment
+rebuilds, but all 15 embedded PTX resources match the measured library exactly.
+Only Quality PTX differs from the pre-experiment baseline. The final build and
+public API toggling tests were rerun; the measured and final binaries are retained
+separately rather than assigning timings to an unrecorded hash.
+
+Evidence: `_out/principled_volume/quality-fast-fields/` contains frozen plans,
+paired captures, timings/telemetry, independent-reference error-cost analysis,
+verification logs and binaries. Measurement drivers expose `reference|fast` as
+an optional final argument; existing invocations retain reference sampling.
+No install, push or principled-volume extension advertisement is performed.
+
 ## Remaining sequence
 
-5. Mixed-precision Quality sampling: pending.
 6. Baked optical representation: pending.
 7. Improved Quality proposals/control variates: pending.
 8. Approximate multiple-scattering tail: pending.

@@ -51,6 +51,7 @@ struct Quality : public Renderer
   int m_maxRayDepth{12};
   int m_maxTransparencyDepth{32};
   uint32_t m_randomSeed{0};
+  bool m_volumeFastSampling{false};
 };
 
 } // namespace visrtx
