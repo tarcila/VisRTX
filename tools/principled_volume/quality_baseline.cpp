@@ -162,12 +162,12 @@ static double seconds(std::chrono::steady_clock::time_point start)
 }
 int main(int argc, char **argv)
 try {
-  if (argc != 11 && argc != 12 && argc != 13)
+  if (argc < 11 || argc > 14)
     throw std::runtime_error(
-        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed]");
+        "quality_baseline library renderer scene assets output size spp launches depth rate [static|camera|light|instance|density|temperature|material] [randomSeed] [shadowRate]");
   const std::string renderer = argv[2], name = argv[3];
   const std::string motion = argc >= 12 ? argv[11] : "static";
-  const auto seedValue = argc == 13 ? std::stoull(argv[12]) : 0ull;
+  const auto seedValue = argc >= 13 ? std::stoull(argv[12]) : 0ull;
   if (seedValue > UINT32_MAX)
     throw std::runtime_error("randomSeed exceeds uint32");
   const auto randomSeed = uint32_t(seedValue);
@@ -184,6 +184,11 @@ try {
   const int spp = std::stoi(argv[7]), launches = std::stoi(argv[8]),
             depth = std::stoi(argv[9]);
   const float rate = std::stof(argv[10]);
+  const float shadowRate = argc >= 14 ? std::stof(argv[13]) : rate;
+  if (!std::isfinite(rate) || rate < 1e-3f || !std::isfinite(shadowRate)
+      || shadowRate < 1e-4f)
+    throw std::runtime_error(
+        "sampling rates must be finite and above renderer minima");
   fs::create_directories(output);
   const auto start = std::chrono::steady_clock::now();
   Scene s(argv[1]);
@@ -315,7 +320,7 @@ try {
   s.set(r, "ambientRadiance", ANARI_FLOAT32, 0.f);
   s.set(r, "ambientSamples", ANARI_INT32, 0);
   s.set(r, "volumeSamplingRate", ANARI_FLOAT32, rate);
-  s.set(r, "volumeSamplingRateShadows", ANARI_FLOAT32, rate);
+  s.set(r, "volumeSamplingRateShadows", ANARI_FLOAT32, shadowRate);
   s.set(r,
       "background",
       ANARI_FLOAT32_VEC4,
@@ -329,7 +334,8 @@ try {
   s.set(frame, "renderer", ANARI_RENDERER, r);
   s.commit(frame);
   std::cout << "setup_seconds " << seconds(start) << " motion " << motion
-            << " random_seed " << randomSeed << '\n';
+            << " random_seed " << randomSeed << " volume_rate " << rate
+            << " shadow_rate " << shadowRate << '\n';
   std::ofstream timings(output / "timings.csv");
   timings << "frame,samples,gpu_ms,wall_ms,map_ms,gpu_used_bytes\n";
   for (int i = 0; i < launches; ++i) {

@@ -1,6 +1,7 @@
 -- Read-only scene measurement. Use an extracted scene archive for viewer-state
 -- files; never save the input. CameraSetup uses degrees, ANARI camera uses radians.
 -- vsrLua profile_archive.lua scene.vsr output renderer size launches spp [mode]
+--   [seed] [controlled|viewer] [volumeRate] [shadowRate]
 local archive,out,subtype=assert(arg[1]),assert(arg[2]),assert(arg[3])
 local size=math.tointeger(tonumber(arg[4] or '640'))
 local launches=math.tointeger(tonumber(arg[5] or '20'))
@@ -28,7 +29,13 @@ if profile=='viewer' then
   params.background=vsr.float4(.05,.05,.05,1)
  end
 elseif profile~='controlled' then error('unknown profile')end
-print('PROFILE',profile)
+local volumeRate=tonumber(arg[10] or '1')
+local shadowRate=tonumber(arg[11] or '1')
+assert(volumeRate and volumeRate>=.001 and volumeRate<math.huge, 'invalid volume rate')
+assert(shadowRate and shadowRate>=.0001 and shadowRate<math.huge, 'invalid shadow rate')
+-- Vela preserves Lua integer/float types when setting ANARI parameters.
+params.volumeSamplingRate=volumeRate+0.0;params.volumeSamplingRateShadows=shadowRate+0.0
+print('PROFILE',profile,'VOLUME_RATES',volumeRate,shadowRate)
 local renderer=vsr.render.createRenderer(size,size,device,index,camera,params)
 local volumes={};s:forEachVolume(function(v)table.insert(volumes,{object=v,density=v:getParameter('density'),temperature=v:getParameter('temperature')})end)
 if mode=='volume-off' then

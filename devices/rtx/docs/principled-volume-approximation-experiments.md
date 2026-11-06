@@ -79,9 +79,90 @@ release/reset. Evidence: `_out/principled_volume/hardware-optics/` contains the
 runner, gates, raw captures/timings/telemetry, lease logs, second-candidate patch
 and frozen library. The first candidate binary was not separately frozen.
 
+## 2. Coarser camera integration — retain opt-in rate 0.75
+
+The existing `volumeSamplingRate` already controls the anchored camera lattice.
+Before implementing an adaptive scheme, sweep camera rates 1, 0.75, 0.5 and 0.25
+with **shadow rate fixed at 1**. Compare images against both camera rates 1 and 4;
+rate 4 is a denser numerical comparison, not a converged physical reference.
+No renderer code, interpolation policy, default, or sample-count semantics change.
+
+The retained result is an explicitly selected setting for these workloads:
+
+```cpp
+const float cameraRate = 0.75f, shadowRate = 1.f;
+anariSetParameter(device, renderer, "volumeSamplingRate", ANARI_FLOAT32, &cameraRate);
+anariSetParameter(device, renderer, "volumeSamplingRateShadows", ANARI_FLOAT32, &shadowRate);
+anariCommitParameters(device, renderer);
+```
+
+### Measured benefit
+
+Same GPU/clock/image/work controls as experiment 1, two reversed rate orders,
+24 subway launches or 12 canonical launches, two warmups discarded.
+
+| Scene | Camera rate 1 ms | Camera rate 0.75 ms | Approximate time reduction |
+| --- | ---: | ---: | ---: |
+| Subway | 23.65–23.92 | 17.65–17.75 | 26% |
+| Cloud | 28.99–29.11 | 20.68–20.84 | 29% |
+| Plume | 17.03–17.13 | 11.01–11.07 | 35% |
+| Separate support | 6.72–6.73 | 5.07–5.11 | 24% |
+| Overlap | 0.81–0.85 | 0.76–0.86 | No reliable gain |
+
+These are observed end-to-end GPU sample durations, not a claim that every scene
+scales linearly with rate. Rate 0.5 reaches about 11.8 ms subway and 6.3 ms plume,
+but fails the unchanged relative-L1 gate for emitting scenes against rate 4.
+Rate 0.25 also fails. Neither is recommended as a general replacement.
+
+### Error and motion controls
+
+Rate 0.75 passes the original gates in:
+
+- Seven static scenes at 128-square, six retained cumulative frames each.
+- Eight camera/density/temperature-change cases at 128-square, six frames each:
+  subway and plume in all three modes, cloud in camera/density modes.
+- Four 640-square final-frame checks: subway, cloud, plume and separate support.
+
+Each is compared with matching rate-1 and rate-4 captures. Worst error across
+these comparisons is relative L1 **0.001763**, NRMS **0.002319**, maximum alpha
+error **0.000371**. Forty-two restored rate-1 frames also match the pre-experiment
+baseline byte-for-byte. The static receiver controls are black in Interactive;
+exact equality there is not evidence of volume-source illumination quality.
+
+Rate 0.75 sometimes matches rate 4 more closely than rate 1 does. This is a
+sampling-pattern effect in these fixtures, not monotonic convergence or a reason
+to call the coarser setting more accurate universally. Thin/hot features can still
+alias; global image metrics do not bound every pixel. The motion checks change
+camera or binding multipliers, not time-varying voxel contents, and do not prove
+absence of temporal flicker. No automatic motion policy or adaptive error bound
+is introduced. A future adaptive implementation needs richer thin-feature and
+voxel-animation controls rather than assuming these results certify it.
+
+### Retained tooling and validation
+
+The baseline runner gains an optional independent shadow rate, defaulting to its
+previous shared rate. The archive runner gains explicit camera/shadow rate CLI
+arguments, defaulting to 1/1. Both reject nonfinite/below-minimum rates.
+Lua values are explicitly converted to floating-point before ANARI submission.
+An initial subway rate-4 capture accidentally submitted an integer parameter and
+therefore retained the renderer's default rate; it is preserved under
+`hdr-invalid-subway-reference` and excluded from acceptance. All reported HDR
+checks use the corrected floating-point submission.
+
+The measurement driver builds successfully; four invalid-rate CLI controls reject
+before device loading. Four restored renderer/stored-field CTests pass. Clangd
+cannot validate this standalone driver with the repository's main compile
+configuration (missing NanoVDB includes and cascading GCC-header errors); the
+standalone CMake build and actual executions are the verification here.
+
+All four accepted measurement leases exit successfully; active graphics clocks
+remain 2400 MHz. Post-run telemetry returns to 210/405 MHz, 0% utilization, 2 MiB.
+Evidence, including runner, captures, metrics and telemetry:
+`_out/principled_volume/camera-rates/`. The 0.75 setting and measurement tooling are
+retained; adaptive integration remains a distinct unimplemented extension.
+
 ## Remaining sequence
 
-2. Coarser/error-controlled camera integration: pending.
 3. Reduced-frequency lighting evaluation: pending.
 4. Reduced-resolution volume rendering: pending.
 5. Mixed-precision Quality sampling: pending.

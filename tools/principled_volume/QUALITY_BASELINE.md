@@ -22,7 +22,7 @@ cmake --build _out/quality-baseline-build --target quality_baseline --parallel
 Runner arguments:
 
 ```text
-quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED]
+quality_baseline LIBRARY RENDERER SCENE ASSETS OUTPUT SIZE SPP LAUNCHES DEPTH RATE [MOTION] [RANDOM_SEED] [SHADOW_RATE]
 ```
 
 `SCENE` is `cloud`, `plume`, `support`, `overlap`, `receiver-matte` or
@@ -33,6 +33,17 @@ runner writes every image at sizes <=128; larger runs write only their final ima
 `density`, `temperature`, and `material`. Motion fixtures require cloud/plume;
 temperature/material require plume. Density/temperature edits change binding
 multipliers, not voxel bytes. Wall timings include edit/preparation work.
+
+`SHADOW_RATE` defaults to `RATE` for compatibility. Supply it explicitly to
+measure camera sampling independently of shadow sampling. Both rates must be
+finite and at least the renderer minima (0.001 camera, 0.0001 shadow). For example,
+append `static 0 1` after `RATE=0.75` to use camera/shadow rates 0.75/1.
+The archive driver likewise accepts `[volumeRate] [shadowRate]` after its
+`controlled|viewer` argument; its defaults remain 1/1. It explicitly preserves
+floating-point ANARI parameter types even for integer-looking CLI values.
+
+See [the approximation experiments](../../devices/rtx/docs/principled-volume-approximation-experiments.md)
+for bounded speed/error results; the renderer default is unchanged.
 
 `RANDOM_SEED` is Quality's public uint32 `randomSeed`, default0. No private seed
 switch is used. Subsequent disjoint sample blocks are reconstructed from cumulative
