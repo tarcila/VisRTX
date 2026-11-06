@@ -22,15 +22,17 @@ def smooth(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def fields(asset, x, y, z, cfg):
+def fields(asset, x, y, z, cfg, *, phase=None, motion=None):
     """Coordinates in meters. Frequencies and random phases never depend on N."""
     rng = np.random.default_rng(cfg['seed'])
     phases = rng.uniform(0, 2 * np.pi, 12)
     noise = np.zeros(np.broadcast_shapes(x.shape, y.shape, z.shape))
+    angle = 0. if phase is None else 2*np.pi*(phase % 1.)
+    travel = 0. if phase is None else angle*motion['rise_cycles']
     for i, frequency in enumerate((5., 11., 23., 47.)):
         noise += (0.5 ** i) * (np.sin(frequency * x + phases[3*i])
                    * np.sin(frequency * y + phases[3*i+1])
-                   * np.sin(frequency * z + phases[3*i+2]))
+                   * np.sin(frequency * z + phases[3*i+2] - travel*(i+1)))
     detail = cfg['detail_strength'] * noise
     edge = (1 - smooth(.85, .98, np.abs(x))) * (1 - smooth(.85, .98, np.abs(y)))
     edge = edge * smooth(.02, .12, z) * (1 - smooth(1.8, 1.98, z))
@@ -48,11 +50,16 @@ def fields(asset, x, y, z, cfg):
         return {'density': density}
     cx = .16 * np.sin(5*z) + .08 * np.sin(11*z)
     cy = .12 * np.cos(6*z)
-    radius = .12 + .17 * z
+    pulse = 1.
+    if phase is not None:
+        cx = cx + motion['sway_strength']*smooth(0., 1.5, z)*np.sin(angle-2*z)
+        cy = cy + motion['sway_strength']*smooth(0., 1.5, z)*np.cos(angle-2*z)
+        pulse = 1. + motion['pulse_strength']*np.sin(6*z-angle)
+    radius = (.12 + .17 * z)*np.sqrt(pulse)
     r = np.sqrt((x-cx)**2+(y-cy)**2)
     body = 1 - smooth(radius*.55, radius*1.2, r+detail*.7)
     soot = (.25 + .75*smooth(.3, 1.3, z)) * (.75+.25*np.sin(14*z+noise))
-    density = cfg['density_scale'] * body * soot * edge
+    density = cfg['density_scale'] * body * soot * edge * pulse
     hot = np.exp(-(r/(radius*.65))**2) * (1-smooth(.25, 1.65, z))
     temperature = cfg['temperature_min'] + (cfg['temperature_max']-cfg['temperature_min'])*hot
     temperature = np.where((body*edge) > .001, temperature, 0)
@@ -115,7 +122,8 @@ def cell_coordinates(origin, spacing, indices):
     return origin + spacing * (np.asarray(indices) + .5)
 
 
-def generate(asset, cfg, output, writer):
+def generate(asset, cfg, output, writer, *, phase=None, motion=None,
+             diagnostics=True):
     validate(cfg)
     output.mkdir(parents=True, exist_ok=True)
     if (output/'manifest.json').exists():
@@ -138,6 +146,11 @@ def generate(asset, cfg, output, writer):
                 'reference_warning': 'Blender appearance only; shader is not an optical oracle.'}
     names = ['density'] if asset == 'cloud' else ['density', 'temperature', 'emission',
                                                 'temperature_small', 'emission_offset']
+    if phase is not None:
+        manifest['animation_sample'] = {'phase': phase, 'motion': motion}
+        if not diagnostics:
+            names = ['density', 'temperature']
+            manifest['presets'] = {'thermal': presets('plume')['thermal']}
     with tempfile.TemporaryDirectory(dir=output) as tmp:
         for name in names:
             source = name.split('_')[0]
@@ -160,7 +173,7 @@ def generate(asset, cfg, output, writer):
             z = cell_coordinates(lower[2], spacing, np.arange(field_n))[None, None, :]
             for i in range(0, dims[0], 8):
                 x = cell_coordinates(origin[0], spacing, np.arange(i, min(i+8, dims[0])))[:, None, None]
-                data[i:i+8] = fields(asset, x, y, z, cfg)[source]
+                data[i:i+8] = fields(asset, x, y, z, cfg, phase=phase, motion=motion)[source]
             data.flush()
             if not np.isfinite(data).all() or (data < 0).any():
                 raise ValueError('Invalid field '+name)
@@ -193,14 +206,38 @@ def main():
     p.add_argument('--seed', type=int)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--writer', type=Path, default=Path(__file__).parent/'build/write_nvdb')
+    p.add_argument('--animate', action='store_true')
+    p.add_argument('--frames', type=int, default=48)
+    p.add_argument('--duration', type=float, default=4.)
+    p.add_argument('--sway-strength', type=float, default=.08)
+    p.add_argument('--rise-cycles', type=int, default=1)
+    p.add_argument('--pulse-strength', type=float, default=.2)
+    p.add_argument('--diagnostics', action='store_true')
+    p.add_argument('--overwrite', action='store_true')
     args = p.parse_args()
     cfg = copy.deepcopy(DEFAULTS)
+    if args.animate:
+        cfg['resolution'] = 64
     if args.config:
         cfg.update(json.loads(args.config.read_text()))
     for key in ('resolution', 'seed'):
         if getattr(args, key) is not None:
             cfg[key] = getattr(args, key)
-    generate(args.asset, cfg, args.output.resolve(), args.writer.resolve())
+    if args.animate:
+        if args.asset != 'plume':
+            p.error('--animate supports only --asset plume')
+        from animate import generate_sequence
+        motion = dict(sway_strength=args.sway_strength, rise_cycles=args.rise_cycles,
+                      pulse_strength=args.pulse_strength)
+        generate_sequence(cfg, args.output.absolute(), args.writer.resolve(),
+                          frames=args.frames, duration=args.duration, motion=motion,
+                          diagnostics=args.diagnostics, overwrite=args.overwrite)
+    else:
+        if (args.overwrite or args.diagnostics or args.frames != 48 or args.duration != 4.
+                or args.sway_strength != .08 or args.rise_cycles != 1
+                or args.pulse_strength != .2):
+            p.error('animation options require --animate')
+        generate(args.asset, cfg, args.output.resolve(), args.writer.resolve())
 
 
 if __name__ == '__main__':

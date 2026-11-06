@@ -60,6 +60,98 @@ noise amplitude (`detail_strength`, meters), temperature range (kelvin), RGB
 emission strength, seed, and resolution. Defaults produce approximately meter-sized
 features. These are synthetic test fields, not quantitatively validated soot data.
 
+## Looping plume animation
+
+Animation is opt-in; existing static invocations and seeded field values are
+unchanged. Generate NVDBs without Vela, then package them separately:
+
+```sh
+python3 tools/principled_volume/generate.py --asset plume --animate \
+  --output _out/principled_volume/plume-animation-64
+python3 tools/principled_volume/package_animation.py \
+  _out/principled_volume/plume-animation-64
+# Optional representative renders; uses ANARI_LIBRARY and LD_LIBRARY_PATH:
+vsrLua tools/principled_volume/render_animation.lua \
+  _out/principled_volume/plume-animation-64 32 512
+```
+
+Defaults: **48 frames, 64³ cells, four seconds**, seed 42, thermal plume only.
+`--resolution`, `--seed`, and `--config` retain their existing precedence; the
+animation resolution default is applied before config-file overrides.
+
+| Animation option | Default | Meaning |
+| --- | --- | --- |
+| `--frames` | 48 | Unique sampled frames, at least 2 |
+| `--duration` | 4 | Positive loop duration in seconds |
+| `--sway-strength` | 0.08 | Dimensionless sway multiplier in the fixed meter-sized domain |
+| `--rise-cycles` | 1 | Nonnegative integer phase cycles per loop; higher octaves use multiples |
+| `--pulse-strength` | 0.2 | Relative source modulation, in [0, 1) |
+| `--diagnostics` | off | Also export emission, cropped temperature, and offset emission |
+| `--overwrite` | off | Replace an existing completed sequence directory |
+
+This remains an analytic visualization asset, **not a fluid simulation**. Smooth
+periodic phases move noise upward, sway the centerline, and propagate source
+pulses upward. Density and temperature share the evolving core geometry;
+temperature still cools with height. No velocity, combustion, or conservation-law
+solver is implied. Diagnostic subdomains sample those same continuous functions;
+the detached blue emission ribbon stays stationary. Point-sampling and discrete
+playback can still alias thin features, particularly at low resolution.
+
+Output layout:
+
+```text
+<sequence>/
+  manifest.json                 # sequence controls, frame times, paths and hashes
+  frames/0000/
+    manifest.json               # schema-2 cell-centered field metadata
+    density.nvdb
+    temperature.nvdb
+  frames/0001/...
+  scene.vsr                     # produced by package_animation.py
+  animations.vsr                # matching object-index bindings and clock
+  animation.validation.txt      # fresh-process archive/playback verification
+```
+
+Frames cover `[0, duration)`. The VSR timeline adds the first field objects again
+at normalized time 1, without duplicate NVDBs. Vela's current clock includes this
+closure as an extra endpoint frame (`N+1` clock entries at `N/duration` FPS).
+**Its built-in frame-loop playback therefore holds the closure for one extra
+frame interval** before wrapping. For exact-duration playback/export, drive
+`animationMgr:setAnimationTime((seconds % duration)/duration)` or sample only the
+N unique phases. Object references switch discretely; Vela currently selects the
+nearest adjacent object even with `"step"`, not an interpolated voxel field.
+
+Packaging requires a Vela `vsrLua` with `addObjectParameterBinding` and
+`spatialField` object-key support. It checks input hashes and stable transforms,
+imports only fields used by the selected preset, and validates **every frame**
+and the loop closure after loading both archives in a fresh process. Use
+`--preset combined` or `--preset different_domains` after `--diagnostics` to
+exercise optional fields. `--vsr-lua /path/to/vsrLua` selects a particular build.
+
+Archives are a matched pair: load the scene before its animation archive into
+an otherwise fresh scene/manager. For example, in a Vela Lua context:
+
+```lua
+vsr.io.loadSceneArchive(scene, "/absolute/path/to/sequence/scene.vsr")
+vsr.io.loadAnimationManagerArchive(animationMgr, "/absolute/path/to/sequence/animations.vsr")
+animationMgr:setAnimationTime(0.25) -- normalized phase, not seconds
+```
+
+The scene embeds the NVDB arrays; **all selected frames are memory-resident**.
+Exported NVDBs remain independently usable, but VSR playback does not stream them.
+Storage and memory grow with frame count and resolution. Budget before increasing
+to 128³/256³. The camera carries a -6-stop exposure metadata hint; the supplied
+render smoke check uses raw renderer exposure, a black background, and no denoising.
+It writes quarter-cycle PNGs plus closure for visual inspection, not Blender
+reference comparisons or quantitative transport qualification.
+
+Sequence generation stages all frames before publishing. Existing paths are
+refused by default; `--overwrite` accepts only a completed plume-sequence
+manifest and replaces the **entire owned directory**, including old archives and
+previews. Failed generation leaves an existing sequence intact. There is no
+resume support. Packaging has its own `--overwrite` to rebuild archives without
+regenerating fields. Do not run concurrent writers against the same directory.
+
 ## Output and binding
 
 Each `.nvdb` contains exactly one named, uncompressed float32 or Vec3f grid.
