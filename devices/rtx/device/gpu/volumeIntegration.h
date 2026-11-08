@@ -180,6 +180,9 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     vec3 *transmittance = nullptr)
 {
   vec3 mdlT(1.f);
+  // Keep TF1D's scalar coverage separate: folding MDL's mean transmission
+  // into this accumulator loses chromatic transmission and interval order.
+  float tfOpacity = opacity;
   bool haveMdl = false;
   VolumeHit hit;
   ray.t.upper = tfar;
@@ -204,15 +207,17 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     if (hit.volume->type == VolumeType::MDL) {
       haveMdl = true;
       thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate);
-      opacity = 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f;
     } else {
       thisDepth = rayMarchVolume(ss,
           hit,
           &color,
           normal ? &thisNormal : nullptr,
-          opacity,
+          tfOpacity,
           invSamplingRate);
     }
+    opacity = haveMdl
+        ? 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f * (1.f - tfOpacity)
+        : tfOpacity;
 
     // Track closest intersection depth
     if (thisDepth < depth) {
@@ -231,7 +236,7 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
   } while (opacity < OPACITY_THRESHOLD);
 
   if (transmittance)
-    *transmittance = haveMdl ? mdlT : vec3(1.f - opacity);
+    *transmittance = mdlT * (1.f - tfOpacity);
   return depth;
 }
 

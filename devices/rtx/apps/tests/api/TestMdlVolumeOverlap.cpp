@@ -424,14 +424,60 @@ void mixedDomains(Scene &s)
   anari::commitParameters(s.d, tf2);
   s.direct({tf2, tf});
   s.accept("TF1D-only positive overlap retains existing behavior");
-  anari::setParameter(s.d, field, "origin", V3{-2, -2, 5});
-  anari::unsetParameter(s.d, field, "roi");
-  anari::commitParameters(s.d, field);
+}
+template <bool Reverse>
+void mixedAbsorption(Scene &s)
+{
+  // TF1D retains its existing full-step lattice quadrature. Choose a rate
+  // that divides the length-2 interval instead of overshooting it at the
+  // default preview rate (dt=4 for this field).
+  anari::setParameter(s.d, s.renderer, "volumeSamplingRate", 1.f);
+  anari::commitParameters(s.d, s.renderer);
+  auto tf = anari::newObject<anari::Volume>(s.d, "transferFunction1D");
+  s.owned.push_back(tf);
+  auto field = s.field({-2, -2, Reverse ? 2.f : 5.f});
+  anari::setParameter(s.d, tf, "value", field);
+  anari::setParameter(s.d, tf, "color", V3{0, 0, 0});
+  anari::setParameter(s.d, tf, "opacity", .25f);
+  anari::setParameter(s.d, tf, "unitDistance", 1.f);
+  anari::commitParameters(s.d, tf);
+  if (Reverse)
+    s.extent(0, {V3{-2, -2, 5}, V3{2, 2, 7}});
   s.direct({s.volumes[0], tf});
+  // Independent Beer-Lambert reference: length 2 in each medium, with
+  // TF1D transmission (1 - .25)^2. A unit vacuum gap separates the boxes.
   const auto t = beer(2);
-  s.check("nonoverlapping MDL and nonzero TF1D absorption",
+  s.check(Reverse ? "TF1D then MDL absorption" : "MDL then TF1D absorption",
       {t[0] * .5625f, t[1] * .5625f, .5625f, 1});
-  s.direct();
+}
+void surfaceInsideDomain(Scene &s)
+{
+  auto geometry = anari::newObject<anari::Geometry>(s.d, "sphere");
+  auto material = anari::newObject<anari::Material>(s.d, "matte");
+  auto surface = anari::newObject<anari::Surface>(s.d);
+  s.owned.insert(s.owned.end(), {geometry, material, surface});
+  const V3 center{0, 0, 3};
+  anari::setParameterArray1D(s.d, geometry, "vertex.position", &center, 1);
+  anari::setParameter(s.d, geometry, "radius", .5f);
+  anari::commitParameters(s.d, geometry);
+  anari::setParameter(s.d, material, "color", V3{0, 0, 0});
+  anari::commitParameters(s.d, material);
+  anari::setParameter(s.d, surface, "geometry", geometry);
+  anari::setParameter(s.d, surface, "material", material);
+  anari::commitParameters(s.d, surface);
+  anari::setParameterArray1D(s.d, s.world, "surface", &surface, 1);
+  anari::commitParameters(s.d, s.world);
+  s.accept("surface wholly inside MDL domain is not medium overlap");
+  // Prove the control includes an actual visible surface, not an empty World.
+  anari::unsetParameter(s.d, s.world, "volume");
+  anari::commitParameters(s.d, s.world);
+  s.render();
+  auto depth = anari::map<float>(s.d, s.frame, "channel.depth");
+  require(depth.data && depth.width == 8 && depth.height == 8,
+      "surface control depth must map");
+  const float front = depth.data[0];
+  anari::unmap(s.d, s.frame, "channel.depth");
+  require(front > 2.f && front < 3.f, "surface control must intersect sphere");
 }
 void ambiguity(Scene &s)
 {
@@ -472,6 +518,9 @@ int main()
              fieldDomains,
              transformedDomains,
              mixedDomains,
+             mixedAbsorption<false>,
+             mixedAbsorption<true>,
+             surfaceInsideDomain,
              ambiguity}) {
       try {
         Scene s(type);
