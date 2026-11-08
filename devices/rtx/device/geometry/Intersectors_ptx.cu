@@ -226,15 +226,13 @@ VISRTX_DEVICE void intersectVolume()
           volumeData.bounds,
           t.lower,
           t.upper)) {
-    const auto &fieldData = ray::fieldData(frameData, volumeData);
-
-    if (box1 tRoi; rayBoxIntersection(ray::localOrigin(),
+    if (box1 tClip; rayBoxIntersection(ray::localOrigin(),
             ray::localDirection(),
-            fieldData.roi,
-            tRoi.lower,
-            tRoi.upper)) {
-      t.lower = std::max(t.lower, tRoi.lower);
-      t.upper = std::min(t.upper, tRoi.upper);
+            volumeData.clipBounds,
+            tClip.lower,
+            tClip.upper)) {
+      t.lower = std::max(t.lower, tClip.lower);
+      t.upper = std::min(t.upper, tClip.upper);
 
       t.lower = std::max(t.lower, ray::tmin());
       if (t.lower < t.upper) {

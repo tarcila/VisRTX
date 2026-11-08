@@ -45,6 +45,8 @@ struct SpatialField : public RegisteredObject<SpatialFieldGPUData>
 
   virtual float stepSize() const = 0;
 
+  box3 regionOfInterest() const;
+
   void markFinalized() override;
 
   static SpatialField *createInstance(

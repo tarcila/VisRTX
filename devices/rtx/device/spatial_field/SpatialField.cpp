@@ -46,6 +46,11 @@ SpatialField::SpatialField(DeviceGlobalState *s)
   setRegistry(s->registry.fields);
 }
 
+box3 SpatialField::regionOfInterest() const
+{
+  return gpuData().roi;
+}
+
 void SpatialField::markFinalized()
 {
   Object::markFinalized();

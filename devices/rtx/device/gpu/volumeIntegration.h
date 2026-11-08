@@ -51,18 +51,21 @@
 
 namespace visrtx {
 
-// Helpers //
-VISRTX_DEVICE const SpatialFieldGPUData &getSpatialFieldData(
-    const FrameGPUData &frameData, DeviceObjectIndex idx)
+// Per-segment dispatch selects the medium before touching its payload. TF1D
+// keeps the existing per-field direct-callables; a field-free medium can add
+// its own integration here without a field Registry entry. UNKNOWN objects
+// are rejected by Frontend validity checks and never reach a Launch.
+namespace detail {
+
+VISRTX_DEVICE uint32_t tf1dSamplerCallableIndex(
+    const ScreenSample &ss, const VolumeHit &hit)
 {
-  return frameData.registry.fields[idx];
+  const auto &field =
+      ss.frameData->registry.fields[hit.volume->data.tf1d.field];
+  return uint32_t(field.samplerCallableIndex);
 }
 
-// ---------------------------------------------------------------------------
-// Per-segment dispatch wrappers. Resolve sampler callable base offset,
-// invoke per-variant Woodcock body. One direct-call amortised over the
-// 10–100 candidates running inside the callable.
-// ---------------------------------------------------------------------------
+} // namespace detail
 
 VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
     const VolumeHit &hit,
@@ -71,28 +74,62 @@ VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
     bool &didScatter,
     vec3 *normal = nullptr)
 {
-  const auto &field =
-      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
-          + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
-      &ss,
-      &hit,
-      &albedo,
-      &extinction,
-      &didScatter,
-      normal);
+  switch (hit.volume->type) {
+  case VolumeType::TF1D:
+    return optixDirectCall<float>(detail::tf1dSamplerCallableIndex(ss, hit)
+            + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
+        &ss,
+        &hit,
+        &albedo,
+        &extinction,
+        &didScatter,
+        normal);
+  default:
+    albedo = vec3(0.f);
+    extinction = 0.f;
+    didScatter = false;
+    if (normal)
+      *normal = vec3(0.f);
+    return hit.localRay.t.upper;
+  }
 }
 
 VISRTX_DEVICE void ratioTrackTransmittanceVolume(
     ScreenSample &ss, const VolumeHit &hit, vec3 &attenuation)
 {
-  const auto &field =
-      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-  optixDirectCall<void>(uint32_t(field.samplerCallableIndex)
-          + uint32_t(SpatialFieldSamplerEntryPoints::RatioTrackTransmittance),
-      &ss,
-      &hit,
-      &attenuation);
+  switch (hit.volume->type) {
+  case VolumeType::TF1D:
+    optixDirectCall<void>(detail::tf1dSamplerCallableIndex(ss, hit)
+            + uint32_t(SpatialFieldSamplerEntryPoints::RatioTrackTransmittance),
+        &ss,
+        &hit,
+        &attenuation);
+    break;
+  default:
+    break;
+  }
+}
+
+VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
+    const VolumeHit &hit,
+    vec3 *color,
+    vec3 *normal,
+    float &opacity,
+    float invSamplingRate)
+{
+  switch (hit.volume->type) {
+  case VolumeType::TF1D:
+    return optixDirectCall<float>(detail::tf1dSamplerCallableIndex(ss, hit)
+            + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
+        &ss,
+        &hit,
+        color,
+        normal,
+        &opacity,
+        invSamplingRate);
+  default:
+    return std::numeric_limits<float>::max();
+  }
 }
 
 VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
@@ -100,16 +137,7 @@ VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
     float &opacity,
     float invSamplingRate)
 {
-  const auto &field =
-      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
-          + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
-      &ss,
-      &hit,
-      (vec3 *)nullptr,
-      (vec3 *)nullptr,
-      &opacity,
-      invSamplingRate);
+  return rayMarchVolume(ss, hit, nullptr, nullptr, opacity, invSamplingRate);
 }
 
 VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
@@ -118,16 +146,7 @@ VISRTX_DEVICE float rayMarchVolume(ScreenSample &ss,
     float &opacity,
     float invSamplingRate)
 {
-  const auto &field =
-      getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-  return optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
-          + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
-      &ss,
-      &hit,
-      &color,
-      (vec3 *)nullptr,
-      &opacity,
-      invSamplingRate);
+  return rayMarchVolume(ss, hit, &color, nullptr, opacity, invSamplingRate);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,17 +186,12 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
 
     // Ray march through this volume segment
     vec3 thisNormal(0.f);
-    const auto &field =
-        getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-    float thisDepth =
-        optixDirectCall<float>(uint32_t(field.samplerCallableIndex)
-                + uint32_t(SpatialFieldSamplerEntryPoints::RayMarchVolume),
-            &ss,
-            &hit,
-            &color,
-            normal ? &thisNormal : (vec3 *)nullptr,
-            &opacity,
-            invSamplingRate);
+    float thisDepth = rayMarchVolume(ss,
+        hit,
+        &color,
+        normal ? &thisNormal : nullptr,
+        opacity,
+        invSamplingRate);
 
     // Track closest intersection depth
     if (thisDepth < depth) {
@@ -232,16 +246,8 @@ VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
     vec3 norm(0.f);
     float ext = 0.f;
     bool segmentDidScatter = false;
-    const auto &fld =
-        getSpatialFieldData(*ss.frameData, hit.volume->data.tf1d.field);
-    float d = optixDirectCall<float>(uint32_t(fld.samplerCallableIndex)
-            + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
-        &ss,
-        &hit,
-        &alb,
-        &ext,
-        &segmentDidScatter,
-        normal ? &norm : (vec3 *)nullptr);
+    float d = sampleDistanceVolume(
+        ss, hit, alb, ext, segmentDidScatter, normal ? &norm : nullptr);
     if (segmentDidScatter) {
       depth = d;
       albedo = alb;

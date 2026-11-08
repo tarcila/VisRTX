@@ -75,6 +75,7 @@ target_include_directories(TestSampleAddressing PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/../../../device)
 target_link_libraries(TestSampleAddressing PRIVATE CUDA::cudart)
 set_tests_properties(TestSampleAddressing PROPERTIES TIMEOUT 120)
+make_test(TestVolumeIntervals)
 make_test(TestPowerLightPickEnv)
 make_test(TestEmissiveGeometryLight)
 make_test(TestQuadLightSide)

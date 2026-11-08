@@ -104,6 +104,7 @@ VolumeGPUData TransferFunction1D::gpuData() const
   VolumeGPUData retval = Volume::gpuData();
   retval.type = VolumeType::TF1D;
   retval.bounds = m_field->bounds();
+  retval.clipBounds = m_field->regionOfInterest();
   retval.stepSize = m_field->stepSize();
   retval.data.tf1d.tfTex = m_textureObject;
   retval.data.tf1d.valueRange = m_valueRange;

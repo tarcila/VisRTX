@@ -48,6 +48,8 @@
 // nanovdb
 #include <nanovdb/NanoVDB.h>
 
+#include <limits>
+
 // cuda half precision
 #ifdef VISRTX_USE_NEURAL
 #include <cuda_fp16.h>
@@ -653,7 +655,7 @@ enum class VolumeType
 
 struct TF1DVolumeGPUData
 {
-  DeviceObjectIndex field;
+  DeviceObjectIndex field{-1};
   cudaTextureObject_t tfTex{};
   box1 valueRange;
   float oneOverUnitDistance;
@@ -663,13 +665,17 @@ struct TF1DVolumeGPUData
 
 struct VolumeGPUData
 {
-  VolumeType type{VolumeType::TF1D};
+  VolumeType type{VolumeType::UNKNOWN};
   union
   {
     TF1DVolumeGPUData tf1d{};
   } data;
   float stepSize;
   box3 bounds;
+  // Interval clipping belongs to the Volume domain, not its sampling payload.
+  // TF1D copies the field ROI here; field-free media need only set bounds.
+  box3 clipBounds{vec3(std::numeric_limits<float>::lowest()),
+      vec3(std::numeric_limits<float>::max())};
   uint32_t id;
 };
 
