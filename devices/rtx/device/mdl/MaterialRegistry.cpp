@@ -46,6 +46,7 @@
 #include <mi/base/types.h>
 #include <mi/neuraylib/icompiled_material.h>
 #include <mi/neuraylib/iexpression.h>
+#include <mi/neuraylib/ifunction_definition.h>
 #include <mi/neuraylib/iimage.h>
 #include <mi/neuraylib/imdl_backend.h>
 #include <mi/neuraylib/imdl_configuration.h>
@@ -62,6 +63,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -241,7 +243,6 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
   auto uuid = compiledMaterial->get_hash();
   auto targetCode = make_handle(
       m_core->getPtxTargetCode(compiledMaterial.get(), transaction.get()));
-  std::vector<libmdl::TextureDescriptor> textureDescs;
   if (!targetCode.is_valid_interface()) {
     m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
         "Failed generating PTX target code for material {}",
@@ -249,108 +250,113 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
     return std::nullopt;
   }
 
-  for (auto i = 1ul; i < targetCode->get_texture_count(); ++i) {
-    libmdl::TextureDescriptor textureDesc{i - 1, targetCode->get_texture(i)};
+  // Resource indices belong to Target Code, not the Compiled Material.
+  auto textureDescriptors = [&](const mi::neuraylib::ITarget_code *targetCode) {
+    std::vector<libmdl::TextureDescriptor> textureDescs;
+    for (auto i = 1ul; i < targetCode->get_texture_count(); ++i) {
+      libmdl::TextureDescriptor textureDesc{i - 1, targetCode->get_texture(i)};
 
-    switch (targetCode->get_texture_shape(i)) {
-    case mi::neuraylib::ITarget_code::Texture_shape_2d: {
-      textureDesc.shape = libmdl::Shape::TwoD;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::Texture_shape_3d: {
-      textureDesc.shape = libmdl::Shape::ThreeD;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::Texture_shape_cube: {
-      textureDesc.shape = libmdl::Shape::Cube;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::Texture_shape_bsdf_data: {
-      textureDesc.shape = libmdl::Shape::BsdfData;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::Texture_shape_ptex: {
-      m_core->logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
-          "Ptex textures are not supported by VisRTX");
-      textureDesc.shape = libmdl::Shape::Unknown;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::Texture_shape_invalid:
-    default: {
-      textureDesc.shape = libmdl::Shape::Unknown;
-      break;
-    }
-    }
+      switch (targetCode->get_texture_shape(i)) {
+      case mi::neuraylib::ITarget_code::Texture_shape_2d: {
+        textureDesc.shape = libmdl::Shape::TwoD;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::Texture_shape_3d: {
+        textureDesc.shape = libmdl::Shape::ThreeD;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::Texture_shape_cube: {
+        textureDesc.shape = libmdl::Shape::Cube;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::Texture_shape_bsdf_data: {
+        textureDesc.shape = libmdl::Shape::BsdfData;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::Texture_shape_ptex: {
+        m_core->logMessage(mi::base::MESSAGE_SEVERITY_WARNING,
+            "Ptex textures are not supported by VisRTX");
+        textureDesc.shape = libmdl::Shape::Unknown;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::Texture_shape_invalid:
+      default: {
+        textureDesc.shape = libmdl::Shape::Unknown;
+        break;
+      }
+      }
 
-    if (targetCode->get_texture_shape(i)
-        == mi::neuraylib::ITarget_code::Texture_shape_bsdf_data) {
-      mi::Size x, y, z;
-      const char *pixelFormat = "Float32";
+      if (targetCode->get_texture_shape(i)
+          == mi::neuraylib::ITarget_code::Texture_shape_bsdf_data) {
+        mi::Size x, y, z;
+        const char *pixelFormat = "Float32";
 #if MI_NEURAYLIB_API_VERSION >= 56
-      textureDesc.bsdf.data =
-          targetCode->get_texture_df_data(i, x, y, z, pixelFormat);
+        textureDesc.bsdf.data =
+            targetCode->get_texture_df_data(i, x, y, z, pixelFormat);
 #else
-      textureDesc.bsdf.data = targetCode->get_texture_df_data(i, x, y, z);
+        textureDesc.bsdf.data = targetCode->get_texture_df_data(i, x, y, z);
 #endif
-      textureDesc.bsdf.dims[0] = x;
-      textureDesc.bsdf.dims[1] = y;
-      textureDesc.bsdf.dims[2] = z;
-      textureDesc.bsdf.pixelFormat = pixelFormat;
-      textureDesc.url =
-          fmt::format("bsdf_data_{}", fmt::ptr(textureDesc.bsdf.data));
-    } else {
-      // Relative resource paths (e.g. "Textures/foo.png") resolve against the
-      // owner module's directory. Pass the compiled module's on-disk path so
-      // resolution doesn't depend on the owner module name being reachable
-      // through the MDL search paths.
-      auto moduleOwner = std::string(targetCode->get_texture_owner_module(i));
-      auto ownerName =
-          moduleOwner.empty() ? std::string(moduleName) : moduleOwner;
-      const char *moduleFile = module->get_filename();
-      auto url = std::string(targetCode->get_texture_url(i));
-      // The entity resolver is shared, so serialize resolution on the
-      // coordinator while the worker waits.
-      auto resolve = [&] {
-        return m_core->resolveResource(
-            url.c_str(), ownerName, moduleFile ? moduleFile : "");
-      };
-      url = coordinator.invokeSerial(resolve);
-      if (url.empty()) {
-        m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
-            "Failed to resolve texture resource {} for material {}",
-            targetCode->get_texture_url(i),
-            fullMaterialName);
-        textureDesc.url = {};
-      } else
-        textureDesc.url = url;
-    }
+        textureDesc.bsdf.dims[0] = x;
+        textureDesc.bsdf.dims[1] = y;
+        textureDesc.bsdf.dims[2] = z;
+        textureDesc.bsdf.pixelFormat = pixelFormat;
+        textureDesc.url =
+            fmt::format("bsdf_data_{}", fmt::ptr(textureDesc.bsdf.data));
+      } else {
+        // Relative resource paths (e.g. "Textures/foo.png") resolve against the
+        // owner module's directory. Pass the compiled module's on-disk path so
+        // resolution doesn't depend on the owner module name being reachable
+        // through the MDL search paths.
+        auto moduleOwner = std::string(targetCode->get_texture_owner_module(i));
+        auto ownerName =
+            moduleOwner.empty() ? std::string(moduleName) : moduleOwner;
+        const char *moduleFile = module->get_filename();
+        auto url = std::string(targetCode->get_texture_url(i));
+        // The entity resolver is shared, so serialize resolution on the
+        // coordinator while the worker waits.
+        auto resolve = [&] {
+          return m_core->resolveResource(
+              url.c_str(), ownerName, moduleFile ? moduleFile : "");
+        };
+        url = coordinator.invokeSerial(resolve);
+        if (url.empty()) {
+          m_core->logMessage(mi::base::MESSAGE_SEVERITY_ERROR,
+              "Failed to resolve texture resource {} for material {}",
+              targetCode->get_texture_url(i),
+              fullMaterialName);
+          textureDesc.url = {};
+        } else
+          textureDesc.url = url;
+      }
 
-    switch (targetCode->get_texture_gamma(i)) {
-    case mi::neuraylib::ITarget_code::GM_GAMMA_DEFAULT:
-    case mi::neuraylib::ITarget_code::GM_GAMMA_LINEAR:
-    case mi::neuraylib::ITarget_code::GM_GAMMA_UNKNOWN: {
-      textureDesc.colorSpace = libmdl::ColorSpace::Linear;
-      break;
-    }
-    case mi::neuraylib::ITarget_code::GM_GAMMA_SRGB: {
-      textureDesc.colorSpace = libmdl::ColorSpace::sRGB;
-      break;
-    }
+      switch (targetCode->get_texture_gamma(i)) {
+      case mi::neuraylib::ITarget_code::GM_GAMMA_DEFAULT:
+      case mi::neuraylib::ITarget_code::GM_GAMMA_LINEAR:
+      case mi::neuraylib::ITarget_code::GM_GAMMA_UNKNOWN: {
+        textureDesc.colorSpace = libmdl::ColorSpace::Linear;
+        break;
+      }
+      case mi::neuraylib::ITarget_code::GM_GAMMA_SRGB: {
+        textureDesc.colorSpace = libmdl::ColorSpace::sRGB;
+        break;
+      }
 #if MI_NEURAYLIB_API_VERSION < 57
-    case mi::neuraylib::ITarget_code::GM_FORCE_32_BIT: {
-      assert(false);
-      break;
-    }
+      case mi::neuraylib::ITarget_code::GM_FORCE_32_BIT: {
+        assert(false);
+        break;
+      }
 #endif
-    }
+      }
 
-    textureDescs.push_back(textureDesc);
-  }
+      textureDescs.push_back(textureDesc);
+    }
+    return textureDescs;
+  };
 
   libmdl::ArgumentBlockDescriptor argBlockDesc(m_core,
       compiledMaterial.get(),
       targetCode.get(),
-      std::move(textureDescs));
+      textureDescriptors(targetCode.get()));
 
   // Build the complete PTX shader on the worker.
   auto ptxBlob = libmdl::stitchPTXs(std::vector{
@@ -377,15 +383,71 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
       : mi::base::Handle<const mi::neuraylib::IExpression_constant>();
   auto value = constant ? make_handle(constant->get_value())
                         : mi::base::Handle<const mi::neuraylib::IValue>();
-  if (!value || value->get_kind() != mi::neuraylib::IValue::VK_INVALID_DF)
-    volumeError =
-        "unsupported VDF expression (this slice requires default vdf())";
+  bool volumeBias = false;
+  if (!value || value->get_kind() != mi::neuraylib::IValue::VK_INVALID_DF) {
+    auto call = vdf
+        ? make_handle(
+              vdf->get_interface<mi::neuraylib::IExpression_direct_call>())
+        : mi::base::Handle<const mi::neuraylib::IExpression_direct_call>();
+    auto definition = call
+        ? make_handle(transaction->access<mi::neuraylib::IFunction_definition>(
+              call->get_definition()))
+        : mi::base::Handle<const mi::neuraylib::IFunction_definition>();
+    volumeBias = definition
+        && definition->get_semantic()
+            == mi::neuraylib::IFunction_definition::
+                DS_INTRINSIC_DF_ANISOTROPIC_VDF;
+    if (!volumeBias)
+      volumeError = "unsupported VDF expression";
+  }
+
+  // Constants can be diagnosed even when M=0 skips all runtime evaluations.
+  // Parameters and varying expressions still use the compiled scalar/color
+  // evaluators, so subsequent edits cannot bypass validation.
+  auto constantValue = [&](const char *path) {
+    auto expression =
+        make_handle(compiledMaterial->lookup_sub_expression(path));
+    while (expression
+        && expression->get_kind() == mi::neuraylib::IExpression::EK_TEMPORARY) {
+      auto temporary = make_handle(
+          expression->get_interface<mi::neuraylib::IExpression_temporary>());
+      expression =
+          make_handle(compiledMaterial->get_temporary(temporary->get_index()));
+    }
+    auto constant = expression
+        ? make_handle(
+              expression->get_interface<mi::neuraylib::IExpression_constant>())
+        : mi::base::Handle<const mi::neuraylib::IExpression_constant>();
+    return constant ? make_handle(constant->get_value())
+                    : mi::base::Handle<const mi::neuraylib::IValue>();
+  };
+  if (volumeError.empty() && volumeBias) {
+    auto value = constantValue("volume.scattering.directional_bias");
+    auto scalar = value
+        ? make_handle(value->get_interface<mi::neuraylib::IValue_float>())
+        : mi::base::Handle<const mi::neuraylib::IValue_float>();
+    if (scalar
+        && (!std::isfinite(scalar->get_value()) || scalar->get_value() != 0.f))
+      volumeError = "nonzero or nonfinite volume directional bias";
+  }
+  if (volumeError.empty()) {
+    auto value = constantValue("volume.emission_intensity");
+    auto color = value
+        ? make_handle(value->get_interface<mi::neuraylib::IValue_color>())
+        : mi::base::Handle<const mi::neuraylib::IValue_color>();
+    if (color)
+      for (mi::Size c = 0; c < 3; ++c) {
+        auto channel = make_handle(color->get_value(c));
+        if (!std::isfinite(channel->get_value()) || channel->get_value() != 0.f)
+          volumeError = "nonzero or nonfinite volume emission";
+      }
+  }
 
   std::vector<char> volumePtx;
   std::optional<libmdl::ArgumentBlockDescriptor> volumeArguments;
   if (volumeError.empty()) {
     auto volumeCode = make_handle(m_core->getPtxTargetCode(
-        compiledMaterial.get(), transaction.get(), true));
+        compiledMaterial.get(), transaction.get(), true, volumeBias));
     if (!volumeCode) {
       volumeError = "failed compiling volume-only coefficient bundle";
     } else {
@@ -394,7 +456,7 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
           | TC::SU_GEOMETRY_NORMAL | TC::SU_ANIMATION_TIME | TC::SU_TRANSFORMS
           | TC::SU_OBJECT_ID;
       // Check indices before masks: an invalid index otherwise looks unused.
-      if (volumeCode->get_callable_function_count() != 4)
+      if (volumeCode->get_callable_function_count() != (volumeBias ? 5 : 4))
         volumeError = "invalid volume callable indices";
       for (mi::Size i = 0; i < volumeCode->get_callable_function_count(); ++i)
         if (volumeCode->get_callable_function_render_state_usage(i)
@@ -404,13 +466,15 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
         volumeArguments.emplace(m_core,
             compiledMaterial.get(),
             volumeCode.get(),
-            std::vector<libmdl::TextureDescriptor>{});
+            textureDescriptors(volumeCode.get()));
         volumePtx = libmdl::stitchPTXs(std::vector{
             nonstd::span{reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
                 ptx::MDLTexture.size},
             nonstd::span{volumeCode->get_code(), volumeCode->get_code_size()},
-            nonstd::span{reinterpret_cast<const char *>(ptx::MDLVolume.ptr),
-                ptx::MDLVolume.size}});
+            nonstd::span{
+                reinterpret_cast<const char *>(
+                    volumeBias ? ptx::MDLVolumeBias.ptr : ptx::MDLVolume.ptr),
+                volumeBias ? ptx::MDLVolumeBias.size : ptx::MDLVolume.size}});
       }
     }
   }
@@ -441,11 +505,14 @@ MaterialRegistry::AcquiredMaterial MaterialRegistry::insertCompiled(
       it != std::cend(m_uuidToIndex)) {
     auto &target = m_targetCodes[it->second];
     ++target.refCount;
+    // The class hash excludes argument values. Share code, not another
+    // source's defaults: each bundle's descriptor retains its own layout,
+    // default Argument Block and resource/string index tables.
     return AcquiredMaterial{product.uuid,
         product.argBlockDescriptor,
         target.sceneData,
-        target.volumeArguments,
-        target.volumeError};
+        product.volumeArguments,
+        product.volumeError};
   }
 
   // Find an empty slot if possible. Slots are assigned here on the coordinator

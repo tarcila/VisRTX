@@ -76,6 +76,13 @@ VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
     vec3 *normal = nullptr)
 {
   switch (hit.volume->type) {
+  case VolumeType::MDL:
+    didScatter = false;
+    albedo = vec3(0.f);
+    extinction = 0.f;
+    if (normal)
+      *normal = vec3(0.f);
+    return sampleMdlAbsorption(ss, hit);
   case VolumeType::TF1D:
     return optixDirectCall<float>(detail::tf1dSamplerCallableIndex(ss, hit)
             + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
@@ -99,6 +106,9 @@ VISRTX_DEVICE void ratioTrackTransmittanceVolume(
     ScreenSample &ss, const VolumeHit &hit, vec3 &attenuation)
 {
   switch (hit.volume->type) {
+  case VolumeType::MDL:
+    ratioTrackMdlVolume(ss, hit, attenuation);
+    break;
   case VolumeType::TF1D:
     optixDirectCall<void>(detail::tf1dSamplerCallableIndex(ss, hit)
             + uint32_t(SpatialFieldSamplerEntryPoints::RatioTrackTransmittance),
@@ -170,6 +180,9 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     vec3 *transmittance = nullptr)
 {
   vec3 mdlT(1.f);
+  // Keep TF1D's scalar coverage separate: folding MDL's mean transmission
+  // into this accumulator loses chromatic transmission and interval order.
+  float tfOpacity = opacity;
   bool haveMdl = false;
   VolumeHit hit;
   ray.t.upper = tfar;
@@ -194,15 +207,17 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     if (hit.volume->type == VolumeType::MDL) {
       haveMdl = true;
       thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate, &color);
-      opacity = 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f;
     } else {
       thisDepth = rayMarchVolume(ss,
           hit,
           &color,
           normal ? &thisNormal : nullptr,
-          opacity,
+          tfOpacity,
           invSamplingRate);
     }
+    opacity = haveMdl
+        ? 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f * (1.f - tfOpacity)
+        : tfOpacity;
 
     // Track closest intersection depth
     if (thisDepth < depth) {
@@ -221,7 +236,7 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
   } while (opacity < OPACITY_THRESHOLD);
 
   if (transmittance)
-    *transmittance = haveMdl ? mdlT : vec3(1.f - opacity);
+    *transmittance = mdlT * (1.f - tfOpacity);
   return depth;
 }
 
@@ -261,7 +276,7 @@ VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
     bool segmentDidScatter = false;
     float d = sampleDistanceVolume(
         ss, hit, alb, ext, segmentDidScatter, normal ? &norm : nullptr);
-    if (segmentDidScatter) {
+    if (segmentDidScatter || ss.mediumAbsorbed) {
       depth = d;
       albedo = alb;
       extinction = ext;

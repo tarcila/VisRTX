@@ -509,6 +509,8 @@ struct MaterialGPUData
     // Should be sized according to MDL's execution context
     // configuration. See MDLCompiler.cpp.
     DeviceObjectIndex samplers[32];
+    uint32_t numVolumeSamplers;
+    DeviceObjectIndex volumeSamplers[32];
   };
 
   uint32_t callableBaseIndex{~0u};
@@ -676,6 +678,9 @@ struct VolumeGPUData
     {
       DeviceObjectIndex material;
       float extinctionMajorant;
+      DeviceObjectIndex field;
+      uint32_t fieldNameId;
+      box3 fieldBounds;
     } mdl;
   } data;
   float stepSize;
@@ -1131,6 +1136,10 @@ struct ScreenSample
   // applyShadowRussianRoulette so dim-contribution shadow rays terminate
   // sooner. Default 1.0 = full-precision RR (current behaviour).
   float shadowContribWeight;
+  // -1 preserves the legacy full-RGB path. MDL quality paths lock a single
+  // channel for their complete camera sample (including all shadow work).
+  int transportChannel{-1};
+  bool mediumAbsorbed{false};
 };
 
 } // namespace visrtx

@@ -324,13 +324,6 @@ VISRTX_CALLABLE void tex_texel_float4_3d(float (&result)[4],
 VISRTX_CALLABLE bool tex_texture_isvalid(
     TextureHandler *textureHandler, mi::Uint32 texture_idx)
 {
-  if (textureHandler->isVolume) {
-    recordRenderError(textureHandler->fd->renderError,
-        RenderErrorCategory::UNSUPPORTED_MEDIUM,
-        textureHandler->volumeID,
-        textureHandler->instanceID);
-    return false;
-  }
   return texture_idx != 0 && texture_idx <= textureHandler->numSamplers
       && textureHandler->samplers[texture_idx - 1] != DeviceObjectIndex(~0);
 }
@@ -462,6 +455,9 @@ VISRTX_CALLABLE bool scene_data_isvalid(TextureHandler const *self_base,
     ShadingStateMaterial *state,
     unsigned scene_data_id)
 {
+  if (self_base->isVolume)
+    return self_base->volumeFieldBound && self_base->volumeFieldNameId != ~0u
+        && scene_data_id == self_base->volumeFieldNameId;
   const auto slot = sceneDataSlot(self_base, scene_data_id);
   return slot < 5 && (self_base->attributePresentMask & (1u << slot));
 }
@@ -528,6 +524,15 @@ VISRTX_CALLABLE float scene_data_lookup_float(TextureHandler const *self_base,
     float const default_value,
     bool uniform_lookup)
 {
+  if (self_base->isVolume) {
+    if (!self_base->volumeFieldBound || self_base->volumeFieldNameId == ~0u
+        || scene_data_id != self_base->volumeFieldNameId || uniform_lookup) {
+      rejectVolumeLookup(self_base);
+      return default_value;
+    }
+    return self_base->volumeFieldSupported ? self_base->volumeFieldValue
+                                           : default_value;
+  }
   vec4 value;
   return sceneDataValue(self_base, state, scene_data_id, uniform_lookup, value)
       ? value.x

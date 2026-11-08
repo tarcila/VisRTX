@@ -323,6 +323,69 @@ void visibilityAndSelfAttenuation()
            anari::Object(geometry)})
     anari::release(s.d, o);
 }
+// The camera sees only the scattering box. A separate domain, with a unit
+// vacuum gap, lies solely on the -X light path. Its analytical transmission
+// multiplies the independent single-scattering quadrature, not primary alpha.
+void secondShadowDomain(bool tf1d)
+{
+  Scene s;
+  s.directional({1, 0, 0}, 4);
+  const auto unoccluded =
+      homogeneous([](double, double t) { return 4 * std::exp(-2 * t); });
+  auto second =
+      anari::newObject<anari::Volume>(s.d, tf1d ? "transferFunction1D" : "mdl");
+  anari::Material material = nullptr;
+  anari::SpatialField field = nullptr;
+  if (tf1d) {
+    field = anari::newObject<anari::SpatialField>(s.d, "structuredRegular");
+    std::vector<float> values(3 * 5 * 5, .5f);
+    anari::setParameterArray3D(s.d, field, "data", values.data(), 3, 5, 5);
+    anari::setParameter(s.d, field, "origin", V3{-5, -2, 2});
+    anari::setParameter(s.d, field, "spacing", V3{1, 1, 1});
+    anari::commitParameters(s.d, field);
+    anari::setParameter(s.d, second, "value", field);
+    anari::setParameter(s.d, second, "color", V3{0, 0, 0});
+    anari::setParameter(s.d, second, "opacity", .25f);
+    anari::setParameter(s.d, second, "unitDistance", 1.f);
+  } else {
+    material = anari::newObject<anari::Material>(s.d, "mdl");
+    anari::setParameter(s.d, material, "sourceType", "code");
+    anari::setParameter(s.d, material, "source", HOMOGENEOUS);
+    anari::setParameter(s.d, material, "a", V3{.4f, .2f, 0});
+    anari::setParameter(s.d, material, "s", V3{0, 0, 0});
+    anari::commitParameters(s.d, material);
+    anari::setParameter(s.d, second, "material", material);
+    const Box box{V3{-5, -2, 2}, V3{-3, 2, 6}};
+    anariSetParameter(s.d, second, "extent", ANARI_FLOAT32_BOX3, box.data());
+    anari::setParameter(s.d, second, "extinctionMajorant", .5f);
+    anari::setParameter(s.d, second, "stepSize", .125f);
+  }
+  anari::commitParameters(s.d, second);
+  const std::array<anari::Volume, 2> volumes{s.v, second};
+  anari::setParameterArray1D(s.d, s.g, "volume", volumes.data(), 2);
+  anari::commitParameters(s.d, s.g);
+  D3 expected = unoccluded;
+  for (unsigned ch = 0; ch < 3; ++ch) {
+    const double transmission =
+        tf1d ? .75 * .75 : std::exp(-2 * double(V3{.4f, .2f, 0}[ch]));
+    expected[ch] *= transmission;
+  }
+  require(unoccluded[0] - expected[0] > .02,
+      "second-domain fixture must detect omitted shadow attenuation");
+  s.batches(tf1d ? "second TF1D shadow domain" : "second MDL shadow domain",
+      expected);
+  // Removing only the off-camera domain must restore the original lighting.
+  anari::setParameterArray1D(s.d, s.g, "volume", &s.v, 1);
+  anari::commitParameters(s.d, s.g);
+  s.check(tf1d ? "remove TF1D shadow domain" : "remove MDL shadow domain",
+      unoccluded);
+  anari::release(s.d, second);
+  if (material)
+    anari::release(s.d, material);
+  if (field)
+    anari::release(s.d, field);
+}
+
 void finiteLightClipping()
 {
   Scene s;
@@ -433,6 +496,17 @@ int main()
 {
   try {
     emptyLightsAndThinSource();
+    bool domainsPassed = true;
+    for (bool tf1d : {false, true}) {
+      try {
+        secondShadowDomain(tf1d);
+      } catch (const std::exception &e) {
+        fprintf(
+            stderr, "%s shadow domain: %s\n", tf1d ? "TF1D" : "MDL", e.what());
+        domainsPassed = false;
+      }
+    }
+    require(domainsPassed, "second-domain shadow acceptance failed");
     coloredMultipleLights();
     visibilityAndSelfAttenuation();
     finiteLightClipping();

@@ -59,7 +59,7 @@ struct World : public Object
 
   void rebuildWorld();
   bool hasMdlVolumes() const;
-  const char *mdlVolumeError(bool interactive) const;
+  std::string mdlVolumeError(bool supportedRenderer) const;
 
  private:
   void populateOptixInstances();

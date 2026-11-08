@@ -35,6 +35,7 @@
 #include "gpu/gpu_util.h"
 #include "gpu/renderer/background.h"
 #include "renderer/Interactive.h"
+#include "renderer/Quality.h"
 #include "utility/instrument.h"
 // std
 #include <algorithm>
@@ -693,10 +694,12 @@ void Frame::renderFrame()
     return;
   }
 
-  if (const auto *error = m_world->mdlVolumeError(
-          dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr)) {
+  if (const auto error = m_world->mdlVolumeError(
+          dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr
+          || dynamic_cast<Quality *>(m_renderer.ptr) != nullptr);
+      !error.empty()) {
     instrument::rangePop(); // update scene
-    publishOutcome(error);
+    publishOutcome(error.c_str());
     return;
   }
 
@@ -1199,6 +1202,12 @@ void Frame::publishOutcome(const char *preflightError)
       break;
     case RenderErrorCategory::INVALID_SCENE_DATA:
       cause = "invalid volume scene-data lookup";
+      break;
+    case RenderErrorCategory::INVALID_VOLUME_EMISSION:
+      cause = "nonzero or nonfinite volume emission";
+      break;
+    case RenderErrorCategory::INVALID_VDF_BIAS:
+      cause = "nonzero or nonfinite volume directional bias";
       break;
     case RenderErrorCategory::UNSUPPORTED_MEDIUM:
       cause = "unsupported medium evaluation";
