@@ -6,6 +6,7 @@
 #include "gpu/RenderError.h"
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
+#include "gpu/mdlTracking.h"
 #include "gpu/sbt.h"
 
 namespace visrtx {
@@ -21,7 +22,8 @@ VISRTX_DEVICE void mediumError(
 VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
     const VolumeHit &hit,
     const vec3 &position,
-    glm::dvec3 &extinction)
+    glm::dvec3 &extinction,
+    MdlTrackingChannel *channels = nullptr)
 {
   const auto &material =
       ss.frameData->registry.materials[hit.volume->data.mdl.material];
@@ -45,16 +47,15 @@ VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
       mediumError(ss, hit, RenderErrorCategory::INVALID_COEFFICIENT);
       return false;
     }
-    const double t = __dadd_rn(double(a), double(s));
-    const double z = __dsub_rn(t, double(a));
-    const double r = __dadd_rn(
-        __dsub_rn(double(a), __dsub_rn(t, z)), __dsub_rn(double(s), z));
-    const double M = double(hit.volume->data.mdl.extinctionMajorant);
-    if (t > M || (t == M && r > 0.)) {
+    MdlTrackingChannel channel;
+    if (!makeMdlTrackingChannel(
+            a, s, hit.volume->data.mdl.extinctionMajorant, channel)) {
       mediumError(ss, hit, RenderErrorCategory::MAJORANT_VIOLATION);
       return false;
     }
-    extinction[c] = t;
+    extinction[c] = channel.extinction;
+    if (channels)
+      channels[c] = channel;
     // Validation precedes the temporary transport-support restriction, so a
     // downward-rounded extinction sum can never conceal an unsafe bound.
     unsupported |= s != 0.f || e != 0.f;
@@ -64,6 +65,72 @@ VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
     return false;
   }
   return true;
+}
+
+// Candidate distances are measured in world-ray t, not object distance.
+// An open midpoint variate avoids log endpoints without clamping or a
+// positive-probability zero flight; the categorical variate stays half-open.
+VISRTX_DEVICE bool advanceMdlCandidate(
+    ScreenSample &ss, const VolumeHit &hit, double &t)
+{
+  const double u = double(pcg_uniform(&ss.rs)) + 0.5 / 16777216.;
+  const double step =
+      -log1p(-u) / double(hit.volume->data.mdl.extinctionMajorant);
+  const double next = t + step;
+  if (!isfinite(next) || !(next > t)) {
+    mediumError(ss, hit, RenderErrorCategory::NUMERICAL_FAILURE);
+    return false;
+  }
+  t = next;
+  return true;
+}
+
+VISRTX_DEVICE float sampleMdlAbsorption(ScreenSample &ss, const VolumeHit &hit)
+{
+  const double M = double(hit.volume->data.mdl.extinctionMajorant);
+  if (M == 0.)
+    return hit.localRay.t.upper;
+  double t = hit.localRay.t.lower;
+  while (advanceMdlCandidate(ss, hit, t)) {
+    if (t >= double(hit.localRay.t.upper))
+      break;
+    const vec3 position = hit.localRay.org + float(t) * hit.localRay.dir;
+    glm::dvec3 extinction;
+    MdlTrackingChannel channels[3];
+    if (!mediumCoefficients(ss, hit, position, extinction, channels))
+      break;
+    const uint32_t k = detail::pcg_advance(&ss.rs) >> 8;
+    const auto event = mdlTrackingEvent(channels[ss.transportChannel],
+        hit.volume->data.mdl.extinctionMajorant,
+        k);
+    if (event == MdlTrackingEvent::ABSORB) {
+      ss.mediumAbsorbed = true;
+      return float(t);
+    }
+  }
+  return hit.localRay.t.upper;
+}
+
+VISRTX_DEVICE void ratioTrackMdlVolume(
+    ScreenSample &ss, const VolumeHit &hit, vec3 &attenuation)
+{
+  const double M = double(hit.volume->data.mdl.extinctionMajorant);
+  if (M == 0.)
+    return;
+  double t = hit.localRay.t.lower;
+  double transmittance = 1.;
+  while (advanceMdlCandidate(ss, hit, t)) {
+    if (t >= double(hit.localRay.t.upper))
+      break;
+    const vec3 position = hit.localRay.org + float(t) * hit.localRay.dir;
+    glm::dvec3 extinction;
+    if (!mediumCoefficients(ss, hit, position, extinction))
+      break;
+    transmittance *= 1. - extinction[ss.transportChannel] / M;
+    if (transmittance == 0.)
+      break;
+  }
+  attenuation[ss.transportChannel] *= float(transmittance);
 }
 
 VISRTX_DEVICE float rayMarchMdlVolume(ScreenSample &ss,
@@ -76,7 +143,11 @@ VISRTX_DEVICE float rayMarchMdlVolume(ScreenSample &ss,
                     // conservativeness
   const auto &ray = hit.localRay;
   const glm::dvec3 direction(ray.dir);
-  const double step = double(hit.volume->stepSize) * double(inverseSamplingRate)
+  const vec3 sides = hit.volume->bounds.upper - hit.volume->bounds.lower;
+  const double baseStep = hit.volume->stepSize < 0.f
+      ? double(fminf(sides.x, fminf(sides.y, sides.z))) / 128.
+      : double(hit.volume->stepSize);
+  const double step = baseStep * double(inverseSamplingRate)
       / sqrt(glm::dot(direction, direction));
   if (!isfinite(step) || step <= 0.) {
     mediumError(ss, hit, RenderErrorCategory::NUMERICAL_FAILURE);

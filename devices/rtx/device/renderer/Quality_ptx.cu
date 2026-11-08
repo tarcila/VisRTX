@@ -114,7 +114,9 @@ VISRTX_DEVICE bool shouldTerminatePath(ScreenSample &ss,
     int rrStartDepth = RUSSIAN_ROULETTE_START_DEPTH,
     float maxSurvivalProb = 0.95f)
 {
-  if (glm::all(glm::lessThan(contribution, vec3(PATH_CONTRIBUTION_EPSILON))))
+  if (ss.transportChannel >= 0 ? contribution[ss.transportChannel] == 0.f
+                               : glm::all(glm::lessThan(contribution,
+                                     vec3(PATH_CONTRIBUTION_EPSILON))))
     return true;
 
   if (!useRussianRoulette || depth < rrStartDepth)
@@ -127,7 +129,8 @@ VISRTX_DEVICE bool shouldTerminatePath(ScreenSample &ss,
   const float maxContribution =
       glm::max(contribution.x, glm::max(contribution.y, contribution.z));
   const float survivalProb = glm::min(maxSurvivalProb, maxContribution);
-  if (pcg_uniform(&ss.rs) > survivalProb)
+  const float u = pcg_uniform(&ss.rs);
+  if (ss.transportChannel >= 0 ? u >= survivalProb : u > survivalProb)
     return true;
 
   contribution /= survivalProb;
@@ -607,7 +610,10 @@ VISRTX_GLOBAL void __anyhit__shadow()
 
     attenuation *= (1.0f - blocking);
 
-    if (glm::all(glm::lessThanEqual(attenuation, vec3(ATTENUATION_EPSILON))))
+    const auto &ss = ray::screenSample();
+    if (ss.transportChannel >= 0 ? attenuation[ss.transportChannel] == 0.f
+                                 : glm::all(glm::lessThanEqual(
+                                       attenuation, vec3(ATTENUATION_EPSILON))))
       optixTerminateRay();
     else
       optixIgnoreIntersection();
@@ -615,11 +621,14 @@ VISRTX_GLOBAL void __anyhit__shadow()
     VolumeHit hit;
     ray::populateVolumeHit(hit);
 
-    // Unbiased ratio-tracking transmittance over this volume segment.
-    // Scalar σ_t (TF is monochrome) broadcast to vec3 in the callee.
+    // TF1D broadcasts scalar transmittance; MDL validates all RGB channels
+    // and ratio-tracks only this camera sample's locked transport channel.
     ratioTrackTransmittanceVolume(ray::screenSample(), hit, attenuation);
 
-    if (glm::all(glm::lessThanEqual(attenuation, vec3(ATTENUATION_EPSILON))))
+    const auto &ss = ray::screenSample();
+    if (ss.transportChannel >= 0 ? attenuation[ss.transportChannel] == 0.f
+                                 : glm::all(glm::lessThanEqual(
+                                       attenuation, vec3(ATTENUATION_EPSILON))))
       optixTerminateRay();
     else
       optixIgnoreIntersection();
@@ -663,6 +672,17 @@ VISRTX_GLOBAL void __raygen__()
     SampleDetails sample = {vec3(0.0f), 0.0f, vec3(0.0f), farLimit, vec3(0.0f)};
 
     auto sampleContribution = vec3(1.0f);
+    ss.mediumAbsorbed = false;
+    if (frameData.world.hasMdlVolumes) {
+      // Rejection avoids the one-count bias of a 32-bit modulo-three draw.
+      uint32_t k;
+      do {
+        k = detail::pcg_advance(&ss.rs);
+      } while (k == 0xffffffffu);
+      ss.transportChannel = int(k % 3u);
+      sampleContribution = vec3(0.f);
+      sampleContribution[ss.transportChannel] = 3.f;
+    }
 
     // The environment is sampled by env-CDF NEE, cosine-hemisphere NEE, and a
     // BSDF ray that escapes to it. Balance-heuristic MIS combines all three:
@@ -713,6 +733,22 @@ VISRTX_GLOBAL void __raygen__()
 
       auto volumeSample = sampleVolumeDistance(ss, volumeRay, isFirstBounce);
 
+      if (ss.mediumAbsorbed) {
+        // An absorption event is not a phase vertex. It ends radiance without
+        // NEE, a continuation direction, or another throughput factor.
+        sample.opacity = 1.f;
+        if (isFirstBounce) {
+          sample.depth = volumeSample.depth;
+          setPixelIds(frameData.fb,
+              ss.pixel,
+              volumeSample.depth,
+              volumeSample.objID,
+              volumeSample.objID,
+              volumeSample.instID);
+        }
+        break;
+      }
+
       if (volumeSample.didScatter) {
         const vec3 scatterPos = ray.org + ray.dir * volumeSample.depth;
 
@@ -730,7 +766,8 @@ VISRTX_GLOBAL void __raygen__()
             const vec3 contribUpper = sampleContribution * directLight;
             const float maxContrib = glm::max(
                 contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-            if (maxContrib >= SHADOW_SKIP_EPSILON) {
+            if (ss.transportChannel >= 0 ? maxContrib > 0.f
+                                         : maxContrib >= SHADOW_SKIP_EPSILON) {
               const float eps = VOLUME_SCATTER_EPSILON;
               const Ray shadowRay = {
                   scatterPos + lightSample.dir * eps,
@@ -966,7 +1003,9 @@ VISRTX_GLOBAL void __raygen__()
                   wNee * sampleContribution * opacity * directLight;
               const float maxContrib = glm::max(
                   contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-              if (maxContrib >= SHADOW_SKIP_EPSILON) {
+              if (ss.transportChannel >= 0
+                      ? maxContrib > 0.f
+                      : maxContrib >= SHADOW_SKIP_EPSILON) {
                 // A Geometry Light's sampled point lies on real, opaque
                 // geometry, so stop the shadow ray just short of it or it
                 // self-occludes on the emissive surface itself (~15% energy
@@ -1018,7 +1057,9 @@ VISRTX_GLOBAL void __raygen__()
                   * envRadiance / pCosine;
               const float maxContrib = glm::max(
                   contribUpper.x, glm::max(contribUpper.y, contribUpper.z));
-              if (maxContrib >= SHADOW_SKIP_EPSILON) {
+              if (ss.transportChannel >= 0
+                      ? maxContrib > 0.f
+                      : maxContrib >= SHADOW_SKIP_EPSILON) {
                 const Ray shadowRay = {
                     shadowOrigin,
                     dirC,
@@ -1101,6 +1142,11 @@ VISRTX_GLOBAL void __raygen__()
           sample.color += applyFogVisibility(
               wBsdf * sampleContribution * hdri, appearanceWeight);
           accumulateValue(sample.opacity, 1.f, sample.opacity);
+        } else if (frameData.world.hasMdlVolumes && isCameraRay) {
+          const vec2 uv = (vec2(ss.pixel) + 0.5f) * frameData.fb.invSize;
+          const vec4 bg = screenBackground(rendererParams, uv);
+          sample.color += sampleContribution * vec3(bg);
+          sample.opacity = bg.a;
         }
 
         if (isFirstBounce)

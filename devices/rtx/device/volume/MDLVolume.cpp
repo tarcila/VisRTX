@@ -32,7 +32,8 @@ void MDLVolume::commitParameters()
       || !std::isfinite(m_majorant) || m_majorant < 0.f)
     fail(
         "mdl Volume requires a finite nonnegative ANARI_FLOAT32 extinctionMajorant");
-  m_step = glm::min(sides.x, glm::min(sides.y, sides.z)) / 128.f;
+  // Automatic marching scale is lazy: quality never needs or derives it.
+  m_step = -1.f;
   if (hasParam("stepSize")
       && (!getParam("stepSize", ANARI_FLOAT32, &m_step)
           || !std::isfinite(m_step) || m_step <= 0.f))
@@ -69,8 +70,6 @@ const char *MDLVolume::renderError() const
     return "invalid mdl Volume material";
   if (!material->volumeError().empty())
     return material->volumeError().c_str();
-  if (!std::isfinite(m_step) || m_step <= 0.f)
-    return "unusable mdl Volume marching step";
   return nullptr;
 }
 VolumeGPUData MDLVolume::gpuData() const
