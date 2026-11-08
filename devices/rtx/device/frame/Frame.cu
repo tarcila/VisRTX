@@ -694,11 +694,12 @@ void Frame::renderFrame()
     return;
   }
 
-  if (const auto *error = m_world->mdlVolumeError(
+  if (const auto error = m_world->mdlVolumeError(
           dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr
-          || dynamic_cast<Quality *>(m_renderer.ptr) != nullptr)) {
+          || dynamic_cast<Quality *>(m_renderer.ptr) != nullptr);
+      !error.empty()) {
     instrument::rangePop(); // update scene
-    publishOutcome(error);
+    publishOutcome(error.c_str());
     return;
   }
 

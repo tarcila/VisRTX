@@ -30,6 +30,7 @@
  */
 
 #include "World.h"
+#include "VolumeOverlap.h"
 
 #include <helium/utility/IntrusivePtr.h>
 #include <helium/utility/TimeStamp.h>
@@ -226,38 +227,68 @@ bool World::hasMdlVolumes() const
   return false;
 }
 
-const char *World::mdlVolumeError(bool interactive) const
+std::string World::mdlVolumeError(bool supportedRenderer) const
 {
   if (!hasMdlVolumes())
-    return nullptr;
-  if (!interactive)
+    return {};
+  if (!supportedRenderer)
     return "MDL Volumes require the interactive Renderer or quality Renderer";
-  size_t count = 0;
-  for (const auto *instance : m_instances) {
-    bool mdl = false;
+  struct Domain
+  {
+    const Volume *volume;
+    size_t instance, transform;
+    box3 bounds;
+    mat4x3 xfm;
+  };
+  std::vector<Domain> domains;
+  // Recompute after the commit flush on EVERY preflight. No cached result can
+  // survive a field-domain, extent, Group or Instance-array edit. Do not cull
+  // off-camera domains: they can participate in shadow/secondary transport.
+  for (size_t n = 0; n < m_instances.size(); ++n) {
+    const auto *instance = m_instances[n];
     for (const auto *volume : instance->group()->volumes()) {
-      if (!volume)
+      if (!volume || !volume->isVisible())
+        continue; // visible=false removes it from ALL traversal in this device
+      if (volume->isMDL())
+        if (const auto *error = volume->renderError())
+          return error;
+      if (!volume->isValid())
         continue;
-      count += instance->numTransforms();
-      if (!volume->isMDL())
-        continue;
-      mdl = true;
-      if (const auto *error = volume->renderError())
-        return error;
-    }
-    if (mdl)
+      const auto bounds = volume->domainBounds();
+      if (glm::any(glm::greaterThanEqual(bounds.lower, bounds.upper)))
+        continue; // empty field ROI has no transport domain
       for (size_t i = 0; i < instance->numTransforms(); ++i) {
         const auto xfm = mat4(instance->xfm(i));
         const auto inverse = glm::inverse(xfm);
         for (int c = 0; c < 4; ++c)
           for (int r = 0; r < 4; ++r)
             if (!std::isfinite(xfm[c][r]) || !std::isfinite(inverse[c][r]))
-              return "MDL Volume Instance transform must be finite and nonsingular";
+              return "MDL Volume World Instance transform must be finite and nonsingular";
+        domains.push_back({volume, n, i, bounds, instance->xfm(i)});
       }
+    }
   }
-  if (count > 1)
-    return "multiple Volumes with MDL are not supported by this slice";
-  return nullptr;
+  for (size_t i = 0; i < domains.size(); ++i)
+    for (size_t j = i + 1; j < domains.size(); ++j) {
+      const auto &a = domains[i];
+      const auto &b = domains[j];
+      if (!a.volume->isMDL() && !b.volume->isMDL())
+        continue; // preserve TF1D-only overlap behavior
+      const auto result =
+          detail::volumeOverlap(a.bounds, a.xfm, b.bounds, b.xfm);
+      if (result == detail::VolumeOverlap::Separate)
+        continue;
+      return std::string(result == detail::VolumeOverlap::Overlap
+                     ? "unsupported positive-volume overlap"
+                     : "indeterminate overlap")
+          + " between Volume registry " + std::to_string(a.volume->index())
+          + " (Instance " + std::to_string(a.instance) + ", transform "
+          + std::to_string(a.transform) + ") and Volume registry "
+          + std::to_string(b.volume->index()) + " (Instance "
+          + std::to_string(b.instance) + ", transform "
+          + std::to_string(b.transform) + ")";
+    }
+  return {};
 }
 
 WorldGPUData World::gpuData() const

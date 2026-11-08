@@ -44,6 +44,7 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   void markFinalized() override;
 
   bool isVisible() const;
+  box3 domainBounds() const;
   virtual bool isMDL() const;
   virtual const char *renderError() const;
 

@@ -71,9 +71,31 @@ Blocks. Entry-surface texture coordinates/tangents, tangent space, motion,
 direction, rounded-corner normals and unknown state bits are rejected per
 volume Callable/initializer, independently of unrelated surface dependencies.
 
-Nonzero scattering, multiple-volume Worlds involving MDL, and other Renderers
-remain explicit errors, not approximations. Later tickets implement these
-deliberately gated capabilities.
+Nonzero scattering and other Renderers remain explicit errors, not
+approximations. Multiple-volume preflight now checks every transport-active
+pair involving MDL, including off-camera domains and each transform of a shared
+Instance/Volume. It uses the resolved extent (or field-derived domain), and the
+TF1D field/ROI intersection, without density-based exclusions. `visible=false`
+retains its existing device meaning: removal from all traversal, not just camera
+visibility. Surfaces are not medium-domain pairs.
+
+World-AABB separation is a broad phase only. The narrow phase tests transformed
+box face normals and edge cross-products, including affine shear. Arithmetic
+roundoff is enclosed using TwoSum/FMA residuals and directed adjacent values;
+exact arithmetic is not expanded by an epsilon. Ambiguous double predicates
+are retried in long double. A certified nonnegative separating gap permits
+separation/contact; positive-volume overlap fails preflight with both Volume
+registry indices and Instance/transform placements. Remaining uncertainty fails
+with `indeterminate overlap`, never silent medium omission. Results are
+recomputed after each render's commit flush, so extent, field-domain and
+Instance edits cannot reuse stale classifications. TF1D-only pairs keep their
+existing behavior.
+
+This preflight replacement does not complete mixed-scene transport: the current
+Interactive multi-volume integrator still fails a nonzero MDL/TF1D absorption
+reference by returning MDL-only background transmittance. Mixed compositing and
+whole-primary-track coverage remain pending work; this experimental slice is
+not the complete advertised extension.
 
 Returned FP32 absorption/scattering coefficients must be finite/nonnegative.
 The evaluator promotes both and the scalar bound to FP64, retains the error-free

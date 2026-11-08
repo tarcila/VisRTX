@@ -77,6 +77,13 @@ bool Volume::isVisible() const
   return m_visible;
 }
 
+box3 Volume::domainBounds() const
+{
+  const auto data = gpuData();
+  return {glm::max(data.bounds.lower, data.clipBounds.lower),
+      glm::min(data.bounds.upper, data.clipBounds.upper)};
+}
+
 OptixBuildInput Volume::buildInput() const
 {
   OptixBuildInput buildInput{};
