@@ -51,6 +51,14 @@ enum class SurfaceShaderEntryPoints
   Count
 };
 
+// Each MDL material slot contains its surface block followed by the
+// independent volume bundle's adapter (which owns volume initialization).
+enum class MDLShaderEntryPoints
+{
+  VolumeCoefficients = int(SurfaceShaderEntryPoints::Count),
+  Count
+};
+
 enum class SpatialFieldSamplerEntryPoints
 {
   // Heavy Woodcock-loop bodies live as per-variant direct-callables in each

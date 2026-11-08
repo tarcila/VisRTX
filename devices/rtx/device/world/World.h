@@ -58,6 +58,8 @@ struct World : public Object
   WorldGPUData gpuData() const;
 
   void rebuildWorld();
+  bool hasMdlVolumes() const;
+  const char *mdlVolumeError(bool interactive) const;
 
  private:
   void populateOptixInstances();

@@ -69,6 +69,7 @@ struct Group : public Object
   Span<DeviceObjectIndex> surfaceCurveGPUIndices() const;
   Span<DeviceObjectIndex> surfaceUserGPUIndices() const;
   Span<DeviceObjectIndex> volumeGPUIndices() const;
+  Span<Volume *> volumes() const;
   Span<DeviceObjectIndex> lightGPUIndices() const;
 
   DeviceObjectIndex firstHDRI() const;

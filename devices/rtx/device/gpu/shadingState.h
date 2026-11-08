@@ -166,6 +166,9 @@ struct TextureHandler : mi::neuraylib::Texture_handler_base
   unsigned int attributeUniformMask;
   const visrtx::MDLSceneDataBinding *sceneData;
   unsigned int numSceneData;
+  bool isVolume;
+  uint32_t volumeID;
+  uint32_t instanceID;
 };
 
 using ShadingStateMaterial = mi::neuraylib::Shading_state_material;

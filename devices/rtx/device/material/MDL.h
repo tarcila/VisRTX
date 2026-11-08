@@ -58,6 +58,8 @@ struct MDL : public Material
   void commitParameters() override;
   void finalize() override;
 
+  const std::string &volumeError() const;
+
   // A raw `mdl` material publishes an emission descriptor folded from its IR
   // against its live arguments (ADR 0007). The renderer policy registers the
   // surface slot as a Geometry Light iff it is non-null and faithfully
@@ -73,7 +75,7 @@ struct MDL : public Material
   // Update actual implementation index to use for the material.
   void syncImplementationIndex();
   // Handle argument block update
-  void syncParameters();
+  void syncParameters(bool volume = false);
 
   // Kick off the compile for this material during commitParameters so a whole
   // flush of materials compiles in parallel; syncSource() collects the future
@@ -114,6 +116,9 @@ struct MDL : public Material
   DeviceBuffer m_sceneDataBuffer;
   void syncSceneData();
   DeviceBuffer m_argBlockBuffer;
+  DeviceBuffer m_volumeArgBlockBuffer;
+  std::optional<libmdl::ArgumentBlockInstance> m_volumeArgumentBlockInstance;
+  std::string m_volumeError;
 
   std::string m_source;
   std::string m_sourceType;

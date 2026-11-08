@@ -119,6 +119,8 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
     vec3 outputNormal(0.f);
     float outputOpacity = 0.f;
     vec3 remainingT(1.f);
+    vec3 uncovered(
+        1.f); // RGB straight-primary coverage, independent of BSDF transmission
 
     // First hit metadata (for picking)
     float depth = farLimit;
@@ -131,7 +133,10 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
 
     // Transparency traversal loop. For T=0 (opaque), luminance(remainingT) ==
     // 1 - outputOpacity.
-    while (luminance(remainingT) > 1.f - OPACITY_THRESHOLD) {
+    while (frameData.world.hasMdlVolumes
+            ? (glm::any(glm::greaterThan(remainingT, vec3(0.f)))
+                  || glm::any(glm::greaterThan(uncovered, vec3(0.f))))
+            : luminance(remainingT) > 1.f - OPACITY_THRESHOLD) {
       ray.t.upper = tmax;
 
       SurfaceHit surfaceHit;
@@ -148,6 +153,7 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
       vec3 volumeColor(0.f);
       vec3 volumeNormal(0.f);
       float volumeOpacity = 0.f;
+      vec3 volumeT(1.f);
       uint32_t volObjID = ~0u;
       uint32_t volInstID = ~0u;
 
@@ -160,7 +166,8 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
           volumeOpacity,
           volObjID,
           volInstID,
-          &volumeNormal);
+          &volumeNormal,
+          &volumeT);
 
       bool volumeHit = volumeDepth < hitDist;
       if (volumeHit) {
@@ -172,7 +179,10 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         accumulateValue(outputAlbedo, volumeColor, outputOpacity);
         accumulateNormal(outputNormal, outputVolumeNormal, outputOpacity);
         accumulateValue(outputOpacity, volumeOpacity, outputOpacity);
-        remainingT *= (1.f - volumeOpacity);
+        remainingT *= volumeT;
+        uncovered *= volumeT;
+        if (frameData.world.hasMdlVolumes)
+          outputOpacity = 1.f - (uncovered.x + uncovered.y + uncovered.z) / 3.f;
 
         depth = volumeDepth;
         objID = volObjID;
@@ -195,6 +205,7 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         accumulateNormal(outputNormal, -ray.dir, outputOpacity);
         accumulateValue(outputOpacity, 1.f, outputOpacity);
         remainingT = vec3(0.f);
+        uncovered = vec3(0.f);
         if (!volumeHit)
           depth = surfaceHit.t;
       } else if (surfaceHit.foundHit) {
@@ -224,6 +235,9 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
         accumulateNormal(outputNormal, outputMaterialNormal, outputOpacity);
         accumulateValue(outputOpacity, alpha, outputOpacity);
         remainingT *= (1.f - alpha * (1.f - transmission));
+        uncovered *= 1.f - alpha;
+        if (frameData.world.hasMdlVolumes)
+          outputOpacity = 1.f - (uncovered.x + uncovered.y + uncovered.z) / 3.f;
 
         if (!volumeHit) {
           depth = surfaceHit.t;
@@ -250,6 +264,12 @@ VISRTX_DEVICE void renderPixel(FrameGPUData &frameData, ScreenSample ss)
       outputColor += remainingT * hdri;
       remainingT = vec3(0.f);
       accumulateValue(outputOpacity, 1.f, outputOpacity);
+    } else if (rendererParams.resolveBackgroundInTransport) {
+      const vec2 uv = (vec2(ss.pixel) + 0.5f) * frameData.fb.invSize;
+      const vec4 bg = screenBackground(rendererParams, uv);
+      outputColor += remainingT * vec3(bg);
+      outputOpacity =
+          1.f - (uncovered.x + uncovered.y + uncovered.z) / 3.f * (1.f - bg.a);
     }
 
     accumPixelSample(frameData,

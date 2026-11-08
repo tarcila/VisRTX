@@ -41,6 +41,7 @@ endmacro()
 
 if (VISRTX_ENABLE_MDL_SUPPORT)
   make_test(TestMdlSceneData)
+  make_test(TestMdlVolume)
 endif()
 make_test(TestQuadLightShaping)
 make_test(TestQuadLightFocus)

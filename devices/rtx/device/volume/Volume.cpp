@@ -33,6 +33,9 @@
 // specific types
 #include "TransferFunction1D.h"
 #include "UnknownVolume.h"
+#ifdef USE_MDL
+#include "MDLVolume.h"
+#endif
 
 namespace visrtx {
 
@@ -57,6 +60,16 @@ void Volume::markFinalized()
 {
   Object::markFinalized();
   // No BLAS bump — most volume finalizations are TF tweaks; AABB stays put.
+}
+
+bool Volume::isMDL() const
+{
+  return false;
+}
+
+const char *Volume::renderError() const
+{
+  return nullptr;
 }
 
 bool Volume::isVisible() const
@@ -89,6 +102,10 @@ Volume *Volume::createInstance(std::string_view subtype, DeviceGlobalState *d)
 {
   if (subtype == "transferFunction1D" || subtype == "scivis")
     return new TransferFunction1D(d);
+#ifdef USE_MDL
+  else if (subtype == "mdl")
+    return new MDLVolume(d);
+#endif
   else
     return new UnknownVolume(subtype, d);
 }

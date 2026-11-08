@@ -411,6 +411,14 @@ void Group::buildSurfaceGPUData()
     m_surfaceUserObjectIndices.reset();
 }
 
+Span<Volume *> Group::volumes() const
+{
+  if (!m_volumeData)
+    return {};
+  return make_Span(
+      (Volume **)m_volumeData->handlesBegin(), m_volumeData->totalSize());
+}
+
 void Group::buildVolumeGPUData()
 {
   std::vector<DeviceObjectIndex> tmp(m_volumes.size());

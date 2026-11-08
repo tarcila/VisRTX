@@ -1073,7 +1073,15 @@ void Renderer::initOptixPipeline()
       // into registry storage may escape this task.
       auto snapshot = state.mdl->coordinator.invokeSerial(
           [&] { return state.mdl->materialRegistry.ptxSnapshot(); });
-      auto &ptxBlobs = snapshot.blobs;
+      // Each material reserves its surface block followed by one independent
+      // volume coefficient Callable. Keep module ownership/dedup shared, but
+      // never share Argument Block layouts or resource/string indices.
+      std::vector<std::vector<char>> ptxBlobs;
+      ptxBlobs.reserve(2 * snapshot.blobs.size());
+      for (size_t i = 0; i < snapshot.blobs.size(); ++i) {
+        ptxBlobs.push_back(std::move(snapshot.blobs[i]));
+        ptxBlobs.push_back(std::move(snapshot.volumeBlobs[i]));
+      }
 
       const auto pipelineCompileOptions =
           makeVisRTXOptixPipelineCompileOptions();
@@ -1171,7 +1179,8 @@ void Renderer::initOptixPipeline()
         // empty-slot placeholders instead of a dead handle the release path
         // would destroy.
         if (!module) {
-          for (auto j = 0; j < int(SurfaceShaderEntryPoints::Count); j++) {
+          const auto count = i % 2 ? 1 : int(SurfaceShaderEntryPoints::Count);
+          for (auto j = 0; j < count; j++) {
             callableDescs.push_back({});
           }
           continue;
@@ -1180,6 +1189,12 @@ void Renderer::initOptixPipeline()
         callableDesc.kind = OPTIX_PROGRAM_GROUP_KIND_CALLABLES;
         callableDesc.callables.moduleDC = module;
         const auto mdlBaseOffset = callableDescs.size();
+        if (i % 2) {
+          callableDesc.callables.entryFunctionNameDC =
+              "__direct_callable__volumeCoefficients";
+          callableDescs.push_back(callableDesc);
+          continue;
+        }
 
         callableDesc.callables.entryFunctionNameDC = "__direct_callable__init";
         callableDescs.push_back(callableDesc);

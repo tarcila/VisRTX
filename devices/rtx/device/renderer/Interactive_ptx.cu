@@ -56,6 +56,20 @@ namespace visrtx {
 
 DECLARE_FRAME_DATA(frameData)
 
+static VISRTX_DEVICE vec3 interactiveVolumeTransmittance(
+    ScreenSample &ss, const Ray &ray)
+{
+  if (!ss.frameData->world.hasMdlVolumes)
+    return vec3(1.f - volumeShadowOpacity(ss, ray));
+  vec3 transmittance(1.f);
+  intersectVolume(ss,
+      ray,
+      RayType::SHADOW,
+      &transmittance,
+      OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+  return transmittance;
+}
+
 // AO occlusion from surface shadow transmittance (1 = fully blocked).
 static VISRTX_DEVICE float surfaceShadowOcclusion(
     ScreenSample &ss, const Ray &r)
@@ -166,11 +180,12 @@ struct InteractiveShadingPolicy
           {hit.epsilon, shadowDist},
       };
 
-      // Surface shadows are tinted (vec3); volume shadows stay scalar.
+      // MDL volume shadows retain RGB attenuation; TF1D-only Worlds keep
+      // their existing scalar shadow path.
       const vec3 surfaceTransmittance =
           surfaceShadowTransmittance(ss, shadowRay);
-      const float volumeTransmittance =
-          1.0f - volumeShadowOpacity(ss, shadowRay);
+      const vec3 volumeTransmittance =
+          interactiveVolumeTransmittance(ss, shadowRay);
       const vec3 attenuation = surfaceTransmittance * volumeTransmittance;
 
       if (glm::all(
@@ -281,7 +296,7 @@ struct InteractiveShadingPolicy
                 {hit.epsilon, std::numeric_limits<float>::max()},
             };
             const vec3 attenuation = surfaceShadowTransmittance(ss, shadowRay)
-                * (1.0f - volumeShadowOpacity(ss, shadowRay));
+                * interactiveVolumeTransmittance(ss, shadowRay);
             contrib += contribC * attenuation;
           }
         }
@@ -309,6 +324,14 @@ struct InteractiveShadingPolicy
           &bounceHit,
           OPTIX_RAY_FLAG_DISABLE_ANYHIT,
           secondaryWithAllLightsMask());
+
+      if (frameData.world.hasMdlVolumes) {
+        Ray mediumRay = bounceRay;
+        if (bounceHit.foundHit)
+          mediumRay.t.upper = bounceHit.t;
+        nextRay.contributionWeight *=
+            interactiveVolumeTransmittance(ss, mediumRay);
+      }
 
       if (bounceHit.foundHit && bounceHit.isLightProxy()) {
         // Deposit nothing. An area light is a registered, NEE-sampled emitter
@@ -413,12 +436,29 @@ VISRTX_GLOBAL void __anyhit__shadow()
     else
       optixIgnoreIntersection();
   } else {
-    // Volume shadows are a separate trace with a scalar float payload
-    // (volumeShadowOpacity); not interchangeable with the vec3 surface payload
-    // above. See gpu/renderer/shadowTransmittance.h.
-    auto &attenuation = ray::rayData<float>();
+    // MDL Worlds use RGB volume payloads. TF1D-only Worlds retain the
+    // original scalar volumeShadowOpacity payload and termination behavior.
     VolumeHit hit;
     ray::populateVolumeHit(hit);
+    if (frameData.world.hasMdlVolumes) {
+      auto &transmittance = ray::rayData<vec3>();
+      if (hit.volume->type == VolumeType::MDL)
+        rayMarchMdlVolume(ray::screenSample(),
+            hit,
+            transmittance,
+            rendererParams.interactive.inverseVolumeSamplingRateShadows);
+      else {
+        float opacity = 0.f;
+        rayMarchVolume(ray::screenSample(),
+            hit,
+            opacity,
+            rendererParams.interactive.inverseVolumeSamplingRateShadows);
+        transmittance *= 1.f - opacity;
+      }
+      optixIgnoreIntersection();
+      return;
+    }
+    auto &attenuation = ray::rayData<float>();
     rayMarchVolume(ray::screenSample(),
         hit,
         attenuation,

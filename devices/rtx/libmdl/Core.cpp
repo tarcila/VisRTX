@@ -750,7 +750,8 @@ mi::neuraylib::ICompiled_material *Core::getCompiledMaterial(
 
 const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
     const mi::neuraylib::ICompiled_material *compiledMaterial,
-    mi::neuraylib::ITransaction *transaction)
+    mi::neuraylib::ITransaction *transaction,
+    bool volume)
 {
   auto backendApi = make_handle(
       m_neuray->get_api_component<mi::neuraylib::IMdl_backend_api>());
@@ -802,6 +803,17 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
       {"geometry.cutout_opacity", "mdlOpacity"},
   };
 
+  mi::neuraylib::Target_function_description volumeFunctions[] = {
+      {"init", "mdlVolumeInit"},
+      {"volume.absorption_coefficient", "mdlVolumeAbsorption"},
+      {"volume.scattering_coefficient", "mdlVolumeScattering"},
+      {"volume.emission_intensity", "mdlVolumeEmission"},
+  };
+  if (volume) {
+    executionContext->set_option("include_geometry_normal", false);
+    executionContext->set_option("internal_space", "object");
+  }
+
   // Generate target code for the compiled material
   auto linkUnit = make_handle(
       ptxBackend->create_link_unit(transaction, executionContext.get()));
@@ -810,8 +822,8 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
   // auxiliary function (mdlBsdf_auxiliary: albedo + normal) because
   // enable_auxiliary is on.
   linkUnit->add_material(compiledMaterial,
-      std::data(materialFunctions),
-      std::size(materialFunctions),
+      volume ? std::data(volumeFunctions) : std::data(materialFunctions),
+      volume ? std::size(volumeFunctions) : std::size(materialFunctions),
       executionContext.get());
 
   if (!logExecutionContextMessages(executionContext.get()))

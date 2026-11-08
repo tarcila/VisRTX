@@ -45,10 +45,12 @@
 #include <mi/base/ilogger.h>
 #include <mi/base/types.h>
 #include <mi/neuraylib/icompiled_material.h>
+#include <mi/neuraylib/iexpression.h>
 #include <mi/neuraylib/iimage.h>
 #include <mi/neuraylib/imdl_backend.h>
 #include <mi/neuraylib/imdl_configuration.h>
 #include <mi/neuraylib/itexture.h>
+#include <mi/neuraylib/ivalue.h>
 #include <mi/neuraylib/version.h>
 
 #include <fstream>
@@ -124,8 +126,11 @@ MaterialRegistry::PtxSnapshot MaterialRegistry::ptxSnapshot() const
   PtxSnapshot snapshot;
   snapshot.timestamp = m_lastUpdateTS;
   snapshot.blobs.reserve(m_targetCodes.size());
-  for (const auto &target : m_targetCodes)
+  snapshot.volumeBlobs.reserve(m_targetCodes.size());
+  for (const auto &target : m_targetCodes) {
     snapshot.blobs.push_back(target.ptxBlob);
+    snapshot.volumeBlobs.push_back(target.volumePtxBlob);
+  }
   return snapshot;
 }
 
@@ -357,6 +362,59 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
           ptx::MDLShaderEvalSurfaceMaterial.size},
   });
 
+  // A separate Target Code owns the volume init, Argument Block and indices.
+  // Unsupported volume dependencies must not reject surface-only materials.
+  std::string volumeError;
+  auto vdf =
+      make_handle(compiledMaterial->lookup_sub_expression("volume.scattering"));
+  while (vdf && vdf->get_kind() == mi::neuraylib::IExpression::EK_TEMPORARY) {
+    auto temporary =
+        make_handle(vdf->get_interface<mi::neuraylib::IExpression_temporary>());
+    vdf = make_handle(compiledMaterial->get_temporary(temporary->get_index()));
+  }
+  auto constant = vdf
+      ? make_handle(vdf->get_interface<mi::neuraylib::IExpression_constant>())
+      : mi::base::Handle<const mi::neuraylib::IExpression_constant>();
+  auto value = constant ? make_handle(constant->get_value())
+                        : mi::base::Handle<const mi::neuraylib::IValue>();
+  if (!value || value->get_kind() != mi::neuraylib::IValue::VK_INVALID_DF)
+    volumeError =
+        "unsupported VDF expression (this slice requires default vdf())";
+
+  std::vector<char> volumePtx;
+  std::optional<libmdl::ArgumentBlockDescriptor> volumeArguments;
+  if (volumeError.empty()) {
+    auto volumeCode = make_handle(m_core->getPtxTargetCode(
+        compiledMaterial.get(), transaction.get(), true));
+    if (!volumeCode) {
+      volumeError = "failed compiling volume-only coefficient bundle";
+    } else {
+      using TC = mi::neuraylib::ITarget_code;
+      constexpr mi::Uint32 supported = TC::SU_POSITION | TC::SU_NORMAL
+          | TC::SU_GEOMETRY_NORMAL | TC::SU_ANIMATION_TIME | TC::SU_TRANSFORMS
+          | TC::SU_OBJECT_ID;
+      // Check indices before masks: an invalid index otherwise looks unused.
+      if (volumeCode->get_callable_function_count() != 4)
+        volumeError = "invalid volume callable indices";
+      for (mi::Size i = 0; i < volumeCode->get_callable_function_count(); ++i)
+        if (volumeCode->get_callable_function_render_state_usage(i)
+            & ~supported)
+          volumeError = "unsupported MDL volume state dependency";
+      if (volumeError.empty()) {
+        volumeArguments.emplace(m_core,
+            compiledMaterial.get(),
+            volumeCode.get(),
+            std::vector<libmdl::TextureDescriptor>{});
+        volumePtx = libmdl::stitchPTXs(std::vector{
+            nonstd::span{reinterpret_cast<const char *>(ptx::MDLTexture.ptr),
+                ptx::MDLTexture.size},
+            nonstd::span{volumeCode->get_code(), volumeCode->get_code_size()},
+            nonstd::span{reinterpret_cast<const char *>(ptx::MDLVolume.ptr),
+                ptx::MDLVolume.size}});
+      }
+    }
+  }
+
   // Extract the emission IR now, while the compiled material is alive — it is
   // not retained. The material folds this IR against its live arguments at
   // finalize to publish an emission descriptor (ADR 0007).
@@ -366,6 +424,9 @@ MaterialRegistry::compileMaterial(const std::string &moduleDbName,
   doCommit = true;
   return CompileProduct{uuid,
       std::move(ptxBlob),
+      std::move(volumePtx),
+      std::move(volumeArguments),
+      std::move(volumeError),
       std::move(emission),
       std::move(argBlockDesc),
       libmdl::SceneDataDescriptor(*targetCode)};
@@ -380,8 +441,11 @@ MaterialRegistry::AcquiredMaterial MaterialRegistry::insertCompiled(
       it != std::cend(m_uuidToIndex)) {
     auto &target = m_targetCodes[it->second];
     ++target.refCount;
-    return AcquiredMaterial{
-        product.uuid, product.argBlockDescriptor, target.sceneData};
+    return AcquiredMaterial{product.uuid,
+        product.argBlockDescriptor,
+        target.sceneData,
+        target.volumeArguments,
+        target.volumeError};
   }
 
   // Find an empty slot if possible. Slots are assigned here on the coordinator
@@ -401,14 +465,20 @@ MaterialRegistry::AcquiredMaterial MaterialRegistry::insertCompiled(
     targetIt->ptxBlob = std::move(product.ptxBlob);
     targetIt->refCount = 1;
   }
+  targetIt->volumePtxBlob = std::move(product.volumePtxBlob);
+  targetIt->volumeArguments = std::move(product.volumeArguments);
+  targetIt->volumeError = std::move(product.volumeError);
   targetIt->emission = std::move(product.emission);
   targetIt->sceneData = std::move(product.sceneData);
 
   auto targetIndex = std::distance(std::begin(m_targetCodes), targetIt);
 
   m_uuidToIndex.insert({product.uuid, targetIndex});
-  const AcquiredMaterial acquired{
-      product.uuid, product.argBlockDescriptor, targetIt->sceneData};
+  const AcquiredMaterial acquired{product.uuid,
+      product.argBlockDescriptor,
+      targetIt->sceneData,
+      targetIt->volumeArguments,
+      targetIt->volumeError};
   m_materialNameToUuid.insert({fullMaterialName, acquired});
 
   m_lastUpdateTS = libmdl::newTimeStamp();

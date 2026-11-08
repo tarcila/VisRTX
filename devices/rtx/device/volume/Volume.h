@@ -44,6 +44,8 @@ struct Volume : public RegisteredObject<VolumeGPUData>
   void markFinalized() override;
 
   bool isVisible() const;
+  virtual bool isMDL() const;
+  virtual const char *renderError() const;
 
   OptixBuildInput buildInput() const;
 

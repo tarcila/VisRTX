@@ -42,6 +42,7 @@
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
 #include "gpu/intersectRay.h"
+#include "gpu/mdlVolume.h"
 #include "gpu/sbt.h"
 #include "gpu/shadingState.h"
 
@@ -165,8 +166,11 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     float &opacity,
     uint32_t &objID,
     uint32_t &instID,
-    vec3 *normal = nullptr)
+    vec3 *normal = nullptr,
+    vec3 *transmittance = nullptr)
 {
+  vec3 mdlT(1.f);
+  bool haveMdl = false;
   VolumeHit hit;
   ray.t.upper = tfar;
   float depth = std::numeric_limits<float>::max();
@@ -186,12 +190,19 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
 
     // Ray march through this volume segment
     vec3 thisNormal(0.f);
-    float thisDepth = rayMarchVolume(ss,
-        hit,
-        &color,
-        normal ? &thisNormal : nullptr,
-        opacity,
-        invSamplingRate);
+    float thisDepth;
+    if (hit.volume->type == VolumeType::MDL) {
+      haveMdl = true;
+      thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate);
+      opacity = 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f;
+    } else {
+      thisDepth = rayMarchVolume(ss,
+          hit,
+          &color,
+          normal ? &thisNormal : nullptr,
+          opacity,
+          invSamplingRate);
+    }
 
     // Track closest intersection depth
     if (thisDepth < depth) {
@@ -209,6 +220,8 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
 
   } while (opacity < OPACITY_THRESHOLD);
 
+  if (transmittance)
+    *transmittance = haveMdl ? mdlT : vec3(1.f - opacity);
   return depth;
 }
 

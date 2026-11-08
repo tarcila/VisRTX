@@ -503,6 +503,8 @@ struct MaterialGPUData
     const MDLSceneDataBinding *sceneData;
     uint32_t numSceneData;
     const char *argBlock;
+    const char *volumeArgBlock;
+    bool volumeSupported;
     uint32_t numSamplers;
     // Should be sized according to MDL's execution context
     // configuration. See MDLCompiler.cpp.
@@ -650,6 +652,7 @@ struct SpatialFieldGPUData
 enum class VolumeType
 {
   TF1D,
+  MDL,
   UNKNOWN
 };
 
@@ -669,6 +672,11 @@ struct VolumeGPUData
   union
   {
     TF1DVolumeGPUData tf1d{};
+    struct
+    {
+      DeviceObjectIndex material;
+      float extinctionMajorant;
+    } mdl;
   } data;
   float stepSize;
   box3 bounds;
@@ -883,6 +891,7 @@ struct WorldGPUData
   const InstanceVolumeGPUData *volumeInstances;
   size_t numVolumeInstances;
   OptixTraversableHandle volumesTraversable;
+  bool hasMdlVolumes;
 
   const InstanceLightGPUData *lightInstances;
   size_t numLightInstances;
@@ -1019,6 +1028,7 @@ struct RendererGPUData
   float occlusionDistance;
   bool cullTriangleBF;
   bool premultiplyBackground;
+  bool resolveBackgroundInTransport;
   FireflyFilterMode
       fireflyFilterMode; // per-sample outlier suppression strategy
   float fireflyFilterSigma; // CLAMP/TRIM: k in threshold = mean + k*stddev

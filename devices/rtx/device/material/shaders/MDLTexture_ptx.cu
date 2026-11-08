@@ -30,6 +30,7 @@
  */
 
 #include "MDLTexture.cuh"
+#include "gpu/RenderError.h"
 #include "gpu/adjustNormalForView.h"
 #include "gpu/evalMaterialParameters.h"
 #include "gpu/gpu_decl.h"
@@ -323,6 +324,13 @@ VISRTX_CALLABLE void tex_texel_float4_3d(float (&result)[4],
 VISRTX_CALLABLE bool tex_texture_isvalid(
     TextureHandler *textureHandler, mi::Uint32 texture_idx)
 {
+  if (textureHandler->isVolume) {
+    recordRenderError(textureHandler->fd->renderError,
+        RenderErrorCategory::UNSUPPORTED_MEDIUM,
+        textureHandler->volumeID,
+        textureHandler->instanceID);
+    return false;
+  }
   return texture_idx != 0 && texture_idx <= textureHandler->numSamplers
       && textureHandler->samplers[texture_idx - 1] != DeviceObjectIndex(~0);
 }
@@ -408,6 +416,15 @@ VISRTX_CALLABLE void adapt_normal(float result[3],
   result[2] = adapted.z;
 }
 
+VISRTX_DEVICE void rejectVolumeLookup(TextureHandler const *self)
+{
+  if (self->isVolume)
+    recordRenderError(self->fd->renderError,
+        RenderErrorCategory::INVALID_SCENE_DATA,
+        self->volumeID,
+        self->instanceID);
+}
+
 // String IDs map to the five attributes prepared during shading init.
 VISRTX_DEVICE unsigned int sceneDataSlot(
     TextureHandler const *self, unsigned id)
@@ -424,6 +441,10 @@ VISRTX_DEVICE bool sceneDataValue(TextureHandler const *self,
     bool uniformLookup,
     vec4 &value)
 {
+  if (self->isVolume) {
+    rejectVolumeLookup(self);
+    return false;
+  }
   const auto slot = sceneDataSlot(self, id);
   if (slot >= 5 || !(self->attributePresentMask & (1u << slot))
       || (uniformLookup && !(self->attributeUniformMask & (1u << slot))))
@@ -520,7 +541,7 @@ VISRTX_CALLABLE void scene_data_lookup_int4(int result[4],
     int const default_value[4],
     bool uniform_lookup)
 {
-  // just return default value
+  rejectVolumeLookup(self_base);
   result[0] = default_value[0];
   result[1] = default_value[1];
   result[2] = default_value[2];
@@ -534,7 +555,7 @@ VISRTX_CALLABLE void scene_data_lookup_int3(int result[3],
     int const default_value[3],
     bool uniform_lookup)
 {
-  // just return default value
+  rejectVolumeLookup(self_base);
   result[0] = default_value[0];
   result[1] = default_value[1];
   result[2] = default_value[2];
@@ -547,7 +568,7 @@ VISRTX_CALLABLE void scene_data_lookup_int2(int result[2],
     int const default_value[2],
     bool uniform_lookup)
 {
-  // just return default value
+  rejectVolumeLookup(self_base);
   result[0] = default_value[0];
   result[1] = default_value[1];
 }
@@ -558,7 +579,7 @@ VISRTX_CALLABLE int scene_data_lookup_int(TextureHandler const *self_base,
     int default_value,
     bool uniform_lookup)
 {
-  // just return default value
+  rejectVolumeLookup(self_base);
   return default_value;
 }
 
@@ -569,7 +590,7 @@ VISRTX_CALLABLE void scene_data_lookup_float4x4(float result[16],
     float const default_value[16],
     bool uniform_lookup)
 {
-  // just return default value
+  rejectVolumeLookup(self_base);
   for (int i = 0; i < 16; ++i)
     result[i] = default_value[i];
 }

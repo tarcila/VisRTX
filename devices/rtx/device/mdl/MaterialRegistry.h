@@ -71,6 +71,8 @@ class MaterialRegistry
     Uuid uuid{};
     libmdl::ArgumentBlockDescriptor arguments;
     libmdl::SceneDataDescriptor sceneData;
+    std::optional<libmdl::ArgumentBlockDescriptor> volumeArguments;
+    std::string volumeError;
   };
 
   MaterialRegistry(libmdl::Core *core);
@@ -146,6 +148,8 @@ class MaterialRegistry
   {
     // Preserve empty slots: these indices are the material callable offsets.
     std::vector<std::vector<char>> blobs;
+    // Independent Target Code modules, in the same sparse material-slot order.
+    std::vector<std::vector<char>> volumeBlobs;
     libmdl::TimeStamp timestamp{};
   };
 
@@ -164,9 +168,11 @@ class MaterialRegistry
       if (target.ptxBlob.empty())
         continue;
       std::uint64_t h = 1469598103934665603ull; // FNV-1a offset basis
-      for (char c : target.ptxBlob) {
-        h ^= static_cast<unsigned char>(c);
-        h *= 1099511628211ull; // FNV-1a prime
+      for (const auto *blob : {&target.ptxBlob, &target.volumePtxBlob}) {
+        for (char c : *blob) {
+          h ^= static_cast<unsigned char>(c);
+          h *= 1099511628211ull; // FNV-1a prime
+        }
       }
       acc ^= h;
     }
@@ -183,6 +189,9 @@ class MaterialRegistry
   {
     libmdl::Uuid uuid;
     std::vector<char> ptxBlob;
+    std::vector<char> volumePtxBlob;
+    std::optional<libmdl::ArgumentBlockDescriptor> volumeArguments;
+    std::string volumeError;
     libmdl::EmissionIR emission;
     libmdl::ArgumentBlockDescriptor argBlockDescriptor;
     libmdl::SceneDataDescriptor sceneData;
@@ -221,6 +230,9 @@ class MaterialRegistry
   {
     std::vector<char> ptxBlob;
     int refCount{};
+    std::vector<char> volumePtxBlob;
+    std::optional<libmdl::ArgumentBlockDescriptor> volumeArguments;
+    std::string volumeError;
     // Extracted at compile time, while the compiled material is alive (it is
     // not retained past compilation); evicted with the slot on release.
     libmdl::EmissionIR emission;

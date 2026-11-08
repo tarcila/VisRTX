@@ -34,6 +34,7 @@
 #include "gpu/gpu_tonemap.h"
 #include "gpu/gpu_util.h"
 #include "gpu/renderer/background.h"
+#include "renderer/Interactive.h"
 #include "utility/instrument.h"
 // std
 #include <algorithm>
@@ -335,8 +336,10 @@ __global__ void compositeBackground(vec4 *__restrict__ accumColor,
   vec3 rgb = vec3(rendered);
   float alpha = rendered.a;
 
-  accumulateValue(rgb, vec3(bg), alpha);
-  accumulateValue(alpha, bg.a, alpha);
+  if (!renderer.resolveBackgroundInTransport) {
+    accumulateValue(rgb, vec3(bg), alpha);
+    accumulateValue(alpha, bg.a, alpha);
+  }
 
   vec4 rgba = vec4(rgb, alpha);
   if (format == FrameFormat::SRGB) {
@@ -690,6 +693,13 @@ void Frame::renderFrame()
     return;
   }
 
+  if (const auto *error = m_world->mdlVolumeError(
+          dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr)) {
+    instrument::rangePop(); // update scene
+    publishOutcome(error);
+    return;
+  }
+
   instrument::rangePush("rebuild BVHs");
   auto worldLock = m_world->scopeLockObject();
   m_world->rebuildWorld();
@@ -730,6 +740,7 @@ void Frame::renderFrame()
   m_renderer->populateFrameData(hd);
   m_camera->populateFrameData(hd.camera, hd.fb.size);
   hd.world = m_world->gpuData();
+  hd.renderer.resolveBackgroundInTransport = hd.world.hasMdlVolumes;
 
   // The TRIM top-k buffer is `trim` times the color buffer, so allocate it only
   // while that mode is active. trim is a renderer parameter, hence resolved

@@ -144,7 +144,8 @@ class Core
 
   const mi::neuraylib::ITarget_code *getPtxTargetCode(
       const mi::neuraylib::ICompiled_material *compiledMaterial,
-      mi::neuraylib::ITransaction *transaction);
+      mi::neuraylib::ITransaction *transaction,
+      bool volume = false);
 
   std::string resolveResource(std::string_view resourceId,
       std::string_view ownerName = {},

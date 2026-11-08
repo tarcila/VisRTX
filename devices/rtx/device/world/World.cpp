@@ -217,6 +217,49 @@ void World::finalize()
   m_objectUpdates.lastBLASCheck = 0;
 }
 
+bool World::hasMdlVolumes() const
+{
+  for (const auto *instance : m_instances)
+    for (const auto *volume : instance->group()->volumes())
+      if (volume && volume->isMDL())
+        return true;
+  return false;
+}
+
+const char *World::mdlVolumeError(bool interactive) const
+{
+  if (!hasMdlVolumes())
+    return nullptr;
+  if (!interactive)
+    return "MDL Volumes currently require the interactive Renderer";
+  size_t count = 0;
+  for (const auto *instance : m_instances) {
+    bool mdl = false;
+    for (const auto *volume : instance->group()->volumes()) {
+      if (!volume)
+        continue;
+      count += instance->numTransforms();
+      if (!volume->isMDL())
+        continue;
+      mdl = true;
+      if (const auto *error = volume->renderError())
+        return error;
+    }
+    if (mdl)
+      for (size_t i = 0; i < instance->numTransforms(); ++i) {
+        const auto xfm = mat4(instance->xfm(i));
+        const auto inverse = glm::inverse(xfm);
+        for (int c = 0; c < 4; ++c)
+          for (int r = 0; r < 4; ++r)
+            if (!std::isfinite(xfm[c][r]) || !std::isfinite(inverse[c][r]))
+              return "MDL Volume Instance transform must be finite and nonsingular";
+      }
+  }
+  if (count > 1)
+    return "multiple Volumes with MDL are not supported by this slice";
+  return nullptr;
+}
+
 WorldGPUData World::gpuData() const
 {
   WorldGPUData retval;
@@ -228,6 +271,7 @@ WorldGPUData World::gpuData() const
   retval.volumeInstances = m_instanceVolumeGPUData.dataDevice();
   retval.numVolumeInstances = m_instanceVolumeGPUData.size();
   retval.volumesTraversable = m_traversableVolumes;
+  retval.hasMdlVolumes = hasMdlVolumes();
 
   retval.lightInstances = m_instanceLightGPUData.dataDevice();
   retval.numLightInstances = m_instanceLightGPUData.size();

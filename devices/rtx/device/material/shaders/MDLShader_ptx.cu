@@ -99,6 +99,7 @@ VISRTX_CALLABLE void __direct_callable__init(MDLShadingState *shadingState,
   // materials reuse it for every slot (no per-attribute tangent track yet).
   static_assert(libmdl::kNumTextureSpaces == 4);
   auto &attributes = shadingState->textureHandler;
+  attributes.isVolume = false;
   attributes.attributePresentMask = 0;
   attributes.attributeUniformMask = 0;
   // Resolve once per hit for both texture coordinates and named scene data.

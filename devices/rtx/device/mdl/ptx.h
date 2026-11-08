@@ -37,5 +37,6 @@ namespace visrtx::mdl::ptx {
 
 extern ptx_blob MDLShaderEvalSurfaceMaterial;
 extern ptx_blob MDLTexture;
+extern ptx_blob MDLVolume;
 
 } // namespace visrtx::mdl::ptx

@@ -214,6 +214,7 @@ set(SOURCES
   volume/TransferFunction1D.cpp
   volume/UnknownVolume.cpp
   volume/Volume.cpp
+  $<$<BOOL:${VISRTX_ENABLE_MDL_SUPPORT}>:volume/MDLVolume.cpp>
 
   world/Group.cpp
   world/Instance.cpp
@@ -410,6 +411,7 @@ GenerateEmbeddedPTX(spatial_field CustomFieldSampler)
 if(VISRTX_ENABLE_MDL_SUPPORT)
   GenerateEmbeddedPTX(material/shaders MDLShader ENTRIES __direct__callable__evalSurfaceMaterial)
   GenerateEmbeddedPTX(material/shaders MDLTexture)
+  GenerateEmbeddedPTX(material/shaders MDLVolume)
 endif()
 
 

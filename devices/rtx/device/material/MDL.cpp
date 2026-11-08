@@ -255,7 +255,16 @@ void MDL::finalize()
   syncSource();
   syncImplementationIndex();
   syncParameters();
+  syncParameters(true);
   syncSceneData();
+  if (m_volumeArgumentBlockInstance) {
+    const auto &bytes = m_volumeArgumentBlockInstance->getArgumentBlockData();
+    if (bytes.empty())
+      m_volumeArgBlockBuffer.reset();
+    else
+      m_volumeArgBlockBuffer.upload(bytes.data(), bytes.size());
+  } else
+    m_volumeArgBlockBuffer.reset();
 
   if (m_argumentBlockInstance.has_value()) {
     if (const auto &argBlockData =
@@ -291,6 +300,11 @@ void MDL::finalize()
   Material::finalize();
 
   refreshEmissionLightSet();
+}
+
+const std::string &MDL::volumeError() const
+{
+  return m_volumeError;
 }
 
 bool MDL::emissionIsSampleable() const
@@ -433,6 +447,7 @@ void MDL::syncSource()
         sourceType.c_str());
   }
 
+  const bool sourceFailed = acquired.uuid == libmdl::Uuid{};
   // Any failure path falls back to the default material so a committed MDL
   // material always ends up with a valid argument block.
   if (acquired.uuid == libmdl::Uuid{}) {
@@ -464,6 +479,13 @@ void MDL::syncSource()
   m_uuid = acquired.uuid;
   m_argumentBlockInstance = coordinator.invokeSerial(
       [&] { return materialRegistry.createArgumentBlock(acquired.arguments); });
+  m_volumeError =
+      sourceFailed ? "invalid MDL material source" : acquired.volumeError;
+  m_volumeArgumentBlockInstance =
+      acquired.volumeArguments ? coordinator.invokeSerial([&] {
+        return materialRegistry.createArgumentBlock(*acquired.volumeArguments);
+      })
+                               : std::nullopt;
   m_sceneDataInstance.emplace(acquired.sceneData);
   // A fresh instance may be entirely unbound and report no CPU-table change.
   // Discard the previous source's GPU table so the initial upload still runs.
@@ -494,10 +516,12 @@ void MDL::syncSource()
   }
 }
 
-void MDL::syncParameters()
+void MDL::syncParameters(bool volume)
 {
-  if (m_argumentBlockInstance.has_value()) {
-    auto &argumentBlockInstance = *m_argumentBlockInstance;
+  auto &instance =
+      volume ? m_volumeArgumentBlockInstance : m_argumentBlockInstance;
+  if (instance.has_value()) {
+    auto &argumentBlockInstance = *instance;
     for (auto param = params_begin(); param != params_end(); ++param) {
       const auto &name = param->first;
       if (name == "source"sv || name == "sourceType"sv
@@ -553,6 +577,15 @@ void MDL::syncParameters()
         continue;
       }
 
+      if (volume
+          && type == libmdl::ArgumentBlockDescriptor::ArgumentType::Texture) {
+        // This bundle owns its layout and default resource indices. Do not
+        // copy surface indices or acquire surface resources a second time.
+        // Executed volume texture operations are explicitly rejected by the
+        // Texture Runtime until resource support is implemented.
+        argumentBlockInstance.reset(name);
+        continue;
+      }
       switch (type) {
       case libmdl::ArgumentBlockDescriptor::ArgumentType::Bool: {
         if (sourceParamAny.type() == ANARI_BOOL) {
@@ -749,8 +782,11 @@ MaterialGPUData MDL::gpuData() const
           == mdl::MaterialRegistry::INVALID_IMPLEMENTATION_INDEX
       ? ~0u
       : uint32_t(SbtCallableEntryPoints::Last)
-          + m_implementationIndex * uint32_t(SurfaceShaderEntryPoints::Count);
+          + m_implementationIndex * uint32_t(MDLShaderEntryPoints::Count);
 
+  retval.materialData.mdl.volumeArgBlock =
+      m_volumeArgBlockBuffer.ptrAs<const char>();
+  retval.materialData.mdl.volumeSupported = m_volumeError.empty();
   retval.materialData.mdl.sceneData =
       m_sceneDataBuffer.ptrAs<const MDLSceneDataBinding>();
   retval.materialData.mdl.numSceneData = m_sceneDataInstance
