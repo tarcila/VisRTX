@@ -33,6 +33,7 @@
 
 #include "Denoiser.h"
 #include "camera/Camera.h"
+#include "gpu/RenderError.h"
 #include "gpu/gpu_objects.h"
 #include "renderer/Renderer.h"
 #include "utility/DeviceObject.h"
@@ -40,6 +41,8 @@
 // helium
 #include "helium/BaseFrame.h"
 // std
+#include <atomic>
+#include <future>
 #include <memory>
 
 namespace visrtx {
@@ -72,6 +75,10 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   int frameReady(ANARIWaitMask m) override;
   void discard() override;
 
+  // Internal API routing: published-result reads in an application callback
+  // must bypass an object lock held by an ordinary WAIT on another thread.
+  static Frame *currentCallbackFrame();
+
   void *mapColorBuffer(bool gpu);
   void *mapDepthBuffer(bool gpu);
   void *mapPrimIDBuffer(bool gpu);
@@ -83,6 +90,8 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
  private:
   bool ready() const;
   void wait() const;
+  void waitForPublication() const;
+  void publishOutcome(const char *preflightError = nullptr);
   bool checkerboarding() const;
   void checkAccumulationReset();
   void newFrame();
@@ -145,6 +154,13 @@ struct Frame : public helium::BaseFrame, public DeviceObject<FrameGPUData>
   cudaEvent_t m_eventEnd;
 
   float m_duration{0.f};
+
+  DeviceBuffer m_renderError;
+  RenderError *m_hostRenderError{nullptr}; // pinned, stream-ordered D2H
+  std::future<void> m_completion;
+  std::atomic<bool> m_failed{false};
+  std::atomic<int> m_publishedSamples{0};
+  bool m_denoiserInvalidated{false};
 
   bool m_frameChanged{false};
   helium::TimeStamp m_cameraLastChanged{0};

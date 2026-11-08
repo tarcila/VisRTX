@@ -1080,8 +1080,11 @@ struct FramebufferGPUData
   glm::vec2 invSize;
 };
 
+struct RenderError;
+
 struct FrameGPUData
 {
+  RenderError *renderError;
   float mdlAnimationTime;
   FramebufferGPUData fb;
   RendererGPUData renderer;

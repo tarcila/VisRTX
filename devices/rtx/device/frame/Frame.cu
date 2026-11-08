@@ -37,6 +37,8 @@
 #include "utility/instrument.h"
 // std
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <glm/ext/vector_float4.hpp>
 #include <glm/gtc/packing.hpp>
 #include <random>
@@ -48,6 +50,17 @@
 namespace visrtx {
 
 namespace {
+
+// Only result access is reentrant; WAIT/render/mutation on this same Frame
+// must be deferred until the application callback returns.
+thread_local Frame *callbackFrame = nullptr;
+
+#ifdef VISRTX_FRAME_FAILURE_TEST_FIXTURE
+VISRTX_GLOBAL void injectRenderFailure(RenderError *error)
+{
+  recordRenderError(error, RenderErrorCategory::MAJORANT_VIOLATION, 17, 23);
+}
+#endif
 
 // Resolve per-pixel (sourceIdx, divisor) for the current sub-frame. Mirrors
 // compositeBackground so both kernels agree on which accumulator sample count
@@ -426,6 +439,11 @@ __global__ void resolveVec3Channel(const vec3 *__restrict__ accum,
 Frame::Frame(DeviceGlobalState *d) : helium::BaseFrame(d), m_denoiser(d)
 {
   data().mdlAnimationTime = 0.f;
+  m_renderError.reserve(sizeof(RenderError));
+  cudaMallocHost(
+      reinterpret_cast<void **>(&m_hostRenderError), sizeof(RenderError));
+  *m_hostRenderError = {};
+  data().renderError = m_renderError.ptrAs<RenderError>();
   cudaEventCreate(&m_eventStart);
   cudaEventCreate(&m_eventEnd);
 
@@ -437,6 +455,7 @@ Frame::~Frame()
 {
   wait();
 
+  cudaFreeHost(m_hostRenderError);
   cudaEventDestroy(m_eventStart);
   cudaEventDestroy(m_eventEnd);
 }
@@ -611,9 +630,8 @@ bool Frame::getProperty(const std::string_view &name,
     return true;
   } else if (type == ANARI_INT32 && name == "numSamples") {
     if (flags & ANARI_WAIT)
-      wait();
-    auto &hd = data();
-    helium::writeToVoidP(ptr, hd.fb.frameID);
+      waitForPublication();
+    helium::writeToVoidP(ptr, m_publishedSamples.load());
     return true;
   } else if (type == ANARI_FLOAT32 && name == "refinementProgress") {
     if (!m_renderer)
@@ -667,9 +685,8 @@ void Frame::renderFrame()
       problemMsg = "missing ANARIWorld";
     else if (!m_world->isValid())
       problemMsg = "invalid ANARIWorld";
-    reportMessage(ANARI_SEVERITY_ERROR,
-        "skipping render of incomplete or invalid frame object -- issue: %s",
-        problemMsg.c_str());
+    instrument::rangePop(); // update scene
+    publishOutcome(problemMsg.c_str());
     return;
   }
 
@@ -687,8 +704,11 @@ void Frame::renderFrame()
   m_denoiseUsingNormal = m_renderer->denoiseUsingNormal();
   if (m_denoise != wasDenoising
       || m_denoiseUsingAlbedo != wasDenoisingUsingAlbedo
-      || m_denoiseUsingNormal != wasDenoisingUsingNormal)
+      || m_denoiseUsingNormal != wasDenoisingUsingNormal
+      || m_denoiserInvalidated) {
     this->finalize();
+    m_denoiserInvalidated = false;
+  }
 
   m_frameMappedOnce = false;
 
@@ -705,6 +725,7 @@ void Frame::renderFrame()
     return;
 
   cudaEventRecord(m_eventStart, state.stream);
+  cudaMemsetAsync(m_renderError.ptr(), 0, sizeof(RenderError), state.stream);
 
   m_renderer->populateFrameData(hd);
   m_camera->populateFrameData(hd.camera, hd.fb.size);
@@ -751,6 +772,19 @@ void Frame::renderFrame()
       checkerboarding() ? (hd.fb.size.y + 1) / 2 : hd.fb.size.y,
       1));
   instrument::rangePop(); // optixLaunch()
+
+#ifdef VISRTX_FRAME_FAILURE_TEST_FIXTURE
+  // Deliberately not a production ANARI parameter or exported interface.
+  if (const char *fault = std::getenv("VISRTX_TEST_FRAME_FAILURE")) {
+    if (std::string_view(fault) == "1")
+      injectRenderFailure<<<1, 1, 0, state.stream>>>(hd.renderError);
+  }
+#endif
+  cudaMemcpyAsync(m_hostRenderError,
+      m_renderError.ptr(),
+      sizeof(RenderError),
+      cudaMemcpyDeviceToHost,
+      state.stream);
 
   // Increment frameID after rendering completes
   if (checkerboarding())
@@ -828,19 +862,17 @@ void Frame::renderFrame()
         state.stream);
   }
 
-  if (m_callback) {
-    cudaLaunchHostFunc(
-        state.stream,
-        [](void *_this) {
-          auto &self = *(Frame *)_this;
-          auto *d = self.deviceState()->anariDevice;
-          self.m_callback(self.m_callbackUserPtr, d, (ANARIFrame)_this);
-        },
-        this);
-  }
-
   instrument::rangePop(); // render all frames
   cudaEventRecord(m_eventEnd, state.stream);
+  // A normal host task, not a CUDA stream host function: application callbacks
+  // may call CUDA-backed ANARI accessors. WAIT includes this continuation.
+  m_completion = std::async(std::launch::async, [this] {
+    cuCtxPushCurrent(deviceState()->cudaContext);
+    cudaEventSynchronize(m_eventEnd);
+    publishOutcome();
+    CUcontext previous;
+    cuCtxPopCurrent(&previous);
+  });
   instrument::rangePop(); // Frame::renderFrame()
   instrument::rangePush("time until FB map");
 }
@@ -850,7 +882,12 @@ void *Frame::map(std::string_view channel,
     uint32_t *height,
     ANARIDataType *pixelType)
 {
-  wait();
+  waitForPublication();
+  *width = 0;
+  *height = 0;
+  *pixelType = ANARI_UNKNOWN;
+  if (m_failed.load())
+    return nullptr;
 
   ANARIDataType type = ANARI_UNKNOWN;
   void *retval = nullptr;
@@ -1096,12 +1133,80 @@ void *Frame::mapNormalBuffer(bool gpu)
 
 bool Frame::ready() const
 {
+  if (m_completion.valid())
+    return m_completion.wait_for(std::chrono::seconds(0))
+        == std::future_status::ready;
   return cudaEventQuery(m_eventEnd) == cudaSuccess;
 }
 
 void Frame::wait() const
 {
-  cudaEventSynchronize(m_eventEnd);
+  if (m_completion.valid())
+    m_completion.wait();
+  else
+    cudaEventSynchronize(m_eventEnd);
+}
+
+Frame *Frame::currentCallbackFrame()
+{
+  return callbackFrame;
+}
+
+void Frame::waitForPublication() const
+{
+  if (callbackFrame != this)
+    wait();
+}
+
+void Frame::publishOutcome(const char *preflightError)
+{
+  const bool failed = preflightError || m_hostRenderError->category != 0;
+  if (failed) {
+    data().fb.frameID = 0;
+    m_nextFrameReset = true; // overrides manual accumulationVersion too
+    m_denoiser.cleanup();
+    m_denoiserInvalidated = true;
+  }
+  m_publishedSamples.store(data().fb.frameID);
+  m_failed.store(failed);
+
+  auto *previousCallbackFrame = callbackFrame;
+  callbackFrame = this;
+  if (preflightError) {
+    reportMessage(ANARI_SEVERITY_ERROR, "render failed: %s", preflightError);
+  } else if (failed) {
+    const char *cause = "unknown medium error";
+    switch (RenderErrorCategory(m_hostRenderError->category)) {
+    case RenderErrorCategory::INVALID_COEFFICIENT:
+      cause = "negative or nonfinite medium coefficient";
+      break;
+    case RenderErrorCategory::MAJORANT_VIOLATION:
+      cause = "extinction majorant violation";
+      break;
+    case RenderErrorCategory::INVALID_FIELD_VALUE:
+      cause = "nonfinite field value";
+      break;
+    case RenderErrorCategory::INVALID_SCENE_DATA:
+      cause = "invalid volume scene-data lookup";
+      break;
+    case RenderErrorCategory::UNSUPPORTED_MEDIUM:
+      cause = "unsupported medium evaluation";
+      break;
+    case RenderErrorCategory::NUMERICAL_FAILURE:
+      cause = "medium numerical failure";
+      break;
+    default:
+      break;
+    }
+    reportMessage(ANARI_SEVERITY_ERROR,
+        "render failed: %s (volume %u, instance %u)",
+        cause,
+        m_hostRenderError->volume,
+        m_hostRenderError->instance);
+  }
+  if (m_callback)
+    m_callback(m_callbackUserPtr, deviceState()->anariDevice, (ANARIFrame)this);
+  callbackFrame = previousCallbackFrame;
 }
 
 bool Frame::checkerboarding() const

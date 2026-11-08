@@ -346,6 +346,12 @@ int VisRTXDevice::getProperty(ANARIObject object,
     uint64_t size,
     uint32_t mask)
 {
+  // Helium normally locks the object (and flushes commits for WAIT queries).
+  // A callback reads the already-published count, not pending parameters.
+  if (auto *frame = Frame::currentCallbackFrame()) {
+    if ((ANARIObject)frame == object && std::string_view(name) == "numSamples")
+      return frame->getProperty(name, type, mem, size, mask);
+  }
   if (!initDevice())
     return 0;
   CUDADeviceScope ds(this);
@@ -360,6 +366,10 @@ const void *VisRTXDevice::frameBufferMap(ANARIFrame f,
     uint32_t *height,
     ANARIDataType *pixelType)
 {
+  if (auto *frame = Frame::currentCallbackFrame()) {
+    if ((ANARIFrame)frame == f)
+      return frame->map(channel, width, height, pixelType);
+  }
   if (!initDevice()) {
     *width = 0;
     *height = 0;
@@ -369,6 +379,17 @@ const void *VisRTXDevice::frameBufferMap(ANARIFrame f,
 
   return helium::BaseDevice::frameBufferMap(
       f, channel, width, height, pixelType);
+}
+
+void VisRTXDevice::frameBufferUnmap(ANARIFrame f, const char *channel)
+{
+  if (auto *frame = Frame::currentCallbackFrame()) {
+    if ((ANARIFrame)frame == f) {
+      frame->unmap(channel);
+      return;
+    }
+  }
+  helium::BaseDevice::frameBufferUnmap(f, channel);
 }
 
 // Frame Rendering ////////////////////////////////////////////////////////////
