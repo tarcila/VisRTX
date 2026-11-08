@@ -45,6 +45,7 @@
 #include "gpu/renderer/shadowTransmittance.h"
 #include "gpu/sampleLight.h"
 #include "gpu/sampleOrdinal.h"
+#include "gpu/sampleVolumeLight.h"
 #include "gpu/shadingState.h"
 #include "gpu/volumeIntegration.h"
 
@@ -512,25 +513,7 @@ VISRTX_DEVICE SurfaceLightSample sampleLights(ScreenSample &ss,
 VISRTX_DEVICE LightSample sampleLightsVolume(
     ScreenSample &ss, const FrameGPUData &frameData, const vec3 &origin)
 {
-  const PickedCandidate pick = pickCandidate(ss, frameData);
-  if (!pick.valid)
-    return {};
-
-  if (pick.isAmbient) {
-    // Uniform-sphere sample (pdf 1/(4π)) to match the isotropic phase function.
-    const auto &rp = frameData.renderer;
-    const vec3 dir = randomDir(ss.rs);
-    return LightSample{rp.ambientColor * rp.ambientIntensity,
-        dir,
-        std::numeric_limits<float>::max(),
-        pick.pickPdf * INV_4PI};
-  }
-
-  const auto &li = frameData.world.lightInstances[pick.instance];
-  auto ls =
-      sampleLight(ss, origin, li.lightIndex, li.xfm, li.surfaceInstanceIndex);
-  ls.pdf *= pick.pickPdf;
-  return ls;
+  return sampleVolumeLight(ss, frameData, origin);
 }
 
 VISRTX_DEVICE

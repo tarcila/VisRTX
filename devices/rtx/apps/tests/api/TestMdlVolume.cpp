@@ -482,13 +482,12 @@ void errorsAndRecovery(Scene &s)
     s.coefficients({small, 0, 0}, {1, 0, 0});
     s.fail("majorant violation");
     s.majorant(std::nextafter(1.f, 2.f));
-    // The widened bound is now valid; scattering is deliberately unsupported
-    // in this slice. Distinguish transport rejection from bound rejection.
-    s.fail("unsupported medium");
+    // With no eligible lights, scattering contributes extinction only.
+    s.check("valid widened bound with scattering", beer({1, 0, 0}, 4));
     s.majorant(1.f);
   }
   s.coefficients({0.5f, 0, 0}, {0.5f, 0, 0});
-  s.fail("unsupported medium"); // equal sum, absorption-first tie
+  s.check("equal absorption/scattering sum", beer({1, 0, 0}, 4));
   s.coefficients({1, 0, 0});
   s.majorant(std::nextafter(1.f, 0.f));
   s.fail("majorant violation");

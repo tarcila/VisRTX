@@ -193,7 +193,7 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     float thisDepth;
     if (hit.volume->type == VolumeType::MDL) {
       haveMdl = true;
-      thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate);
+      thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate, &color);
       opacity = 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f;
     } else {
       thisDepth = rayMarchVolume(ss,

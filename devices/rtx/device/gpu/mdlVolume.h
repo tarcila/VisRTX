@@ -6,6 +6,9 @@
 #include "gpu/RenderError.h"
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
+#include "gpu/intersectRay.h"
+#include "gpu/renderer/shadowTransmittance.h"
+#include "gpu/sampleVolumeLight.h"
 #include "gpu/sbt.h"
 
 namespace visrtx {
@@ -21,7 +24,8 @@ VISRTX_DEVICE void mediumError(
 VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
     const VolumeHit &hit,
     const vec3 &position,
-    glm::dvec3 &extinction)
+    glm::dvec3 &extinction,
+    glm::dvec3 *effectiveScattering = nullptr)
 {
   const auto &material =
       ss.frameData->registry.materials[hit.volume->data.mdl.material];
@@ -55,9 +59,11 @@ VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
       return false;
     }
     extinction[c] = t;
-    // Validation precedes the temporary transport-support restriction, so a
-    // downward-rounded extinction sum can never conceal an unsafe bound.
-    unsupported |= s != 0.f || e != 0.f;
+    // Preserve the smaller event coefficient, exactly as in the ordered
+    // categorical policy. Both primary sources and shadow extinction use t.
+    if (effectiveScattering)
+      (*effectiveScattering)[c] = s < a ? double(s) : t - double(a);
+    unsupported |= e != 0.f;
   }
   if (unsupported) {
     mediumError(ss, hit, RenderErrorCategory::UNSUPPORTED_MEDIUM);
@@ -69,7 +75,8 @@ VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
 VISRTX_DEVICE float rayMarchMdlVolume(ScreenSample &ss,
     const VolumeHit &hit,
     vec3 &transmittance,
-    float inverseSamplingRate)
+    float inverseSamplingRate,
+    vec3 *color = nullptr)
 {
   if (hit.volume->data.mdl.extinctionMajorant == 0.f)
     return FLT_MAX; // caller's vacuum guarantee; not a proof of
@@ -83,6 +90,7 @@ VISRTX_DEVICE float rayMarchMdlVolume(ScreenSample &ss,
     return FLT_MAX;
   }
   glm::dvec3 opticalDepth(0.);
+  glm::dvec3 radiance(0.);
   double t = ray.t.lower;
   float depth = FLT_MAX;
   while (t < double(ray.t.upper)) {
@@ -92,16 +100,42 @@ VISRTX_DEVICE float rayMarchMdlVolume(ScreenSample &ss,
       break;
     }
     const vec3 position = ray.org + float(t + (next - t) * 0.5) * ray.dir;
-    glm::dvec3 extinction;
-    if (!mediumCoefficients(ss, hit, position, extinction))
+    glm::dvec3 extinction, scattering;
+    if (!mediumCoefficients(ss, hit, position, extinction, &scattering))
       break;
+    if (color && glm::any(glm::greaterThan(scattering, glm::dvec3(0.)))) {
+      const vec3 worldPosition =
+          xfmPoint(hit.instance->objectToWorld, position);
+      const auto light =
+          sampleVolumeLight(ss, *ss.frameData, worldPosition, true);
+      if (light.pdf > 0.f) {
+        // No entry offset: the shadow starts INSIDE this domain, and must
+        // include its remaining optical depth. Shadow any-hit invokes this
+        // marcher with color=nullptr, so it never recursively samples lights.
+        const Ray shadow{worldPosition, light.dir, {0.f, light.dist}};
+        const vec3 visibility = surfaceShadowTransmittance(ss, shadow)
+            * volumeShadowTransmittance(ss, shadow);
+        for (int c = 0; c < 3; ++c) {
+          const double h = next - t;
+          const double integral = extinction[c] == 0.
+              ? h
+              : -expm1(-extinction[c] * h) / extinction[c];
+          radiance[c] += exp(-opticalDepth[c]) * scattering[c]
+              * double(light.radiance[c]) * double(visibility[c])
+              / (4. * double(kPi) * double(light.pdf)) * integral;
+        }
+      }
+    }
     if (glm::any(glm::greaterThan(extinction, glm::dvec3(0.))))
       depth = fminf(depth, float(t));
     opticalDepth += extinction * (next - t);
     t = next;
   }
-  for (int c = 0; c < 3; ++c)
+  for (int c = 0; c < 3; ++c) {
+    if (color)
+      (*color)[c] += transmittance[c] * float(radiance[c]);
     transmittance[c] *= float(exp(-opticalDepth[c]));
+  }
   return depth;
 }
 } // namespace visrtx

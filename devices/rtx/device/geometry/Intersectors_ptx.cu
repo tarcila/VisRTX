@@ -235,6 +235,11 @@ VISRTX_DEVICE void intersectVolume()
       t.upper = std::min(t.upper, tClip.upper);
 
       t.lower = std::max(t.lower, ray::tmin());
+      // A sampled light can lie inside an MDL domain. Any-hit integrates the
+      // reported Interval directly, so its exit must respect the shadow's
+      // finite endpoint (and not integrate all the way to the domain exit).
+      if (volumeData.type == VolumeType::MDL)
+        t.upper = std::min(t.upper, ray::tmax());
       if (t.lower < t.upper) {
         reportIntersectionVolume(t);
       }

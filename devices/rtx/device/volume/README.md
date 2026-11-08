@@ -1,4 +1,4 @@
-# Experimental MDL absorption slice
+# Experimental MDL interactive medium slice
 
 MDL-enabled builds accept a directly requested `mdl` Volume, but do **not** yet
 advertise the subtype or `VISRTX_VOLUME_MDL`. This is an implementation slice,
@@ -27,8 +27,17 @@ Argument Block layout and string/resource indices. It does not initialize
 surface geometry normals or fabricate a SurfaceHit. Surface-only attributes,
 scene-data bindings and texture parameters do not supply volume inputs.
 
-Currently supported transport is default-`vdf()` pure absorption and vacuum.
-Nonzero scattering/emission, other VDF expressions, unsupported volume state,
+Interactive now supports default-`vdf()` RGB single scattering as well as
+absorption and vacuum. Each midpoint samples one light with its complete
+selection-times-direction PDF, using the shared full-sphere volume-NEE family.
+The source uses isotropic phase and a stable exponential segment integral,
+including the zero-extinction limit. Shadow rays include opaque-surface
+visibility and medium attenuation from the midpoint to the light, including
+the evaluating Volume itself. Primary and shadow rates refine independently;
+finite shadow endpoints and nonuniform Instance step conversion are respected.
+This is direct single scattering, not multiple scattering or indirect lighting.
+
+Nonzero volume emission, other VDF expressions, unsupported volume state,
 executed texture operations, executed unbound scene-data lookups, field
 bindings, multiple-volume Worlds involving MDL, and other Renderers are
 explicit errors, not approximations. A retained string `fieldName` alone is
@@ -40,7 +49,7 @@ The evaluator promotes both and the scalar bound to FP64, retains the error-free
 TwoSum residual, and rejects `t > M` or `t == M && residual > 0` before checking
 this slice's transport restrictions. Thus both FP32- and FP64-downward-rounded
 sums cannot hide an observed violation. Equality is valid. No categorical
-collision sampling occurs in this pure-absorption marcher; subsequent tracking
+collision sampling occurs in this deterministic marcher; subsequent tracking
 must use the specified ordered smaller-event/total-extinction construction,
 not independent rounded probabilities. Nonadvancing steps report numerical
 failure. All evaluated errors use the Frame-owned error record and the shared

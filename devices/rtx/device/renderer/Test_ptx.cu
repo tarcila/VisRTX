@@ -29,14 +29,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "gpu/renderer/common.h"
 #include "gpu/shading_api.h"
 
 namespace visrtx {
-
-enum class RayType
-{
-  PRIMARY
-};
 
 DECLARE_FRAME_DATA(frameData)
 
