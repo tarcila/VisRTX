@@ -1200,6 +1200,12 @@ void Frame::publishOutcome(const char *preflightError)
     case RenderErrorCategory::INVALID_SCENE_DATA:
       cause = "invalid volume scene-data lookup";
       break;
+    case RenderErrorCategory::INVALID_VOLUME_EMISSION:
+      cause = "nonzero or nonfinite volume emission";
+      break;
+    case RenderErrorCategory::INVALID_VDF_BIAS:
+      cause = "nonzero or nonfinite volume directional bias";
+      break;
     case RenderErrorCategory::UNSUPPORTED_MEDIUM:
       cause = "unsupported medium evaluation";
       break;

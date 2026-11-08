@@ -33,6 +33,7 @@
 
 #include "MDLShader_ptx.h"
 #include "MDLTexture_ptx.h"
+#include "MDLVolumeBias_ptx.h"
 #include "MDLVolume_ptx.h"
 
 #include <array>
@@ -45,6 +46,8 @@ ptx_blob MDLShaderEvalSurfaceMaterial{
 };
 
 ptx_blob MDLVolume{std::data(MDLVolume_ptx), std::size(MDLVolume_ptx)};
+ptx_blob MDLVolumeBias{
+    std::data(MDLVolumeBias_ptx), std::size(MDLVolumeBias_ptx)};
 
 ptx_blob MDLTexture{
     std::data(MDLTexture_ptx),

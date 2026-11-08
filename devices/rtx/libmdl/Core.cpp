@@ -751,7 +751,8 @@ mi::neuraylib::ICompiled_material *Core::getCompiledMaterial(
 const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
     const mi::neuraylib::ICompiled_material *compiledMaterial,
     mi::neuraylib::ITransaction *transaction,
-    bool volume)
+    bool volume,
+    bool volumeBias)
 {
   auto backendApi = make_handle(
       m_neuray->get_api_component<mi::neuraylib::IMdl_backend_api>());
@@ -813,6 +814,7 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
       {"volume.absorption_coefficient", "mdlVolumeAbsorption"},
       {"volume.scattering_coefficient", "mdlVolumeScattering"},
       {"volume.emission_intensity", "mdlVolumeEmission"},
+      {"volume.scattering.directional_bias", "mdlVolumeBias"},
   };
   if (volume) {
     executionContext->set_option("include_geometry_normal", false);
@@ -828,7 +830,8 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
   // enable_auxiliary is on.
   linkUnit->add_material(compiledMaterial,
       volume ? std::data(volumeFunctions) : std::data(materialFunctions),
-      volume ? std::size(volumeFunctions) : std::size(materialFunctions),
+      volume ? std::size(volumeFunctions) - (volumeBias ? 0 : 1)
+             : std::size(materialFunctions),
       executionContext.get());
 
   if (!logExecutionContextMessages(executionContext.get()))

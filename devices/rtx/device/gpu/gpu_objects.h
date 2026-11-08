@@ -509,6 +509,8 @@ struct MaterialGPUData
     // Should be sized according to MDL's execution context
     // configuration. See MDLCompiler.cpp.
     DeviceObjectIndex samplers[32];
+    uint32_t numVolumeSamplers;
+    DeviceObjectIndex volumeSamplers[32];
   };
 
   uint32_t callableBaseIndex{~0u};

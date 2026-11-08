@@ -324,13 +324,6 @@ VISRTX_CALLABLE void tex_texel_float4_3d(float (&result)[4],
 VISRTX_CALLABLE bool tex_texture_isvalid(
     TextureHandler *textureHandler, mi::Uint32 texture_idx)
 {
-  if (textureHandler->isVolume) {
-    recordRenderError(textureHandler->fd->renderError,
-        RenderErrorCategory::UNSUPPORTED_MEDIUM,
-        textureHandler->volumeID,
-        textureHandler->instanceID);
-    return false;
-  }
   return texture_idx != 0 && texture_idx <= textureHandler->numSamplers
       && textureHandler->samplers[texture_idx - 1] != DeviceObjectIndex(~0);
 }

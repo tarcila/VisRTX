@@ -162,17 +162,17 @@ MDL::~MDL()
 void MDL::clearSamplers()
 {
   auto &samplerRegistry = deviceState()->mdl->samplerRegistry;
-  for (auto &samplerDesc : m_samplers) {
-    if (!samplerDesc.sampler)
-      continue;
-    if (samplerDesc.isFromRegistry) {
-      samplerRegistry.releaseSampler(samplerDesc.sampler);
-    } else {
-      samplerDesc.sampler->refDec(helium::INTERNAL);
+  for (auto *samplers : {&m_samplers, &m_volumeSamplers}) {
+    for (auto &samplerDesc : *samplers) {
+      if (!samplerDesc.sampler)
+        continue;
+      if (samplerDesc.isFromRegistry)
+        samplerRegistry.releaseSampler(samplerDesc.sampler);
+      else
+        samplerDesc.sampler->refDec(helium::INTERNAL);
     }
+    samplers->clear();
   }
-
-  m_samplers.clear();
 }
 
 namespace {
@@ -256,6 +256,8 @@ void MDL::finalize()
   syncImplementationIndex();
   syncParameters();
   syncParameters(true);
+  if (m_volumeSamplers.size() > 32)
+    m_volumeError = "too many MDL volume texture resources";
   syncSceneData();
   if (m_volumeArgumentBlockInstance) {
     const auto &bytes = m_volumeArgumentBlockInstance->getArgumentBlockData();
@@ -503,29 +505,33 @@ void MDL::syncSource()
 
   // Decode this material's texture files in parallel (one material can
   // reference many) before creating the samplers serially below.
-  samplerRegistry.stageDecodeBatch(
-      coordinator, acquired.arguments.m_defaultAndBodyTextureDescriptors);
-
-  for (auto textureDesc :
-      acquired.arguments.m_defaultAndBodyTextureDescriptors) {
-    auto sampler = samplerRegistry.acquireSampler(textureDesc);
-    if (!sampler) {
-      reportMessage(ANARI_SEVERITY_WARNING,
-          "Failed to acquire default texture '%s' for material %s",
-          textureDesc.url.c_str(),
-          source.c_str());
-      continue;
+  auto acquireDefaults = [&](const libmdl::ArgumentBlockDescriptor &arguments,
+                             std::vector<SamplerDesc> &samplers) {
+    samplerRegistry.stageDecodeBatch(
+        coordinator, arguments.m_defaultAndBodyTextureDescriptors);
+    for (auto textureDesc : arguments.m_defaultAndBodyTextureDescriptors) {
+      auto sampler = samplerRegistry.acquireSampler(textureDesc);
+      if (!sampler) {
+        reportMessage(ANARI_SEVERITY_WARNING,
+            "Failed to acquire default texture '%s' for material %s",
+            textureDesc.url.c_str(),
+            source.c_str());
+        continue;
+      }
+      auto index = textureDesc.knownIndex;
+      if (samplers.size() <= index)
+        samplers.resize(index + 1);
+      samplers[index] = {sampler, textureDesc.url, true};
     }
-    auto index = textureDesc.knownIndex;
-    if (m_samplers.size() <= index) {
-      m_samplers.resize(index + 1);
-    }
-    m_samplers[textureDesc.knownIndex] = {sampler, textureDesc.url, true};
-  }
+  };
+  acquireDefaults(acquired.arguments, m_samplers);
+  if (acquired.volumeArguments)
+    acquireDefaults(*acquired.volumeArguments, m_volumeSamplers);
 }
 
 void MDL::syncParameters(bool volume)
 {
+  auto &samplers = volume ? m_volumeSamplers : m_samplers;
   auto &instance =
       volume ? m_volumeArgumentBlockInstance : m_argumentBlockInstance;
   if (instance.has_value()) {
@@ -566,10 +572,10 @@ void MDL::syncParameters(bool volume)
 
         // Handle the texture case where we might have resources to cleanup
         if (type == libmdl::ArgumentBlockDescriptor::ArgumentType::Texture) {
-          if (auto it = find_if(begin(m_samplers),
-                  end(m_samplers),
+          if (auto it = find_if(begin(samplers),
+                  end(samplers),
                   [name = name](auto &p) { return p.name == name; });
-              it != end(m_samplers)) {
+              it != end(samplers)) {
             if (it->sampler) {
               if (it->isFromRegistry) {
                 auto &samplerRegistry = deviceState()->mdl->samplerRegistry;
@@ -585,15 +591,6 @@ void MDL::syncParameters(bool volume)
         continue;
       }
 
-      if (volume
-          && type == libmdl::ArgumentBlockDescriptor::ArgumentType::Texture) {
-        // This bundle owns its layout and default resource indices. Do not
-        // copy surface indices or acquire surface resources a second time.
-        // Executed volume texture operations are explicitly rejected by the
-        // Texture Runtime until resource support is implemented.
-        argumentBlockInstance.reset(name);
-        continue;
-      }
       switch (type) {
       case libmdl::ArgumentBlockDescriptor::ArgumentType::Bool: {
         if (sourceParamAny.type() == ANARI_BOOL) {
@@ -705,11 +702,11 @@ void MDL::syncParameters(bool volume)
         if (sampler) {
           // Find a valid slot for out sampler.
           // Check if this input if already bound and then release it
-          auto it = std::find_if(begin(m_samplers),
-              end(m_samplers),
+          auto it = std::find_if(begin(samplers),
+              end(samplers),
               [&paramName = name](
                   const SamplerDesc &desc) { return desc.name == paramName; });
-          if (it != end(m_samplers)) {
+          if (it != end(samplers)) {
             // Found, release
             if (it->sampler) {
               if (it->isFromRegistry) {
@@ -720,16 +717,16 @@ void MDL::syncParameters(bool volume)
             }
           } else {
             // Search for a free slot to reuse
-            it = std::find(begin(m_samplers), end(m_samplers), SamplerDesc{});
+            it = std::find(begin(samplers), end(samplers), SamplerDesc{});
           }
 
-          if (it == end(m_samplers)) {
-            it = m_samplers.insert(it, {sampler, name, samplerIsFromRegistry});
+          if (it == end(samplers)) {
+            it = samplers.insert(it, {sampler, name, samplerIsFromRegistry});
           } else {
             *it = {sampler, name, samplerIsFromRegistry};
           }
 
-          int index = distance(std::begin(m_samplers), it);
+          int index = distance(std::begin(samplers), it);
           argumentBlockInstance.setValue(
               name, index + 1); // MDL starts counting at 1, 0 being invalid.
         }
@@ -808,7 +805,7 @@ MaterialGPUData MDL::gpuData() const
         std::end(retval.materialData.mdl.samplers),
         DeviceObjectIndex(~0));
     std::transform(cbegin(m_samplers),
-        cend(m_samplers),
+        cbegin(m_samplers) + retval.materialData.mdl.numSamplers,
         std::begin(retval.materialData.mdl.samplers),
         [](const auto &v) {
           return v.sampler ? v.sampler->index() : DeviceObjectIndex(~0);
@@ -819,6 +816,18 @@ MaterialGPUData MDL::gpuData() const
         : nullptr;
   }
 
+  auto &md = retval.materialData.mdl;
+  md.numVolumeSamplers =
+      std::min(std::size(md.volumeSamplers), size(m_volumeSamplers));
+  std::fill(std::begin(md.volumeSamplers),
+      std::end(md.volumeSamplers),
+      DeviceObjectIndex(~0));
+  std::transform(cbegin(m_volumeSamplers),
+      cbegin(m_volumeSamplers) + md.numVolumeSamplers,
+      std::begin(md.volumeSamplers),
+      [](const auto &v) {
+        return v.sampler ? v.sampler->index() : DeviceObjectIndex(~0);
+      });
   return retval;
 }
 

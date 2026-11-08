@@ -36,12 +36,6 @@ Argument Block layout and string/resource indices. It does not initialize
 surface geometry normals or fabricate a SurfaceHit. Surface-only attributes,
 scene-data bindings and texture parameters do not supply volume inputs.
 
-Currently supported transport is default-`vdf()` pure absorption and vacuum.
-Nonzero scattering/emission, other VDF expressions, unsupported volume state,
-executed texture operations, multiple-volume Worlds involving MDL, and other
-Renderers are explicit errors, not approximations. Later tickets implement
-these deliberately gated capabilities.
-
 A present `value` requires a nonempty string `fieldName`. Each Volume owns this
 one binding, independent of its shared Material and any surface `sceneData.*`
 bindings. A varying float lookup of that name returns the raw interpolated
@@ -57,6 +51,27 @@ unset/null `value` is absent and makes every volume `data_isvalid` false.
 Setting/unsetting extent or value updates the traversal domain, binding and
 automatic scale through the ordinary commit/dependency lifecycle. Restoring a
 field requires a valid name again.
+
+Currently supported transport is pure absorption and vacuum. The supported
+isotropic models are default `vdf()` and elemental `df::anisotropic_vdf` with
+an evaluated directional bias of exactly zero. Compiler temporaries and folded
+expressions are resolved before classification. Other unresolved VDF graphs
+(including `fog_vdf`, mixtures and conditionals) are explicitly unsupported;
+the SDK is never asked to generate a VDF evaluator. Nonzero/nonfinite bias or
+volume emission fails the render, including after parameter/time edits.
+Surface emission is independent of volume emission.
+
+Volume expressions may use object-space position, actual Instance transforms,
+Frame `mdl.animationTime`, the Volume's 32-bit ID, zero normal/geometry normal,
+and one meter per scene unit. Explicit-coordinate texture lookups use the
+Material's resources with separate volume-bundle mappings and editable Argument
+Blocks. Entry-surface texture coordinates/tangents, tangent space, motion,
+direction, rounded-corner normals and unknown state bits are rejected per
+volume Callable/initializer, independently of unrelated surface dependencies.
+
+Nonzero scattering, multiple-volume Worlds involving MDL, and other Renderers
+remain explicit errors, not approximations. Later tickets implement these
+deliberately gated capabilities.
 
 Returned FP32 absorption/scattering coefficients must be finite/nonnegative.
 The evaluator promotes both and the scalar bound to FP64, retains the error-free
