@@ -676,6 +676,9 @@ struct VolumeGPUData
     {
       DeviceObjectIndex material;
       float extinctionMajorant;
+      DeviceObjectIndex field;
+      uint32_t fieldNameId;
+      box3 fieldBounds;
     } mdl;
   } data;
   float stepSize;

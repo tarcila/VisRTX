@@ -763,8 +763,11 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
 
   ptxBackend->set_option(
       "num_texture_spaces", std::to_string(kNumTextureSpaces).c_str());
-  ptxBackend->set_option(
-      "num_texture_results", std::to_string(kNumTextureResults).c_str());
+  // Volume lookups have observable validation effects. Do not pre-evaluate
+  // expressions into the initializer's texture-result cache, or strictly
+  // evaluate both DAG ternary arms: an MDL presence guard must remain lazy.
+  ptxBackend->set_option("num_texture_results",
+      std::to_string(volume ? 0 : kNumTextureResults).c_str());
   ptxBackend->set_option_binary("llvm_renderer_module", nullptr, 0);
   ptxBackend->set_option("visible_functions", "");
 
@@ -773,6 +776,8 @@ const mi::neuraylib::ITarget_code *Core::getPtxTargetCode(
   ptxBackend->set_option("lambda_return_mode", "value");
   ptxBackend->set_option("texture_runtime_with_derivs", "off");
   ptxBackend->set_option("inline_aggressively", "on");
+  if (volume)
+    ptxBackend->set_option("eval_dag_ternary_strictly", "off");
   ptxBackend->set_option("opt_level", "2");
   ptxBackend->set_option("enable_exceptions", "off");
   // Generate the BSDF auxiliary function (albedo + normal) so the albedo AOV /

@@ -5,6 +5,7 @@
 #include <optix_device.h>
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
+#include "gpu/mdlFieldSampling.h"
 #include "gpu/shadingState.h"
 
 using namespace visrtx;
@@ -43,6 +44,16 @@ VISRTX_CALLABLE void __direct_callable__volumeCoefficients(
   state.textureHandler.isVolume = true;
   state.textureHandler.volumeID = hit->volume->id;
   state.textureHandler.instanceID = hit->instance->id;
+  state.textureHandler.volumeFieldBound = hit->volume->data.mdl.field >= 0;
+  state.textureHandler.volumeFieldNameId = hit->volume->data.mdl.fieldNameId;
+  if (!sampleMdlField(*fd,
+          *hit,
+          *position,
+          state.textureHandler.volumeFieldValue,
+          state.textureHandler.volumeFieldSupported)) {
+    *absorption = *scattering = *emission = vec3(0.f);
+    return;
+  }
   state.textureHandler.samplers = nullptr;
   state.textureHandler.numSamplers = 0;
   state.resData = {nullptr, &state.textureHandler};

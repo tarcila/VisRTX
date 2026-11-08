@@ -59,6 +59,7 @@ struct MDL : public Material
   void finalize() override;
 
   const std::string &volumeError() const;
+  uint32_t volumeFieldId(std::string_view name) const;
 
   // A raw `mdl` material publishes an emission descriptor folded from its IR
   // against its live arguments (ADR 0007). The renderer policy registers the
@@ -119,6 +120,7 @@ struct MDL : public Material
   DeviceBuffer m_volumeArgBlockBuffer;
   std::optional<libmdl::ArgumentBlockInstance> m_volumeArgumentBlockInstance;
   std::string m_volumeError;
+  libmdl::SceneDataDescriptor m_volumeSceneData;
 
   std::string m_source;
   std::string m_sourceType;

@@ -169,6 +169,10 @@ struct TextureHandler : mi::neuraylib::Texture_handler_base
   bool isVolume;
   uint32_t volumeID;
   uint32_t instanceID;
+  uint32_t volumeFieldNameId;
+  bool volumeFieldBound;
+  bool volumeFieldSupported;
+  float volumeFieldValue;
 };
 
 using ShadingStateMaterial = mi::neuraylib::Shading_state_material;

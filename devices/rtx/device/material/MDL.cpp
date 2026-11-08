@@ -302,6 +302,11 @@ void MDL::finalize()
   refreshEmissionLightSet();
 }
 
+uint32_t MDL::volumeFieldId(std::string_view name) const
+{
+  return m_volumeSceneData.find(name).value_or(~0u);
+}
+
 const std::string &MDL::volumeError() const
 {
   return m_volumeError;
@@ -481,6 +486,9 @@ void MDL::syncSource()
       [&] { return materialRegistry.createArgumentBlock(acquired.arguments); });
   m_volumeError =
       sourceFailed ? "invalid MDL material source" : acquired.volumeError;
+  m_volumeSceneData = acquired.volumeArguments
+      ? libmdl::SceneDataDescriptor(*acquired.volumeArguments->m_targetCode)
+      : libmdl::SceneDataDescriptor{};
   m_volumeArgumentBlockInstance =
       acquired.volumeArguments ? coordinator.invokeSerial([&] {
         return materialRegistry.createArgumentBlock(*acquired.volumeArguments);
