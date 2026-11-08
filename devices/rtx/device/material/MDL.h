@@ -135,6 +135,7 @@ struct MDL : public Material
     }
   };
   std::vector<SamplerDesc> m_samplers;
+  std::vector<SamplerDesc> m_volumeSamplers;
 
   libmdl::Uuid m_uuid{};
   mdl::MaterialRegistry::ImplementationIndex m_implementationIndex{};

@@ -504,7 +504,7 @@ void errorsAndRecovery(Scene &s)
     s.fail("coefficient");
   }
   s.coefficients({0, 0, 0}, {0, 0, 0}, {0.1f, 0, 0});
-  s.fail("unsupported medium");
+  s.fail("volume emission");
   s.majorant(std::ldexp(1.f, -80));
   s.coefficients({std::ldexp(1.f, -80), 0, 0});
   s.check("small positive majorant equality", {1, 1, 1, 1});
@@ -558,7 +558,8 @@ import ::tex::*;
 export material main(uniform texture_2d tex = texture_2d()) = material(
     volume: material_volume(absorption_coefficient: tex::lookup_color(tex,float2(0))));
 )mdl");
-  s.fail("unsupported medium");
+  s.check(
+      "explicit-coordinate volume texture argument", beer({.5f, .5f, .5f}, 4));
   anari::unsetParameter(s.d, s.material, "tex");
   anari::commitParameters(s.d, s.material);
   anari::release(s.d, sampler);
@@ -591,7 +592,7 @@ import ::df::*;
 export material main() = material(volume: material_volume(
     scattering: df::anisotropic_vdf(directional_bias: 0.25)));
 )mdl");
-  s.fail("unsupported VDF expression");
+  s.fail("directional bias");
   s.source(R"mdl(mdl 1.7;
 import ::scene::*;
 export material main() = material(volume: material_volume(

@@ -3,6 +3,7 @@
 
 #include <mi/neuraylib/target_code_types.h>
 #include <optix_device.h>
+#include "gpu/RenderError.h"
 #include "gpu/gpu_objects.h"
 #include "gpu/gpu_util.h"
 #include "gpu/shadingState.h"
@@ -14,6 +15,10 @@ VISRTX_CALLABLE Init mdlVolumeInit;
 VISRTX_CALLABLE Expression mdlVolumeAbsorption;
 VISRTX_CALLABLE Expression mdlVolumeScattering;
 VISRTX_CALLABLE Expression mdlVolumeEmission;
+#ifdef VISRTX_MDL_VOLUME_BIAS
+using ScalarExpression = mi::neuraylib::Material_function<float>::Type;
+VISRTX_CALLABLE ScalarExpression mdlVolumeBias;
+#endif
 
 // This state is a medium sample, never a synthetic SurfaceHit. In particular,
 // no geometry.normal evaluation or surface attribute/tangent setup runs here.
@@ -43,8 +48,8 @@ VISRTX_CALLABLE void __direct_callable__volumeCoefficients(
   state.textureHandler.isVolume = true;
   state.textureHandler.volumeID = hit->volume->id;
   state.textureHandler.instanceID = hit->instance->id;
-  state.textureHandler.samplers = nullptr;
-  state.textureHandler.numSamplers = 0;
+  state.textureHandler.samplers = md.volumeSamplers;
+  state.textureHandler.numSamplers = md.numVolumeSamplers;
   state.resData = {nullptr, &state.textureHandler};
   state.argBlock = md.volumeArgBlock;
   mdlVolumeInit(&state.state, &state.resData, state.argBlock);
@@ -53,4 +58,19 @@ VISRTX_CALLABLE void __direct_callable__volumeCoefficients(
   *scattering =
       mdlVolumeScattering(&state.state, &state.resData, state.argBlock);
   *emission = mdlVolumeEmission(&state.state, &state.resData, state.argBlock);
+  for (int c = 0; c < 3; ++c)
+    if (!isfinite((*emission)[c]) || (*emission)[c] != 0.f)
+      recordRenderError(fd->renderError,
+          RenderErrorCategory::INVALID_VOLUME_EMISSION,
+          hit->volume->id,
+          hit->instance->id);
+#ifdef VISRTX_MDL_VOLUME_BIAS
+  const float bias =
+      mdlVolumeBias(&state.state, &state.resData, state.argBlock);
+  if (!isfinite(bias) || bias != 0.f)
+    recordRenderError(fd->renderError,
+        RenderErrorCategory::INVALID_VDF_BIAS,
+        hit->volume->id,
+        hit->instance->id);
+#endif
 }

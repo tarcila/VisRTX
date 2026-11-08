@@ -412,6 +412,7 @@ if(VISRTX_ENABLE_MDL_SUPPORT)
   GenerateEmbeddedPTX(material/shaders MDLShader ENTRIES __direct__callable__evalSurfaceMaterial)
   GenerateEmbeddedPTX(material/shaders MDLTexture)
   GenerateEmbeddedPTX(material/shaders MDLVolume)
+  GenerateEmbeddedPTX(material/shaders MDLVolumeBias)
 endif()
 
 
