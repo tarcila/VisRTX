@@ -47,6 +47,8 @@ void MDLVolume::commitParameters()
       || !std::isfinite(m_majorant) || m_majorant < 0.f)
     fail(
         "mdl Volume requires a finite nonnegative ANARI_FLOAT32 extinctionMajorant");
+  // Automatic marching scale is lazy: quality never needs or derives it.
+  m_step = -1.f;
   m_hasStep = hasParam("stepSize");
   if (m_hasStep
       && (!getParam("stepSize", ANARI_FLOAT32, &m_step)
@@ -97,12 +99,9 @@ VolumeGPUData MDLVolume::gpuData() const
   data.type = VolumeType::MDL;
   data.bounds = m_hasExtent || !m_field ? m_extent : m_field->bounds();
   data.clipBounds = data.bounds;
-  const auto sides = data.bounds.upper - data.bounds.lower;
   // Intentionally prefer the field's scale even with an extent override.
   // Marching validates the derived scale only when it is actually used.
-  data.stepSize = m_hasStep ? m_step
-      : m_field             ? m_field->stepSize()
-                : glm::min(sides.x, glm::min(sides.y, sides.z)) / 128.f;
+  data.stepSize = m_hasStep ? m_step : (m_field ? m_field->stepSize() : -1.f);
   data.data.mdl.field = m_field ? m_field->index() : -1;
   data.data.mdl.fieldBounds = m_field ? m_field->bounds() : box3{};
   const auto *material = dynamic_cast<const MDL *>(m_material.get());

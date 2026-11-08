@@ -635,7 +635,7 @@ export material main() = material(volume: material_volume(
 
 void rendererRejection(Scene &s)
 {
-  for (const char *type : {"fast", "quality", "debug", "test"}) {
+  for (const char *type : {"fast", "debug", "test"}) {
     auto renderer = anari::newObject<anari::Renderer>(s.d, type);
     anari::commitParameters(s.d, renderer);
     anari::setParameter(s.d, s.frame, "renderer", renderer);

@@ -231,7 +231,7 @@ const char *World::mdlVolumeError(bool interactive) const
   if (!hasMdlVolumes())
     return nullptr;
   if (!interactive)
-    return "MDL Volumes currently require the interactive Renderer";
+    return "MDL Volumes require the interactive Renderer or quality Renderer";
   size_t count = 0;
   for (const auto *instance : m_instances) {
     bool mdl = false;

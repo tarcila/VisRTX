@@ -12,7 +12,7 @@ not the complete extension. It currently requires:
   back to another domain source.
 - An explicit finite nonnegative scalar bound (`extinctionMajorant`,
   `ANARI_FLOAT32`), covering every RGB extinction channel per world distance.
-- The `interactive` Renderer (including its `default` alias).
+- The `interactive` Renderer (including its `default` alias) or `quality`.
 
 Optional `stepSize` is a finite positive `ANARI_FLOAT32` object-space distance.
 Without an explicit step, use the present field's positive finite suggested
@@ -21,7 +21,9 @@ intentional even with an extent override: a tiny crop may use one clipped
 segment and a large expansion may be expensive. Extent changes never stretch
 field coordinates, resample data or mutate another Volume's field/domain.
 An explicit step overrides either automatic choice; unusable automatic scales
-are diagnosed when marching actually needs them. Marching divides the base
+are diagnosed when marching actually needs them. The extent-only automatic
+scale is derived lazily; quality validates explicit inputs but never uses a
+marching step. Marching divides the base
 step by the length of the transformed world ray direction, then applies the
 Renderer's primary/shadow sampling rate. Each segment is clipped to the ray's
 Interval and evaluated at its midpoint. Positions are object-space; optical
@@ -77,10 +79,22 @@ Returned FP32 absorption/scattering coefficients must be finite/nonnegative.
 The evaluator promotes both and the scalar bound to FP64, retains the error-free
 TwoSum residual, and rejects `t > M` or `t == M && residual > 0` before checking
 this slice's transport restrictions. Thus both FP32- and FP64-downward-rounded
-sums cannot hide an observed violation. Equality is valid. No categorical
-collision sampling occurs in this pure-absorption marcher; subsequent tracking
-must use the specified ordered smaller-event/total-extinction construction,
-not independent rounded probabilities. Nonadvancing steps report numerical
+sums cannot hide an observed violation. Equality is valid.
+
+Quality selects one RGB channel uniformly per camera sample, locks it through
+all surface/TF1D/light/background contributions, and compensates RGB radiance
+by three exactly once. Alpha and AOVs do not receive that factor. Worlds without
+MDL retain their existing full-RGB sampling path. Rate-M world-distance
+candidates use a stable open-variate exponential flight and explicit progress
+checks; nulls consume no real-event depth. Event classification uses one exact
+scaled 24-bit variate and ordered smaller-event/total-extinction thresholds,
+not independently rounded category probabilities. Absorption ends radiance;
+scattering remains an explicit unsupported-medium error in this slice. Light
+transmittance uses ratio tracking with the same validated FP64 extinction and
+factor `1-t/M`, without a contribution threshold or transmittance cutoff. M=0
+skips evaluation under the caller's vacuum guarantee. The isolated-medium
+coverage outcome is unweighted; generalized whole-track surface/medium coverage
+is a later slice. Nonadvancing steps report numerical
 failure. All evaluated errors use the Frame-owned error record and the shared
 failure/publication/recovery policy in `../frame/README.md`.
 

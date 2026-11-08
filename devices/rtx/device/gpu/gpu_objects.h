@@ -1136,6 +1136,10 @@ struct ScreenSample
   // applyShadowRussianRoulette so dim-contribution shadow rays terminate
   // sooner. Default 1.0 = full-precision RR (current behaviour).
   float shadowContribWeight;
+  // -1 preserves the legacy full-RGB path. MDL quality paths lock a single
+  // channel for their complete camera sample (including all shadow work).
+  int transportChannel{-1};
+  bool mediumAbsorbed{false};
 };
 
 } // namespace visrtx

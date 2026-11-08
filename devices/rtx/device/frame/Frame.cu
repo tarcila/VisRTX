@@ -35,6 +35,7 @@
 #include "gpu/gpu_util.h"
 #include "gpu/renderer/background.h"
 #include "renderer/Interactive.h"
+#include "renderer/Quality.h"
 #include "utility/instrument.h"
 // std
 #include <algorithm>
@@ -694,7 +695,8 @@ void Frame::renderFrame()
   }
 
   if (const auto *error = m_world->mdlVolumeError(
-          dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr)) {
+          dynamic_cast<Interactive *>(m_renderer.ptr) != nullptr
+          || dynamic_cast<Quality *>(m_renderer.ptr) != nullptr)) {
     instrument::rangePop(); // update scene
     publishOutcome(error);
     return;

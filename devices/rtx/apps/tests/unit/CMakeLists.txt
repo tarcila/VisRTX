@@ -203,6 +203,12 @@ if(UNIX)
   endforeach()
 endif()
 
+add_executable(rtx_test_MdlTracking test_MdlTracking.cpp)
+target_include_directories(rtx_test_MdlTracking PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device)
+target_compile_features(rtx_test_MdlTracking PRIVATE cxx_std_17)
+add_test(NAME rtx::MdlTracking COMMAND rtx_test_MdlTracking)
+
 # Standard-library-only executor tests.
 find_package(Threads REQUIRED)
 add_executable(rtx_test_TaskExecutor

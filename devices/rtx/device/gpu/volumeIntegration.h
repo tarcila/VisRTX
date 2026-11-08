@@ -76,6 +76,13 @@ VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
     vec3 *normal = nullptr)
 {
   switch (hit.volume->type) {
+  case VolumeType::MDL:
+    didScatter = false;
+    albedo = vec3(0.f);
+    extinction = 0.f;
+    if (normal)
+      *normal = vec3(0.f);
+    return sampleMdlAbsorption(ss, hit);
   case VolumeType::TF1D:
     return optixDirectCall<float>(detail::tf1dSamplerCallableIndex(ss, hit)
             + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
@@ -99,6 +106,9 @@ VISRTX_DEVICE void ratioTrackTransmittanceVolume(
     ScreenSample &ss, const VolumeHit &hit, vec3 &attenuation)
 {
   switch (hit.volume->type) {
+  case VolumeType::MDL:
+    ratioTrackMdlVolume(ss, hit, attenuation);
+    break;
   case VolumeType::TF1D:
     optixDirectCall<void>(detail::tf1dSamplerCallableIndex(ss, hit)
             + uint32_t(SpatialFieldSamplerEntryPoints::RatioTrackTransmittance),
@@ -261,7 +271,7 @@ VISRTX_DEVICE float sampleDistanceAllVolumes(ScreenSample &ss,
     bool segmentDidScatter = false;
     float d = sampleDistanceVolume(
         ss, hit, alb, ext, segmentDidScatter, normal ? &norm : nullptr);
-    if (segmentDidScatter) {
+    if (segmentDidScatter || ss.mediumAbsorbed) {
       depth = d;
       albedo = alb;
       extinction = ext;
