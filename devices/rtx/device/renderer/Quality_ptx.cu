@@ -1112,10 +1112,10 @@ VISRTX_GLOBAL void __raygen__()
           // still carries each instance's pick probability because CDF NEE is
           // pick-gated.
           if (frameData.world.numHdriLightInstances > 0) {
-            const vec3 dirC = sampleHemisphere(
-                owenSobol(sampleIdx, kSobolDimHemiU, qmcSeed),
-                owenSobol(sampleIdx, kSobolDimHemiV, qmcSeed),
-                surfaceHit.Ns);
+            const vec3 dirC =
+                sampleHemisphere(owenSobol(sampleIdx, kSobolDimHemiU, qmcSeed),
+                    owenSobol(sampleIdx, kSobolDimHemiV, qmcSeed),
+                    surfaceHit.Ns);
             const float cosC = fmaxf(0.0f, dot(dirC, surfaceHit.Ns));
             vec3 envRadiance;
             if (cosC > 0.0f
