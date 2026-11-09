@@ -78,11 +78,13 @@ VISRTX_DEVICE float sampleDistanceVolume(ScreenSample &ss,
   switch (hit.volume->type) {
   case VolumeType::MDL:
     didScatter = false;
-    albedo = vec3(0.f);
+    // Analog categorical scattering already includes the scattering
+    // probability. Phase/PDF is one, not another albedo factor.
+    albedo = vec3(1.f);
     extinction = 0.f;
     if (normal)
       *normal = vec3(0.f);
-    return sampleMdlAbsorption(ss, hit);
+    return sampleMdlDistance(ss, hit, didScatter);
   case VolumeType::TF1D:
     return optixDirectCall<float>(detail::tf1dSamplerCallableIndex(ss, hit)
             + uint32_t(SpatialFieldSamplerEntryPoints::SampleDistance),
