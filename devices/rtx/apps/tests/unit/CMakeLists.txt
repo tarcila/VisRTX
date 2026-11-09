@@ -103,11 +103,33 @@ target_compile_definitions(rtx_test_SampleOrdinal PRIVATE GLM_ENABLE_EXPERIMENTA
 target_compile_features(rtx_test_SampleOrdinal PRIVATE cxx_std_17)
 add_test(NAME rtx::SampleOrdinal COMMAND rtx_test_SampleOrdinal)
 
+# Compile verbatim production shader expressions at the agreed host test seam.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME rtx::SobolTableHeader
   COMMAND Python3::Interpreter -B
     ${CMAKE_CURRENT_LIST_DIR}/sobol/test_table_header.py)
 set_tests_properties(rtx::SobolTableHeader PROPERTIES TIMEOUT 30)
+set(draw_order_header ${CMAKE_CURRENT_BINARY_DIR}/shader_expressions.h)
+add_custom_command(OUTPUT ${draw_order_header}
+  COMMAND Python3::Interpreter ${CMAKE_CURRENT_LIST_DIR}/sobol/shader_expressions.py
+    ${CMAKE_CURRENT_LIST_DIR}/../../../../.. ${draw_order_header}
+  DEPENDS sobol/shader_expressions.py
+    ../../../device/material/shaders/PhysicallyBasedShader_ptx.cu
+    ../../../device/material/shaders/MDLShader_ptx.cu
+    ../../../device/gpu/gpu_util.h
+    ../../../device/gpu/sampleLight.h
+  VERBATIM)
+add_executable(rtx_test_DrawOrder test_DrawOrder.cpp ${draw_order_header})
+target_include_directories(rtx_test_DrawOrder PRIVATE
+  ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_CURRENT_LIST_DIR}/../../../device
+  ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include
+  ${OptiX_ROOT_DIR}/include)
+target_link_libraries(rtx_test_DrawOrder PRIVATE
+  CUDA::cudart visrtx::glm anari::anari_headers)
+target_compile_definitions(rtx_test_DrawOrder PRIVATE GLM_ENABLE_EXPERIMENTAL)
+target_compile_features(rtx_test_DrawOrder PRIVATE cxx_std_17)
+add_test(NAME rtx::DrawOrder COMMAND rtx_test_DrawOrder)
 
 add_executable(rtx_test_LightDrawOrder test_LightDrawOrder.cu)
 target_include_directories(rtx_test_LightDrawOrder PRIVATE
@@ -122,7 +144,7 @@ set_target_properties(rtx_test_LightDrawOrder PROPERTIES
 target_compile_options(rtx_test_LightDrawOrder PRIVATE
   --use_fast_math --expt-relaxed-constexpr)
 add_test(NAME rtx::LightDrawOrder COMMAND rtx_test_LightDrawOrder)
-set_tests_properties(rtx::LightDrawOrder PROPERTIES TIMEOUT 60)
+set_tests_properties(rtx::DrawOrder rtx::LightDrawOrder PROPERTIES TIMEOUT 60)
 
 # Production Sobol sampler against independently sourced Joe-Kuo parameters.
 add_executable(rtx_test_Sobol test_Sobol.cpp)
@@ -144,6 +166,41 @@ target_compile_options(rtx_test_SobolCUDA PRIVATE
 add_test(NAME rtx::Sobol COMMAND rtx_test_Sobol)
 add_test(NAME rtx::SobolCUDA COMMAND rtx_test_SobolCUDA)
 set_tests_properties(rtx::Sobol rtx::SobolCUDA PROPERTIES TIMEOUT 60)
+
+# Production sampler contracts, compiled separately so Release cannot mask the
+# assertion-enabled gate (and assertions cannot mask the NDEBUG gate).
+if(UNIX)
+  function(configure_sampler_contract_test target mode timeout)
+    target_include_directories(${target} PRIVATE
+      ${CMAKE_CURRENT_LIST_DIR}/../../../device
+      ${CMAKE_CURRENT_LIST_DIR}/../../../external/nanovdb/include
+      ${OptiX_ROOT_DIR}/include)
+    target_link_libraries(${target} PRIVATE
+      CUDA::cudart visrtx::glm anari::anari_headers)
+    target_compile_definitions(${target} PRIVATE GLM_ENABLE_EXPERIMENTAL)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    if(mode STREQUAL "Assert")
+      target_compile_options(${target} PRIVATE -UNDEBUG)
+    else()
+      target_compile_definitions(${target} PRIVATE NDEBUG)
+    endif()
+    string(REPLACE "rtx_test_" "rtx::" test_name ${target})
+    add_test(NAME ${test_name} COMMAND ${target})
+    set_tests_properties(${test_name} PROPERTIES TIMEOUT ${timeout})
+  endfunction()
+
+  foreach(mode Assert NDEBUG)
+    add_executable(rtx_test_SamplerContracts${mode} test_SamplerContracts.cpp)
+    configure_sampler_contract_test(rtx_test_SamplerContracts${mode} ${mode} 120)
+
+    add_executable(rtx_test_SamplerContractsCUDA${mode} test_SamplerContractsCUDA.cu)
+    configure_sampler_contract_test(rtx_test_SamplerContractsCUDA${mode} ${mode} 240)
+    set_target_properties(rtx_test_SamplerContractsCUDA${mode} PROPERTIES
+      CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
+    target_compile_options(rtx_test_SamplerContractsCUDA${mode} PRIVATE
+      --use_fast_math --expt-relaxed-constexpr)
+  endforeach()
+endif()
 
 # Standard-library-only executor tests.
 find_package(Threads REQUIRED)
