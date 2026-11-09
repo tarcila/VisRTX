@@ -64,8 +64,7 @@ VISRTX_DEVICE bool mediumCoefficients(ScreenSample &ss,
       (*effectiveScattering)[c] = channel.absorptionFirst
           ? channel.extinction - channel.smaller
           : channel.smaller;
-    // Quality scattering remains ticket 08; validate the bound first.
-    unsupported |= e != 0.f || (ss.transportChannel >= 0 && s != 0.f);
+    unsupported |= e != 0.f;
   }
   if (unsupported) {
     mediumError(ss, hit, RenderErrorCategory::UNSUPPORTED_MEDIUM);
@@ -92,7 +91,8 @@ VISRTX_DEVICE bool advanceMdlCandidate(
   return true;
 }
 
-VISRTX_DEVICE float sampleMdlAbsorption(ScreenSample &ss, const VolumeHit &hit)
+VISRTX_DEVICE float sampleMdlDistance(
+    ScreenSample &ss, const VolumeHit &hit, bool &didScatter)
 {
   const double M = double(hit.volume->data.mdl.extinctionMajorant);
   if (M == 0.)
@@ -112,6 +112,10 @@ VISRTX_DEVICE float sampleMdlAbsorption(ScreenSample &ss, const VolumeHit &hit)
         k);
     if (event == MdlTrackingEvent::ABSORB) {
       ss.mediumAbsorbed = true;
+      return float(t);
+    }
+    if (event == MdlTrackingEvent::SCATTER) {
+      didScatter = true;
       return float(t);
     }
   }

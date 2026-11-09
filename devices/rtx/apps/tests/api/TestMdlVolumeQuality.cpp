@@ -353,7 +353,9 @@ void failureAndRecovery(Scene &s)
     s.coefficients({tiny, 0, 0}, {1, 0, 0});
     s.fail("majorant violation");
     s.majorant(std::nextafter(1.f, 2.f));
-    s.fail("unsupported medium"); // scattering remains ticket 08
+    const auto before = s.errors;
+    s.render();
+    require(s.errors == before, "valid widened scattering bound must render");
     s.majorant(1.f);
   }
   s.coefficients({.25f, .5f, 0});
