@@ -293,6 +293,21 @@ void aovRegression(const char *type)
   anari::setParameter(s.d, s.frame, "channel.albedo", ANARI_FLOAT32_VEC3);
   anari::commitParameters(s.d, s.frame);
   s.check("vacuum surface coverage/AOV", {0, 0, 0, 1});
+
+  // Preserve the existing multi-iteration AOV reduction, independently of
+  // selected-channel transport. Compare with the same public-API surface-only
+  // scene rather than assuming a new normalization rule.
+  Scene baseline(type);
+  auto baselineMaterial = baseline.surface(4.f, 1.f);
+  anari::setParameter(baseline.d, baselineMaterial, "color", tint);
+  anari::commitParameters(baseline.d, baselineMaterial);
+  anari::setParameter(
+      baseline.d, baseline.frame, "channel.albedo", ANARI_FLOAT32_VEC3);
+  anari::commitParameters(baseline.d, baseline.frame);
+  baseline.check("surface-only AOV reference", {0, 0, 0, 1});
+  auto baselineAlbedo =
+      anari::map<V3>(baseline.d, baseline.frame, "channel.albedo");
+  require(baselineAlbedo.data, "baseline albedo map");
   auto depth = anari::map<float>(s.d, s.frame, "channel.depth");
   auto object = anari::map<unsigned>(s.d, s.frame, "channel.objectId");
   auto primitive = anari::map<unsigned>(s.d, s.frame, "channel.primitiveId");
@@ -308,8 +323,8 @@ void aovRegression(const char *type)
     for (int c = 0; c < 3; ++c) {
       require(std::abs(normal.data[p][c] - (c == 2 ? -1.f : 0.f)) < 1e-5,
           "normal is not channel-compensated");
-      require(std::abs(albedo.data[p][c] - tint[c]) < .002,
-          "albedo is not channel-compensated");
+      require(std::abs(albedo.data[p][c] - baselineAlbedo.data[p][c]) < 1e-5,
+          "multi-iteration albedo preserves surface-only reduction");
     }
   }
   for (auto channel : {"channel.depth",
@@ -318,6 +333,36 @@ void aovRegression(const char *type)
            "channel.normal",
            "channel.albedo"})
     anari::unmap(s.d, s.frame, channel);
+  anari::unmap(baseline.d, baseline.frame, "channel.albedo");
+
+  // A single sample also has an analytic RGB albedo reference, with no
+  // accumulated-frame normalization involved. The radiance channel's factor
+  // three must not affect ANY albedo component, even on one camera sample.
+  anari::setParameter(s.d, s.renderer, "pixelSamples", 1);
+  anari::commitParameters(s.d, s.renderer);
+  anari::render(s.d, s.frame);
+  anari::wait(s.d, s.frame);
+  require(!s.errors, "single-sample AOV render");
+  int samples{};
+  require(anariGetProperty(s.d,
+              s.frame,
+              "numSamples",
+              ANARI_INT32,
+              &samples,
+              sizeof(samples),
+              ANARI_WAIT)
+          && samples == 1,
+      "single-sample AOV reset");
+  albedo = anari::map<V3>(s.d, s.frame, "channel.albedo");
+  require(albedo.data, "single-sample albedo map");
+  for (int p = 0; p < 64; ++p)
+    for (int c = 0; c < 3; ++c)
+      require(std::abs(albedo.data[p][c] - tint[c]) < 1e-5,
+          "single-sample albedo is not channel-compensated");
+  anari::unmap(s.d, s.frame, "channel.albedo");
+  anari::setParameter(s.d, s.renderer, "pixelSamples", s.quality ? 2048 : 1);
+  anari::commitParameters(s.d, s.renderer);
+
   // Cutting at z=1 excludes all geometry and media. Miss Depth remains the
   // camera Far Limit, not the renderer's shorter traversal interval.
   anari::setParameter(s.d, s.renderer, "cutPlane", V4{0, 0, -1, 1});
