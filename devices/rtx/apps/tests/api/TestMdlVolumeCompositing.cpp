@@ -56,7 +56,10 @@ struct Scene
       float opacity,
       bool transmitting = false,
       V3 emission = {0, 0, 0});
-  void check(const char *name, V4 reference, bool alphaOnly = false);
+  void check(const char *name,
+      V4 reference,
+      bool alphaOnly = false,
+      Scene *radianceTwin = nullptr);
 };
 
 void Scene::status(const void *user,
@@ -202,7 +205,8 @@ anari::Material Scene::surface(
   anari::commitParameters(d, world);
   return m;
 }
-void Scene::check(const char *name, V4 reference, bool alphaOnly)
+void Scene::check(
+    const char *name, V4 reference, bool alphaOnly, Scene *radianceTwin)
 {
   const int batches = quality ? 16 : 1;
   std::array<double, 4> previous{}, mean{}, m2{};
@@ -211,6 +215,11 @@ void Scene::check(const char *name, V4 reference, bool alphaOnly)
     anari::render(d, frame);
     anari::wait(d, frame);
     require(!errors, "unexpected ANARI error");
+    if (radianceTwin) {
+      anari::render(radianceTwin->d, radianceTwin->frame);
+      anari::wait(radianceTwin->d, radianceTwin->frame);
+      require(!radianceTwin->errors, "unexpected twin ANARI error");
+    }
     int count{};
     require(anariGetProperty(d,
                 frame,
@@ -231,6 +240,26 @@ void Scene::check(const char *name, V4 reference, bool alphaOnly)
         "consecutive nonoverlapping sample batches");
     auto p = anari::map<V4>(d, frame, "channel.color");
     require(p.data && p.width == 8 && p.height == 8, "color map");
+    if (radianceTwin) {
+      int twinCount{};
+      require(anariGetProperty(radianceTwin->d,
+                  radianceTwin->frame,
+                  "numSamples",
+                  ANARI_INT32,
+                  &twinCount,
+                  sizeof(twinCount),
+                  ANARI_WAIT)
+              && twinCount == count,
+          "matching twin camera-sample counts");
+      auto twin =
+          anari::map<V4>(radianceTwin->d, radianceTwin->frame, "channel.color");
+      require(twin.data && twin.width == 8 && twin.height == 8, "twin map");
+      for (int i = 0; i < 64; ++i)
+        for (int c = 0; c < 3; ++c)
+          require(p.data[i][c] == twin.data[i][c],
+              "coverage-only work perturbs radiance samples");
+      anari::unmap(radianceTwin->d, radianceTwin->frame, "channel.color");
+    }
     std::array<double, 4> cumulative{};
     for (int i = 0; i < 64; ++i)
       for (int c = 0; c < 4; ++c) {
@@ -260,6 +289,39 @@ void Scene::check(const char *name, V4 reference, bool alphaOnly)
     require(error <= .01 && error <= 5 * se + .002,
         "independent compositing reference mismatch");
   }
+}
+void coverageStreamIsolation()
+{
+  Scene skipped("quality"), tracked("quality");
+  const V3 tint{.2f, .4f, .6f};
+  for (auto *s : {&skipped, &tracked}) {
+    // Radiance either reflects from this matte plane or terminates on the
+    // first coverage pass. It NEVER visits the vacuum box behind the plane.
+    auto m = s->surface(1.f, .5f);
+    anari::setParameter(s->d, m, "color", tint);
+    anari::commitParameters(s->d, m);
+    s->medium({0, 0, 0}, {0, 0, 0}, 2, 4);
+    anari::setParameter(s->d, s->renderer, "maxRayDepth", 1);
+    anari::setParameter(s->d, s->renderer, "maxTransparencyDepth", 0);
+    anari::setParameter(s->d, s->renderer, "background", V4{0, 0, 0, 0});
+    anari::commitParameters(s->d, s->renderer);
+    auto light = anari::newObject<anari::Light>(s->d, "directional");
+    s->owned.push_back(light);
+    anari::setParameter(s->d, light, "direction", V3{0, 0, 1});
+    anari::setParameter(s->d, light, "irradiance", float(M_PI));
+    anari::commitParameters(s->d, light);
+    anari::setParameterArray1D(s->d, s->world, "light", &light, 1);
+    anari::commitParameters(s->d, s->world);
+  }
+  // Only straight-primary COVERAGE does extra null trials at M=4 versus M=0.
+  // Both are valid bounds on vacuum. The shared selected radiance channel
+  // makes even a change to later channel draws observable in RGB images.
+  anari::setParameter(skipped.d, skipped.volumes[0], "extinctionMajorant", 0.f);
+  anari::commitParameters(skipped.d, skipped.volumes[0]);
+  skipped.check("coverage stream isolation",
+      {.5f * tint[0], .5f * tint[1], .5f * tint[2], .5f},
+      false,
+      &tracked);
 }
 void complementary(const char *type)
 {
@@ -528,6 +590,10 @@ void transmissionCoverage(const char *type)
 int main(int argc, char **argv)
 {
   try {
+    if (argc > 1 && std::string(argv[1]) == "streams") {
+      coverageStreamIsolation();
+      return 0;
+    }
     if (argc > 1 && std::string(argv[1]) == "aov") {
       aovRegression("interactive");
       aovRegression("quality");
@@ -549,6 +615,7 @@ int main(int argc, char **argv)
     backgroundAndClipping("interactive");
     backgroundAndClipping("quality");
     coverageIndependence();
+    coverageStreamIsolation();
     mixedReflection("interactive");
     mixedReflection("quality");
     mixedTransmission("interactive");

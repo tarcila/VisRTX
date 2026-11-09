@@ -694,10 +694,19 @@ VISRTX_GLOBAL void __raygen__()
   const auto &rendererParams = frameData.renderer;
   const auto &qualityParams = rendererParams.params.quality;
 
+  // Domain-separate coverage from radiance without consuming a radiance draw.
+  // Both streams persist across this launch's camera samples, but variable
+  // coverage work must not move the next sample's channel or radiance draws.
+  auto coverageSample = ss;
+  constexpr uint64_t COVERAGE_STREAM = 0x434F564552414745ULL;
+  pcg_init(&coverageSample.rs,
+      detail::pcg_mix64(ss.rs.state ^ COVERAGE_STREAM),
+      (ss.rs.inc >> 1u) ^ COVERAGE_STREAM);
+
   // Coverage is an unweighted extinction/opacity trial on the clipped,
   // straight camera track. Radiance refraction, phase events, event-depth
   // limits and roulette must never determine this track's alpha.
-  auto primaryCoverage = [&](Ray primary) {
+  auto primaryCoverage = [&](ScreenSample &ss, Ray primary) {
     while (true) {
       SurfaceHit hit = {};
       intersectSurface(ss,
@@ -1288,8 +1297,10 @@ VISRTX_GLOBAL void __raygen__()
       ++bounceDepth;
     }
 
-    if (frameData.world.hasMdlVolumes)
-      sample.opacity = primaryCoverage(primaryRay);
+    if (frameData.world.hasMdlVolumes) {
+      coverageSample.transportChannel = ss.transportChannel;
+      sample.opacity = primaryCoverage(coverageSample, primaryRay);
+    }
     accumPixelSample(frameData, ss.pixel, sample);
   }
 }
