@@ -181,11 +181,9 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     vec3 *normal = nullptr,
     vec3 *transmittance = nullptr)
 {
-  vec3 mdlT(1.f);
-  // Keep TF1D's scalar coverage separate: folding MDL's mean transmission
-  // into this accumulator loses chromatic transmission and interval order.
+  vec3 remainingT(1.f);
+  const bool chromatic = ss.frameData->world.hasMdlVolumes;
   float tfOpacity = opacity;
-  bool haveMdl = false;
   VolumeHit hit;
   ray.t.upper = tfar;
   float depth = std::numeric_limits<float>::max();
@@ -206,9 +204,28 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     // Ray march through this volume segment
     vec3 thisNormal(0.f);
     float thisDepth;
-    if (hit.volume->type == VolumeType::MDL) {
-      haveMdl = true;
-      thisDepth = rayMarchMdlVolume(ss, hit, mdlT, invSamplingRate, &color);
+    if (chromatic) {
+      // Integrate each domain in isolation, then compose in interval order.
+      // Both TF1D preview source and MDL scattering must see every preceding
+      // domain's chromatic transmission, not only domains of their own type.
+      vec3 segmentColor(0.f);
+      vec3 segmentT(1.f);
+      if (hit.volume->type == VolumeType::MDL) {
+        thisDepth = rayMarchMdlVolume(
+            ss, hit, segmentT, invSamplingRate, &segmentColor);
+      } else {
+        float segmentOpacity = 0.f;
+        thisDepth = rayMarchVolume(ss,
+            hit,
+            &segmentColor,
+            normal ? &thisNormal : nullptr,
+            segmentOpacity,
+            invSamplingRate);
+        segmentT = vec3(1.f - segmentOpacity);
+      }
+      color += remainingT * segmentColor;
+      remainingT *= segmentT;
+      opacity = 1.f - (remainingT.x + remainingT.y + remainingT.z) / 3.f;
     } else {
       thisDepth = rayMarchVolume(ss,
           hit,
@@ -216,10 +233,8 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
           normal ? &thisNormal : nullptr,
           tfOpacity,
           invSamplingRate);
+      opacity = tfOpacity;
     }
-    opacity = haveMdl
-        ? 1.f - (mdlT.x + mdlT.y + mdlT.z) / 3.f * (1.f - tfOpacity)
-        : tfOpacity;
 
     // Track closest intersection depth
     if (thisDepth < depth) {
@@ -235,10 +250,11 @@ VISRTX_DEVICE float rayMarchAllVolumes(ScreenSample &ss,
     else
       break;
 
-  } while (opacity < OPACITY_THRESHOLD);
+  } while (chromatic ? glm::any(glm::greaterThan(remainingT, vec3(0.f)))
+                     : opacity < OPACITY_THRESHOLD);
 
   if (transmittance)
-    *transmittance = mdlT * (1.f - tfOpacity);
+    *transmittance = chromatic ? remainingT : vec3(1.f - tfOpacity);
   return depth;
 }
 

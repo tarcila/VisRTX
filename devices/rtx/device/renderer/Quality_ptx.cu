@@ -694,6 +694,51 @@ VISRTX_GLOBAL void __raygen__()
   const auto &rendererParams = frameData.renderer;
   const auto &qualityParams = rendererParams.params.quality;
 
+  // Coverage is an unweighted extinction/opacity trial on the clipped,
+  // straight camera track. Radiance refraction, phase events, event-depth
+  // limits and roulette must never determine this track's alpha.
+  auto primaryCoverage = [&](Ray primary) {
+    while (true) {
+      SurfaceHit hit = {};
+      intersectSurface(ss,
+          primary,
+          RayType::PRIMARY,
+          &hit,
+          primaryRayOptiXFlags(rendererParams),
+          primaryWithVisibleLightsMask());
+      vec3 albedo;
+      float extinction;
+      bool covered;
+      uint32_t objectID, instanceID;
+      ss.mediumAbsorbed = false;
+      sampleDistanceAllVolumes(ss,
+          primary,
+          RayType::PRIMARY,
+          hit.foundHit ? hit.t : primary.t.upper,
+          albedo,
+          extinction,
+          covered,
+          objectID,
+          instanceID);
+      if (covered || ss.mediumAbsorbed)
+        return 1.f;
+      if (!hit.foundHit) {
+        vec3 hdri;
+        if (getEnvironmentLight(frameData, primary.dir, hdri, true))
+          return 1.f;
+        const vec2 uv = (vec2(ss.pixel) + 0.5f) * frameData.fb.invSize;
+        return screenBackground(rendererParams, uv).a;
+      }
+      if (hit.isLightProxy())
+        return 1.f;
+      MaterialShadingState state;
+      materialInitShading(&state, frameData, *hit.material, hit);
+      if (pcg_uniform(&ss.rs) < materialEvaluateOpacity(state))
+        return 1.f;
+      primary.t.lower = hit.t + hit.epsilon;
+    }
+  };
+
   for (int i = 0; i < rendererParams.numIterations; ++i) {
     bool isVeryFirstRay = i == 0 && ss.frameData->fb.frameID == 0;
     // The frame counter already counts completed samples. Camera and all
@@ -717,6 +762,7 @@ VISRTX_GLOBAL void __raygen__()
     const float farLimit = ray.t.upper;
     applyCuttingPlane(rendererParams.cutPlane, ray);
 
+    const Ray primaryRay = ray;
     SampleDetails sample = {vec3(0.0f), 0.0f, vec3(0.0f), farLimit, vec3(0.0f)};
 
     auto sampleContribution = vec3(1.0f);
@@ -1242,6 +1288,8 @@ VISRTX_GLOBAL void __raygen__()
       ++bounceDepth;
     }
 
+    if (frameData.world.hasMdlVolumes)
+      sample.opacity = primaryCoverage(primaryRay);
     accumPixelSample(frameData, ss.pixel, sample);
   }
 }
